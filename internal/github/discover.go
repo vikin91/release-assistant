@@ -161,28 +161,32 @@ func (c *Client) Discover(ctx context.Context, req app.DiscoveryRequest) (releas
 		}
 		result.PRs = append(result.PRs, p)
 	}
-	for ti := range result.Tags {
-		for _, p := range result.PRs {
-			if !p.Merged || p.MergeSHA == "" || ignored[p.Target.PR] {
-				continue
-			}
-			var cmp compareResponse
-			endpoint := base + "/compare/" + segment(p.MergeSHA) + "..." + segment(result.Tags[ti].SHA)
-			if err := c.get(ctx, endpoint, &cmp); err != nil {
-				result.Tags[ti].Contains[p.MergeSHA] = ""
-				result.Tags[ti].Evidence.Known = false
-				result.Tags[ti].Evidence.Error = "merge coverage unavailable"
-				issues = append(issues, err)
-				continue
-			}
-			switch cmp.Status {
-			case "ahead", "identical":
-				result.Tags[ti].Contains[p.MergeSHA] = release.Yes
-			case "behind", "diverged":
-				result.Tags[ti].Contains[p.MergeSHA] = release.No
-			default:
-				result.Tags[ti].Evidence.Known = false
-				result.Tags[ti].Evidence.Error = "merge coverage status unknown"
+	var merged []release.PR
+	for _, p := range result.PRs {
+		if p.Merged && p.MergeSHA != "" && !ignored[p.Target.PR] {
+			merged = append(merged, p)
+		}
+	}
+	if len(merged) > 0 && len(result.Tags) > 0 {
+		roots := slices.Clone(result.Tags)
+		slices.SortStableFunc(roots, func(a, b release.Tag) int { return compareTagNames(b.Name, a.Name) })
+		var shas []string
+		for _, tag := range roots {
+			shas = append(shas, tag.SHA)
+		}
+		graph := newCommitGraph()
+		if err := graph.load(ctx, c, source.Repo, shas); err != nil {
+			issues = append(issues, err)
+		}
+		for ti := range result.Tags {
+			tag := &result.Tags[ti]
+			reachable, complete := graph.ancestors(tag.SHA)
+			for _, p := range merged {
+				tag.Contains[p.MergeSHA] = graphContains(reachable, complete, p.MergeSHA)
+				if tag.Contains[p.MergeSHA] == "" {
+					tag.Evidence.Known = false
+					tag.Evidence.Error = "merge coverage unavailable"
+				}
 			}
 		}
 	}
