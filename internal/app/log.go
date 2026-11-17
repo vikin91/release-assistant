@@ -260,11 +260,20 @@ func recordMessage(r Record) string {
 // recordLevel assigns console severity without changing the UI's audit records.
 func recordLevel(r Record) string {
 	switch {
+	case r.Decision == "image":
+		switch release.Truth(r.Result) {
+		case release.Yes:
+			return "Info"
+		case release.No:
+			return "Warn"
+		default:
+			return "Debug"
+		}
 	case strings.HasSuffix(r.Decision, "-error"), r.Decision == "delivery" && r.Result == "failed":
 		return "Error"
 	case r.Decision == "retry-wait", r.Decision == "tag-invalidated", r.Decision == "revoked", r.Decision == "withheld", r.Decision == "delivery" && r.Result == "uncertain":
 		return "Warn"
-	case r.Decision == "observation", r.Decision == "checks", r.Decision == "image":
+	case r.Decision == "observation", r.Decision == "checks":
 		return "Debug"
 	default:
 		return "Info"

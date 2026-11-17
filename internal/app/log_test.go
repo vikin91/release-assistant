@@ -135,7 +135,9 @@ func TestLogPrintsSeverityLevels(t *testing.T) {
 		"should report completed user selections as info": {"selection-complete", "Selection confirmed", "Info"},
 		"should report discovery starts as info":          {"github-start", "Reading GitHub", "Info"},
 		"should report check diagnostics as debug":        {"checks", "No actions", "Debug"},
-		"should report image diagnostics as debug":        {"image", "yes", "Debug"},
+		"should report available images as info":          {"image", "yes", "Info"},
+		"should report missing images as warnings":        {"image", "no", "Warn"},
+		"should report unknown image status as debug":     {"image", "", "Debug"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var output bytes.Buffer
