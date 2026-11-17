@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
 )
 
@@ -36,6 +37,8 @@ func (s *Session) loadTags(ctx context.Context, generation uint64, source releas
 	version := s.config.Version
 	s.record(release.Target{Repo: source.Repo}, "", "tags-start", "", "Reading component tags before PRs and build checks.", "system")
 	s.mu.Unlock()
+	ctx = githubread.WithPriority(ctx, githubread.Tags, source.Repo)
+	ctx, usage := githubread.Track(ctx, 80)
 	ctx, cancel := context.WithTimeout(ctx, s.options.Timeout)
 	defer cancel()
 	request := DiscoveryRequest{Source: source, Version: version, Scope: ReadTags}
@@ -47,6 +50,10 @@ func (s *Session) loadTags(ctx context.Context, generation uint64, source releas
 		}
 	}
 	repo, err := s.discovery.Discover(ctx, request)
+	for repo.TagsPending && err == nil && ctx.Err() == nil {
+		request.Progress(repo)
+		repo, err = s.discovery.Discover(ctx, request)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if ctx.Err() != nil || s.generation != generation {
@@ -60,7 +67,7 @@ func (s *Session) loadTags(ctx context.Context, generation uint64, source releas
 		message = err.Error()
 	}
 	s.recordReadResult(release.Target{Repo: source.Repo}, "tags", message)
-	s.record(release.Target{Repo: source.Repo}, repo.Head, "tags-complete", "", fmt.Sprintf("Observed %d component tags; complete=%t.", len(repo.Tags), err == nil), "system")
+	s.record(release.Target{Repo: source.Repo}, repo.Head, "tags-complete", "", fmt.Sprintf("Observed %d component tags; complete=%t; GitHub reads=%d.", len(repo.Tags), err == nil && !repo.TagsPending, usage.Calls()), "system")
 }
 
 // publishTags merges only tag observations; unrelated evidence keeps its provenance.
@@ -70,6 +77,7 @@ func (s *Session) publishTags(source release.Source, repo release.Repository) {
 	old.Source = source
 	old.Head, old.Evidence = repo.Head, repo.Evidence
 	old.Tags = slices.Clone(repo.Tags)
+	old.TagsPending = repo.TagsPending
 	for i := range old.Tags {
 		old.Tags[i].Contains = nil
 	}

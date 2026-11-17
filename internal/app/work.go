@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 
+	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
 )
 
@@ -87,12 +89,31 @@ func (s *Session) work(source release.Source, discover bool) sourceWork {
 func (s *Session) refreshPlanned(ctx context.Context, generation uint64, source release.Source, discover bool) error {
 	s.mu.Lock()
 	work := s.work(source, discover)
+	phase := s.phase()
 	work.revision = s.workRevision
 	s.mu.Unlock()
 	if work.skip {
 		return nil
 	}
-	return s.refresh(ctx, generation, source, discover, work)
+	priority := githubread.Builds
+	if phase == "tags" {
+		priority = githubread.Tags
+		if source.Name == "acs" {
+			priority = githubread.Background
+		}
+	}
+	if phase == "prs" {
+		priority = githubread.PRs
+	}
+	ctx = githubread.WithPriority(ctx, priority, source.Repo)
+	ctx, usage := githubread.Track(ctx, 80)
+	err := s.refresh(ctx, generation, source, discover, work)
+	s.mu.Lock()
+	if generation == s.generation {
+		s.record(release.Target{Repo: source.Repo}, "", "work-complete", "", fmt.Sprintf("Phase=%s; GitHub reads=%d.", phase, usage.Calls()), "system")
+	}
+	s.mu.Unlock()
+	return err
 }
 
 // suspendPlans removes retry authority while keeping earlier build observations visible.

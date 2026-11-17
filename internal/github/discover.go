@@ -137,6 +137,8 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 			if tag.observation.Name != "" {
 				tags = append(tags, tag)
 			}
+		} else if req.Scope == app.ReadTags && result.Head != "" {
+			tags, result.TagsPending, tagErr = c.tagBatch(ctx, source, result.Head, publish)
 		} else {
 			tags, tagErr = c.listTags(ctx, source, result.Head, publish)
 		}
@@ -309,6 +311,9 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 			previous, _ := c.previousPublished(ctx, req.Version)
 			result.PreviousPublished = previous
 		}
+	}
+	if result.TagsPending {
+		result.Evidence.Known = false
 	}
 	return finishDiscovery(result, issues, cycle)
 }

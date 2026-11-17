@@ -1,0 +1,46 @@
+package github
+
+import (
+	"release-assistant/internal/app"
+	"testing"
+)
+
+func TestTagBatchesResumeWithoutRepeatingResolvedTags(t *testing.T) {
+	client, request, counts := discoveryFixture(t, 100, 500, 20)
+	request.Scope = app.ReadTags
+	batches := 0
+	for {
+		batches++
+		repo, err := client.Discover(t.Context(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if repo.TagsPending && repo.Evidence.Fresh() {
+			t.Fatal("unfinished inventory confirmed complete")
+		}
+		if !repo.TagsPending {
+			if len(repo.Tags) != 100 {
+				t.Fatalf("got %d tags", len(repo.Tags))
+			}
+			break
+		}
+		if batches > 20 {
+			t.Fatal("tag discovery did not progress")
+		}
+	}
+	if counts["tag_ref"] != 100 || counts["tags"] != 2 || counts["pr_detail"] != 0 {
+		t.Fatalf("unexpected repeated work: %v", counts)
+	}
+	t.Logf("100 tags completed in %d bounded batches; 100 ref reads, 2 pages, 0 PR reads", batches)
+}
+
+func TestResumableTagsReportPaginationLimit(t *testing.T) {
+	client, request, _ := discoveryFixture(t, 2000, 0, 0)
+	// No matching tags: exercise the page cap without resolving 2,000 objects.
+	request.Source.Stream = "9.9"
+	request.Scope = app.ReadTags
+	repo, err := client.Discover(t.Context(), request)
+	if err == nil || repo.TagsPending || repo.Evidence.Fresh() {
+		t.Fatalf("pagination truncated silently: pending=%v error=%v evidence=%+v", repo.TagsPending, err, repo.Evidence)
+	}
+}

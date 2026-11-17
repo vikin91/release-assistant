@@ -19,6 +19,7 @@ import (
 	"release-assistant/internal/app"
 	"release-assistant/internal/dispatch"
 	"release-assistant/internal/github"
+	"release-assistant/internal/githubread"
 	"release-assistant/internal/images"
 	"release-assistant/internal/konflux"
 	"release-assistant/internal/release"
@@ -74,7 +75,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	credentials := loadCredentials(ctx)
-	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Transport: githubread.New(nil), Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	gh := github.New("", credentials.github, client)
 	planner := konflux.New(konflux.Config{GitHubToken: credentials.github, QuayUsername: credentials.quayUser, QuayPassword: credentials.quayPassword, HTTPClient: client, KonfluxToken: credentials.clusterToken})
 	inspector := images.New(client, credentials.quayUser, credentials.quayPassword)

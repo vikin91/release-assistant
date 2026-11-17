@@ -220,7 +220,7 @@ func TestDiscoverPublishesTagsBeforePRAndCheckReads(t *testing.T) {
 		}
 	}
 	repo, err := client.Discover(t.Context(), request)
-	if firstRequests != 5 || len(repo.Tags) == 0 || err == nil {
+	if firstRequests != 5 || len(repo.Tags) == 0 || err != nil || !repo.TagsPending {
 		t.Fatalf("first choice requests=%d tags=%d error=%v", firstRequests, len(repo.Tags), err)
 	}
 	for _, kind := range []string{"open_list", "merged_search", "pr_detail", "checks", "statuses", "protection", "merge_coverage", "graph"} {
@@ -237,6 +237,7 @@ func BenchmarkTagSelectionFirstChoice(b *testing.B) {
 	first, total := 0, 0
 	for b.Loop() {
 		clear(counts)
+		client.inventories.Clear()
 		published := false
 		request.Progress = func(repo release.Repository) {
 			if published || len(repo.Tags) == 0 || !repo.Tags[0].Evidence.Fresh() {
@@ -248,7 +249,7 @@ func BenchmarkTagSelectionFirstChoice(b *testing.B) {
 			}
 		}
 		repo, err := client.Discover(b.Context(), request)
-		if !published || len(repo.Tags) == 0 || err == nil {
+		if !published || len(repo.Tags) == 0 || err != nil || !repo.TagsPending {
 			b.Fatalf("unexpected tag discovery result: tags=%d error=%v", len(repo.Tags), err)
 		}
 		for _, n := range counts {

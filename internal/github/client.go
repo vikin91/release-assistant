@@ -14,6 +14,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+
+	"release-assistant/internal/githubread"
 )
 
 const maxPages = 20
@@ -21,10 +24,11 @@ const maxPages = 20
 type (
 	// Client is a read client for GitHub's REST API.
 	Client struct {
-		baseURL string
-		token   string
-		http    *http.Client
-		backoff readBackoff
+		baseURL     string
+		token       string
+		http        *http.Client
+		backoff     readBackoff
+		inventories sync.Map
 	}
 	// requestError separates safe UI causes from endpoint diagnostics.
 	requestError struct {
@@ -180,6 +184,9 @@ func httpStatusHint(resp *http.Response) string {
 }
 
 func safeTransportCause(err error) error {
+	if deferred, ok := errors.AsType[*githubread.DeferredError](err); ok {
+		return deferred
+	}
 	switch {
 	case errors.Is(err, context.Canceled):
 		return context.Canceled

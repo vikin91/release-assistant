@@ -68,7 +68,9 @@ type (
 		Head   string
 		PRs    []PR
 		Tags   []Tag
-		Pins   Pins
+		// TagsPending distinguishes a resumable inventory from a completed or failed read.
+		TagsPending bool
+		Pins        Pins
 		// PinningPins uses the merge commit for a merged PR and its head otherwise.
 		PinningPins Pins
 		PinningPR   *PR
