@@ -90,6 +90,9 @@ func (f *fixture) Inspect(_ context.Context, config release.Config, versions map
 	}
 	return inventory, nil
 }
+func (f *fixture) InspectComponents(ctx context.Context, config release.Config, versions map[string]string) (release.Inventory, error) {
+	return f.Inspect(ctx, config, versions)
+}
 func (f *fixture) InspectReference(_ context.Context, reference string) (release.Image, error) {
 	return release.Image{Component: "acs", Family: "konflux", Reference: reference, Present: release.Yes, Evidence: observed()}, nil
 }

@@ -28,6 +28,10 @@ type (
 	Planner interface {
 		Plan(context.Context, release.Target) (release.Plan, error)
 	}
+	// ComponentInspector defers release candidate reads while component prerequisites are monitored.
+	ComponentInspector interface {
+		InspectComponents(context.Context, release.Config, map[string]string) (release.Inventory, error)
+	}
 	// Inspector checks release images and reported build outputs without source reads.
 	Inspector interface {
 		Inspect(context.Context, release.Config, map[string]string) (release.Inventory, error)

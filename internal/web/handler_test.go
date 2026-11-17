@@ -918,7 +918,7 @@ func TestPartialTagInventoryShowsVerifiedChoicesImmediately(t *testing.T) {
 	config := validACS5Config()
 	source := config.Components[0]
 	tag := release.Tag{Name: source.Stream + ".1", SHA: "tag-head", Belongs: release.Yes, Evidence: release.Evidence{At: time.Now(), Known: true}}
-	snapshot := app.Snapshot{Config: config, Repositories: []release.Repository{{Source: source, Head: "branch-head", Tags: []release.Tag{tag}, Evidence: release.Evidence{At: time.Now(), Error: "Tag inventory is still being read."}}}}
+	snapshot := app.Snapshot{Config: config, Repositories: []release.Repository{{Source: source, Head: "branch-head", Tags: []release.Tag{tag}, TagsPending: true, Evidence: release.Evidence{At: time.Now()}}}}
 	model := makePage(snapshot, "csrf", "")
 	if len(model.TagRepos) != 1 || len(model.TagRepos[0].Tags) != 1 || len(model.TagRepos[0].OtherTags) != 0 || model.TagRepos[0].Tags[0].Proposed {
 		t.Fatal("partial tag choices are hidden or presented as a complete-inventory recommendation")

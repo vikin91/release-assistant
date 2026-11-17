@@ -53,6 +53,15 @@ type imagePattern struct {
 
 // Inspect resolves built-in image patterns and checks their registry manifests.
 func (i *Inspector) Inspect(ctx context.Context, config release.Config, confirmedTags map[string]string) (release.Inventory, error) {
+	return i.inspect(ctx, config, confirmedTags, true)
+}
+
+// InspectComponents checks component prerequisites without querying ACS release candidate images.
+func (i *Inspector) InspectComponents(ctx context.Context, config release.Config, confirmedTags map[string]string) (release.Inventory, error) {
+	return i.inspect(ctx, config, confirmedTags, false)
+}
+
+func (i *Inspector) inspect(ctx context.Context, config release.Config, confirmedTags map[string]string, includeRC bool) (release.Inventory, error) {
 	now := time.Now()
 	major, minor, patch, versionOK := release.Version(config.Version)
 	releaseVersion := ""
@@ -119,8 +128,10 @@ func (i *Inspector) Inspect(ctx context.Context, config release.Config, confirme
 		}
 		inventory.Images = append(inventory.Images, image)
 	}
-	inventory.ReleaseImages = inspectRC0(ctx, i, config, revision, now)
-	inventory.Versions["acs"] = releaseVersion + "-rc.0"
+	if includeRC {
+		inventory.ReleaseImages = inspectRC0(ctx, i, config, revision, now)
+		inventory.Versions["acs"] = releaseVersion + "-rc.0"
+	}
 	inventory.Evidence = release.Evidence{At: time.Now(), URL: revisionURL(revision), Known: len(metadataIssues) == 0}
 	if len(metadataIssues) > 0 {
 		inventory.Evidence.Error = errors.Join(metadataIssues...).Error()

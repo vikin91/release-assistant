@@ -126,7 +126,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 				partial.Tags = append(partial.Tags, tag.observation)
 			}
 			partial.Evidence.Known = false
-			partial.Evidence.Error = "Tag inventory is still being read."
+			partial.TagsPending = true
 			req.Progress(partial)
 		}
 		var tags []resolvedTag

@@ -314,3 +314,40 @@ func componentReferences(tags map[string]string) map[string]bool {
 	}
 	return want
 }
+
+func TestInspectComponentsDefersEveryRCRequest(t *testing.T) {
+	requests, rcRequests := 0, 0
+	inspector := New(testHTTPClient(func(r *http.Request) *http.Response {
+		requests++
+		if strings.Contains(r.URL.Path, "-rc.0") {
+			rcRequests++
+		}
+		return response(http.StatusOK, validImageManifest, nil)
+	}), "", "")
+	inventory, err := inspector.InspectComponents(t.Context(), configFor("4.10.12"), map[string]string{"fact": "0.3.77", "collector": "0.4.20", "scanner": "4.10.1"})
+	if err != nil || requests != 12 || rcRequests != 0 || len(inventory.ReleaseImages) != 0 {
+		t.Fatalf("requests=%d rc=%d error=%v", requests, rcRequests, err)
+	}
+	t.Log("12 component requests; 0 release candidate requests")
+}
+
+func BenchmarkImagePhaseRequests(b *testing.B) {
+	for name, includeRC := range map[string]bool{"components": false, "components-and-RC": true} {
+		b.Run(name, func(b *testing.B) {
+			requests := 0
+			inspector := New(testHTTPClient(func(*http.Request) *http.Response {
+				requests++
+				return response(http.StatusOK, validImageManifest, nil)
+			}), "", "")
+			config := configFor("4.10.12")
+			tags := map[string]string{"fact": "0.3.77", "collector": "0.4.20", "scanner": "4.10.1"}
+			for b.Loop() {
+				_, err := inspector.inspect(b.Context(), config, tags, includeRC)
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+			b.ReportMetric(float64(requests)/float64(b.N), "requests/op")
+		})
+	}
+}

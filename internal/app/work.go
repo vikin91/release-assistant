@@ -11,9 +11,9 @@ import (
 )
 
 type sourceWork struct {
-	revision            uint64
-	scope               DiscoveryScope
-	plans, images, skip bool
+	revision                           uint64
+	scope                              DiscoveryScope
+	plans, images, releaseImages, skip bool
 }
 
 func (s *Session) tagsConfirmed() bool {
@@ -77,6 +77,11 @@ func (s *Session) work(source release.Source, discover bool) sourceWork {
 			scope |= ReadPins
 		}
 		return sourceWork{scope: scope, skip: !discover}
+	case "rc":
+		if source.Name == "acs" {
+			return sourceWork{scope: ReadPins, images: true, releaseImages: true}
+		}
+		return sourceWork{scope: ReadTags, skip: !discover}
 	default:
 		scope := ReadTags | ReadTargets | ReadChecks | ReadCoverage
 		if source.Name == "acs" {
@@ -105,6 +110,13 @@ func (s *Session) refreshPlanned(ctx context.Context, generation uint64, source 
 	if phase == "prs" {
 		priority = githubread.PRs
 	}
+	if phase == "rc" {
+		if source.Name == "acs" {
+			discover = true
+		} else {
+			priority = githubread.Background
+		}
+	}
 	ctx = githubread.WithPriority(ctx, priority, source.Repo)
 	ctx, usage := githubread.Track(ctx, 80)
 	err := s.refresh(ctx, generation, source, discover, work)
@@ -119,6 +131,7 @@ func (s *Session) refreshPlanned(ctx context.Context, generation uint64, source 
 // suspendPlans removes retry authority while keeping earlier build observations visible.
 // The caller holds the session lock.
 func (s *Session) suspendPlans() {
+	s.inventory.ReleaseImages = unverifiedImages(s.inventory.ReleaseImages, "")
 	for target, plan := range s.plans {
 		plan.Proposals = nil
 		plan.Evidence.Known = false

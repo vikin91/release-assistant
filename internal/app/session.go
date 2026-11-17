@@ -483,7 +483,7 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 
 // Refresh performs an explicit full source cycle. Scheduled refreshes obey release phases.
 func (s *Session) Refresh(ctx context.Context, generation uint64, source release.Source, discover bool) error {
-	return s.refresh(ctx, generation, source, discover, sourceWork{scope: ReadAll, plans: true, images: source.Name == "acs"})
+	return s.refresh(ctx, generation, source, discover, sourceWork{scope: ReadAll, plans: true, images: source.Name == "acs", releaseImages: true})
 }
 
 func (s *Session) refresh(ctx context.Context, generation uint64, source release.Source, discover bool, work sourceWork) error {
@@ -516,8 +516,10 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	}
 	s.mu.Unlock()
 	var imageErr error
-	if work.images {
-		imageReads.Go(func() { imageErr = s.refreshImages(ctx, generation, initial) })
+	if work.images && (work.scope == ReadAll || !work.releaseImages) {
+		imageReads.Go(func() {
+			imageErr = s.refreshImagesScoped(ctx, generation, initial, work.releaseImages, work.scope != ReadAll)
+		})
 	}
 	var errs []error
 	if discover {
@@ -539,8 +541,9 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		}
 		s.recordReadResult(release.Target{Repo: source.Repo}, "github", message)
 		if initial {
-			s.record(release.Target{Repo: source.Repo}, r.Head, "github-complete", "", fmt.Sprintf("GitHub discovery returned %d PRs and %d tags; complete=%t.", len(r.PRs), len(r.Tags), err == nil), "system")
+			s.record(release.Target{Repo: source.Repo}, r.Head, "github-complete", "", fmt.Sprintf("GitHub discovery returned %d PRs and %d tags; complete=%t.", len(r.PRs), len(r.Tags), err == nil && !r.TagsPending), "system")
 		}
+		oldPhase := s.phase()
 		old := s.repos[source.Name]
 		if work.scope != ReadAll {
 			r = mergeDiscovery(old, r, request)
@@ -612,6 +615,14 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			default:
 			}
 		}
+		if work.scope != ReadAll && oldPhase != s.phase() {
+			s.workRevision++
+			s.suspendPlans()
+			select {
+			case s.changed <- struct{}{}:
+			default:
+			}
+		}
 		if old.Head != r.Head || old.Evidence.Fresh() != r.Evidence.Fresh() {
 			s.record(release.Target{Repo: source.Repo}, r.Head, "observation", "", fmt.Sprintf("current=%t", r.Evidence.Fresh()), "system")
 		}
@@ -621,7 +632,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	s.mu.Lock()
 	if generation != s.generation || (work.scope != ReadAll && revision != s.workRevision) {
 		s.mu.Unlock()
-		return nil
+		return errors.Join(errs...)
 	}
 	r := s.repos[source.Name]
 	var targets []release.Target
@@ -634,6 +645,9 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		targets = append(targets, release.Target{Repo: source.Repo, Tag: tag})
 	}
 	s.mu.Unlock()
+	if work.images && work.releaseImages && work.scope != ReadAll {
+		imageReads.Go(func() { imageErr = s.refreshImagesScoped(ctx, generation, initial, true, true) })
+	}
 	for _, target := range targets {
 		s.mu.Lock()
 		ignore := generation != s.generation || (work.scope != ReadAll && revision != s.workRevision) || (s.choices.PRs[target] == release.Ignored || s.choices.PRs[target] == release.Excluded)
@@ -731,7 +745,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 
 	// A fresh revalidation occurs inside Send; a polled proposal is never queued.
 	s.mu.Lock()
-	currentGeneration := s.generation == generation
+	currentGeneration := s.generation == generation && (work.scope == ReadAll || revision == s.workRevision)
 	s.mu.Unlock()
 	if work.plans && currentGeneration && !s.dispatcher.IsInteractive() {
 		for _, view := range s.dispatcher.Views() {
@@ -766,7 +780,7 @@ func clonePlan(p release.Plan) release.Plan {
 	return p
 }
 
-// unverifiedImages retains the last observation while making its failed refresh explicit.
+// unverifiedImages retains earlier values and timestamps without asserting current availability.
 func unverifiedImages(previous []release.Image, reason string) []release.Image {
 	images := slices.Clone(previous)
 	for index := range images {
@@ -796,20 +810,37 @@ func retainLastImagePresence(current, previous []release.Image) []release.Image 
 
 // refreshImages commits registry evidence only while its release and tag choices remain current.
 func (s *Session) refreshImages(ctx context.Context, generation uint64, initial bool) error {
+	return s.refreshImagesScoped(ctx, generation, initial, true, false)
+}
+
+func (s *Session) refreshImagesScoped(ctx context.Context, generation uint64, initial, includeRC, scheduled bool) error {
 	s.mu.Lock()
 	if generation != s.generation {
 		s.mu.Unlock()
 		return nil
 	}
+	if scheduled && includeRC && (!s.selectionComplete || !s.rcReady()) {
+		s.mu.Unlock()
+		return nil
+	}
+	revision := s.workRevision
 	c := s.config
 	versions := maps.Clone(s.choices.Tags)
 	if initial {
 		s.record(release.Target{Repo: c.ACS().Repo}, "", "images-start", "", "Checking registry images using saved naming patterns.", "system")
 	}
 	s.mu.Unlock()
-	inventory, err := s.images.Inspect(ctx, c, versions)
+	var inventory release.Inventory
+	var err error
+	if includeRC {
+		inventory, err = s.images.Inspect(ctx, c, versions)
+	} else if components, ok := s.images.(ComponentInspector); ok {
+		inventory, err = components.InspectComponents(ctx, c, versions)
+	} else {
+		return fmt.Errorf("component-only image inspection is unavailable")
+	}
 	s.mu.Lock()
-	if generation == s.generation && maps.Equal(versions, s.choices.Tags) {
+	if generation == s.generation && maps.Equal(versions, s.choices.Tags) && (!scheduled || (revision == s.workRevision && (!includeRC || s.rcReady()))) {
 		message := ""
 		if err != nil {
 			message = err.Error()
@@ -833,7 +864,15 @@ func (s *Session) refreshImages(ctx context.Context, generation uint64, initial 
 			inventory.Evidence.Known = false
 			inventory.Evidence.Error = reason
 		}
-		if err != nil && len(inventory.ReleaseImages) == 0 {
+		if !includeRC {
+			inventory.ReleaseImages = unverifiedImages(s.inventory.ReleaseImages, "")
+			if len(inventory.ReleaseImages) > 0 {
+				if inventory.Versions == nil {
+					inventory.Versions = map[string]string{}
+				}
+				inventory.Versions["acs"] = s.inventory.Versions["acs"]
+			}
+		} else if err != nil && len(inventory.ReleaseImages) == 0 {
 			inventory.ReleaseImages = unverifiedImages(s.inventory.ReleaseImages, "The ACS RC.0 image check returned no new results; earlier results are unverified.")
 		}
 		inventory.Images = retainLastImagePresence(inventory.Images, s.inventory.Images)
