@@ -35,7 +35,7 @@ func (s *Session) loadTags(ctx context.Context, generation uint64, source releas
 		return
 	}
 	version := s.config.Version
-	s.record(release.Target{Repo: source.Repo}, "", "tags-start", "", "Reading component tags before PRs and build checks.", "system")
+	s.record(release.Target{Repo: source.Repo}, "", "tags-start", "", "Reading component tags before PRs and build checks.", "system", fmt.Sprintf("Checking release tags on %s/%s.", consoleTarget(release.Target{Repo: source.Repo}), source.Branch))
 	s.mu.Unlock()
 	ctx = githubread.WithPriority(ctx, githubread.Tags, source.Repo)
 	ctx, usage := githubread.Track(ctx, 80)
@@ -67,7 +67,11 @@ func (s *Session) loadTags(ctx context.Context, generation uint64, source releas
 		message = err.Error()
 	}
 	s.recordReadResult(release.Target{Repo: source.Repo}, "tags", message)
-	s.record(release.Target{Repo: source.Repo}, repo.Head, "tags-complete", "", fmt.Sprintf("Observed %d component tags; complete=%t; GitHub reads=%d.", len(repo.Tags), err == nil && !repo.TagsPending, usage.Calls()), "system")
+	message = fmt.Sprintf("Found %s in %s after %s.", counted(len(repo.Tags), "release tag"), consoleTarget(release.Target{Repo: source.Repo}), counted(int(usage.Calls()), "GitHub request"))
+	if err != nil || repo.TagsPending {
+		message += " These results are incomplete."
+	}
+	s.record(release.Target{Repo: source.Repo}, repo.Head, "tags-complete", "", fmt.Sprintf("Observed %d component tags; complete=%t; GitHub reads=%d.", len(repo.Tags), err == nil && !repo.TagsPending, usage.Calls()), "system", message)
 }
 
 // publishTags merges only tag observations; unrelated evidence keeps its provenance.

@@ -122,7 +122,9 @@ func (s *Session) refreshPlanned(ctx context.Context, generation uint64, source 
 	err := s.refresh(ctx, generation, source, discover, work)
 	s.mu.Lock()
 	if generation == s.generation {
-		s.record(release.Target{Repo: source.Repo}, "", "work-complete", "", fmt.Sprintf("Phase=%s; GitHub reads=%d.", phase, usage.Calls()), "system")
+		stage := map[string]string{"tags": "selecting release tags", "prs": "selecting pull requests", "builds": "checking builds", "rc": "checking release candidate images"}[phase]
+		message := fmt.Sprintf("Finished checking %s using %s while %s.", consoleTarget(release.Target{Repo: source.Repo}), counted(int(usage.Calls()), "GitHub request"), stage)
+		s.record(release.Target{Repo: source.Repo}, "", "work-complete", "", fmt.Sprintf("Phase=%s; GitHub reads=%d.", phase, usage.Calls()), "system", message)
 	}
 	s.mu.Unlock()
 	return err

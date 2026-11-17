@@ -53,7 +53,7 @@ func (s *Session) initializePinnedTags() bool {
 		s.tagInitialized[source.Name] = true
 		s.dispatcher.ObserveIdentity(dispatch.Identity{Target: target, SHA: selected.SHA, Open: true, Evidence: selected.Evidence})
 		s.dispatcher.Ignore(target, false)
-		s.record(target, selected.SHA, "tag-from-pinning-pr", "", fmt.Sprintf("Selected from merged ACS pinning PR #%d.", pr.Target.PR), "system")
+		s.record(target, selected.SHA, "tag-from-pinning-pr", "", fmt.Sprintf("Selected from merged ACS pinning PR #%d.", pr.Target.PR), "system", fmt.Sprintf("Selected release tag %s from merged ACS pinning pull request #%d.", consoleTarget(target), pr.Target.PR))
 		changed = true
 	}
 	if changed {

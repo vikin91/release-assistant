@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -128,9 +129,13 @@ func (s *Session) reset() {
 	s.history = nil
 	s.generation++
 }
-func (s *Session) record(target release.Target, sha, decision, payload, result, origin string) {
+func (s *Session) record(target release.Target, sha, decision, payload, result, origin string, message ...string) {
 	if s.log != nil {
-		s.log.Append(Record{At: time.Now(), Release: s.config.Version, Target: target, SHA: sha, Decision: decision, Payload: payload, Result: result, Origin: origin})
+		r := Record{At: time.Now(), Release: s.config.Version, Target: target, SHA: sha, Decision: decision, Payload: payload, Result: result, Origin: origin}
+		if len(message) > 0 {
+			r.message = message[0]
+		}
+		s.log.Append(r)
 	}
 }
 func (s *Session) drain() {
@@ -467,7 +472,8 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 		if err != nil && (failures == 1 || delay != previousDelay) {
 			s.mu.Lock()
 			if generation == s.generation {
-				s.record(release.Target{Repo: source.Repo}, "", "retry-wait", "", fmt.Sprintf("Next check attempt in %s; next GitHub discovery at %s.", delay, discoverAt.Format(time.RFC3339)), "system")
+				message := fmt.Sprintf("Results in %s are out of date. Retrying in %s. Checking for pull requests and tags again at %s.", consoleTarget(release.Target{Repo: source.Repo}), retryDelay(delay), discoverAt.Format(time.RFC3339))
+				s.record(release.Target{Repo: source.Repo}, "", "retry-wait", "", fmt.Sprintf("Next check attempt in %s; next GitHub discovery at %s.", delay, discoverAt.Format(time.RFC3339)), "system", message)
 			}
 			s.mu.Unlock()
 		}
@@ -501,7 +507,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	c := s.config
 	initial := discover && !s.initiallyLoaded[source.Name]
 	if initial {
-		s.record(release.Target{Repo: source.Repo}, "", "github-start", "", "Reading GitHub branch "+source.Branch+", PRs, and tags.", "system")
+		s.record(release.Target{Repo: source.Repo}, "", "github-start", "", "Reading GitHub branch "+source.Branch+", PRs, and tags.", "system", fmt.Sprintf("Checking pull requests and release tags on %s/%s.", consoleTarget(release.Target{Repo: source.Repo}), source.Branch))
 	}
 	request := DiscoveryRequest{Source: source, ConfirmedTag: s.choices.Tags[source.Name], PinningPR: c.PinningPR, Version: c.Version, Scope: work.scope}
 	revision := s.workRevision
@@ -541,7 +547,11 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		}
 		s.recordReadResult(release.Target{Repo: source.Repo}, "github", message)
 		if initial {
-			s.record(release.Target{Repo: source.Repo}, r.Head, "github-complete", "", fmt.Sprintf("GitHub discovery returned %d PRs and %d tags; complete=%t.", len(r.PRs), len(r.Tags), err == nil && !r.TagsPending), "system")
+			message := fmt.Sprintf("Found %s and %s in %s.", counted(len(r.PRs), "pull request"), counted(len(r.Tags), "release tag"), consoleTarget(release.Target{Repo: source.Repo}))
+			if err != nil || r.TagsPending {
+				message += " These results are incomplete."
+			}
+			s.record(release.Target{Repo: source.Repo}, r.Head, "github-complete", "", fmt.Sprintf("GitHub discovery returned %d PRs and %d tags; complete=%t.", len(r.PRs), len(r.Tags), err == nil && !r.TagsPending), "system", message)
 		}
 		oldPhase := s.phase()
 		old := s.repos[source.Name]
@@ -624,7 +634,11 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			}
 		}
 		if old.Head != r.Head || old.Evidence.Fresh() != r.Evidence.Fresh() {
-			s.record(release.Target{Repo: source.Repo}, r.Head, "observation", "", fmt.Sprintf("current=%t", r.Evidence.Fresh()), "system")
+			message := fmt.Sprintf("Results in %s are up to date.", consoleTarget(release.Target{Repo: source.Repo}))
+			if !r.Evidence.Fresh() {
+				message = fmt.Sprintf("Results in %s are out of date.", consoleTarget(release.Target{Repo: source.Repo}))
+			}
+			s.record(release.Target{Repo: source.Repo}, r.Head, "observation", "", fmt.Sprintf("current=%t", r.Evidence.Fresh()), "system", message)
 		}
 		s.drain()
 		s.mu.Unlock()
@@ -652,7 +666,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		s.mu.Lock()
 		ignore := generation != s.generation || (work.scope != ReadAll && revision != s.workRevision) || (s.choices.PRs[target] == release.Ignored || s.choices.PRs[target] == release.Excluded)
 		if initial && !ignore {
-			s.record(target, "", "checks-start", "", "Reading build observations.", "system")
+			s.record(target, "", "checks-start", "", "Reading build observations.", "system", fmt.Sprintf("Checking build results in %s.", consoleTarget(target)))
 		}
 		s.mu.Unlock()
 		if ignore {
@@ -726,11 +740,28 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			oldPlan := s.plans[target]
 			for _, proposal := range plan.Proposals {
 				if !slices.ContainsFunc(oldPlan.Proposals, func(old release.Proposal) bool { return dispatch.ID(old) == dispatch.ID(proposal) }) {
-					s.record(target, proposal.SHA, "proposal", proposal.Payload, "run "+proposal.RunID, "system")
+					s.record(target, proposal.SHA, "proposal", proposal.Payload, "run "+proposal.RunID, "system", fmt.Sprintf("A retry is available for %s in %s (run %s).", proposal.Job, consoleTarget(target), proposal.RunID))
 				}
 			}
 			if oldPlan.Action != plan.Action || oldPlan.Evidence.Fresh() != plan.Evidence.Fresh() {
-				s.record(target, plan.SHA, "checks", "", plan.Action, "system")
+				summary := plan.Message
+				if summary == "" {
+					switch plan.Action {
+					case "None":
+						summary = "No build retries are needed."
+					case "Wait":
+						summary = "Waiting for builds or their required inputs."
+					case "Retest":
+						summary = "Build retries are available."
+					case "Investigate missing images":
+						summary = "Build images are missing and need investigation."
+					default:
+						if plan.Action != "" {
+							summary = "Retry recommendation: " + plan.Action + "."
+						}
+					}
+				}
+				s.record(target, plan.SHA, "checks", "", plan.Action, "system", strings.TrimSpace(fmt.Sprintf("Checked build results in %s. %s", consoleTarget(target), summary)))
 			}
 			s.plans[target] = plan
 			s.dispatcher.ObservePlan(plan)
@@ -827,7 +858,7 @@ func (s *Session) refreshImagesScoped(ctx context.Context, generation uint64, in
 	c := s.config
 	versions := maps.Clone(s.choices.Tags)
 	if initial {
-		s.record(release.Target{Repo: c.ACS().Repo}, "", "images-start", "", "Checking registry images using saved naming patterns.", "system")
+		s.record(release.Target{Repo: c.ACS().Repo}, "", "images-start", "", "Checking registry images using saved naming patterns.", "system", fmt.Sprintf("Checking container images for release %s.", c.Version))
 	}
 	s.mu.Unlock()
 	var inventory release.Inventory
@@ -889,7 +920,20 @@ func (s *Session) refreshImagesScoped(ctx context.Context, generation uint64, in
 				}
 			}
 			if oldPresent != current.Present || oldFresh != current.Evidence.Fresh() {
-				s.record(release.Target{Repo: c.ACS().Repo}, "", "image", current.Reference, string(current.Present), "system")
+				reference := current.Reference
+				if reference == "" {
+					reference = current.Component + "/" + current.Name
+				}
+				message := fmt.Sprintf("Could not confirm whether image %s is available.", reference)
+				if current.Evidence.Fresh() {
+					switch current.Present {
+					case release.Yes:
+						message = fmt.Sprintf("Image %s is available.", current.Reference)
+					case release.No:
+						message = fmt.Sprintf("Image %s was not found.", current.Reference)
+					}
+				}
+				s.record(release.Target{Repo: c.ACS().Repo}, "", "image", current.Reference, string(current.Present), "system", message)
 			}
 		}
 		s.inventory = inventory

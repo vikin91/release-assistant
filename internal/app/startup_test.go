@@ -1,12 +1,46 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"strings"
 	"sync/atomic"
 	"testing"
 
 	"release-assistant/internal/release"
 )
+
+func TestStartupLogsReadableTagProgress(t *testing.T) {
+	for name, failed := range map[string]bool{
+		"should describe successful tag discovery":        false,
+		"should explain incomplete results after failure": true,
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, fixture := newFixture()
+			s.config = configuration()
+			fixture.fail["fact"] = failed
+			var output bytes.Buffer
+			s.log = NewLog(&output)
+			s.loadTags(t.Context(), s.generation, s.config.Components[0])
+			if !strings.Contains(output.String(), "Info: Checking release tags on fact/release-0.3.\n") {
+				t.Fatalf("tag start is unreadable: %s", output.String())
+			}
+			want := "Info: Found 1 release tag in fact after 0 GitHub requests.\n"
+			if failed {
+				want = "Info: Found 0 release tags in fact after 0 GitHub requests. These results are incomplete.\n"
+				if !strings.Contains(output.String(), "Error: Could not read release tags in fact. outage\n") {
+					t.Fatalf("tag failure was hidden: %s", output.String())
+				}
+			}
+			if !strings.Contains(output.String(), want) {
+				t.Fatalf("tag completion is unreadable: %s", output.String())
+			}
+			if s.log.Recent()[0].Result != "Reading component tags before PRs and build checks." {
+				t.Fatal("CLI wording changed the UI log message")
+			}
+		})
+	}
+}
 
 type startupServices struct {
 	*fixture
