@@ -51,16 +51,37 @@ document.addEventListener("DOMContentLoaded", () => {
   const activityLog = document.getElementById("activity-log");
   const activityError = document.getElementById("activity-refresh-error");
   if (activityLog && activityError) {
-    activityLog.scrollTop = activityLog.scrollHeight;
+    const scrollKey = "release-assistant:activity-scroll";
+    let scrollState = { top: 0, follow: true };
+    try {
+      const saved = JSON.parse(window.sessionStorage.getItem(scrollKey));
+      if (saved && Number.isFinite(saved.top) && saved.top >= 0 && typeof saved.follow === "boolean") scrollState = saved;
+    } catch {}
+    const restoreActivityScroll = () => {
+      if (activityLog.clientHeight > 0) activityLog.scrollTop = scrollState.follow ? activityLog.scrollHeight : scrollState.top;
+    };
+    const saveActivityScroll = () => {
+      if (activityLog.clientHeight === 0) return;
+      scrollState = {
+        top: activityLog.scrollTop,
+        follow: activityLog.scrollHeight - activityLog.scrollTop - activityLog.clientHeight <= 1,
+      };
+      try { window.sessionStorage.setItem(scrollKey, JSON.stringify(scrollState)); } catch {}
+    };
+    activityLog.addEventListener("scroll", saveActivityScroll);
+    window.addEventListener("pagehide", saveActivityScroll);
+    const activityDetails = document.getElementById("activity-details");
+    if (activityDetails) activityDetails.addEventListener("toggle", restoreActivityScroll);
+    restoreActivityScroll();
     const refreshActivity = async () => {
       try {
         const response = await fetch("/activity", { cache: "no-store", signal: AbortSignal.timeout(5_000) });
         if (!response.ok) throw new Error("Activity request failed");
         const text = await response.text();
-        const atBottom = activityLog.scrollHeight - activityLog.scrollTop - activityLog.clientHeight < 24;
         if (activityLog.textContent !== text) {
+          saveActivityScroll();
           activityLog.textContent = text;
-          if (atBottom) activityLog.scrollTop = activityLog.scrollHeight;
+          restoreActivityScroll();
         }
         activityError.hidden = true;
       } catch {

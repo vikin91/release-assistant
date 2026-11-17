@@ -25,10 +25,15 @@ function makeDetails({ id = "", foldKey = "", open = false } = {}) {
   return emitter({ id, dataset: foldKey ? { foldKey } : {}, open, tagName: "DETAILS" });
 }
 
-function makePage({ sections = [], storage = new Map(), hash = "", configDraft = false, storageFails = false } = {}) {
+function makePage({ sections = [], storage = new Map(), hash = "", configDraft = false, storageFails = false, activityLog, fetchActivity } = {}) {
   const byId = new Map(sections.filter((section) => section.id).map((section) => [section.id, section]));
+  if (activityLog) {
+    byId.set("activity-log", activityLog);
+    byId.set("activity-refresh-error", { hidden: true, textContent: "" });
+  }
   const links = [];
   const intervals = [];
+  const timeouts = [];
   let reloads = 0;
   const sessionStorage = {
     getItem(key) {
@@ -60,15 +65,17 @@ function makePage({ sections = [], storage = new Map(), hash = "", configDraft =
     sessionStorage,
     location: { hash, reload() { reloads += 1; } },
     setInterval(callback) { intervals.push(callback); },
+    setTimeout(callback) { timeouts.push(callback); },
   });
   return {
     document,
     window,
     links,
     intervals,
+    timeouts,
     reloads: () => reloads,
     start() {
-      vm.runInNewContext(appSource, { document, window });
+      vm.runInNewContext(appSource, { document, window, fetch: fetchActivity, AbortSignal });
       document.emit("DOMContentLoaded");
     },
     stored() {
@@ -190,4 +197,137 @@ test("skips automatic reload when session storage cannot save state", () => {
   page.start();
   page.intervals[0]();
   assert.equal(page.reloads(), 0);
+});
+
+function makeActivityLog() {
+  let text = "entry\n".repeat(40);
+  let top = 0;
+  return emitter({
+    hidden: false,
+    get clientHeight() { return this.hidden ? 0 : 100; },
+    get scrollHeight() { return this.hidden ? 0 : text.split("\n").length * 20; },
+    get scrollTop() { return this.hidden ? 0 : top; },
+    set scrollTop(value) { top = Math.max(0, Math.min(value, this.scrollHeight - this.clientHeight)); },
+    get textContent() { return text; },
+    set textContent(value) {
+      text = value;
+      top = 0;
+    },
+  });
+}
+
+function activityResponse(text) {
+  return { ok: true, text: async () => text };
+}
+
+test("keeps a reader's scroll position on activity updates and page reloads", async () => {
+  const storage = new Map();
+  const activityLog = makeActivityLog();
+  let text = activityLog.textContent;
+  const fetchActivity = async () => activityResponse(text);
+  const page = makePage({ storage, activityLog, fetchActivity });
+  page.start();
+  await new Promise(setImmediate);
+
+  activityLog.scrollTop = 300;
+  activityLog.emit("scroll");
+  text += "new entry\n";
+  await page.timeouts.shift()();
+  assert.equal(activityLog.textContent, text);
+  assert.equal(activityLog.scrollTop, 300);
+
+  activityLog.scrollTop = 200;
+  page.window.emit("pagehide");
+  const reloadedLog = makeActivityLog();
+  const reloaded = makePage({ storage, activityLog: reloadedLog, fetchActivity });
+  reloaded.start();
+  await new Promise(setImmediate);
+  assert.equal(reloadedLog.scrollTop, 200);
+});
+
+test("follows new entries initially and resumes following when the reader returns to the bottom", async () => {
+  const storage = new Map();
+  const activityLog = makeActivityLog();
+  let text = activityLog.textContent;
+  const fetchActivity = async () => activityResponse(text);
+  const page = makePage({ storage, activityLog, fetchActivity });
+  page.start();
+  await new Promise(setImmediate);
+  assert.equal(activityLog.scrollTop, activityLog.scrollHeight - activityLog.clientHeight);
+
+  activityLog.scrollTop -= 10;
+  activityLog.emit("scroll");
+  const pausedTop = activityLog.scrollTop;
+  text += "new entry\n";
+  await page.timeouts.shift()();
+  assert.equal(activityLog.scrollTop, pausedTop);
+
+  activityLog.scrollTop = activityLog.scrollHeight;
+  activityLog.emit("scroll");
+  text += "another entry\n";
+  await page.timeouts.shift()();
+  assert.equal(activityLog.scrollTop, activityLog.scrollHeight - activityLog.clientHeight);
+
+  page.window.emit("pagehide");
+  const reloadedLog = makeActivityLog();
+  const reloaded = makePage({ storage, activityLog: reloadedLog, fetchActivity });
+  reloaded.start();
+  await new Promise(setImmediate);
+  assert.equal(reloadedLog.scrollTop, reloadedLog.scrollHeight - reloadedLog.clientHeight);
+});
+
+test("honors scrolling while an activity request is in flight", async () => {
+  const activityLog = makeActivityLog();
+  let respond;
+  const page = makePage({ activityLog, fetchActivity: () => new Promise((resolve) => { respond = resolve; }) });
+  page.start();
+  activityLog.scrollTop = 200;
+  activityLog.emit("scroll");
+  respond(activityResponse(activityLog.textContent + "new entry\n"));
+  await new Promise(setImmediate);
+  assert.equal(activityLog.scrollTop, 200);
+});
+
+test("preserves the reading position while the activity panel is collapsed, including across reloads", async () => {
+  const storage = new Map();
+  const activityLog = makeActivityLog();
+  const details = makeDetails({ id: "activity-details", open: true });
+  let text = activityLog.textContent;
+  const fetchActivity = async () => activityResponse(text);
+  const page = makePage({ storage, sections: [details], activityLog, fetchActivity });
+  page.start();
+  await new Promise(setImmediate);
+  activityLog.scrollTop = 250;
+  activityLog.emit("scroll");
+
+  activityLog.hidden = true;
+  details.open = false;
+  details.emit("toggle");
+  text += "new entry\n";
+  await page.timeouts.shift()();
+  page.window.emit("pagehide");
+
+  const reloadedLog = makeActivityLog();
+  reloadedLog.hidden = true;
+  const reloadedDetails = makeDetails({ id: "activity-details", open: false });
+  const reloaded = makePage({ storage, sections: [reloadedDetails], activityLog: reloadedLog, fetchActivity });
+  reloaded.start();
+  await new Promise(setImmediate);
+  reloadedLog.hidden = false;
+  reloadedDetails.open = true;
+  reloadedDetails.emit("toggle");
+  assert.equal(reloadedLog.scrollTop, 250);
+});
+
+test("activity updates preserve scrolling when session storage is unavailable", async () => {
+  const activityLog = makeActivityLog();
+  let text = activityLog.textContent;
+  const page = makePage({ activityLog, storageFails: true, fetchActivity: async () => activityResponse(text) });
+  page.start();
+  await new Promise(setImmediate);
+  activityLog.scrollTop = 200;
+  activityLog.emit("scroll");
+  text += "new entry\n";
+  await page.timeouts.shift()();
+  assert.equal(activityLog.scrollTop, 200);
 });
