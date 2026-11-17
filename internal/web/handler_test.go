@@ -454,7 +454,7 @@ func TestPRSelectionShowsAuthorsAndPreservesEvidenceInCollapsedDetails(t *testin
 	if strings.Contains(body, `<img src=x`) {
 		t.Fatal("author was rendered as markup")
 	}
-	card := regexp.MustCompile(`(?s)<article class="pr-card">.*?</article>`).FindString(body)
+	card := regexp.MustCompile(`(?s)<article class="pr-card"[^>]*>.*?</article>`).FindString(body)
 	controls, details, ok := strings.Cut(card, `<details class="pr-details"`)
 	if !ok || !strings.Contains(details, "exact-pr-head") || !strings.Contains(details, "unit-tests") || !strings.Contains(details, "failure") {
 		t.Fatal("collapsed PR details must retain identity and check evidence")
@@ -488,7 +488,7 @@ func TestPRViewHidesMergedAndClosedPRsWithoutDiscardingCoverageEvidence(t *testi
 			w := httptest.NewRecorder()
 			b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
 			body := w.Body.String()
-			if !strings.Contains(body, "Open change") || strings.Count(body, `<article class="pr-card">`) != 1 {
+			if !strings.Contains(body, "Open change") || strings.Count(body, `<article class="pr-card"`) != 1 {
 				t.Fatal("PR selection must show exactly the open, unmerged PR")
 			}
 			for _, hidden := range []string{
@@ -509,7 +509,7 @@ func TestPRViewHidesMergedAndClosedPRsWithoutDiscardingCoverageEvidence(t *testi
 			application.snapshot.Repositories[0].PRs[0].Merged = true
 			afterMerge := httptest.NewRecorder()
 			b.handler.ServeHTTP(afterMerge, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
-			if strings.Contains(afterMerge.Body.String(), `<article class="pr-card">`) ||
+			if strings.Contains(afterMerge.Body.String(), `<article class="pr-card"`) ||
 				!strings.Contains(afterMerge.Body.String(), "No open PR observations.") {
 				t.Fatal("an observed merge must remove the open PR row on refresh")
 			}

@@ -85,7 +85,7 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 	if switchAction.Kind != "tag" || switchAction.Generation != 23 || switchAction.Component != "fact" || switchAction.Tag != "3.25.2" || switchAction.SHA != "fact-next-sha" {
 		t.Fatalf("switch action=%+v", switchAction)
 	}
-	current := regexp.MustCompile(`(?s)<article class="tag-card[^\"]*">.*?fact-current-sha.*?</article>`).FindString(tagDetails)
+	current := regexp.MustCompile(`(?s)<article class="tag-card[^\"]*"[^>]*>.*?fact-current-sha.*?</article>`).FindString(tagDetails)
 	if current == "" {
 		t.Fatal("selected fact tag card missing")
 	}
@@ -243,7 +243,7 @@ func formInputValue(t *testing.T, form, name string) string {
 }
 
 func prCardContaining(body, title string) string {
-	for _, card := range regexp.MustCompile(`(?s)<article class="pr-card">.*?</article>`).FindAllString(body, -1) {
+	for _, card := range regexp.MustCompile(`(?s)<article class="pr-card"[^>]*>.*?</article>`).FindAllString(body, -1) {
 		if strings.Contains(card, title) {
 			return card
 		}

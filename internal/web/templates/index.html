@@ -7,16 +7,17 @@
   <title>{{.Title}}</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
-<body data-loading="{{and .Configured (or .Snapshot.Loading (eq .Snapshot.Phase "tags") (eq .Snapshot.Phase "prs"))}}">
+<body data-session="{{.CSRF}}:{{.Snapshot.Generation}}" data-loading="{{and .Configured (or .Snapshot.Loading (eq .Snapshot.Phase "tags") (eq .Snapshot.Phase "prs"))}}">
 <header class="topbar">
   <div><p class="eyebrow">Release preparation</p><h1>{{.Title}}</h1></div>
   <span class="pill {{if .Snapshot.Assessment.Ready}}good{{else}}unknown{{end}}">{{if .Snapshot.Assessment.Ready}}Ready to create ACS RC.0{{else}}Preparing release{{end}}</span>
 </header>
-<main>
-  {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
-  {{if .Configured}}<p class="notice" role="status">{{if eq .Snapshot.Phase "tags"}}Selecting component tags. PR discovery and build checks follow tag selection.{{else}}{{if eq .Snapshot.Phase "prs"}}Review PRs, then finish PR selection to start build monitoring.{{else}}{{if eq .Snapshot.Phase "rc"}}Pinning is merged and branch versions match. Checking release candidate images.{{else}}Monitoring selected builds and ACS pinning.{{end}}{{end}}{{end}}</p>{{end}}
-  {{if and .Configured .Snapshot.Loading}}<p class="notice" role="status">Loading release data… Results appear as each repository finishes.</p>{{end}}
-  <section class="panel" aria-labelledby="setup-heading">
+<main id="live-dashboard">
+  <p id="dashboard-refresh-status" class="muted" role="status" data-live-preserve>Waiting for release updates.</p>
+  <div id="form-error" class="notice error" role="alert" data-live-preserve{{if not .Error}} hidden{{end}}>{{.Error}}</div>
+  {{if .Configured}}<p id="release-phase" class="notice" role="status">{{if eq .Snapshot.Phase "tags"}}Selecting component tags. PR discovery and build checks follow tag selection.{{else}}{{if eq .Snapshot.Phase "prs"}}Review PRs, then finish PR selection to start build monitoring.{{else}}{{if eq .Snapshot.Phase "rc"}}Pinning is merged and branch versions match. Checking release candidate images.{{else}}Monitoring selected builds and ACS pinning.{{end}}{{end}}{{end}}</p>{{end}}
+  {{if and .Configured .Snapshot.Loading}}<p id="release-loading" class="notice" role="status">Loading release data… Results appear as each repository finishes.</p>{{end}}
+  <section id="configuration-panel" class="panel" aria-labelledby="setup-heading" data-live-preserve>
     <details id="release-configuration" {{if or (not .Configured) .ConfigDraft}}open{{end}}>
       <summary id="setup-heading">{{if .Configured}}Release configuration{{else}}Configure release{{end}}</summary>
       <form method="post" action="/action" class="config-grid"{{if .ConfigDraft}} data-config-draft{{end}}>
@@ -53,7 +54,7 @@
     {{if .Snapshot.Assessment.Pins.PRNumber}}<a class="pill {{truth .Snapshot.Assessment.Pins.PRStatus}}" href="{{url .Snapshot.Assessment.Pins.PRURL}}" target="_blank" rel="noreferrer" title="{{.Snapshot.Assessment.Pins.PRReason}}">Pin PR #{{.Snapshot.Assessment.Pins.PRNumber}}: {{.PinPRState}}</a>{{else}}<span class="pill muted">Pin PR: not supplied</span>{{end}}
   </div>
   <p class="pin-legend">Pin colours: <span class="yes">green = selected versions are on the ACS branch</span>; <span class="unknown">yellow = waiting or unable to check</span>; <span class="no">red = a verified mismatch or PR problem</span>.</p>
-  <section class="panel" aria-label="Next release actions">
+  <section id="next-steps-panel" class="panel" aria-label="Next release actions">
     <details id="next-steps" open>
     <summary class="section-summary">Recommended next steps</summary>
     {{if .Problems}}<details class="readiness-details" id="readiness-details"><summary>Checks that need attention</summary><ol>{{range .Problems}}<li>{{.Reason}}{{range .Evidence}}{{if .Error}} · {{.Error}}{{end}}{{end}}</li>{{end}}</ol></details>{{end}}
@@ -70,7 +71,7 @@
       <summary id="tag-selection-heading" class="section-summary">{{if .TagsSelected}}Component tags selected <span class="summary-detail">{{range $i,$source := .Snapshot.Config.Components}}{{if $i}} · {{end}}{{title $source.Name}} {{index $.Snapshot.Choices.Tags $source.Name}}{{end}}</span>{{else}}Component tag selection{{end}}{{if .TagUpdates}} <span class="pill">Tag updates available</span>{{end}}</summary>
       <p class="muted">{{if .TagsSelected}}Tag selection is complete. Coverage, builds, images, and pins determine release readiness.{{else}}Select a tag for each component. Selection is separate from coverage, build, and image readiness.{{end}}</p>
       {{range .TagRepos}}
-        <article class="tag-repo">
+        <article class="tag-repo" data-live-key="tag-repo:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}">
           <h3>{{title .Repository.Source.Name}} <span class="muted">{{.Repository.Source.Repo}} · {{.Repository.Source.Branch}} · stream {{.Repository.Source.Stream}}</span></h3>
           {{if .CurrentTag}}
             {{if .SelectedTag}}{{template "component-tag" .SelectedTag}}{{else}}<p class="unknown">Selected {{.CurrentTag}} · current tag observation unavailable; coverage is unknown.</p>{{end}}
@@ -98,10 +99,10 @@
     <p class="muted">Include selects a PR for monitoring. Exclude stops detailed monitoring and retries; Ignore also hides it. RW allowed controls permission to post retry comments independently.</p>
     {{if .Snapshot.SelectionComplete}}<p class="muted">PR selection is complete. Changing a tag or PR choice opens selection again.</p>{{else}}<form method="post" action="/action#pr-selection"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Snapshot.Generation}}"><input type="hidden" name="kind" value="finish-selection"><button type="submit"{{if not .Snapshot.SelectionReady}} disabled{{end}}>Finish PR selection</button>{{if not .Snapshot.SelectionReady}}<span class="muted">Confirm component tags and wait for PR inventories.</span>{{end}}</form>{{end}}
     {{range .Repos}}
-      <article class="pr-repo">
+      <article class="pr-repo" data-live-key="pr-repo:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}">
         <h3>{{title .Repository.Source.Name}} <span class="muted">{{.Repository.Source.Repo}} · {{.Repository.Source.Branch}}</span></h3>
         {{range .PRs}}
-          <article class="pr-card">
+          <article class="pr-card" data-live-key="pr:{{.PR.Target}}">
             <div class="pr-summary">
               <div class="pr-title"><a href="{{url .PR.URL}}" target="_blank" rel="noreferrer">#{{.PR.Target.PR}} {{.PR.Title}}</a> <span class="pill">{{.ChoiceLabel}}</span></div>
               <div class="pr-meta"><span>{{if .PR.Author}}@{{.PR.Author}}{{else}}Author unknown{{end}}</span> · <span>{{if .PR.Merged}}merged{{else}}{{.PR.State}}{{end}}</span>{{if not .PR.Evidence.Fresh}} · <span class="unknown">PR identity unknown or stale</span>{{end}}{{if .PR.OptOut}} · <strong class="error-text">no-release-assistant opt-out</strong>{{end}}</div>
@@ -172,7 +173,7 @@
     </article>{{end}}
   </details>
 
-  {{if .History}}<section class="panel"><details id="previous-cycles"><summary class="section-summary">Previous component cycles</summary>
+  {{if .History}}<section id="previous-cycles-panel" class="panel"><details id="previous-cycles"><summary class="section-summary">Previous component cycles</summary>
     <p class="eyebrow">Earlier confirmed tags</p>
     {{range .History}}<article class="history-card"><div class="section-heading"><h3>{{.Cycle.Component}} · {{.Cycle.Tag}}</h3><span>SHA <code>{{.Cycle.SHA}}</code> · observed {{when .Cycle.At}}</span></div><p>Retained build plan: {{.Cycle.Plan.Action}} — {{.Cycle.Plan.Message}}</p>{{if .Cycle.Plan.Evidence.Error}}<p class="error-text">{{.Cycle.Plan.Evidence.Error}}</p>{{end}}{{if .Cycle.Images}}<table><thead><tr><th>Family</th><th>Reference</th><th>Status</th><th>Evidence</th></tr></thead><tbody>{{range .Cycle.Images}}<tr><td>{{.Family}}</td><td><code>{{.Reference}}</code></td><td>{{if .Evidence.Fresh}}{{truth .Present}}{{else}}unknown{{if .Present}} (last observed {{truth .Present}}){{end}}{{end}}</td><td>{{if .Evidence.Error}}{{.Evidence.Error}}{{else}}observed at {{when .Evidence.At}}{{end}}</td></tr>{{end}}</tbody></table>{{else}}<p class="muted">No image observations were retained for this cycle.</p>{{end}}</article>{{end}}
     </details>
@@ -180,7 +181,7 @@
 
   <section class="panel" id="retry-proposals"><details id="retry-details" open><summary class="section-summary">Retry proposals</summary><div class="section-heading"><p class="eyebrow">Konflux observations</p><form method="post" action="/action"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Snapshot.Generation}}"><input type="hidden" name="kind" value="interactive"><input type="hidden" name="enabled" value="false"><label class="check{{if not .Snapshot.WritesEnabled}} disabled-control{{end}}"><input type="checkbox" name="enabled" value="true" {{if .Snapshot.Interactive}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}> Interactive confirmation</label><button type="submit"{{if not .Snapshot.WritesEnabled}} disabled{{end}}>Save mode</button></form></div>
     <p class="muted">Retry observations for your selected component tags, PRs marked Included, and the configured pinning PR.</p>
-    {{range .Plans}}{{$plan := .Plan}}<article class="plan-card"><div class="section-heading"><h3>{{.Plan.Target}} {{if .Plan.Target.PR}}<span class="pill">{{if .Pinning}}Pinning PR{{else}}Included PR{{end}}</span>{{else}}<span class="pill">Selected tag</span>{{end}}</h3><span>{{.Plan.Action}}</span></div><p>{{.Plan.Message}}</p><p>SHA <code>{{.Plan.SHA}}</code> · observed at {{when .Plan.Evidence.At}} · {{if .Plan.Evidence.Known}}known{{else}}unknown{{end}}</p>{{if .Plan.Evidence.Error}}<p class="error-text">{{.Plan.Evidence.Error}}</p>{{end}}
+    {{range .Plans}}{{$plan := .Plan}}<article class="plan-card" data-live-key="plan:{{.Plan.Target}}"><div class="section-heading"><h3>{{.Plan.Target}} {{if .Plan.Target.PR}}<span class="pill">{{if .Pinning}}Pinning PR{{else}}Included PR{{end}}</span>{{else}}<span class="pill">Selected tag</span>{{end}}</h3><span>{{.Plan.Action}}</span></div><p>{{.Plan.Message}}</p><p>SHA <code>{{.Plan.SHA}}</code> · observed at {{when .Plan.Evidence.At}} · {{if .Plan.Evidence.Known}}known{{else}}unknown{{end}}</p>{{if .Plan.Evidence.Error}}<p class="error-text">{{.Plan.Evidence.Error}}</p>{{end}}
       {{if and .Plan.Runs (not .Pinning)}}<h4>Observed runs</h4><table><thead><tr><th>Job</th><th>Run</th><th>Status</th><th>Outcome</th><th>Retry eligible</th></tr></thead><tbody>{{range .Plan.Runs}}<tr><td>{{.Job}}</td><td>{{if url .URL}}<a href="{{url .URL}}">{{.ID}}</a>{{else}}{{.ID}}{{end}}</td><td>{{.Status}}</td><td>{{.Outcome}}</td><td>{{if .Eligible}}yes{{else}}no or unknown{{end}}</td></tr>{{end}}</tbody></table>{{end}}
       {{if .Plan.Warnings}}<h4>Warnings</h4><ol>{{range .Plan.Warnings}}<li>{{.}}</li>{{end}}</ol>{{end}}
       {{if .Plan.Advisories}}<h4>Conforma advisories</h4><p class="muted" id="review-help-{{$plan.Target}}">Mark as reviewed records that you have read an advisory for this session and adds an action-log entry. It does not change check results, retry eligibility, write permissions, or release readiness. Reviews reset on restart.</p>{{range .Plan.Advisories}}<div class="advisory">
@@ -195,8 +196,8 @@
   </section>
 
   <section class="panel" id="comment-offers"><details id="comment-offers-details" open><summary class="section-summary">Exact comment offers</summary><p class="eyebrow">Write authority</p>
-    {{range .Authority}}<article class="offer-card"><h3>{{.View.Target}} <span class="muted">SHA {{.View.SHA}}</span></h3><p>RW {{if .View.Granted}}allowed{{else}}not allowed{{end}} · {{if .View.Ignored}}ignored{{else}}monitored{{end}}{{if .View.OptOut}} · no-release-assistant disables writes{{end}}</p>{{if .View.Message}}<p>{{.View.Message}}</p>{{end}}{{if .View.Warnings}}<ol>{{range .View.Warnings}}<li class="warning">{{.}}</li>{{end}}</ol>{{end}}
-      {{range .View.Offers}}<div class="offer"><p>Offer {{.ID}} · {{.Proposal.Target}} · SHA {{.Proposal.SHA}} · {{.Proposal.Job}} · run {{.Proposal.RunID}} · failures {{.Failures}}{{if .Rejected}} · rejected{{end}}</p><p>{{if .Reason}}{{.Reason}}{{else}}Ready for exact confirmation{{end}}{{if not .WaitingUntil.IsZero}} · wait until {{when .WaitingUntil}}{{end}}</p><pre><code>{{.Proposal.Payload}}</code></pre>
+    {{range .Authority}}<article class="offer-card" data-live-key="authority:{{.View.Target}}"><h3>{{.View.Target}} <span class="muted">SHA {{.View.SHA}}</span></h3><p>RW {{if .View.Granted}}allowed{{else}}not allowed{{end}} · {{if .View.Ignored}}ignored{{else}}monitored{{end}}{{if .View.OptOut}} · no-release-assistant disables writes{{end}}</p>{{if .View.Message}}<p>{{.View.Message}}</p>{{end}}{{if .View.Warnings}}<ol>{{range .View.Warnings}}<li class="warning">{{.}}</li>{{end}}</ol>{{end}}
+      {{range .View.Offers}}<div class="offer" data-live-key="offer:{{.ID}}"><p>Offer {{.ID}} · {{.Proposal.Target}} · SHA {{.Proposal.SHA}} · {{.Proposal.Job}} · run {{.Proposal.RunID}} · failures {{.Failures}}{{if .Rejected}} · rejected{{end}}</p><p>{{if .Reason}}{{.Reason}}{{else}}Ready for exact confirmation{{end}}{{if not .WaitingUntil.IsZero}} · wait until {{when .WaitingUntil}}{{end}}</p><pre><code>{{.Proposal.Payload}}</code></pre>
         {{if .CanApprove}}<form method="post" action="/action"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="send"><input type="hidden" name="repo" value="{{.Proposal.Target.Repo}}"><input type="hidden" name="pr" value="{{if .Proposal.Target.PR}}{{.Proposal.Target.PR}}{{end}}"><input type="hidden" name="tag" value="{{.Proposal.Target.Tag}}"><input type="hidden" name="sha" value="{{.Proposal.SHA}}"><input type="hidden" name="id" value="{{.ID}}"><label class="check{{if not $.Snapshot.WritesEnabled}} disabled-control{{end}}"><input type="checkbox" name="confirm" value="yes" required{{if not $.Snapshot.WritesEnabled}} disabled{{end}}> I confirm this exact comment</label><button type="submit"{{if not $.Snapshot.WritesEnabled}} disabled{{end}}>Send one comment</button></form>{{end}}
         {{if .Rejected}}<form method="post" action="/action" class="inline-form"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="reject"><input type="hidden" name="repo" value="{{.Proposal.Target.Repo}}"><input type="hidden" name="pr" value="{{if .Proposal.Target.PR}}{{.Proposal.Target.PR}}{{end}}"><input type="hidden" name="tag" value="{{.Proposal.Target.Tag}}"><input type="hidden" name="sha" value="{{.Proposal.SHA}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="enabled" value="false"><button type="submit">Reconsider this run</button></form>{{else}}<form method="post" action="/action" class="inline-form"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="reject"><input type="hidden" name="repo" value="{{.Proposal.Target.Repo}}"><input type="hidden" name="pr" value="{{if .Proposal.Target.PR}}{{.Proposal.Target.PR}}{{end}}"><input type="hidden" name="tag" value="{{.Proposal.Target.Tag}}"><input type="hidden" name="sha" value="{{.Proposal.SHA}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="enabled" value="true"><button type="submit">Reject this run</button></form>{{end}}
       </div>{{else}}<p class="muted">No current offers.</p>{{end}}
@@ -204,7 +205,7 @@
     </details>
   </section>
   {{end}}
-  <section class="panel" id="activity-console">
+  <section class="panel" id="activity-console" data-live-preserve>
     <details id="activity-details" open>
       <summary class="section-summary">Activity and errors</summary>
       <p class="muted">Latest 200 events from this process. Updates every two seconds without reloading your forms.</p>
@@ -218,7 +219,7 @@
 </html>
 
 {{define "component-tag"}}
-<article class="tag-card{{if .Current}} selected-tag{{else}}{{if .Proposed}} proposed-tag{{end}}{{end}}">
+<article class="tag-card{{if .Current}} selected-tag{{else}}{{if .Proposed}} proposed-tag{{end}}{{end}}" data-live-key="tag:{{.Component}}:{{.Repo}}@{{.Tag.Name}}:{{.Tag.SHA}}">
   <div class="section-heading">
     <div><strong>{{.Tag.Name}}</strong>{{if .Current}} <span class="pill selected">Selected</span>{{else}}{{if .Proposed}} <span class="pill">recommended</span>{{end}}{{end}}</div>
     {{if and (not .Current) .Tag.Evidence.Fresh (eq (truth .Tag.Belongs) "yes")}}

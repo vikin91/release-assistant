@@ -1,5 +1,5 @@
 document.addEventListener("DOMContentLoaded", () => {
-  const sections = Array.from(document.querySelectorAll("details"));
+  const sections = () => Array.from(document.querySelectorAll("details"));
   const sectionKey = (section) => section.dataset.foldKey || section.id;
   const storageKey = "release-assistant:sections";
   let sectionStates = {};
@@ -10,13 +10,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const configDraft = document.querySelector("[data-config-draft]") !== null;
   let configSubmitted = false;
-  for (const section of sections) {
+  const restoreSection = (section) => {
     const key = sectionKey(section);
-    if (key === "release-configuration" && configDraft) continue;
+    if (key === "release-configuration" && configDraft) return;
     if (typeof sectionStates[key] === "boolean") section.open = sectionStates[key];
-  }
+  };
+  sections().forEach(restoreSection);
   const saveSections = () => {
-    for (const section of sections) {
+    for (const section of sections()) {
       const key = sectionKey(section);
       if (key) sectionStates[key] = section.open;
     }
@@ -28,7 +29,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return false;
     }
   };
-  sections.forEach((section) => section.addEventListener("toggle", saveSections));
+  document.addEventListener("toggle", saveSections, true);
   window.addEventListener("pagehide", saveSections);
   document.addEventListener("submit", (event) => {
     configSubmitted = event.target.matches(".config-grid");
@@ -41,8 +42,9 @@ document.addEventListener("DOMContentLoaded", () => {
       saveSections();
     }
   };
-  document.querySelectorAll("[data-open-section]").forEach((link) => {
-    link.addEventListener("click", () => openSection(document.getElementById(link.hash.slice(1))));
+  document.addEventListener("click", (event) => {
+    const link = event.target.closest("[data-open-section]");
+    if (link) openSection(document.getElementById(link.hash.slice(1)));
   });
   window.addEventListener("hashchange", () => openSection(document.getElementById(window.location.hash.slice(1))));
   const linkedSection = document.getElementById(window.location.hash.slice(1));
@@ -75,6 +77,7 @@ document.addEventListener("DOMContentLoaded", () => {
     restoreActivityScroll();
     const refreshActivity = async () => {
       try {
+        if (document.hidden) return;
         const response = await fetch("/activity", { cache: "no-store", signal: AbortSignal.timeout(5_000) });
         if (!response.ok) throw new Error("Activity request failed");
         const text = await response.text();
@@ -94,8 +97,8 @@ document.addEventListener("DOMContentLoaded", () => {
     refreshActivity();
   }
 
-  document.querySelectorAll("form[data-autosubmit] input[type=checkbox]").forEach((input) => {
-    input.addEventListener("change", () => input.form.requestSubmit());
+  document.addEventListener("change", (event) => {
+    if (event.target.matches("form[data-autosubmit] input[type=checkbox]")) event.target.form.requestSubmit();
   });
 
   const version = document.querySelector('input[name="version"]');
@@ -124,13 +127,120 @@ document.addEventListener("DOMContentLoaded", () => {
     stream.addEventListener("input", update);
   });
 
-  let edited = document.querySelector("[data-config-draft]") !== null;
-  document.addEventListener("input", () => { edited = true; }, true);
-  document.addEventListener("change", () => { edited = true; }, true);
-  const refreshInterval = document.body.dataset.loading === "true" ? 1_000 : 60_000;
-  window.setInterval(() => {
-    const active = document.activeElement;
-    const editing = active && (active.matches("input, textarea, select") || active.isContentEditable);
-    if (!edited && !editing && saveSections()) window.location.reload();
-  }, refreshInterval);
+  const dashboard = document.getElementById("live-dashboard");
+  const refreshStatus = document.getElementById("dashboard-refresh-status");
+  if (!dashboard || !refreshStatus) return;
+
+  const editedControls = new WeakSet();
+  const rememberEdit = (event) => editedControls.add(event.target);
+  document.addEventListener("input", rememberEdit, true);
+  document.addEventListener("change", rememberEdit, true);
+  let submitting = false;
+  document.addEventListener("submit", () => { submitting = true; });
+  window.addEventListener("pageshow", () => { submitting = false; });
+
+  const nodeKey = (node) => {
+    if (node.nodeType !== 1) return "";
+    const id = node.getAttribute("id");
+    if (id || node.dataset.liveKey || node.dataset.foldKey) return id || node.dataset.liveKey || node.dataset.foldKey;
+    if (node.tagName === "INPUT") return `${node.type}:${node.name}`;
+    // Form identity binds local edits to the exact target and proposed action.
+    if (node.tagName === "FORM") return JSON.stringify(Array.from(node.querySelectorAll('input[type="hidden"]'))
+      .filter((input) => input.name !== "csrf" && input.name !== "generation")
+      .map((input) => [input.name, input.value]));
+    return "";
+  };
+  const patch = (current, incoming) => {
+    if (current.nodeType !== 1) {
+      if (current.nodeValue !== incoming.nodeValue) current.nodeValue = incoming.nodeValue;
+      return;
+    }
+    if (current.hasAttribute("data-live-preserve")) return;
+    const keepInput = current.tagName === "INPUT" && editedControls.has(current) && !incoming.disabled;
+    const value = current.value;
+    const checked = current.checked;
+    for (const attribute of Array.from(current.attributes)) {
+      if (current.tagName === "DETAILS" && attribute.name === "open") continue;
+      if (!incoming.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
+    }
+    for (const attribute of incoming.attributes) {
+      if (current.tagName === "DETAILS" && attribute.name === "open") continue;
+      if (current.getAttribute(attribute.name) !== attribute.value) current.setAttribute(attribute.name, attribute.value);
+    }
+    if (current.tagName === "INPUT") {
+      current.checked = keepInput ? checked : incoming.checked;
+      const nextValue = keepInput ? value : incoming.value;
+      if (current.value !== nextValue) current.value = nextValue;
+    }
+    const keyed = new Map(Array.from(current.childNodes).filter(nodeKey).map((node) => [nodeKey(node), node]));
+    let cursor = current.firstChild;
+    for (const next of incoming.childNodes) {
+      const key = nodeKey(next);
+      let match = key ? keyed.get(key) : cursor;
+      if (match && (match.nodeType !== next.nodeType || match.nodeName !== next.nodeName || nodeKey(match) !== key)) match = null;
+      if (!match) {
+        match = next.cloneNode(true);
+        if (match.nodeType === 1) {
+          if (match.tagName === "DETAILS") restoreSection(match);
+          match.querySelectorAll("details").forEach(restoreSection);
+        }
+        current.insertBefore(match, cursor);
+      } else {
+        if (match !== cursor) current.insertBefore(match, cursor);
+        patch(match, next);
+      }
+      cursor = match.nextSibling;
+    }
+    while (cursor) {
+      const removed = cursor;
+      cursor = cursor.nextSibling;
+      removed.remove();
+    }
+  };
+
+  let dashboardRefreshing = false;
+  let dashboardTimer;
+  let lastUpdated = "";
+  const refreshDashboard = async () => {
+    if (dashboardRefreshing) return;
+    dashboardRefreshing = true;
+    try {
+      if (document.hidden || submitting) return;
+      const response = await fetch("/", { cache: "no-store", signal: AbortSignal.timeout(5_000) });
+      if (!response.ok) throw new Error("Dashboard request failed");
+      const incoming = new DOMParser().parseFromString(await response.text(), "text/html");
+      const nextDashboard = incoming.getElementById("live-dashboard");
+      if (!nextDashboard) throw new Error("Dashboard response is incomplete");
+      if (incoming.body.dataset.session !== document.body.dataset.session) {
+        throw new Error("Release configuration changed. Reload the page to continue.");
+      }
+      if (document.hidden || submitting) return;
+      saveSections();
+      const active = document.activeElement;
+      const scrollX = window.scrollX;
+      const scrollY = window.scrollY;
+      patch(document.querySelector("header"), incoming.querySelector("header"));
+      patch(dashboard, nextDashboard);
+      if (active && active.isConnected && document.activeElement !== active) active.focus({ preventScroll: true });
+      window.scrollTo(scrollX, scrollY);
+      document.body.dataset.loading = incoming.body.dataset.loading;
+      lastUpdated = new Date().toLocaleTimeString();
+      refreshStatus.textContent = `Last updated ${lastUpdated}.`;
+      refreshStatus.classList.remove("error-text");
+    } catch (error) {
+      refreshStatus.textContent = error.message === "Release configuration changed. Reload the page to continue."
+        ? error.message : `${lastUpdated ? `Last updated ${lastUpdated}. ` : ""}Cannot refresh release data. Showing the last results; retrying automatically.`;
+      refreshStatus.classList.add("error-text");
+    } finally {
+      dashboardRefreshing = false;
+      dashboardTimer = window.setTimeout(refreshDashboard, document.body.dataset.loading === "true" ? 1_000 : 60_000);
+    }
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      window.clearTimeout(dashboardTimer);
+      refreshDashboard();
+    }
+  });
+  refreshDashboard();
 });

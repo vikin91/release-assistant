@@ -25,11 +25,15 @@ function makeDetails({ id = "", foldKey = "", open = false } = {}) {
   return emitter({ id, dataset: foldKey ? { foldKey } : {}, open, tagName: "DETAILS" });
 }
 
-function makePage({ sections = [], storage = new Map(), hash = "", configDraft = false, storageFails = false, activityLog, fetchActivity } = {}) {
+function makePage({ sections = [], storage = new Map(), hash = "", configDraft = false, storageFails = false, activityLog, fetchActivity, livePage, fetchDashboard, parseDashboard } = {}) {
   const byId = new Map(sections.filter((section) => section.id).map((section) => [section.id, section]));
   if (activityLog) {
     byId.set("activity-log", activityLog);
     byId.set("activity-refresh-error", { hidden: true, textContent: "" });
+  }
+  if (livePage) {
+    byId.set("live-dashboard", livePage.dashboard);
+    byId.set("dashboard-refresh-status", livePage.status);
   }
   const links = [];
   const intervals = [];
@@ -49,11 +53,12 @@ function makePage({ sections = [], storage = new Map(), hash = "", configDraft =
     body: { dataset: { loading: "false" } },
     activeElement: null,
     querySelectorAll(selector) {
-      if (selector === "details") return sections;
+      if (selector === "details") return livePage ? livePage.dashboard.querySelectorAll("details") : sections;
       if (selector === "[data-open-section]") return links;
       return [];
     },
     querySelector(selector) {
+      if (selector === "header" && livePage) return livePage.header;
       if (selector === "[data-config-draft]" && configDraft) return {};
       return null;
     },
@@ -61,11 +66,16 @@ function makePage({ sections = [], storage = new Map(), hash = "", configDraft =
       return byId.get(id) || null;
     },
   });
+  for (const section of sections) section.addEventListener("toggle", () => document.emit("toggle", { target: section }));
+  if (livePage) document.body.dataset = { ...livePage.body.dataset };
   const window = emitter({
     sessionStorage,
     location: { hash, reload() { reloads += 1; } },
     setInterval(callback) { intervals.push(callback); },
-    setTimeout(callback) { timeouts.push(callback); },
+    setTimeout(callback, delay) { callback.delay = delay; timeouts.push(callback); return callback; },
+    clearTimeout(callback) { const index = timeouts.indexOf(callback); if (index >= 0) timeouts.splice(index, 1); },
+    scrollX: 0, scrollY: 0,
+    scrollTo(x, y) { this.scrollX = x; this.scrollY = y; },
   });
   return {
     document,
@@ -75,7 +85,11 @@ function makePage({ sections = [], storage = new Map(), hash = "", configDraft =
     timeouts,
     reloads: () => reloads,
     start() {
-      vm.runInNewContext(appSource, { document, window, fetch: fetchActivity, AbortSignal });
+      vm.runInNewContext(appSource, {
+        document, window, AbortSignal,
+        fetch: (url, options) => url === "/activity" ? fetchActivity(url, options) : fetchDashboard(url, options),
+        DOMParser: class { parseFromString(text) { return parseDashboard(text); } },
+      });
       document.emit("DOMContentLoaded");
     },
     stored() {
@@ -123,14 +137,15 @@ test("uses stable nested identities and leaves new panels at their markup defaul
   assert.deepEqual(page.stored(), { "repo:alpha/pr:17": false, "repo:beta/tag:v2": true });
 });
 
-test("captures a pending details change before automatic reload", () => {
+test("captures section changes without reloading the page", () => {
   const section = makeDetails({ id: "release-configuration", open: true });
   const page = makePage({ storage: savedState({ "release-configuration": false }), sections: [section] });
   page.start();
   section.open = true;
-  page.intervals[0]();
+  section.emit("toggle");
   assert.deepEqual(page.stored(), { "release-configuration": true });
-  assert.equal(page.reloads(), 1);
+  assert.equal(page.reloads(), 0);
+  assert.equal(page.intervals.length, 0);
 });
 
 test("saves section state on non-configuration form submission and pagehide", () => {
@@ -150,7 +165,7 @@ test("explicit navigation opens and stores a section; same-hash reload preserves
   const page = makePage({ sections: [target], storage: savedState({ "repo-target": false }) });
   page.links.push(emitter({ hash: "#repo-target" }));
   page.start();
-  page.links[0].emit("click");
+  page.document.emit("click", { target: { closest: () => page.links[0] } });
   assert.equal(target.open, true);
   assert.deepEqual(page.stored(), { "repo-target": true });
 
@@ -192,10 +207,10 @@ test("configuration submission clears only its saved choice while a rejected dra
   assert.equal(draftConfig.open, true);
 });
 
-test("skips automatic reload when session storage cannot save state", () => {
+test("section changes tolerate unavailable session storage", () => {
   const page = makePage({ sections: [makeDetails({ id: "repo-panel", open: true })], storageFails: true });
   page.start();
-  page.intervals[0]();
+  page.document.emit("toggle");
   assert.equal(page.reloads(), 0);
 });
 
@@ -330,4 +345,171 @@ test("activity updates preserve scrolling when session storage is unavailable", 
   text += "new entry\n";
   await page.timeouts.shift()();
   assert.equal(activityLog.scrollTop, 200);
+});
+
+function domNode(tag, attrs = {}, children = []) {
+  const attributes = new Map(Object.entries(attrs));
+  const node = {
+    nodeType: 1, nodeName: tag, tagName: tag, childNodes: [], parentNode: null,
+    dataset: Object.fromEntries(Object.entries(attrs).filter(([key]) => key.startsWith("data-")).map(([key, value]) => [key.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase()), value])),
+    id: attrs.id || "", type: attrs.type || "text", name: attrs.name || "", value: attrs.value || "",
+    checked: "checked" in attrs, disabled: "disabled" in attrs, open: "open" in attrs, isConnected: true,
+    get attributes() { return Array.from(attributes, ([name, value]) => ({ name, value })); },
+    get firstChild() { return this.childNodes[0] || null; },
+    get nextSibling() { return this.parentNode?.childNodes[this.parentNode.childNodes.indexOf(this) + 1] || null; },
+    hasAttribute(name) { return attributes.has(name); },
+    getAttribute(name) { return attributes.get(name) ?? null; },
+    setAttribute(name, value) { attributes.set(name, value); },
+    removeAttribute(name) { attributes.delete(name); },
+    insertBefore(child, before) {
+      child.remove();
+      const index = before ? this.childNodes.indexOf(before) : this.childNodes.length;
+      this.childNodes.splice(index, 0, child);
+      child.parentNode = this;
+    },
+    remove() {
+      if (this.parentNode) this.parentNode.childNodes.splice(this.parentNode.childNodes.indexOf(this), 1);
+      this.parentNode = null;
+    },
+    querySelectorAll(selector) {
+      return this.childNodes.flatMap((child) => [
+        ...(selector === "details" && child.tagName === "DETAILS" || selector === 'input[type="hidden"]' && child.tagName === "INPUT" && child.type === "hidden" ? [child] : []),
+        ...child.querySelectorAll(selector),
+      ]);
+    },
+    cloneNode() { return domNode(tag, Object.fromEntries(attributes), this.childNodes.map((child) => child.cloneNode(true))); },
+    classList: { add() {}, remove() {} },
+  };
+  for (const child of children) node.insertBefore(child, null);
+  return node;
+}
+
+function livePage({ loading = "false", session = "session:1", children = [] } = {}) {
+  const status = domNode("P", { id: "dashboard-refresh-status", "data-live-preserve": "" });
+  const dashboard = domNode("MAIN", { id: "live-dashboard" }, [status, ...children]);
+  const header = domNode("HEADER");
+  return {
+    status, dashboard, header, body: { dataset: { loading, session } },
+    getElementById(id) { return id === "live-dashboard" ? dashboard : null; },
+    querySelector(selector) { return selector === "header" ? header : null; },
+  };
+}
+
+function dashboardPage(initial, options = {}) {
+  let next = initial;
+  const page = makePage({
+    livePage: initial,
+    fetchDashboard: async () => activityResponse("dashboard"),
+    parseDashboard: () => next,
+    ...options,
+  });
+  return Object.assign(page, { updateTo(value) { next = value; } });
+}
+
+test("updates keyed rows in place, preserves drafts and focus, and applies saved choices to new details", async () => {
+  const original = domNode("ARTICLE", { "data-live-key": "pr:17", class: "pending" });
+  const draft = domNode("INPUT", { name: "version", value: "unsaved" });
+  const config = domNode("SECTION", { id: "configuration-panel", "data-live-preserve": "" }, [draft]);
+  const details = domNode("DETAILS", { id: "pr-selection" }, [original]);
+  const initial = livePage({ loading: "true", children: [config, details] });
+  const page = dashboardPage(initial, { storage: savedState({ "new-evidence": true }), storageFails: false });
+  page.start();
+  await new Promise(setImmediate);
+  page.document.activeElement = draft;
+  details.open = true;
+  page.document.emit("toggle", { target: details });
+  page.updateTo(livePage({ children: [
+    domNode("SECTION", { id: "configuration-panel", "data-live-preserve": "" }),
+    domNode("DETAILS", { id: "pr-selection" }, [
+      domNode("ARTICLE", { "data-live-key": "pr:18" }),
+      domNode("ARTICLE", { "data-live-key": "pr:17", class: "passed" }),
+      domNode("DETAILS", { id: "new-evidence" }),
+    ]),
+  ] }));
+  await page.timeouts.shift()();
+  assert.equal(details.childNodes[1], original);
+  assert.equal(original.getAttribute("class"), "passed");
+  assert.equal(details.open, true);
+  assert.equal(details.childNodes[2].open, true);
+  assert.equal(config.firstChild, draft);
+  assert.equal(draft.value, "unsaved");
+  assert.equal(page.document.activeElement, draft);
+  assert.equal(page.reloads(), 0);
+  assert.equal(page.timeouts[0].delay, 60_000);
+});
+
+test("keeps confirmation only for the same retry action and refreshes hidden generation fields", async () => {
+  const form = (id, generation) => {
+    const node = domNode("FORM", {}, [
+      domNode("INPUT", { type: "hidden", name: "kind", value: "send" }),
+      domNode("INPUT", { type: "hidden", name: "id", value: id }),
+      domNode("INPUT", { type: "hidden", name: "generation", value: generation }),
+      domNode("INPUT", { type: "checkbox", name: "confirm" }),
+    ]);
+    node.id = node.childNodes[1];
+    return node;
+  };
+  const original = form("offer-one", "1");
+  const initial = livePage({ children: [original] });
+  const page = dashboardPage(initial);
+  page.start();
+  await new Promise(setImmediate);
+  const confirmation = original.childNodes[3];
+  confirmation.checked = true;
+  page.document.emit("input", { target: confirmation });
+  page.updateTo(livePage({ children: [form("offer-one", "2")] }));
+  await page.timeouts.shift()();
+  assert.equal(initial.dashboard.childNodes[1], original);
+  assert.equal(confirmation.checked, true);
+  assert.equal(original.childNodes[2].value, "2");
+  page.updateTo(livePage({ children: [form("offer-two", "2")] }));
+  await page.timeouts.shift()();
+  assert.notEqual(initial.dashboard.childNodes[1], original);
+  assert.equal(initial.dashboard.childNodes[1].childNodes[3].checked, false);
+});
+
+test("serializes requests, pauses while hidden, and discards a response after form submission", async () => {
+  let respond;
+  let requests = 0;
+  const initial = livePage({ loading: "true" });
+  const page = dashboardPage(initial, { fetchDashboard: () => { requests++; return new Promise((resolve) => { respond = resolve; }); } });
+  page.start();
+  page.document.emit("visibilitychange");
+  assert.equal(requests, 1);
+  page.document.hidden = true;
+  respond(activityResponse("dashboard"));
+  await new Promise(setImmediate);
+  assert.equal(initial.status.textContent, undefined);
+  assert.equal(page.timeouts[0].delay, 1_000);
+  await page.timeouts.shift()();
+  assert.equal(requests, 1);
+  page.document.hidden = false;
+  page.document.emit("visibilitychange");
+  assert.equal(requests, 2);
+  page.document.emit("submit", { target: { matches: () => false } });
+  respond(activityResponse("dashboard"));
+  await new Promise(setImmediate);
+  assert.equal(initial.status.textContent, undefined);
+  assert.equal(page.reloads(), 0);
+});
+
+test("retains the last results on failure, recovers, and rejects a different server session", async () => {
+  const row = domNode("ARTICLE", { id: "result", class: "last-success" });
+  const initial = livePage({ children: [row] });
+  let fail = true;
+  const page = dashboardPage(initial, { storageFails: true, fetchDashboard: async () => {
+    if (fail) throw new Error("network unavailable");
+    return activityResponse("dashboard");
+  } });
+  page.start();
+  await new Promise(setImmediate);
+  assert.match(initial.status.textContent, /Cannot refresh release data/);
+  assert.equal(initial.dashboard.childNodes[1], row);
+  fail = false;
+  await page.timeouts.shift()();
+  assert.match(initial.status.textContent, /Last updated/);
+  page.updateTo(livePage({ session: "another-server:1" }));
+  await page.timeouts.shift()();
+  assert.match(initial.status.textContent, /Release configuration changed/);
+  assert.equal(initial.dashboard.childNodes[1], row);
 });
