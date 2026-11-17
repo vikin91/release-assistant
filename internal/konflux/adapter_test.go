@@ -147,3 +147,37 @@ func TestObservationFailuresExposeCauseWithoutCredentials(t *testing.T) {
 		t.Fatal("failure cause missing or credentials exposed", plan)
 	}
 }
+
+func TestPublicAdapterPreservesActionableIdentityErrors(t *testing.T) {
+	const checkURL = "https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelinerun/main-17"
+	transport := roundTrip(func(req *http.Request) (*http.Response, error) {
+		status, body := http.StatusOK, ""
+		switch {
+		case req.URL.Host == "api.github.com" && strings.HasSuffix(req.URL.Path, "/pulls/24065"):
+			body = `{"state":"open","head":{"sha":"head"}}`
+		case req.URL.Host == "api.github.com" && strings.HasSuffix(req.URL.Path, "/check-runs"):
+			data, _ := json.Marshal(map[string]any{"check_runs": []map[string]any{{"id": 17, "name": "Red Hat Konflux / main-on-push", "status": "completed", "conclusion": "failure", "details_url": checkURL}}})
+			body = string(data)
+		case req.URL.Host == "api.example.openshiftapps.com":
+			status, body = http.StatusForbidden, `{"message":"User builder cannot get pipelineruns; cluster-secret"}`
+		case req.URL.Host == "tekton-results-tekton-results.apps.example.openshiftapps.com":
+			status, body = http.StatusNotFound, `{"message":"archived PipelineRun main-17 was not found"}`
+		default:
+			t.Fatalf("unexpected request %s", req.URL)
+		}
+		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}}, nil
+	})
+	adapter := New(Config{HTTPClient: &http.Client{Transport: transport}, KonfluxToken: func(context.Context, string) (string, error) { return "cluster-secret", nil }})
+	plan, err := adapter.Plan(t.Context(), release.Target{Repo: "stackrox/stackrox", PR: 24065})
+	if err == nil || plan.Evidence.Fresh() || len(plan.Proposals) != 0 {
+		t.Fatalf("identity failure authorized a retry: plan=%+v error=%v", plan, err)
+	}
+	for _, want := range []string{"identity verification failed for 1 check", `check "Red Hat Konflux / main-on-push" (run 17`, checkURL, "HTTP 403 (Forbidden)", "User builder cannot get pipelineruns", "HTTP 404 (Not Found)", "archived PipelineRun main-17 was not found", "[redacted]"} {
+		if !strings.Contains(plan.Evidence.Error, want) || !strings.Contains(err.Error(), want) {
+			t.Fatalf("lost %q in %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "cluster-secret") || strings.Contains(strings.Join(plan.Warnings, "\n"), "cluster-secret") {
+		t.Fatal("cluster credential leaked in diagnostics")
+	}
+}

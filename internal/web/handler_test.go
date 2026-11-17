@@ -844,3 +844,26 @@ func TestFoldControlsHaveUniqueStableIdentities(t *testing.T) {
 		}
 	}
 }
+
+func TestActivityErrorsKeepSummaryAndPerCheckDetailsTogether(t *testing.T) {
+	message := "PipelineRun identity verification failed for 2 checks (2 API/archive failures):\ncheck build-a (run 17): API: HTTP 403 Forbidden; archive: HTTP 404 Not Found\ncheck build-b (run 18): dial tcp: lookup cluster.example: no such host"
+	snapshot := app.Snapshot{LogEntries: []app.Record{
+		{Decision: "checks-error", Target: release.Target{Repo: "stackrox/stackrox", PR: 24065}, Result: message},
+		{Decision: "github-error", Result: "Error: request timed out"},
+		{Decision: "checks-recovered", Result: "Reads recovered."},
+	}}
+	text := activityText(snapshot)
+	for _, want := range []string{
+		"[checks-error] stackrox/stackrox#24065: Error: PipelineRun identity verification failed for 2 checks",
+		"\n  check build-a (run 17): API: HTTP 403 Forbidden; archive: HTTP 404 Not Found\n  check build-b (run 18): dial tcp: lookup cluster.example: no such host\n",
+		"[github-error]: Error: request timed out",
+		"[checks-recovered]: Reads recovered.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in activity:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "Error: Error:") {
+		t.Fatalf("duplicated severity prefix: %s", text)
+	}
+}

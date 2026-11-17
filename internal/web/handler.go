@@ -175,10 +175,14 @@ func activityText(snapshot app.Snapshot) string {
 			}
 			fmt.Fprintf(&text, " %s", target)
 		}
-		fmt.Fprintf(&text, ": %s\n", entry.Result)
+		result := entry.Result
+		if strings.HasSuffix(entry.Decision, "-error") && !strings.HasPrefix(result, "Error: ") {
+			result = "Error: " + result
+		}
+		fmt.Fprintf(&text, ": %s\n", strings.ReplaceAll(result, "\n", "\n  "))
 	}
 	if snapshot.LogError != "" {
-		fmt.Fprintf(&text, "[log-error] %s\n", snapshot.LogError)
+		fmt.Fprintf(&text, "[log-error] Error: %s\n", strings.ReplaceAll(snapshot.LogError, "\n", "\n  "))
 	}
 	if text.Len() == 0 {
 		if snapshot.Config.Validate() != nil {
