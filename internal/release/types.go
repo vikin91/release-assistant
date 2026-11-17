@@ -214,9 +214,12 @@ func ValidRepo(s string) bool { return repoRE.MatchString(s) && !strings.Contain
 
 // Validate applies identically to CLI and browser configuration.
 func (c Config) Validate() error {
-	major, _, _, ok := Version(c.Version)
+	major, minor, _, ok := Version(c.Version)
 	if !ok || (major != 4 && major != 5) {
 		return fmt.Errorf("ACS version must be a final 4.x or 5.x patch version")
+	}
+	if major == 4 && minor < 10 {
+		return fmt.Errorf("ACS 4.9 and older are not supported")
 	}
 	if !ValidRef(c.Branch) || c.PinningPR < 0 {
 		return fmt.Errorf("an explicit ACS branch and nonnegative pinning PR are required")

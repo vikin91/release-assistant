@@ -44,6 +44,16 @@ func validACS5Config() release.Config {
 	}}
 }
 
+// prefilledConfig mirrors CLI startup for a version with known component streams.
+func prefilledConfig(version string) release.Config {
+	config := release.Config{Version: version}
+	for _, source := range release.DefaultsFor(version) {
+		source.Branch = "release-" + source.Stream
+		config.Components = append(config.Components, source)
+	}
+	return config
+}
+
 func newBrowser(t *testing.T, application *fakeApplication) browser {
 	t.Helper()
 	handler, err := New(application)
@@ -147,12 +157,12 @@ func TestConfigureForACS5OmitsScannerAndForwardsFields(t *testing.T) {
 func TestConfigureForACS4IncludesScanner(t *testing.T) {
 	appFake := &fakeApplication{}
 	b := newBrowser(t, appFake)
-	form := url.Values{"kind": {"configure"}, "version": {"4.8.2"}, "branch": {"release-4.8"}, "fact_repo": {"acme/fact"}, "fact_branch": {"release-3.25"}, "fact_stream": {"3.25"}, "collector_repo": {"acme/collector"}, "collector_branch": {"release-3.25"}, "collector_stream": {"3.25"}, "scanner_repo": {"acme/scanner"}, "scanner_branch": {"release-4.8"}, "scanner_stream": {"4.8"}}
+	form := url.Values{"kind": {"configure"}, "version": {"4.10.2"}, "branch": {"release-4.10"}, "fact_repo": {"acme/fact"}, "fact_branch": {"release-0.2"}, "fact_stream": {"0.2"}, "collector_repo": {"acme/collector"}, "collector_branch": {"release-3.24"}, "collector_stream": {"3.24"}, "scanner_repo": {"acme/scanner"}, "scanner_branch": {"release-2.39"}, "scanner_stream": {"2.39"}}
 	if w := b.post(form); w.Code != http.StatusSeeOther {
 		t.Fatalf("configure status=%d body=%s", w.Code, w.Body.String())
 	}
 	config := appFake.actions[0].Config
-	if len(config.Components) != 3 || config.Components[2] != (release.Source{Name: "scanner", Repo: "acme/scanner", Branch: "release-4.8", Stream: "4.8"}) {
+	if len(config.Components) != 3 || config.Components[2] != (release.Source{Name: "scanner", Repo: "acme/scanner", Branch: "release-2.39", Stream: "2.39"}) {
 		t.Fatalf("config=%+v", config)
 	}
 	if err := config.Validate(); err != nil {
@@ -627,26 +637,62 @@ func TestPinningPRFieldExplainsAndConstrainsNumberInput(t *testing.T) {
 	}
 }
 
-func TestComponentStreamsArePrefilledAndBranchesAreReadOnly(t *testing.T) {
-	b := newBrowser(t, &fakeApplication{})
+func TestVersionDefaultsPrefillStreamsBranchesAndScannerRepository(t *testing.T) {
+	for name, tc := range map[string]struct {
+		version     string
+		streams     map[string]string
+		scannerRepo string
+	}{
+		"ACS 4.10 includes scanner": {"4.10.12", map[string]string{"fact": "0.2", "collector": "3.24", "scanner": "2.39"}, "stackrox/scanner"},
+		"ACS 4.11 includes scanner": {"4.11.3", map[string]string{"fact": "0.3", "collector": "3.25", "scanner": "2.40"}, "stackrox/scanner"},
+		"ACS 5.1 omits scanner":     {"5.1.0", map[string]string{"fact": "0.5", "collector": "3.27", "scanner": ""}, ""},
+		"no CLI version":            {"", map[string]string{"fact": "", "collector": "", "scanner": ""}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			config := prefilledConfig(tc.version)
+			b := newBrowser(t, &fakeApplication{snapshot: app.Snapshot{Config: config}})
+			w := httptest.NewRecorder()
+			b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+			body := w.Body.String()
+			for component, stream := range tc.streams {
+				if got := inputValue(t, body, component+"_stream"); got != stream {
+					t.Errorf("%s stream = %q, want prefilled %q", component, got, stream)
+				}
+				wantBranch := ""
+				if stream != "" {
+					wantBranch = "release-" + stream
+				}
+				if got := inputValue(t, body, component+"_branch"); got != wantBranch {
+					t.Errorf("%s branch = %q, want %q", component, got, wantBranch)
+				}
+				branch := regexp.MustCompile(`<input\b[^>]*\bname="` + component + `_branch"[^>]*>`).FindString(body)
+				if !strings.Contains(branch, " readonly ") {
+					t.Errorf("%s branch must be read-only", component)
+				}
+				if strings.Index(body, `name="`+component+`_repo"`) > strings.Index(body, `name="`+component+`_stream"`) ||
+					strings.Index(body, `name="`+component+`_stream"`) > strings.Index(body, `name="`+component+`_branch"`) {
+					t.Errorf("%s fields must appear in repository, stream, branch order", component)
+				}
+			}
+			if got := inputValue(t, body, "scanner_repo"); got != tc.scannerRepo {
+				t.Errorf("scanner repository = %q, want %q", got, tc.scannerRepo)
+			}
+		})
+	}
+}
+
+func TestBrowserVersionDoesNotReapplyCLIPrefills(t *testing.T) {
+	config := prefilledConfig("4.10.12")
+	config.Version = "5.1.0" // A later browser edit must not re-run the prefill table.
+	b := newBrowser(t, &fakeApplication{snapshot: app.Snapshot{Config: config}})
 	w := httptest.NewRecorder()
 	b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
 	body := w.Body.String()
-	for name, stream := range map[string]string{"fact": "0.4", "collector": "3.26", "scanner": "2.40"} {
-		if got := inputValue(t, body, name+"_stream"); got != stream {
-			t.Errorf("%s stream = %q, want prefilled %q", name, got, stream)
-		}
-		if got := inputValue(t, body, name+"_branch"); got != "release-"+stream {
-			t.Errorf("%s branch = %q", name, got)
-		}
-		branch := regexp.MustCompile(`<input\b[^>]*\bname="` + name + `_branch"[^>]*>`).FindString(body)
-		if !strings.Contains(branch, " readonly ") {
-			t.Errorf("%s branch must be read-only", name)
-		}
-		if strings.Index(body, `name="`+name+`_repo"`) > strings.Index(body, `name="`+name+`_stream"`) ||
-			strings.Index(body, `name="`+name+`_stream"`) > strings.Index(body, `name="`+name+`_branch"`) {
-			t.Errorf("%s fields must appear in repository, stream, branch order", name)
-		}
+	if got := inputValue(t, body, "fact_stream"); got != "0.2" {
+		t.Errorf("fact stream = %q, want the CLI prefill 0.2", got)
+	}
+	if got := inputValue(t, body, "collector_stream"); got != "3.24" {
+		t.Errorf("collector stream = %q, want the CLI prefill 3.24", got)
 	}
 }
 

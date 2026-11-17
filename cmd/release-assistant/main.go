@@ -64,7 +64,8 @@ func run() error {
 	if port < 1 || port > 65535 || options.Poll <= 0 || options.Discovery <= 0 || options.BackoffCap <= 0 || options.Timeout <= 0 || limits.Gap <= 0 || limits.SlowGap <= 0 || limits.Threshold < 1 {
 		return fmt.Errorf("port and timing/threshold settings must be positive and valid")
 	}
-	for _, source := range components {
+	prefilled := applyVersionDefaults(config.Version, components[:])
+	for _, source := range prefilled {
 		if source.Name != "scanner" || source.Branch != "" || source.Stream != "" {
 			config.Components = append(config.Components, source)
 		}
@@ -121,6 +122,29 @@ type (
 		clusterToken                                               func(context.Context, string) (string, error)
 	}
 )
+
+// applyVersionDefaults fills component streams and branches from the CLI version.
+// Explicit component flags win, and the values only seed the initial setup form.
+func applyVersionDefaults(version string, components []release.Source) []release.Source {
+	known := make(map[string]release.Source)
+	for _, source := range release.DefaultsFor(version) {
+		known[source.Name] = source
+	}
+	for i := range components {
+		if fallback, ok := known[components[i].Name]; ok {
+			if components[i].Repo == "" {
+				components[i].Repo = fallback.Repo
+			}
+			if components[i].Stream == "" {
+				components[i].Stream = fallback.Stream
+			}
+		}
+		if components[i].Branch == "" && components[i].Stream != "" {
+			components[i].Branch = "release-" + components[i].Stream
+		}
+	}
+	return components
+}
 
 func loadCredentials(ctx context.Context) credentials { return loadCredentialsFrom(ctx, commandOutput) }
 func loadCredentialsFrom(ctx context.Context, command func(context.Context, string, ...string) string) credentials {

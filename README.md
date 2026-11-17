@@ -13,6 +13,8 @@ go run ./cmd/release-assistant
 
 Open [the local assistant](http://127.0.0.1:8080) and supply the ACS version and target branch, plus each component's repository and major.minor stream. The browser derives its read-only branch as `release-<stream>`; branch overrides remain available through CLI flags. Incomplete configuration shows setup and starts no external monitoring. Browser submissions use the same configuration validation as CLI startup. Scanner is required for ACS 4.x and omitted for ACS 5.x.
 
+Supplying `--version` at startup also pre-fills the component repository, stream, and derived branch from a built-in table: ACS 4.10 uses Fact 0.2, Collector 3.24, and Scanner 2.39; 4.11 uses 0.3, 3.25, and 2.40; 5.0 uses 0.4 and 3.26 without Scanner; later 5.x minors advance Fact and Collector by one. ACS 4.9 and older are rejected. Only CLI startup applies these values. Explicit component flags win, and changing the version in the browser does not re-apply the table.
+
 Saving valid configuration starts discovery immediately. While the first checks run, the page shows Loading release data and refreshes every second to display partial results. After every source completes its first attempt, the page returns to its normal one-minute refresh interval. Unsaved input pauses automatic refresh. The browser tab remembers which sections and evidence panels you open or close across refreshes and form saves. Tag selection and new observations do not change those choices. Saving release configuration may close its own panel.
 
 You can supply the same configuration through flags. This example illustrates explicit inputs; choose streams and branches appropriate to your release:

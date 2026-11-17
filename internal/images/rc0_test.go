@@ -16,7 +16,6 @@ func TestInspectRC0UsesMajorFamilyPatternsAndNormalizedTags(t *testing.T) {
 	}{
 		{version: "4.10.1", count: 10, names: []string{"main", "roxctl", "central-db", "scanner-v4", "scanner-v4-db"}},
 		{version: "4.11.0", count: 10, names: []string{"main", "roxctl", "central-db", "scanner-v4", "scanner-v4-db"}},
-		{version: "4.8.7", count: 10, names: []string{"main", "roxctl", "central-db", "scanner-v4", "scanner-v4-db"}},
 		{version: "5.0.1", count: 6, names: []string{"main", "roxctl", "scanner-v4"}},
 		{version: "5.1.2", count: 6, names: []string{"main", "roxctl", "scanner-v4"}},
 	} {

@@ -97,7 +97,6 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 		ConfiguredSources: make(map[string]release.Source),
 		ConfigForm: url.Values{
 			"version": {snapshot.Config.Version}, "branch": {snapshot.Config.Branch}, "pinning_pr": {""},
-			"fact_stream": {"0.4"}, "collector_stream": {"3.26"}, "scanner_stream": {"2.40"},
 		},
 	}
 	model.Configured = snapshot.Config.Validate() == nil
