@@ -81,6 +81,7 @@ type (
 
 // Discover observes one repository while preserving incomplete evidence.
 func (c *Client) Discover(ctx context.Context, req app.DiscoveryRequest) (release.Repository, error) {
+	ctx = context.WithValue(ctx, discoveryCycleKey{}, &discoveryCycle{reads: map[string]cachedRead{}})
 	result := release.Repository{Source: req.Source}
 	var issues []error
 	base := repoPath(req.Source.Repo)

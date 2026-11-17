@@ -2,6 +2,7 @@
 package github
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -68,7 +69,19 @@ func New(baseURL, token string, httpClient *http.Client) *Client {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, http: &clientCopy}
 }
 
-func (c *Client) get(ctx context.Context, endpoint string, dst any) error {
+func (c *Client) get(ctx context.Context, endpoint string, dst any) (err error) {
+	cycle, _ := ctx.Value(discoveryCycleKey{}).(*discoveryCycle)
+	cacheable := cycle != nil && cacheableObservation(endpoint)
+	var capture bytes.Buffer
+	if cacheable {
+		if read, ok := cycle.reads[endpoint]; ok {
+			if read.err != nil {
+				return read.err
+			}
+			return c.decodeResponse(ctx, endpoint, bytes.NewReader(read.data), dst)
+		}
+		defer func() { cycle.reads[endpoint] = cachedRead{data: capture.Bytes(), err: err} }()
+	}
 	requestURL := c.baseURL + endpoint
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
@@ -83,15 +96,23 @@ func (c *Client) get(ctx context.Context, endpoint string, dst any) error {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &requestError{diagnostic: fmt.Sprintf("GitHub GET %s rejected (HTTP %d): %s", safeEndpoint(req.URL.String(), c.token), resp.StatusCode, httpStatusHint(resp)), problem: fmt.Sprintf("%s (HTTP %d).", httpStatusHint(resp), resp.StatusCode)}
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(dst); err != nil {
+	var body io.Reader = io.LimitReader(resp.Body, 8<<20)
+	if cacheable {
+		body = io.TeeReader(body, &capture)
+	}
+	return c.decodeResponse(ctx, endpoint, body, dst)
+}
+
+func (c *Client) decodeResponse(ctx context.Context, endpoint string, body io.Reader, dst any) error {
+	if err := json.NewDecoder(body).Decode(dst); err != nil {
 		if ctx.Err() != nil {
 			err = ctx.Err()
 		}
 		_, networkFailure := errors.AsType[net.Error](err)
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || networkFailure {
-			return &requestError{diagnostic: fmt.Sprintf("GitHub GET %s response unavailable: %s", safeEndpoint(req.URL.String(), c.token), safeTransportCause(err)), problem: transportProblem(err), cause: safeTransportCause(err)}
+			return &requestError{diagnostic: fmt.Sprintf("GitHub GET %s response unavailable: %s", safeEndpoint(c.baseURL+endpoint, c.token), safeTransportCause(err)), problem: transportProblem(err), cause: safeTransportCause(err)}
 		}
-		return &requestError{diagnostic: fmt.Sprintf("GitHub GET %s response malformed", safeEndpoint(req.URL.String(), c.token)), problem: "GitHub returned an invalid JSON response."}
+		return &requestError{diagnostic: fmt.Sprintf("GitHub GET %s response malformed", safeEndpoint(c.baseURL+endpoint, c.token)), problem: "GitHub returned an invalid JSON response."}
 	}
 	return nil
 }
