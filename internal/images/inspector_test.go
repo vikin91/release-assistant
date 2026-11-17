@@ -81,13 +81,14 @@ func TestInspectValidatesTagsBeforeRegistryAccess(t *testing.T) {
 				return response(http.StatusOK, validImageManifest, nil)
 			}), "", "")
 			inventory, err := inspector.Inspect(t.Context(), configFor(tt.version), map[string]string{"fact": tt.tag, "collector": "0.4.20", "scanner": "4.10.1"})
-			if err == nil || requests != 20 {
-				t.Fatalf("Inspect() err=%v requests=%d, want missing selection and twenty independently resolvable component/RC.0 requests", err, requests)
+			wantError := tt.tag != ""
+			if (err != nil) != wantError || requests != 20 {
+				t.Fatalf("Inspect() err=%v requests=%d, want error=%t and twenty independently resolvable component/RC.0 requests", err, requests, wantError)
 			}
 			if len(inventory.Images) != 12 {
 				t.Fatalf("got %d rows, want all 12 expected image rows", len(inventory.Images))
 			}
-			if inventory.Evidence.Known || inventory.Evidence.Error == "" {
+			if inventory.Evidence.Known || (inventory.Evidence.Error != "") != wantError {
 				t.Fatalf("incomplete expected references were reported complete: %#v", inventory.Evidence)
 			}
 			for _, image := range inventory.Images {

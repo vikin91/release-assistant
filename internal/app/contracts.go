@@ -54,6 +54,8 @@ const (
 	ReadPins
 	// ReadCoverage verifies selected merges against the requested tags.
 	ReadCoverage
+	// ReadPreviousPins observes the component baseline at the previous ACS patch tag.
+	ReadPreviousPins
 )
 
 // Reads distinguishes omitted work from a requested observation.

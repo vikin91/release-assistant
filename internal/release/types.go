@@ -71,6 +71,8 @@ type (
 		// TagsPending distinguishes a resumable inventory from a completed or failed read.
 		TagsPending bool
 		Pins        Pins
+		// PreviousPins records component versions at the preceding ACS patch tag.
+		PreviousPins Pins
 		// PinningPins uses the merge commit for a merged PR and its head otherwise.
 		PinningPins Pins
 		PinningPR   *PR
@@ -153,8 +155,6 @@ type (
 		Choices      Choices
 		Repositories []Repository
 		Inventory    Inventory
-		// SelectionPending withholds readiness until the user finishes PR selection.
-		SelectionPending bool
 	}
 	// Condition explains one readiness predicate and its evidence.
 	Condition struct {
@@ -168,12 +168,18 @@ type (
 		Ready           bool
 		Conditions      []Condition
 		Recommendations []string
-		Commands        string
-		ProposedTags    map[string]string
-		ReleaseGuides   map[string]string
-		Images          []ImageStatus
-		ImageProblem    string
-		Pins            PinSummary
+		// ComponentPRRecommendations guides merge preparation without requiring tags.
+		ComponentPRRecommendations []string
+		// ComponentReleaseRecommendations guides tag selection, builds, and images.
+		ComponentReleaseRecommendations []string
+		// ACSRecommendations guides ACS PRs, pinning, and preparation for RC.0.
+		ACSRecommendations []string
+		Commands           string
+		ProposedTags       map[string]string
+		ReleaseGuides      map[string]string
+		Images             []ImageStatus
+		ImageProblem       string
+		Pins               PinSummary
 	}
 )
 

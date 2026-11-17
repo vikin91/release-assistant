@@ -8,11 +8,49 @@ document.addEventListener("DOMContentLoaded", () => {
     if (saved && typeof saved === "object" && !Array.isArray(saved)) sectionStates = saved;
   } catch {}
 
+  let activeTab = document.body.dataset.activeTab || "component-prs";
+  const tabLinks = () => Array.from(document.querySelectorAll("[data-workflow-tab]"));
+  const activateTab = (tab, historyMode = "") => {
+    const links = tabLinks();
+    if (!links.some((link) => link.dataset.workflowTab === tab)) return;
+    activeTab = tab;
+    document.body.dataset.activeTab = tab;
+    for (const link of links) {
+      const selected = link.dataset.workflowTab === tab;
+      link.setAttribute("aria-selected", selected ? "true" : "false");
+      link.setAttribute("tabindex", selected ? "0" : "-1");
+    }
+    for (const panel of document.querySelectorAll("[data-workflow-panel]")) panel.hidden = panel.dataset.workflowPanel !== tab;
+    // Shared forms return to the activity the reader is using.
+    for (const input of document.querySelectorAll("#configuration-panel input[name=tab], #retry-settings input[name=tab]")) input.value = tab;
+    if (historyMode) window.history[historyMode](null, "", `/?tab=${tab}`);
+  };
+  const revealTab = (element) => {
+    const panel = element?.closest?.("[data-workflow-panel]");
+    if (panel && panel.dataset.workflowPanel !== activeTab) {
+      const hash = window.location.hash;
+      activateTab(panel.dataset.workflowPanel, "replaceState");
+      if (hash) window.history.replaceState(null, "", `/?tab=${activeTab}${hash}`);
+    }
+  };
+  document.addEventListener("keydown", (event) => {
+    const link = event.target.closest("[data-workflow-tab]");
+    if (!link || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const links = tabLinks();
+    const index = links.indexOf(link);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? links.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + links.length) % links.length;
+    event.preventDefault();
+    activateTab(links[next].dataset.workflowTab, "pushState");
+    links[next].focus();
+  });
+  window.addEventListener("popstate", () => activateTab(new URLSearchParams(window.location.search).get("tab") || "component-prs"));
+  activateTab(activeTab);
+
   const configDraft = document.querySelector("[data-config-draft]") !== null;
   let configSubmitted = false;
   const restoreSection = (section) => {
     const key = sectionKey(section);
-    if (key === "release-configuration" && configDraft) return;
+    if (key === "release-configuration" && (configDraft || document.body.dataset.configured === "false")) return;
     if (typeof sectionStates[key] === "boolean") section.open = sectionStates[key];
   };
   sections().forEach(restoreSection);
@@ -37,17 +75,33 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   const openSection = (section) => {
+    revealTab(section);
     if (section && section.tagName === "DETAILS") {
       section.open = true;
       saveSections();
     }
   };
   document.addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-workflow-tab]");
+    if (tab?.dataset?.workflowTab && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && (!event.button || event.button === 0)) {
+      event.preventDefault();
+      activateTab(tab.dataset.workflowTab, "pushState");
+      return;
+    }
     const link = event.target.closest("[data-open-section]");
-    if (link) openSection(document.getElementById(link.hash.slice(1)));
+    if (link && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+      const section = document.getElementById(link.hash.slice(1));
+      openSection(section);
+      if (section) {
+        event.preventDefault();
+        if (window.history) window.history.replaceState(null, "", `/?tab=${activeTab}${link.hash}`);
+        section.scrollIntoView?.({ block: "start" });
+      }
+    }
   });
   window.addEventListener("hashchange", () => openSection(document.getElementById(window.location.hash.slice(1))));
   const linkedSection = document.getElementById(window.location.hash.slice(1));
+  revealTab(linkedSection);
   if (linkedSection && !Object.hasOwn(sectionStates, sectionKey(linkedSection))) openSection(linkedSection);
 
   const activityLog = document.getElementById("activity-log");
@@ -146,7 +200,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (node.tagName === "INPUT") return `${node.type}:${node.name}`;
     // Form identity binds local edits to the exact target and proposed action.
     if (node.tagName === "FORM") return JSON.stringify(Array.from(node.querySelectorAll('input[type="hidden"]'))
-      .filter((input) => input.name !== "csrf" && input.name !== "generation")
+      .filter((input) => !["csrf", "generation", "tab"].includes(input.name))
       .map((input) => [input.name, input.value]));
     return "";
   };
@@ -206,7 +260,7 @@ document.addEventListener("DOMContentLoaded", () => {
     dashboardRefreshing = true;
     try {
       if (document.hidden || submitting) return;
-      const response = await fetch("/", { cache: "no-store", signal: AbortSignal.timeout(5_000) });
+      const response = await fetch(`/?tab=${activeTab}`, { cache: "no-store", signal: AbortSignal.timeout(5_000) });
       if (!response.ok) throw new Error("Dashboard request failed");
       const incoming = new DOMParser().parseFromString(await response.text(), "text/html");
       const nextDashboard = incoming.getElementById("live-dashboard");
@@ -221,6 +275,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const scrollY = window.scrollY;
       patch(document.querySelector("header"), incoming.querySelector("header"));
       patch(dashboard, nextDashboard);
+      activateTab(activeTab);
       if (active && active.isConnected && document.activeElement !== active) active.focus({ preventScroll: true });
       window.scrollTo(scrollX, scrollY);
       document.body.dataset.loading = incoming.body.dataset.loading;

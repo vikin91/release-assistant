@@ -58,18 +58,27 @@ func Assess(in Input) Assessment {
 			evidence = []Evidence{repo.Evidence, pr.Evidence}
 		}
 		add("included PR "+target.String(), status, reason, evidence...)
+		if status != Yes {
+			recommendation := includedPRRecommendation(target, pr, status, reason)
+			if target.Repo == in.Config.ACS().Repo {
+				a.ACSRecommendations = append(a.ACSRecommendations, recommendation)
+			} else {
+				a.ComponentPRRecommendations = append(a.ComponentPRRecommendations, recommendation)
+			}
+		}
+	}
+	if len(a.ComponentPRRecommendations) == 0 {
+		a.ComponentPRRecommendations = append(a.ComponentPRRecommendations, "Review component PRs for this patch and include the changes you want to merge. Tags can be selected later; an empty PR selection is valid.")
 	}
 
 	chosenVersions := make(map[string]string, len(in.Config.Components))
 	tagStatuses := make(map[string]Truth, len(in.Config.Components))
-	chosenTags := make(map[string]Tag, len(in.Config.Components))
 	for _, source := range in.Config.Components {
 		repo, found := repos[source.Name]
 		confirmed := in.Choices.Tags[source.Name]
 		status, reason, tag, tagFound := assessComponentTag(source, repo, found, included, prStates, confirmed)
 		tagStatuses[source.Name] = status
 		if tagFound {
-			chosenTags[source.Name] = tag
 			if version, ok := tagVersion(source, tag.Name); ok {
 				chosenVersions[source.Name] = version
 			}
@@ -100,6 +109,9 @@ func Assess(in Input) Assessment {
 			continue
 		}
 		add("image "+image.Image.Component+" "+image.Image.Family, image.Status, image.Reason, image.Image.Evidence)
+		if in.Choices.Tags[image.Image.Component] != "" && image.Status != Yes {
+			a.ComponentReleaseRecommendations = append(a.ComponentReleaseRecommendations, componentImageRecommendation(image))
+		}
 	}
 	if a.ImageProblem != "" {
 		add("component images", "", a.ImageProblem, imageEvidence...)
@@ -111,18 +123,24 @@ func Assess(in Input) Assessment {
 		pinEvidence = []Evidence{{Known: acs.Evidence.Known, At: acs.Evidence.At}, acs.Pins.Evidence}
 	}
 	add("ACS release branch pins", a.Pins.BranchStatus, a.Pins.BranchReason, pinEvidence...)
+	missingTags := false
+	for _, source := range in.Config.Components {
+		missingTags = missingTags || in.Choices.Tags[source.Name] == ""
+	}
+	if missingTags {
+		a.ACSRecommendations = append(a.ACSRecommendations, "Select component tags in Component releases when ready to prepare pinning. ACS PR work can continue while you prepare component releases.")
+	}
+	if a.Pins.BranchStatus == No {
+		a.ACSRecommendations = append(a.ACSRecommendations, "Review ACS release branch pins: "+strings.TrimSuffix(a.Pins.BranchReason, ".")+".")
+	} else if a.Pins.BranchStatus == "" && (!missingTags || repos["acs"].Pins.Evidence.Error != "") {
+		a.ACSRecommendations = append(a.ACSRecommendations, "Review ACS release branch pin discovery: "+strings.TrimSuffix(a.Pins.BranchReason, ".")+".")
+	}
 
 	assessPinningPR(&a, in, chosenVersions, tagStatuses, imageStatus)
 	for _, repo := range in.Repositories {
 		if repo.PreviousPublished == Yes && repo.Source.Name == "acs" && noOutstandingACSPR(repo) {
-			a.Recommendations = append(a.Recommendations, "The previous ACS patch is published and no remaining PRs were observed; a new patch may be unnecessary. This is tentative advice, not a release gate.")
+			a.ACSRecommendations = append(a.ACSRecommendations, "The previous ACS patch is published and no remaining PRs were observed; a new patch may be unnecessary. This is tentative advice, not a release gate.")
 		}
-	}
-
-	if in.SelectionPending {
-		add("PR selection", "", "Confirm component tags and finish PR selection before build verification.")
-		a.Commands = ""
-		a.Recommendations = append([]string{"Confirm component tags and finish PR selection before build verification."}, a.Recommendations...)
 	}
 	a.Ready = len(a.Conditions) > 0
 	for _, condition := range a.Conditions {
@@ -132,36 +150,36 @@ func Assess(in Input) Assessment {
 		}
 	}
 	if a.Ready {
-		a.Recommendations = append(a.Recommendations, "Ready for ACS RC.0 based on the current included PRs, selected component tags, images, and release branch pins. Continue monitoring for changes.")
-	} else if len(a.Recommendations) == 0 {
-		a.Recommendations = append(a.Recommendations, outstandingRecommendations(a.Conditions)...)
+		a.ACSRecommendations = append(a.ACSRecommendations, "Ready for ACS RC.0 based on the current included PRs, selected component tags, images, and release branch pins. Continue monitoring for changes.")
 	}
+	if len(a.ACSRecommendations) == 0 {
+		a.ACSRecommendations = append(a.ACSRecommendations, "Review ACS backports and dependency updates for this patch. Additional ACS PRs can be included and merged after pinning.")
+	}
+	a.Recommendations = append(a.Recommendations, a.ComponentPRRecommendations...)
+	a.Recommendations = append(a.Recommendations, a.ComponentReleaseRecommendations...)
+	a.Recommendations = append(a.Recommendations, a.ACSRecommendations...)
 	return a
 }
 
-func outstandingRecommendations(conditions []Condition) []string {
-	var recommendations []string
-	for _, condition := range conditions {
-		if condition.Status == Yes {
-			continue
-		}
-
-		switch {
-		case strings.HasPrefix(condition.Name, "image "):
-			if condition.Status == No {
-				recommendations = append(recommendations, "Wait for or investigate required component images: "+condition.Reason+".")
-			} else {
-				recommendations = append(recommendations, "Refresh component image observations and registry access: "+condition.Reason+".")
-			}
-		case condition.Name == "ACS release branch pins":
-			recommendations = append(recommendations, "Review ACS release branch pin discovery: "+condition.Reason+".")
-		case condition.Status == "":
-			recommendations = append(recommendations, fmt.Sprintf("Refresh the evidence for %s because its current state is unknown: %s.", condition.Name, condition.Reason))
-		default:
-			recommendations = append(recommendations, fmt.Sprintf("Address %s: %s.", condition.Name, condition.Reason))
-		}
+func includedPRRecommendation(target Target, pr PR, status Truth, reason string) string {
+	if status == "" {
+		return fmt.Sprintf("Refresh the evidence for included PR %s: %s.", target, reason)
 	}
-	return recommendations
+	if strings.EqualFold(pr.State, "closed") && !pr.Merged {
+		return fmt.Sprintf("Included PR %s is closed without merging. Reopen it or exclude it from this patch.", target)
+	}
+	if strings.EqualFold(pr.State, "open") && strings.HasPrefix(reason, "Included PR is open") {
+		return fmt.Sprintf("Review the checks for included PR %s and merge it into %s when ready.", target, pr.Base)
+	}
+	return fmt.Sprintf("Review included PR %s: %s.", target, reason)
+}
+
+func componentImageRecommendation(image ImageStatus) string {
+	reason := strings.TrimSuffix(image.Reason, ".")
+	if image.Status == No {
+		return "Wait for or investigate required component images: " + reason + "."
+	}
+	return "Refresh component image observations and registry access: " + reason + "."
 }
 
 func includedTargets(choices map[Target]Choice) []Target {
@@ -219,15 +237,21 @@ func assessIncludedPR(config Config, target Target, pr PR, repo Repository, foun
 		configured = true
 	}
 	if !configured {
-		return No, fmt.Sprintf("PR targets %q, not a configured component release branch", pr.Base)
+		return No, fmt.Sprintf("PR targets %q, not its configured release branch", pr.Base)
 	}
 	if pr.Merged {
 		if pr.MergeSHA == "" {
 			return "", "PR is marked merged but its merge commit is unknown"
 		}
+		if target.Repo == acs.Repo {
+			return Yes, "Included PR is merged into its configured ACS release branch"
+		}
 		return Yes, "Included PR is merged into its configured component branch"
 	}
 	if strings.EqualFold(pr.State, "open") {
+		if target.Repo == acs.Repo {
+			return No, "Included PR is open; review its checks and merge it into the ACS release branch"
+		}
 		return No, "Included PR is open; wait for its merge and a tag covering the merge"
 	}
 	if strings.EqualFold(pr.State, "closed") {
@@ -238,7 +262,7 @@ func assessIncludedPR(config Config, target Target, pr PR, repo Repository, foun
 
 func assessComponentTag(source Source, repo Repository, found bool, included []Target, prStates map[Target]Truth, confirmed string) (Truth, string, Tag, bool) {
 	if confirmed == "" {
-		return "", "No component tag is confirmed for this session", Tag{}, false
+		return "", "No component tag is selected for this release yet. Component PRs can be prepared and merged before selecting a tag", Tag{}, false
 	}
 	if !found || !repo.Evidence.Fresh() || repo.Head == "" {
 		return "", "Component branch head or discovery evidence is not fresh", Tag{}, false
@@ -847,7 +871,7 @@ func assessPinningPR(a *Assessment, in Input, versions map[string]string, tagSta
 		prProblem += ": " + strings.Join(a.Pins.PRProblems, "; ")
 	}
 	if in.Config.PinningPR > 0 && (acs.PinningPR == nil || acs.PinningPR.Target.PR != in.Config.PinningPR) {
-		a.Recommendations = append(a.Recommendations, prProblem)
+		a.ACSRecommendations = append(a.ACSRecommendations, prProblem)
 		return
 	}
 	if acs.PinningPR == nil {
@@ -863,9 +887,9 @@ func assessPinningPR(a *Assessment, in Input, versions map[string]string, tagSta
 		if pinningReady(in, versions, tagStatuses) {
 			commands := pinningCommands(in.Config, acs.Pins.Paths, acs.Pins.Versions, versions, 0)
 			if commands == "" {
-				a.Recommendations = append(a.Recommendations, "Component versions and both image families are ready, but verified pin paths or current pin values are incomplete; refresh ACS pin discovery before generating update commands.")
+				a.ACSRecommendations = append(a.ACSRecommendations, "Component versions and both image families are ready, but verified pin paths or current pin values are incomplete; refresh ACS pin discovery before generating update commands.")
 			} else {
-				a.Recommendations = append(a.Recommendations, "Component versions and both image families are ready; create an ACS pinning PR using the generated commands.")
+				a.ACSRecommendations = append(a.ACSRecommendations, "Component versions and both image families are ready; create an ACS pinning PR using the generated commands.")
 				a.Commands = commands
 			}
 		}
@@ -873,7 +897,7 @@ func assessPinningPR(a *Assessment, in Input, versions map[string]string, tagSta
 	}
 	pr := *acs.PinningPR
 	if pr.Target.Repo != in.Config.ACS().Repo || pr.Target.PR <= 0 || pr.Base != in.Config.Branch {
-		a.Recommendations = append(a.Recommendations, prProblem)
+		a.ACSRecommendations = append(a.ACSRecommendations, prProblem)
 		return
 	}
 	if acs.Pins.Evidence.Fresh() && pinsMatch(acs.Pins.Versions, versions, in.Config.Components) {
@@ -881,19 +905,19 @@ func assessPinningPR(a *Assessment, in Input, versions map[string]string, tagSta
 	}
 	if strings.EqualFold(pr.State, "open") {
 		if !pr.Evidence.Fresh() || !acs.PinningPins.Evidence.Fresh() {
-			a.Recommendations = append(a.Recommendations, prProblem)
+			a.ACSRecommendations = append(a.ACSRecommendations, prProblem)
 			return
 		}
 		if pinsMatch(acs.PinningPins.Versions, versions, in.Config.Components) {
-			a.Recommendations = append(a.Recommendations, "The open pinning PR already proposes the confirmed component versions; wait for it to merge. Actual release branch pins remain the readiness condition.")
+			a.ACSRecommendations = append(a.ACSRecommendations, "The open pinning PR already proposes the confirmed component versions; wait for it to merge. Actual release branch pins remain the readiness condition.")
 			return
 		}
 		if imageStatus == Yes && pinningReady(in, versions, tagStatuses) {
 			commands := pinningCommands(in.Config, acs.Pins.Paths, acs.PinningPins.Versions, versions, pr.Target.PR)
 			if commands == "" {
-				a.Recommendations = append(a.Recommendations, "Update the existing pinning PR only after refreshing its per-file versions and verified paths; safe version edit commands cannot be generated from current evidence.")
+				a.ACSRecommendations = append(a.ACSRecommendations, "Update the existing pinning PR only after refreshing its per-file versions and verified paths; safe version edit commands cannot be generated from current evidence.")
 			} else {
-				a.Recommendations = append(a.Recommendations, "Update the existing open ACS pinning PR with the current confirmed component versions.")
+				a.ACSRecommendations = append(a.ACSRecommendations, "Update the existing open ACS pinning PR with the current confirmed component versions.")
 				a.Commands = commands
 			}
 		}
@@ -902,7 +926,7 @@ func assessPinningPR(a *Assessment, in Input, versions map[string]string, tagSta
 	if (pr.Merged || strings.EqualFold(pr.State, "closed")) && pr.Evidence.Fresh() && imageStatus == Yes && pinningReady(in, versions, tagStatuses) {
 		commands := pinningCommands(in.Config, acs.Pins.Paths, acs.Pins.Versions, versions, 0)
 		if commands != "" {
-			a.Recommendations = append(a.Recommendations, "The supplied pinning PR is merged; create a new ACS pinning PR if the actual branch pins still need the current component versions.")
+			a.ACSRecommendations = append(a.ACSRecommendations, "The supplied pinning PR is merged; create a new ACS pinning PR if the actual branch pins still need the current component versions.")
 			a.Commands = commands
 		}
 	}
@@ -910,6 +934,7 @@ func assessPinningPR(a *Assessment, in Input, versions map[string]string, tagSta
 
 func addTagRecommendations(a *Assessment, in Input, included []Target, prStates map[Target]Truth, tagStatuses map[string]Truth) {
 	for _, source := range in.Config.Components {
+		a.ReleaseGuides[source.Name] = componentReleaseGuide(source.Name)
 		confirmed := in.Choices.Tags[source.Name]
 		proposed := a.ProposedTags[source.Name]
 		status := tagStatuses[source.Name]
@@ -921,45 +946,48 @@ func addTagRecommendations(a *Assessment, in Input, included []Target, prStates 
 				}
 			}
 		}
-		if repo, ok := findRepository(in.Repositories, source.Name); ok && repo.Evidence.Fresh() && ((status == No && proposalStatus != Yes) || (confirmed == "" && proposed == "")) {
-			a.ReleaseGuides[source.Name] = componentReleaseGuide(source.Name)
+		if hasOpenIncludedPR(source, in.Repositories, included, prStates) {
+			a.ComponentReleaseRecommendations = append(a.ComponentReleaseRecommendations, fmt.Sprintf("Wait for the included %s PRs to merge, then select an existing tag that covers their merge commits or cut a new tag and trigger its component release using the release guide.", source.Name))
+			continue
 		}
 		if status == "" {
 			if confirmed == "" && proposed != "" {
-				a.Recommendations = append(a.Recommendations, tagProposalText(source, proposed, proposalStatus))
+				a.ComponentReleaseRecommendations = append(a.ComponentReleaseRecommendations, tagProposalText(source, proposed, proposalStatus))
+			} else if confirmed == "" {
+				a.ComponentReleaseRecommendations = append(a.ComponentReleaseRecommendations, fmt.Sprintf("No %s tag is selected yet. After reviewing component PRs, select a suitable existing %s-stream tag or cut a new tag and trigger its component release using the release guide.", source.Name, source.Stream))
+			} else {
+				a.ComponentReleaseRecommendations = append(a.ComponentReleaseRecommendations, fmt.Sprintf("Refresh branch ancestry and selected-PR coverage for %s tag %s before preparing ACS pinning.", source.Name, confirmed))
 			}
 			continue
 		}
 		if status == Yes {
 			if proposed != "" && proposed != confirmed {
 				if proposalStatus == Yes {
-					a.Recommendations = append(a.Recommendations, fmt.Sprintf("A newer suitable %s tag (%s) is available. The confirmed tag remains %s; review and confirm a switch only if intended.", source.Name, proposed, confirmed))
+					a.ComponentReleaseRecommendations = append(a.ComponentReleaseRecommendations, fmt.Sprintf("A newer suitable %s tag (%s) is available. The confirmed tag remains %s; review and confirm a switch only if intended.", source.Name, proposed, confirmed))
 				} else {
-					a.Recommendations = append(a.Recommendations, tagProposalText(source, proposed, proposalStatus))
+					a.ComponentReleaseRecommendations = append(a.ComponentReleaseRecommendations, tagProposalText(source, proposed, proposalStatus))
 				}
 			}
-			continue
-		}
-		if hasOpenIncludedPR(source, in.Repositories, included, prStates) {
-			a.Recommendations = append(a.Recommendations, fmt.Sprintf("Wait for the included %s PRs to merge, then confirm a tag that covers their merge commits.", source.Name))
 			continue
 		}
 		if proposed != "" {
 			if confirmed == "" {
-				a.Recommendations = append(a.Recommendations, tagProposalText(source, proposed, proposalStatus))
+				a.ComponentReleaseRecommendations = append(a.ComponentReleaseRecommendations, tagProposalText(source, proposed, proposalStatus))
 			} else if proposed != confirmed {
 				if proposalStatus == Yes {
-					a.Recommendations = append(a.Recommendations, fmt.Sprintf("Confirmed %s tag %s does not cover the selected scope. Review and confirm eligible tag %s; the assessment will not switch tags automatically.", source.Name, confirmed, proposed))
+					a.ComponentReleaseRecommendations = append(a.ComponentReleaseRecommendations, fmt.Sprintf("Confirmed %s tag %s does not cover the selected scope. Review and confirm eligible tag %s; the assessment will not switch tags automatically.", source.Name, confirmed, proposed))
 				} else {
-					a.Recommendations = append(a.Recommendations, tagProposalText(source, proposed, proposalStatus))
+					a.ComponentReleaseRecommendations = append(a.ComponentReleaseRecommendations, tagProposalText(source, proposed, proposalStatus))
 				}
+			} else {
+				a.ComponentReleaseRecommendations = append(a.ComponentReleaseRecommendations, fmt.Sprintf("Selected %s tag %s does not cover the selected changes. Cut a covering tag on %s and trigger its component release using the release guide, then select the new tag.", source.Name, confirmed, source.Branch))
 			}
 			continue
 		}
 		if confirmed == "" {
-			a.Recommendations = append(a.Recommendations, fmt.Sprintf("No eligible final tag in %s stream %s was observed. After selected PRs merge, review component tags at https://github.com/%s/tags and confirm a tag that belongs to the configured branch.", source.Name, source.Stream, source.Repo))
+			a.ComponentReleaseRecommendations = append(a.ComponentReleaseRecommendations, fmt.Sprintf("No eligible final tag in %s stream %s was observed. After selected PRs merge, cut a tag on %s and trigger its component release using the release guide, then select it at https://github.com/%s/tags.", source.Name, source.Stream, source.Branch, source.Repo))
 		} else {
-			a.Recommendations = append(a.Recommendations, fmt.Sprintf("Confirmed %s tag %s is not suitable and no newer eligible tag is available. After selected PRs merge, review component tags at https://github.com/%s/tags and confirm one that covers the selected changes.", source.Name, confirmed, source.Repo))
+			a.ComponentReleaseRecommendations = append(a.ComponentReleaseRecommendations, fmt.Sprintf("Selected %s tag %s is not suitable and no newer eligible tag is available. After selected PRs merge, cut a covering tag on %s and trigger its component release using the release guide, then select the new tag.", source.Name, confirmed, source.Branch))
 		}
 	}
 }
@@ -967,9 +995,9 @@ func addTagRecommendations(a *Assessment, in Input, included []Target, prStates 
 func tagProposalText(source Source, tag string, suitability Truth) string {
 	switch suitability {
 	case Yes:
-		return fmt.Sprintf("Confirm %s tag %s, the highest eligible final tag in stream %s that covers the selected merged changes.", source.Name, tag, source.Stream)
+		return fmt.Sprintf("Existing %s tag %s covers the selected merged changes. Select it to use that version, or prepare a newer tag and trigger its component release using the release guide.", source.Name, tag)
 	case No:
-		return fmt.Sprintf("Tag %s is the highest final %s-stream tag observed on the branch, but it does not cover the selected merged changes. Review component tags at https://github.com/%s/tags after the changes are covered.", tag, source.Name, source.Repo)
+		return fmt.Sprintf("Tag %s is the highest final %s-stream tag observed on the branch, but it does not cover the selected merged changes. Cut a covering tag on %s and trigger its component release using the release guide, then select it at https://github.com/%s/tags.", tag, source.Name, source.Branch, source.Repo)
 	default:
 		return fmt.Sprintf("Tag %s is the highest final %s-stream tag observed on the branch, but its coverage of selected changes is unknown. Refresh ancestry and merge containment before confirming it.", tag, source.Name)
 	}

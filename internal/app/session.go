@@ -45,9 +45,6 @@ type (
 		LogEntries      []Record
 		// Loading remains true until every source completes its first refresh attempt.
 		Loading bool
-		// Phase identifies the next release decision receiving background work.
-		Phase                             string
-		SelectionComplete, SelectionReady bool
 	}
 	// Action is a typed browser or CLI session decision.
 	Action struct {
@@ -61,30 +58,27 @@ type (
 	}
 	// Session owns release observations. Dispatcher alone owns write grants.
 	Session struct {
-		mu                sync.Mutex
-		config            release.Config
-		choices           release.Choices
-		repos             map[string]release.Repository
-		plans             map[release.Target]release.Plan
-		inventory         release.Inventory
-		confirmedSHAs     map[string]string
-		tagInitialized    map[string]bool
-		initiallyLoaded   map[string]bool
-		tagsLoaded        map[string]bool
-		prLoaded          map[string]bool
-		selectionComplete bool
-		workRevision      uint64
-		readErrors        map[string]string
-		generation        uint64
-		errorText         string
-		discovery         Discoverer
-		planner           Planner
-		images            Inspector
-		dispatcher        *dispatch.Dispatcher
-		log               *Log
-		options           Options
-		changed           chan struct{}
-		history           []Cycle
+		mu              sync.Mutex
+		config          release.Config
+		choices         release.Choices
+		repos           map[string]release.Repository
+		plans           map[release.Target]release.Plan
+		inventory       release.Inventory
+		confirmedSHAs   map[string]string
+		tagInitialized  map[string]bool
+		initiallyLoaded map[string]bool
+		workRevision    uint64
+		readErrors      map[string]string
+		generation      uint64
+		errorText       string
+		discovery       Discoverer
+		planner         Planner
+		images          Inspector
+		dispatcher      *dispatch.Dispatcher
+		log             *Log
+		options         Options
+		changed         chan struct{}
+		history         []Cycle
 	}
 )
 
@@ -120,9 +114,6 @@ func (s *Session) reset() {
 	s.confirmedSHAs = map[string]string{}
 	s.tagInitialized = map[string]bool{}
 	s.initiallyLoaded = map[string]bool{}
-	s.tagsLoaded = map[string]bool{}
-	s.prLoaded = map[string]bool{}
-	s.selectionComplete = false
 	s.workRevision++
 	s.readErrors = map[string]string{}
 	s.inventory = release.Inventory{}
@@ -203,9 +194,6 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		s.config = a.Config
 		s.config.Components = slices.Clone(a.Config.Components)
 		s.initiallyLoaded = map[string]bool{}
-		s.tagsLoaded = map[string]bool{}
-		s.prLoaded = map[string]bool{}
-		s.selectionComplete = false
 		s.workRevision++
 		s.errorText = ""
 		s.record(release.Target{}, "", "configure", "", "new selection context", "user")
@@ -225,9 +213,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		if a.Choice == release.Ignored || a.Choice == release.Excluded {
 			delete(s.plans, a.Target)
 		}
-		s.selectionComplete = false
 		s.workRevision++
-		s.suspendPlans()
 		s.record(a.Target, a.SHA, "inclusion", "", string(a.Choice), "user")
 		select {
 		case s.changed <- struct{}{}:
@@ -268,18 +254,9 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			return fmt.Errorf("tag evidence changed or eligibility unknown; reload")
 		}
 		if old := s.choices.Tags[a.Component]; old != "" && old != a.Tag {
-			cycle := Cycle{Component: a.Component, Tag: old, SHA: s.confirmedSHAs[a.Component], At: time.Now(), Plan: clonePlan(s.plans[release.Target{Repo: r.Source.Repo, Tag: old}])}
-			for _, image := range s.inventory.Images {
-				if image.Component == a.Component {
-					cycle.Images = append(cycle.Images, image)
-				}
-			}
-			s.history = append(s.history, cycle)
-			s.dispatcher.Ignore(release.Target{Repo: r.Source.Repo, Tag: old}, true)
+			s.archiveTag(a.Component, r.Source.Repo)
 		}
-		s.selectionComplete = false
 		s.workRevision++
-		s.suspendPlans()
 		s.choices.Tags[a.Component] = a.Tag
 		s.confirmedSHAs[a.Component] = a.SHA
 		s.tagInitialized[a.Component] = true
@@ -289,13 +266,24 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		case s.changed <- struct{}{}:
 		default:
 		}
-	case "finish-selection":
-		if !s.selectionReady() {
-			return fmt.Errorf("confirm component tags and load PR inventories before finishing selection")
+	case "clear-tag":
+		var source release.Source
+		for _, candidate := range s.config.Components {
+			if candidate.Name == a.Component {
+				source = candidate
+				break
+			}
 		}
-		s.selectionComplete = true
+		if source.Name == "" {
+			return fmt.Errorf("unknown component")
+		}
+		s.archiveTag(a.Component, source.Repo)
+		delete(s.choices.Tags, a.Component)
+		delete(s.confirmedSHAs, a.Component)
+		s.tagInitialized[a.Component] = true
 		s.workRevision++
-		s.record(release.Target{}, "", "selection-complete", "", "PR selection confirmed; monitoring selected builds and pinning.", "user")
+		s.inventory.ReleaseImages = unverifiedImages(s.inventory.ReleaseImages, "")
+		s.record(release.Target{Repo: source.Repo}, "", "tag-cleared", "", "Preparing a new component tag.", "user", fmt.Sprintf("Preparing a new %s tag. Pull request monitoring continues.", a.Component))
 		select {
 		case s.changed <- struct{}{}:
 		default:
@@ -322,6 +310,26 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 	s.drain()
 	return err
 }
+
+// archiveTag retains a selected cycle and revokes authority when its tag is left.
+// The caller holds the session lock.
+func (s *Session) archiveTag(component, repo string) {
+	tag := s.choices.Tags[component]
+	if tag == "" {
+		return
+	}
+	target := release.Target{Repo: repo, Tag: tag}
+	cycle := Cycle{Component: component, Tag: tag, SHA: s.confirmedSHAs[component], At: time.Now(), Plan: clonePlan(s.plans[target])}
+	for _, image := range s.inventory.Images {
+		if image.Component == component {
+			cycle.Images = append(cycle.Images, image)
+		}
+	}
+	s.history = append(s.history, cycle)
+	s.dispatcher.Ignore(target, true)
+	delete(s.plans, target)
+}
+
 func (s *Session) hasTarget(t release.Target) bool {
 	for _, r := range s.repos {
 		for _, p := range r.PRs {
@@ -348,7 +356,6 @@ func (s *Session) Snapshot() Snapshot {
 	choices.Acknowledged = maps.Clone(choices.Acknowledged)
 	x := Snapshot{
 		Config: c, Choices: choices, Error: s.errorText, Generation: s.generation,
-		Phase: s.phase(), SelectionComplete: s.selectionComplete, SelectionReady: s.selectionReady(),
 		Interactive: s.dispatcher.IsInteractive(), WritesEnabled: s.dispatcher.WritesEnabled(),
 		Authority: s.dispatcher.Views(),
 	}
@@ -395,7 +402,7 @@ func (s *Session) Snapshot() Snapshot {
 		x.LogError = s.log.Error()
 		x.LogEntries = s.log.Recent()
 	}
-	x.Assessment = release.Assess(release.Input{Config: c, Choices: choices, Repositories: x.Repositories, Inventory: x.Inventory, SelectionPending: !s.selectionComplete})
+	x.Assessment = release.Assess(release.Input{Config: c, Choices: choices, Repositories: x.Repositories, Inventory: x.Inventory})
 	return x
 }
 func cloneRepository(r release.Repository) release.Repository {
@@ -410,6 +417,9 @@ func cloneRepository(r release.Repository) release.Repository {
 	r.Pins.Versions = maps.Clone(r.Pins.Versions)
 	r.Pins.Paths = maps.Clone(r.Pins.Paths)
 	r.Pins.Failures = maps.Clone(r.Pins.Failures)
+	r.PreviousPins.Versions = maps.Clone(r.PreviousPins.Versions)
+	r.PreviousPins.Paths = maps.Clone(r.PreviousPins.Paths)
+	r.PreviousPins.Failures = maps.Clone(r.PreviousPins.Failures)
 	r.PinningPins.Versions = maps.Clone(r.PinningPins.Versions)
 	r.PinningPins.Paths = maps.Clone(r.PinningPins.Paths)
 	r.PinningPins.Failures = maps.Clone(r.PinningPins.Failures)
@@ -454,11 +464,6 @@ func (s *Session) Run(ctx context.Context) {
 
 func (s *Session) monitor(ctx context.Context, generation uint64, source release.Source) {
 	var discoverAt time.Time
-	s.mu.Lock()
-	if source.Name != "acs" && s.tagsLoaded[source.Name] && len(s.repos[source.Name].Tags) > 0 && s.phase() == "tags" {
-		discoverAt = time.Now().Add(s.options.Discovery)
-	}
-	s.mu.Unlock()
 	var delay time.Duration
 	failures := 0
 	for {
@@ -495,7 +500,7 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 	}
 }
 
-// Refresh performs an explicit full source cycle. Scheduled refreshes obey release phases.
+// Refresh performs an explicit full source cycle independently of browser navigation.
 func (s *Session) Refresh(ctx context.Context, generation uint64, source release.Source, discover bool) error {
 	return s.refresh(ctx, generation, source, discover, sourceWork{scope: ReadAll, plans: true, images: source.Name == "acs", releaseImages: true})
 }
@@ -515,6 +520,9 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	c := s.config
 	initial := discover && !s.initiallyLoaded[source.Name]
 	request := DiscoveryRequest{Source: source, ConfirmedTag: s.choices.Tags[source.Name], PinningPR: c.PinningPR, Version: c.Version, Scope: work.scope}
+	if work.tagInventory {
+		request.ConfirmedTag = ""
+	}
 	revision := s.workRevision
 	for t, choice := range s.choices.PRs {
 		if t.Repo == source.Repo {
@@ -554,21 +562,26 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		if err != nil {
 			message = err.Error()
 		}
-		s.recordReadResult(release.Target{Repo: source.Repo}, "github", message, discoverySubject(request)+" on "+consoleBranch(source))
+		operation := "github"
+		if work.tagInventory {
+			operation = "tags"
+		}
+		s.recordReadResult(release.Target{Repo: source.Repo}, operation, message, discoverySubject(request)+" on "+consoleBranch(source))
 		if initial {
 			message := discoverySummary(request, r, err != nil || r.TagsPending)
 			s.record(release.Target{Repo: source.Repo}, r.Head, "github-complete", "", fmt.Sprintf("GitHub discovery returned %d PRs and %d tags; complete=%t.", len(r.PRs), len(r.Tags), err == nil && !r.TagsPending), "system", message)
 		}
-		oldPhase := s.phase()
 		old := s.repos[source.Name]
 		if work.scope != ReadAll {
 			r = mergeDiscovery(old, r, request)
 		}
-		if request.Reads(ReadPRs) {
-			s.prLoaded[source.Name] = err == nil
-		}
 		if err != nil && r.Head == "" {
-			r = retainDiscoveryFailure(old, r, err)
+			if work.tagInventory {
+				r = cloneRepository(old)
+				r.TagsPending = true
+			} else {
+				r = retainDiscoveryFailure(old, r, err)
+			}
 		}
 		r.Source = source
 		if err != nil {
@@ -588,6 +601,12 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 					r.PRs = append(r.PRs, p)
 				}
 			}
+		}
+		if request.Reads(ReadPreviousPins) && source.Name == "acs" {
+			s.recordReadResult(release.Target{Repo: source.Repo}, "previous-pins", r.PreviousPins.Evidence.Error, "component versions from the previous ACS release")
+		}
+		if !initial {
+			s.recordDiscoveryChanges(old, r, request)
 		}
 		s.repos[source.Name] = r
 		for _, p := range r.PRs {
@@ -613,9 +632,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 					if tag.SHA != "" && tag.SHA != s.confirmedSHAs[source.Name] {
 						delete(s.choices.Tags, source.Name)
 						delete(s.confirmedSHAs, source.Name)
-						s.selectionComplete = false
 						s.workRevision++
-						s.suspendPlans()
 						select {
 						case s.changed <- struct{}{}:
 						default:
@@ -626,14 +643,6 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			}
 		}
 		if s.initializePinnedTags() {
-			select {
-			case s.changed <- struct{}{}:
-			default:
-			}
-		}
-		if work.scope != ReadAll && oldPhase != s.phase() {
-			s.workRevision++
-			s.suspendPlans()
 			select {
 			case s.changed <- struct{}{}:
 			default:
@@ -859,7 +868,7 @@ func (s *Session) refreshImagesScoped(ctx context.Context, generation uint64, in
 		s.mu.Unlock()
 		return nil
 	}
-	if scheduled && includeRC && (!s.selectionComplete || !s.rcReady()) {
+	if scheduled && includeRC && !s.rcReady() {
 		s.mu.Unlock()
 		return nil
 	}

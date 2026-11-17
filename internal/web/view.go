@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/url"
 	"slices"
 	"strconv"
@@ -13,37 +14,41 @@ import (
 
 type (
 	pageModel struct {
-		Title, CSRF, Error   string
-		Configured           bool
-		Snapshot             app.Snapshot
-		Repos                []repoModel
-		TagRepos             []repoModel
-		TagsSelected         bool
-		TagUpdates           bool
-		Problems             []release.Condition
-		Plans                []planModel
-		Authority            []authorityModel
-		ComponentImages      []imageModel
-		ReleaseImages        []imageModel
-		ACS                  *release.Repository
-		PinPRState           string
-		PinningPR            *prModel
-		PinningCanGrant      bool
-		PinningHealth        release.Truth
-		PinningFailures      []release.Check
-		PinningRetests       []release.Proposal
-		PinningPending       int
-		PinningImages        []pinningImageModel
-		PinningBuildProblems []string
-		History              []historyModel
-		ConfigForm           url.Values
-		ConfiguredSources    map[string]release.Source
-		ConfigDraft          bool
-		ACS4                 bool
+		Title, CSRF, Error                                       string
+		Tab, PRSection, RetrySection, RetryDetails, OfferSection string
+		Guidance                                                 []string
+		Configured                                               bool
+		Snapshot                                                 app.Snapshot
+		Repos                                                    []repoModel
+		TagRepos                                                 []repoModel
+		TagsSelected                                             bool
+		TagUpdates                                               bool
+		Problems                                                 []release.Condition
+		Plans                                                    []planModel
+		Authority                                                []authorityModel
+		ComponentImages                                          []imageModel
+		ReleaseImages                                            []imageModel
+		ACS                                                      *release.Repository
+		PinPRState                                               string
+		PinningPR                                                *prModel
+		PinningCanGrant                                          bool
+		PinningHealth                                            release.Truth
+		PinningFailures                                          []release.Check
+		PinningRetests                                           []release.Proposal
+		PinningPending                                           int
+		PinningImages                                            []pinningImageModel
+		PinningImageSummary                                      string
+		PinningBuildProblems                                     []string
+		History                                                  []historyModel
+		ConfigForm                                               url.Values
+		ConfiguredSources                                        map[string]release.Source
+		ConfigDraft                                              bool
+		ACS4                                                     bool
 	}
 	repoModel struct {
 		Repository  release.Repository
 		PRs         []prModel
+		MergedPRs   []release.PR
 		Tags        []tagModel
 		OtherTags   []tagModel
 		CurrentTag  string
@@ -54,6 +59,7 @@ type (
 		PR          release.PR
 		Choice      release.Choice
 		ChoiceLabel string
+		CanGrant    bool
 		Authority   *dispatch.View
 	}
 	tagModel struct {
@@ -61,6 +67,7 @@ type (
 		Current, Proposed bool
 		Authority         *dispatch.View
 		Component, Repo   string
+		Tab               string
 		CSRF              string
 		Generation        uint64
 		Switch            bool
@@ -93,7 +100,7 @@ type (
 
 func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 	model := pageModel{
-		CSRF: csrf, Error: errText, Snapshot: snapshot,
+		CSRF: csrf, Error: errText, Snapshot: snapshot, Tab: "component-prs",
 		ConfiguredSources: make(map[string]release.Source),
 		ConfigForm: url.Values{
 			"version": {snapshot.Config.Version}, "branch": {snapshot.Config.Branch}, "pinning_pr": {""},
@@ -191,13 +198,17 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 		}
 		model.PinningCanGrant = snapshot.WritesEnabled && p.Evidence.Fresh() && p.SHA != "" && p.State == "open" && !p.Merged && !p.OptOut && p.Base == snapshot.Config.Branch && model.PinningPR.Choice != release.Ignored
 	}
-	for _, repo := range snapshot.Repositories {
+	for _, repo := range displayRepositories(snapshot) {
 		r := repoModel{Repository: repo, CurrentTag: snapshot.Choices.Tags[repo.Source.Name]}
 		for _, pr := range repo.PRs {
-			if pr.State != "open" || pr.Merged || pr.Target == pinTarget {
-				continue
+			if pr.Merged && snapshot.Choices.PRs[pr.Target] == release.Included && pr.Target != pinTarget {
+				r.MergedPRs = append(r.MergedPRs, pr)
 			}
 			choice := snapshot.Choices.PRs[pr.Target]
+			closedIncluded := pr.State == "closed" && choice == release.Included
+			if pr.Merged || pr.Target == pinTarget || (pr.State != "open" && !closedIncluded) {
+				continue
+			}
 			if choice == release.Ignored {
 				continue
 			}
@@ -210,7 +221,11 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 				copy := v
 				authority = &copy
 			}
-			r.PRs = append(r.PRs, prModel{PR: pr, Choice: choice, ChoiceLabel: label, Authority: authority})
+			r.PRs = append(r.PRs, prModel{
+				PR: pr, Choice: choice, ChoiceLabel: label, Authority: authority,
+				CanGrant: snapshot.WritesEnabled && pr.State == "open" && pr.Evidence.Fresh() && pr.SHA != "" &&
+					!pr.OptOut && pr.Base == repo.Source.Branch && pr.Target.Repo == repo.Source.Repo,
+			})
 		}
 		for _, tag := range repo.Tags {
 			var authority *dispatch.View
@@ -221,7 +236,7 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 			t := tagModel{
 				Tag: tag, Current: tag.Name == r.CurrentTag,
 				Proposed: snapshot.Assessment.ProposedTags[repo.Source.Name] == tag.Name, Authority: authority,
-				Component: repo.Source.Name, Repo: repo.Source.Repo, CSRF: csrf, Generation: snapshot.Generation,
+				Component: repo.Source.Name, Repo: repo.Source.Repo, CSRF: csrf, Generation: snapshot.Generation, Tab: "component-releases",
 				WritesEnabled:  snapshot.WritesEnabled,
 				Switch:         r.CurrentTag != "" && tag.Name != r.CurrentTag,
 				CoverageReason: "Tag coverage observations are unavailable.",
@@ -338,6 +353,24 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 		}
 		model.Plans = append(model.Plans, planModel{Plan: plan, Pinning: plan.Target == pinTarget})
 	}
+	if len(model.PinningImages) > 0 {
+		available, missing, unknown := 0, 0, 0
+		for _, image := range model.PinningImages {
+			switch image.Status {
+			case release.Yes:
+				available++
+			case release.No:
+				missing++
+			default:
+				unknown++
+			}
+		}
+		if available == len(model.PinningImages) {
+			model.PinningImageSummary = fmt.Sprintf("All %d reported Konflux image outputs are available.", available)
+		} else {
+			model.PinningImageSummary = fmt.Sprintf("Reported Konflux image outputs: %d available, %d not found, %d unable to check.", available, missing, unknown)
+		}
+	}
 	for _, cycle := range snapshot.History {
 		model.History = append(model.History, historyModel{Cycle: cycle})
 	}
@@ -416,4 +449,15 @@ func pinningImageProblem(pr release.PR, plan release.Plan, branch string) string
 	default:
 		return "Build belongs to commit " + plan.SHA + "; current PR commit is " + pr.SHA + "."
 	}
+}
+
+// displayRepositories keeps configured branches visible before their first observation.
+func displayRepositories(snapshot app.Snapshot) []release.Repository {
+	repos := slices.Clone(snapshot.Repositories)
+	for _, source := range append(slices.Clone(snapshot.Config.Components), snapshot.Config.ACS()) {
+		if !slices.ContainsFunc(repos, func(repo release.Repository) bool { return repo.Source.Name == source.Name }) {
+			repos = append(repos, release.Repository{Source: source})
+		}
+	}
+	return repos
 }

@@ -56,7 +56,7 @@ func TestLogFormatsTargetsAndMultilineResults(t *testing.T) {
 	}
 }
 
-func TestLogOmitsRoutineConsoleNoiseWithoutChangingUIHistory(t *testing.T) {
+func TestLogOmitsRoutineNoiseFromConsoleAndUI(t *testing.T) {
 	for name, record := range map[string]Record{
 		"should omit request count summaries":   {Decision: "work-complete", Result: "Phase=prs; GitHub reads=9."},
 		"should omit generic freshness reports": {Decision: "observation", Result: "current=true"},
@@ -68,8 +68,8 @@ func TestLogOmitsRoutineConsoleNoiseWithoutChangingUIHistory(t *testing.T) {
 			if output.Len() != 0 {
 				t.Fatalf("unexpected console noise: %s", output.String())
 			}
-			if got := log.Recent(); len(got) != 1 || got[0] != record {
-				t.Fatal("console filtering changed UI history")
+			if got := log.Recent(); len(got) != 0 {
+				t.Fatal("routine polling noise entered UI history")
 			}
 		})
 	}

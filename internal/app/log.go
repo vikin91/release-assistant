@@ -25,7 +25,7 @@ type (
 		Payload  string         `json:"payload,omitempty"`
 		Result   string         `json:"result"`
 		Origin   string         `json:"origin"`
-		// message supplies CLI prose independently of the UI's audit fields.
+		// message supplies human-readable prose independently of audit fields.
 		message string
 	}
 	// Log writes readable decisions and exposes write failures to the UI.
@@ -44,13 +44,13 @@ func NewLog(w io.Writer) *Log { return &Log{output: w} }
 func (l *Log) Append(r Record) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if r.Decision == "work-complete" || (r.Decision == "observation" && r.message == "") {
+		return
+	}
 	if len(l.recent) == maxRecentRecords {
 		l.recent = slices.Delete(l.recent, 0, 1)
 	}
 	l.recent = append(l.recent, r)
-	if r.Decision == "work-complete" || (r.Decision == "observation" && r.message == "") {
-		return
-	}
 	var text strings.Builder
 	stamp := r.At.Format(time.RFC3339)
 	fmt.Fprintf(&text, "%s %s: %s\n", stamp, recordLevel(r), strings.ReplaceAll(recordMessage(r), "\n", "\n    "))
@@ -63,6 +63,12 @@ func (l *Log) Append(r Record) {
 		l.failure = ""
 	}
 }
+
+// Message describes a decision in the same prose used by the console log.
+func (r Record) Message() string { return recordMessage(r) }
+
+// Level reports the severity shared by console and browser activity.
+func (r Record) Level() string { return recordLevel(r) }
 
 // counted keeps counts grammatical in CLI sentences.
 func counted(count int, noun string) string {
@@ -208,8 +214,8 @@ func recordMessage(r Record) string {
 			return fmt.Sprintf("Release tag %s now points to commit %s. Select it again before continuing.", consoleTarget(r.Target), r.SHA)
 		}
 		return fmt.Sprintf("The commit for %s changed. Select the tag again before continuing.", target)
-	case "selection-complete":
-		return "Pull request selection is complete. Monitoring selected builds and release pins."
+	case "tag-cleared":
+		return fmt.Sprintf("Preparing a new tag in %s. Pull request monitoring continues.", consoleTarget(r.Target))
 	case "conforma-acknowledged":
 		if r.Result == "true" {
 			return fmt.Sprintf("Marked the Conforma advisory in %s as reviewed.", target)

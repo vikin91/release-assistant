@@ -55,7 +55,7 @@ function makePage({ sections = [], storage = new Map(), hash = "", configDraft =
     querySelectorAll(selector) {
       if (selector === "details") return livePage ? livePage.dashboard.querySelectorAll("details") : sections;
       if (selector === "[data-open-section]") return links;
-      return [];
+      return livePage ? livePage.dashboard.querySelectorAll(selector) : [];
     },
     querySelector(selector) {
       if (selector === "header" && livePage) return livePage.header;
@@ -63,20 +63,24 @@ function makePage({ sections = [], storage = new Map(), hash = "", configDraft =
       return null;
     },
     getElementById(id) {
-      return byId.get(id) || null;
+      return byId.get(id) || (livePage ? livePage.dashboard.querySelectorAll("[id]").find((node) => node.id === id) : null) || null;
     },
   });
   for (const section of sections) section.addEventListener("toggle", () => document.emit("toggle", { target: section }));
   if (livePage) document.body.dataset = { ...livePage.body.dataset };
   const window = emitter({
     sessionStorage,
-    location: { hash, reload() { reloads += 1; } },
+    location: { hash, search: livePage?.body.dataset.activeTab ? `?tab=${livePage.body.dataset.activeTab}` : "", reload() { reloads += 1; } },
     setInterval(callback) { intervals.push(callback); },
     setTimeout(callback, delay) { callback.delay = delay; timeouts.push(callback); return callback; },
     clearTimeout(callback) { const index = timeouts.indexOf(callback); if (index >= 0) timeouts.splice(index, 1); },
     scrollX: 0, scrollY: 0,
     scrollTo(x, y) { this.scrollX = x; this.scrollY = y; },
   });
+  window.history = {
+    pushState(_state, _title, target) { this.replaceState(_state, _title, target); },
+    replaceState(_state, _title, target) { const parsed = new URL(target, "http://localhost"); window.location.search = parsed.search; window.location.hash = parsed.hash; },
+  };
   return {
     document,
     window,
@@ -86,7 +90,7 @@ function makePage({ sections = [], storage = new Map(), hash = "", configDraft =
     reloads: () => reloads,
     start() {
       vm.runInNewContext(appSource, {
-        document, window, AbortSignal,
+        document, window, AbortSignal, URLSearchParams,
         fetch: (url, options) => url === "/activity" ? fetchActivity(url, options) : fetchDashboard(url, options),
         DOMParser: class { parseFromString(text) { return parseDashboard(text); } },
       });
@@ -165,7 +169,7 @@ test("explicit navigation opens and stores a section; same-hash reload preserves
   const page = makePage({ sections: [target], storage: savedState({ "repo-target": false }) });
   page.links.push(emitter({ hash: "#repo-target" }));
   page.start();
-  page.document.emit("click", { target: { closest: () => page.links[0] } });
+  page.document.emit("click", { target: { closest: () => page.links[0] }, preventDefault() {} });
   assert.equal(target.open, true);
   assert.deepEqual(page.stored(), { "repo-target": true });
 
@@ -347,13 +351,22 @@ test("activity updates preserve scrolling when session storage is unavailable", 
   assert.equal(activityLog.scrollTop, 200);
 });
 
+function matches(node, selector) {
+  if (selector === "details") return node.tagName === "DETAILS";
+  if (selector === 'input[type="hidden"]') return node.tagName === "INPUT" && node.type === "hidden";
+  if (/^\[[^\]]+\]$/.test(selector)) return node.hasAttribute(selector.slice(1, -1));
+  return false;
+}
+
 function domNode(tag, attrs = {}, children = []) {
   const attributes = new Map(Object.entries(attrs));
   const node = {
     nodeType: 1, nodeName: tag, tagName: tag, childNodes: [], parentNode: null,
     dataset: Object.fromEntries(Object.entries(attrs).filter(([key]) => key.startsWith("data-")).map(([key, value]) => [key.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase()), value])),
     id: attrs.id || "", type: attrs.type || "text", name: attrs.name || "", value: attrs.value || "",
-    checked: "checked" in attrs, disabled: "disabled" in attrs, open: "open" in attrs, isConnected: true,
+    checked: "checked" in attrs, disabled: "disabled" in attrs, open: "open" in attrs, hidden: "hidden" in attrs, isConnected: true,
+    focus() { this.focused = true; },
+    closest(selector) { for (let current = this; current; current = current.parentNode) if (matches(current, selector)) return current; return null; },
     get attributes() { return Array.from(attributes, ([name, value]) => ({ name, value })); },
     get firstChild() { return this.childNodes[0] || null; },
     get nextSibling() { return this.parentNode?.childNodes[this.parentNode.childNodes.indexOf(this) + 1] || null; },
@@ -372,10 +385,7 @@ function domNode(tag, attrs = {}, children = []) {
       this.parentNode = null;
     },
     querySelectorAll(selector) {
-      return this.childNodes.flatMap((child) => [
-        ...(selector === "details" && child.tagName === "DETAILS" || selector === 'input[type="hidden"]' && child.tagName === "INPUT" && child.type === "hidden" ? [child] : []),
-        ...child.querySelectorAll(selector),
-      ]);
+      return this.childNodes.flatMap((child) => [...(matches(child, selector) ? [child] : []), ...child.querySelectorAll(selector)]);
     },
     cloneNode() { return domNode(tag, Object.fromEntries(attributes), this.childNodes.map((child) => child.cloneNode(true))); },
     classList: { add() {}, remove() {} },
@@ -384,12 +394,12 @@ function domNode(tag, attrs = {}, children = []) {
   return node;
 }
 
-function livePage({ loading = "false", session = "session:1", children = [] } = {}) {
+function livePage({ loading = "false", session = "session:1", activeTab = "component-prs", children = [] } = {}) {
   const status = domNode("P", { id: "dashboard-refresh-status", "data-live-preserve": "" });
   const dashboard = domNode("MAIN", { id: "live-dashboard" }, [status, ...children]);
   const header = domNode("HEADER");
   return {
-    status, dashboard, header, body: { dataset: { loading, session } },
+    status, dashboard, header, body: { dataset: { loading, session, activeTab } },
     getElementById(id) { return id === "live-dashboard" ? dashboard : null; },
     querySelector(selector) { return selector === "header" ? header : null; },
   };
@@ -512,4 +522,71 @@ test("retains the last results on failure, recovers, and rejects a different ser
   await page.timeouts.shift()();
   assert.match(initial.status.textContent, /Release configuration changed/);
   assert.equal(initial.dashboard.childNodes[1], row);
+});
+
+function workflowPage(activeTab = "component-prs") {
+  const names = ["component-prs", "component-releases", "acs-prs", "acs-rcs"];
+  const tabs = names.map((name) => domNode("A", { id: `tab-${name}`, "data-workflow-tab": name, "aria-selected": name === activeTab ? "true" : "false", tabindex: name === activeTab ? "0" : "-1" }));
+  const panels = names.map((name) => domNode("SECTION", { id: `panel-${name}`, "data-workflow-panel": name, ...(name === activeTab ? {} : { hidden: "" }) }, [domNode("DETAILS", { id: `${name}-details` })]));
+  return Object.assign(livePage({ activeTab, children: [...tabs, ...panels] }), { tabs, panels });
+}
+
+test("keeps independently selected tabs across live updates and form navigation", async () => {
+  const initial = workflowPage();
+  const page = dashboardPage(initial);
+  page.start();
+  await new Promise(setImmediate);
+  let prevented = false;
+  page.document.emit("click", { target: initial.tabs[2], preventDefault() { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(page.window.location.search, "?tab=acs-prs");
+  assert.equal(initial.tabs[2].getAttribute("aria-selected"), "true");
+  assert.deepEqual(initial.panels.map((panel) => panel.hidden), [true, true, false, true]);
+  page.updateTo(workflowPage());
+  await page.timeouts.shift()();
+  assert.equal(initial.tabs[2].getAttribute("aria-selected"), "true");
+  assert.equal(initial.tabs[2].getAttribute("tabindex"), "0");
+  assert.deepEqual(initial.panels.map((panel) => panel.hidden), [true, true, false, true]);
+  page.document.emit("submit", { target: { matches: () => false } });
+  assert.equal(page.window.location.search, "?tab=acs-prs");
+});
+
+test("tab keyboard navigation wraps, supports Home and End, and browser history restores selection", () => {
+  const initial = workflowPage();
+  const page = dashboardPage(initial);
+  page.start();
+  const key = (index, value) => page.document.emit("keydown", { target: initial.tabs[index], key: value, preventDefault() {} });
+  key(0, "ArrowLeft");
+  assert.equal(initial.tabs[3].getAttribute("aria-selected"), "true");
+  assert.equal(initial.tabs[3].focused, true);
+  key(3, "Home");
+  assert.equal(initial.tabs[0].getAttribute("aria-selected"), "true");
+  key(0, "End");
+  assert.equal(initial.tabs[3].getAttribute("aria-selected"), "true");
+  page.window.location.search = "?tab=component-releases";
+  page.window.emit("popstate");
+  assert.equal(initial.tabs[1].getAttribute("aria-selected"), "true");
+});
+
+test("a deep section link reveals its activity and retains section choices", () => {
+  const initial = workflowPage();
+  const page = dashboardPage(initial, { storage: savedState({ "acs-prs-details": false }) });
+  page.start();
+  const details = initial.panels[2].childNodes[0];
+  const link = { hash: "#acs-prs-details", closest(selector) { return selector === "[data-open-section]" ? this : null; } };
+  page.document.emit("click", { target: link, preventDefault() {} });
+  assert.equal(details.open, true);
+  assert.equal(initial.panels[2].hidden, false);
+  assert.equal(page.window.location.search, "?tab=acs-prs");
+  assert.equal(page.window.location.hash, "#acs-prs-details");
+  assert.equal(page.stored()["acs-prs-details"], true);
+});
+
+
+test("initial setup stays open when an earlier session saved configuration collapsed", () => {
+  const configuration = makeDetails({ id: "release-configuration", open: true });
+  const page = makePage({ sections: [configuration], storage: savedState({ "release-configuration": false }) });
+  page.document.body.dataset.configured = "false";
+  page.start();
+  assert.equal(configuration.open, true);
 });

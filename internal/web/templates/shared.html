@@ -1,0 +1,28 @@
+{{define "component-tag"}}
+<article class="tag-card{{if .Current}} selected-tag{{else}}{{if .Proposed}} proposed-tag{{end}}{{end}}" data-live-key="tag:{{.Component}}:{{.Repo}}@{{.Tag.Name}}:{{.Tag.SHA}}">
+  <div class="section-heading">
+    <div><strong>{{.Tag.Name}}</strong>{{if .Current}} <span class="pill selected">Selected</span>{{else}}{{if .Proposed}} <span class="pill">recommended</span>{{end}}{{end}}</div>
+    {{if and (not .Current) .Tag.Evidence.Fresh (eq (truth .Tag.Belongs) "yes")}}
+      <form method="post" action="/action#tag-selection" class="inline-form"><input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Generation}}"><input type="hidden" name="kind" value="tag"><input type="hidden" name="component" value="{{.Component}}"><input type="hidden" name="tag" value="{{.Tag.Name}}"><input type="hidden" name="sha" value="{{.Tag.SHA}}"><button type="submit">{{if .Switch}}Switch to{{else}}Confirm{{end}} {{.Component}} {{.Tag.Name}}</button></form>
+    {{end}}
+  </div>
+  {{if .Current}}<p class="coverage-summary {{truth .CoverageStatus}}">{{if eq (truth .CoverageStatus) "yes"}}Covers the selected changes.{{else}}{{if eq (truth .CoverageStatus) "no"}}Does not yet cover the selected scope.{{else}}Coverage unknown.{{end}}{{end}} <a href="/?tab=component-releases#component-images" data-open-section>Review build and image readiness</a>.</p>{{else}}<p class="muted">Branch membership: {{truth .Tag.Belongs}}. Review the evidence before selecting this tag.</p>{{end}}
+  <details class="tag-evidence" data-fold-key="tag-evidence:{{.Component}}:{{.Repo}}@{{.Tag.Name}}"><summary>Evidence</summary>
+    <p>SHA <code>{{.Tag.SHA}}</code> · branch membership {{truth .Tag.Belongs}}</p>
+    <div class="evidence"><span>{{if .Tag.Evidence.Fresh}}Observed{{else}}Unknown or stale{{end}} at {{when .Tag.Evidence.At}}</span>{{if .Tag.Evidence.Error}}<span class="error-text">{{.Tag.Evidence.Error}}</span>{{end}}{{if url .Tag.Evidence.URL}}<a href="{{url .Tag.Evidence.URL}}" target="_blank" rel="noreferrer">Tag source</a>{{end}}</div>
+    {{if .Current}}<p>{{.CoverageReason}}</p>{{end}}
+    {{if .MergeCoverage}}<p>Included merge coverage: {{range .MergeCoverage}}<code>{{.SHA}}</code> {{truth .Status}} · {{end}}</p>{{end}}
+  </details>
+  {{if .Current}}<form method="post" action="/action#tag-selection" class="inline-form grant-form" data-autosubmit><input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Generation}}"><input type="hidden" name="kind" value="grant"><input type="hidden" name="repo" value="{{.Repo}}"><input type="hidden" name="tag" value="{{.Tag.Name}}"><input type="hidden" name="sha" value="{{.Tag.SHA}}"><input type="hidden" name="enabled" value="false"><label class="check{{if or (not .WritesEnabled) (and .Authority .Authority.OptOut)}} disabled-control{{end}}" title="Saves immediately"><input type="checkbox" name="enabled" value="true" {{if and .Authority .Authority.Granted}}checked{{end}}{{if or (not .WritesEnabled) (and .Authority .Authority.OptOut)}} disabled{{end}}> RW allowed</label><noscript><button type="submit"{{if or (not .WritesEnabled) (and .Authority .Authority.OptOut)}} disabled{{end}}>Apply RW permission</button></noscript>{{if and .Authority .Authority.OptOut}}<span class="error-text">Writes disabled by opt-out label</span>{{end}}</form>{{end}}
+</article>
+{{end}}
+
+{{define "image-results"}}
+<ol class="image-results">{{range .}}<li class="image-result" data-component="{{.Check.Image.Component}}" data-family="{{.Check.Image.Family}}">
+      <div class="section-heading"><strong>{{title .Check.Image.Component}} · {{if .Name}}{{.Name}}{{else}}image name not determined{{end}} · {{if eq .Check.Image.Family "ci"}}CI{{else}}{{if eq .Check.Image.Family "konflux"}}Konflux{{else}}{{.Check.Image.Family}}{{end}}{{end}}</strong><span class="pill {{truth .Check.Status}}">{{if eq (truth .Check.Status) "yes"}}Available{{else}}{{if eq (truth .Check.Status) "no"}}Not found{{else}}Unable to check{{end}}{{end}}</span></div>
+      <p class="image-tag">Image tag: <code>{{if .Tag}}{{.Tag}}{{else}}not determined{{end}}</code>{{if and .Check.Required .Check.SelectedTag}} · selected {{title .Check.Image.Component}} tag: {{.Check.SelectedTag}}{{end}}</p>
+      {{if .Check.Image.Reference}}<p class="image-reference">{{if .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer"><code>{{.Check.Image.Reference}}</code></a>{{else}}<code>{{.Check.Image.Reference}}</code>{{end}}</p>{{end}}
+      {{if not .Check.Status}}<p>{{.Check.Reason}}</p>{{end}}{{if .Check.Image.Evidence.Error}}<p class="error-text">{{.Check.Image.Evidence.Error}}</p>{{end}}{{if and (not .Check.Image.Evidence.Fresh) .Check.Image.Present}}<p class="muted">Last confirmed {{if eq .Check.Image.Present "yes"}}available{{else}}not found{{end}} at {{when .Check.Image.Evidence.At}}; current availability is unverified.</p>{{end}}
+      {{if url .Check.Image.DefinitionURL}}<a class="definition-link" href="{{url .Check.Image.DefinitionURL}}" target="_blank" rel="noreferrer">Saved pattern source</a>{{end}}
+    </li>{{end}}</ol>
+{{end}}

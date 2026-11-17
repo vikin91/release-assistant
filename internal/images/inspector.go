@@ -89,12 +89,17 @@ func (i *Inspector) inspect(ctx context.Context, config release.Config, confirme
 	patterns := componentPatterns(config)
 	var issues []error
 	var metadataIssues []error
+	unselected := false
 	for _, component := range config.Components {
 		version, ok := normalizeTag(component, confirmedTags[component.Name])
 		if !ok {
 			reason := fmt.Sprintf("select a %s tag in stream %s", component.Name, component.Stream)
-			issues = append(issues, errors.New(reason))
-			metadataIssues = append(metadataIssues, errors.New(reason))
+			if confirmedTags[component.Name] == "" {
+				unselected = true
+			} else {
+				issues = append(issues, errors.New(reason))
+				metadataIssues = append(metadataIssues, errors.New(reason))
+			}
 			continue
 		}
 		inventory.Versions[component.Name] = version
@@ -132,7 +137,7 @@ func (i *Inspector) inspect(ctx context.Context, config release.Config, confirme
 		inventory.ReleaseImages = inspectRC0(ctx, i, config, revision, now)
 		inventory.Versions["acs"] = releaseVersion + "-rc.0"
 	}
-	inventory.Evidence = release.Evidence{At: time.Now(), URL: revisionURL(revision), Known: len(metadataIssues) == 0}
+	inventory.Evidence = release.Evidence{At: time.Now(), URL: revisionURL(revision), Known: len(metadataIssues) == 0 && !unselected}
 	if len(metadataIssues) > 0 {
 		inventory.Evidence.Error = errors.Join(metadataIssues...).Error()
 	}

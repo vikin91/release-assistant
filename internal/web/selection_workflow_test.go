@@ -40,7 +40,7 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 	b := newBrowser(t, application)
 	body := b.getBody(t)
 
-	tagDetails := between(t, body, `<details id="tag-selection" open>`, `<section class="panel" aria-labelledby="pr-selection-heading"`)
+	tagDetails := between(t, body, `<details id="tag-selection" open>`, `<section class="panel" id="component-images-panel">`)
 	for _, want := range []string{"Component tags selected", "Fact 3.25.1", "Collector 3.25.4", "Selected"} {
 		if !strings.Contains(tagDetails, want) {
 			t.Errorf("tag selection missing %q", want)
@@ -69,13 +69,13 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 		t.Fatal("alternative tag switch form missing")
 	}
 	values := url.Values{}
-	for _, field := range []string{"kind", "generation", "component", "tag", "sha"} {
+	for _, field := range []string{"kind", "generation", "component", "tag", "sha", "tab"} {
 		values.Set(field, formInputValue(t, switchForm, field))
 	}
 	if values.Get("kind") != "tag" || values.Get("generation") != "23" || values.Get("component") != "fact" || values.Get("tag") != "3.25.2" || values.Get("sha") != "fact-next-sha" {
 		t.Fatalf("switch form changed alternative tag identity: %v", values)
 	}
-	if response := b.post(values); response.Code != 303 || response.Header().Get("Location") != "/#tag-selection-panel" {
+	if response := b.post(values); response.Code != 303 || response.Header().Get("Location") != "/?tab=component-releases" {
 		t.Fatalf("rendered tag switch rejected: status=%d body=%s", response.Code, response.Body.String())
 	}
 	if len(application.actions) != 1 {
@@ -108,14 +108,14 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 	if !strings.Contains(body, "Fact: 3.25.1") || !strings.Contains(body, "unknown") || strings.Contains(body, "Ready for ACS RC.0") {
 		t.Fatal("unknown selected-tag coverage must not be reported as ready")
 	}
-	if strings.Contains(between(t, body, `<section class="recommendations">`, `</section>`), "Choose component tags") {
+	if strings.Contains(between(t, body, `id="component-releases-next-steps"`, `</details>`), "Choose component tags") {
 		t.Fatal("recommendations should not repeat the completed tag-selection task")
 	}
-	nav := regexp.MustCompile(`(?s)<nav\b[^>]*aria-label="Release sections"[^>]*>.*?</nav>`).FindString(body)
+	nav := regexp.MustCompile(`(?s)<nav\b[^>]*aria-label="Release work"[^>]*>.*?</nav>`).FindString(body)
 	if nav == "" {
 		t.Fatal("release sections navigation missing")
 	}
-	if !strings.Contains(nav, `href="#tag-selection"`) || !strings.Contains(nav, `href="#pr-selection"`) {
+	if !strings.Contains(nav, `href="/?tab=component-releases"`) || !strings.Contains(nav, `href="/?tab=component-prs"`) {
 		t.Fatal("release navigation should link to Tags and PRs")
 	}
 }

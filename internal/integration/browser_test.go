@@ -24,6 +24,7 @@ type browserFixture struct {
 	mu             sync.Mutex
 	step, writes   int
 	failGitHub     bool
+	noTags         bool
 	pinningFailure string
 	branches       map[string]string
 }
@@ -48,6 +49,13 @@ func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (
 	f.branches[r.Source.Repo] = r.Source.Branch
 	repository := release.Repository{Source: r.Source, Head: r.Source.Name + "-tag", Evidence: observation()}
 	if r.Source.Name == "acs" {
+		pr := release.PR{Target: release.Target{Repo: r.Source.Repo, PR: 201}, Title: "Fixture: ACS dependency backport", Author: "mintmaker", URL: "https://example.com/pr201", SHA: "acs-pr-head", State: "open", Base: r.Source.Branch, Evidence: observation(), ChecksEvidence: observation(), Checks: []release.Check{{Name: "CI build", Status: "completed", Conclusion: "failure", Required: release.Yes}}}
+		if f.step >= 4 {
+			pr.State, pr.Merged, pr.MergeSHA = "merged", true, "acs-next"
+			repository.Head = "acs-next"
+		}
+		repository.PRs = []release.PR{pr}
+		repository.PreviousPins = release.Pins{Versions: map[string]string{"fact": "0.4.6", "collector": "3.26.4"}, Evidence: observation()}
 		versions := map[string]string{"fact": "0.4.6", "collector": "3.26.4"}
 		if f.step >= 3 {
 			versions = map[string]string{"fact": "0.4.8", "collector": "3.26.5"}
@@ -62,13 +70,17 @@ func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (
 			if os.Getenv("ACS_BROWSER_PINNING_OPEN") == "1" && f.step < 3 {
 				repository.PinningPR.State, repository.PinningPR.Merged = "open", false
 				repository.PinningPR.ChecksEvidence = observation()
-				repository.PinningPR.Checks = []release.Check{{Name: "CI build", Status: "completed", Conclusion: "success", URL: "https://example.com/ci-build"}, {Name: "Red Hat Konflux / main-on-push", Status: "completed", Conclusion: "failure", URL: "https://example.com/main-build"}}
-				repository.PRs = []release.PR{*repository.PinningPR}
+				repository.PinningPR.Checks = []release.Check{{Name: "CI build", Status: "completed", Conclusion: "success", URL: "https://example.com/ci-build", Required: release.Yes}, {Name: "Red Hat Konflux / main-on-push", Status: "completed", Conclusion: "failure", URL: "https://example.com/main-build", Required: release.Yes}}
+				if f.step >= 2 {
+					repository.PinningPR.Checks[1].Conclusion = "success"
+				}
+				repository.PRs = append(repository.PRs, *repository.PinningPR)
 			}
 			repository.PinningPins = release.Pins{Versions: map[string]string{"fact": "0.4.7", "collector": "3.26.5"}, Paths: map[string]string{"fact": "FACT_VERSION", "collector": "COLLECTOR_VERSION"}, Evidence: observation()}
 			switch f.pinningFailure {
 			case "auth":
-				repository.PinningPR, repository.PRs = nil, nil
+				repository.PinningPR = nil
+				repository.PRs = []release.PR{pr}
 				repository.PinningEvidence.Known = false
 				repository.PinningEvidence.Error = "Authentication failed; GitHub rejected the token (HTTP 401)."
 				repository.PinningPins = release.Pins{Evidence: repository.PinningEvidence}
@@ -102,13 +114,17 @@ func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (
 			repository.PRs = append(repository.PRs, release.PR{Target: release.Target{Repo: r.Source.Repo, PR: 102}, Title: "Fixture: later change", URL: "https://example.com/pr102", SHA: "later-head", State: "merged", Merged: true, MergeSHA: "later", Base: r.Source.Branch, Evidence: observation()})
 		}
 	}
+	if f.noTags && f.step == 0 {
+		repository.Tags = nil
+	}
 	return repository, nil
 }
 func (f *browserFixture) Plan(_ context.Context, t release.Target) (release.Plan, error) {
 	f.mu.Lock()
 	pinningFailure := f.pinningFailure
+	step := f.step
 	f.mu.Unlock()
-	if pinningFailure == "auth" && t.Repo == "stackrox/stackrox" && t.PR > 0 {
+	if pinningFailure == "auth" && t.Repo == "stackrox/stackrox" && t.PR > 0 && t.PR != 201 {
 		return release.Plan{Target: t}, fmt.Errorf("GitHub authentication failed (HTTP 401)")
 	}
 	var sha string
@@ -124,6 +140,9 @@ func (f *browserFixture) Plan(_ context.Context, t release.Target) (release.Plan
 		sha = "pr-head"
 		if t.Repo == "stackrox/stackrox" {
 			sha = "pin-head"
+			if t.PR == 201 {
+				sha = "acs-pr-head"
+			}
 		}
 	}
 	p := release.Plan{Target: t, SHA: sha, Action: "Wait", Message: "Fixture observations; no external service calls", Evidence: observation()}
@@ -139,6 +158,14 @@ func (f *browserFixture) Plan(_ context.Context, t release.Target) (release.Plan
 		if t.Repo == "stackrox/stackrox" {
 			p.Runs[0].Image = release.Image{Reference: "quay.io/rhacs-eng/release-main@sha256:" + strings.Repeat("a", 64), Evidence: observation()}
 			p.Runs = append(p.Runs, release.Run{Job: "roxctl-on-push", ID: "fixture-run-2", Status: "completed", Outcome: "failure", URL: "https://example.com/roxctl-build", Image: release.Image{Reference: "quay.io/rhacs-eng/release-roxctl@sha256:" + strings.Repeat("b", 64), Evidence: observation()}})
+			if t.PR != 201 && step >= 2 {
+				p.Action = "None"
+				p.Message = "Pinning checks passed; checking reported output images."
+				p.Proposals = nil
+				for i := range p.Runs {
+					p.Runs[i].Outcome, p.Runs[i].Eligible = "success", false
+				}
+			}
 		}
 		p.Advisories = []release.Advisory{{ID: "fixture-policy-1", Message: "Conforma fixture finding; human review required", URL: "https://example.com/finding"}}
 	}
@@ -157,7 +184,11 @@ func (f *browserFixture) ReadTarget(ctx context.Context, t release.Target) (disp
 	}
 	open := t.Tag != "" || f.step == 0
 	if t.PR > 0 && t.Repo == "stackrox/stackrox" {
-		open = os.Getenv("ACS_BROWSER_PINNING_OPEN") == "1" && f.step < 3
+		if t.PR == 201 {
+			open = f.step < 4
+		} else {
+			open = f.step < 3 && os.Getenv("ACS_BROWSER_PINNING_OPEN") == "1"
+		}
 	}
 	return dispatch.Identity{Target: t, SHA: p.SHA, Base: base, Open: open, Evidence: observation()}, nil
 }
@@ -173,6 +204,14 @@ func (f *browserFixture) Inspect(ctx context.Context, config release.Config, tag
 	f.mu.Unlock()
 	client := &http.Client{Transport: browserRegistryTransport{componentsPresent: present}}
 	return images.New(client, "", "").Inspect(ctx, config, tags)
+}
+
+func (f *browserFixture) InspectComponents(ctx context.Context, config release.Config, tags map[string]string) (release.Inventory, error) {
+	f.mu.Lock()
+	present := f.step >= 2
+	f.mu.Unlock()
+	client := &http.Client{Transport: browserRegistryTransport{componentsPresent: present}}
+	return images.New(client, "", "").InspectComponents(ctx, config, tags)
 }
 
 func (f *browserFixture) InspectReference(ctx context.Context, reference string) (release.Image, error) {
@@ -203,7 +242,7 @@ func TestBrowserFixture(t *testing.T) {
 	if os.Getenv("ACS_BROWSER_FIXTURE") == "" {
 		t.Skip("set ACS_BROWSER_FIXTURE to exercise the browser with fixture services")
 	}
-	f := &browserFixture{}
+	f := &browserFixture{noTags: os.Getenv("ACS_BROWSER_NO_TAGS") == "1"}
 	dispatcher := dispatch.New(f, f, f, dispatch.Options{EnableWrites: os.Getenv("ACS_BROWSER_ENABLE_WRITES") == "1", Gap: time.Minute})
 	session := app.New(f, f, f, dispatcher, app.NewLog(io.Discard), app.Options{Poll: 100 * time.Millisecond, Discovery: 100 * time.Millisecond})
 	handler, err := web.New(session)
@@ -240,7 +279,7 @@ func TestBrowserFixture(t *testing.T) {
 		}
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		fmt.Fprintf(w, `<!doctype html><title>Fixture controls</title><h1>Fixture observations, step %d</h1><p>Fake comments sent: %d. No external services are called.</p><p>Steps: 0 open PR; 1 merged with newer tag; 2 images present; 3 actual pins updated; 4 later PR.</p><a href="/">Open assistant</a><form method="post"><button name="action" value="advance">Advance fixture observations</button><button name="action" value="github-fail">Simulate GitHub failure</button><button name="action" value="github-recover">Restore GitHub</button><button name="action" value="pin-auth">Simulate pin PR authentication failure</button><button name="action" value="pin-file">Simulate missing pin version file</button><button name="action" value="pin-recover">Restore pin PR</button><button name="action" value="finish">Finish browser validation</button></form>`, f.step, f.writes)
+		fmt.Fprintf(w, `<!doctype html><title>Fixture controls</title><h1>Fixture observations, step %d</h1><p>Fake comments sent: %d. No external services are called.</p><p>Steps: 0 open PR; 1 merged with newer tag; 2 images present; 3 pinning merged and actual pins updated; 4 ACS PR merged and later component PR.</p><a href="/">Open assistant</a><form method="post"><button name="action" value="advance">Advance fixture observations</button><button name="action" value="github-fail">Simulate GitHub failure</button><button name="action" value="github-recover">Restore GitHub</button><button name="action" value="pin-auth">Simulate pin PR authentication failure</button><button name="action" value="pin-file">Simulate missing pin version file</button><button name="action" value="pin-recover">Restore pin PR</button><button name="action" value="finish">Finish browser validation</button></form>`, f.step, f.writes)
 	})
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {

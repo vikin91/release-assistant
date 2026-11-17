@@ -32,7 +32,6 @@ func rcFixture(t *testing.T) (*Session, *fixture, *phaseImages) {
 		tag := f.repos[source.Name].Tags[0]
 		apply(t, s, Action{Kind: "tag", Component: source.Name, Tag: tag.Name, SHA: tag.SHA})
 	}
-	apply(t, s, Action{Kind: "finish-selection"})
 	acs := f.repos["acs"]
 	acs.Pins.Versions = map[string]string{"fact": "0.3.77", "collector": "3.25.8"}
 	acs.PinningPR = &release.PR{Target: c.PinningTarget(), Base: c.Branch, SHA: "pin-head", State: "closed", Merged: true, MergeSHA: "pin-merge", Evidence: observed()}
@@ -66,8 +65,8 @@ func TestReleaseImagesWaitForVerifiedMergeAndMatchingBranchPins(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if inspector.release != 0 || inspector.components == 0 || s.Snapshot().Phase != "builds" {
-				t.Fatalf("premature RC reads: release=%d components=%d phase=%s", inspector.release, inspector.components, s.Snapshot().Phase)
+			if inspector.release != 0 || inspector.components == 0 || s.rcReady() {
+				t.Fatalf("premature RC reads: release=%d components=%d ready=%t", inspector.release, inspector.components, s.rcReady())
 			}
 		})
 	}
@@ -79,7 +78,7 @@ func TestReleasePhaseRevalidatesPinsBeforeInspectingRC(t *testing.T) {
 	if err := s.refreshPlanned(t.Context(), generation, configuration().ACS(), true); err != nil {
 		t.Fatal(err)
 	}
-	if s.Snapshot().Phase != "rc" || inspector.release != 0 {
+	if !s.rcReady() || inspector.release != 0 {
 		t.Fatal("merge transition performed RC reads before the new phase")
 	}
 	if err := s.refreshPlanned(t.Context(), generation, configuration().ACS(), false); err != nil {
@@ -93,7 +92,7 @@ func TestReleasePhaseRevalidatesPinsBeforeInspectingRC(t *testing.T) {
 	if err := s.refreshPlanned(t.Context(), generation, configuration().ACS(), false); err == nil {
 		t.Fatal("expected discovery failure")
 	}
-	if inspector.release != 1 || s.Snapshot().Phase != "builds" {
+	if inspector.release != 1 || s.rcReady() {
 		t.Fatal("RC reads used pin metadata from before the failed revalidation")
 	}
 }

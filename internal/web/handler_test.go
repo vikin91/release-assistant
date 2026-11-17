@@ -242,7 +242,7 @@ func TestPageEscapesExternalTextAndShowsUnknownEvidenceAndExactOffer(t *testing.
 		Generation:   4,
 		Choices:      release.Choices{PRs: map[release.Target]release.Choice{target: release.Included}},
 		Repositories: []release.Repository{{Source: release.Source{Name: "acs", Repo: "acme/rox", Branch: "release"}, PRs: []release.PR{{Target: target, SHA: "head-sha", Title: `<script>alert("x")</script>`, URL: "javascript:alert(1)", State: "open", Base: "release", Evidence: release.Evidence{At: time.Now(), Error: "head observation partial"}}}}},
-		Assessment:   release.Assessment{Conditions: []release.Condition{{Name: "Tag coverage", Status: "", Reason: "Coverage cannot be established", Evidence: []release.Evidence{{Error: "compare API unavailable"}}}}, Recommendations: []string{"Review the proposed <tag>"}, Commands: "cdrox && pin --version 3.25.7"},
+		Assessment:   release.Assessment{Conditions: []release.Condition{{Name: "included PR " + target.String(), Status: "", Reason: "Coverage cannot be established", Evidence: []release.Evidence{{Error: "compare API unavailable"}}}}, ACSRecommendations: []string{"Review the proposed <tag>"}, Commands: "cdrox && pin --version 3.25.7"},
 		Plans:        []release.Plan{{Target: target, SHA: "head-sha", Evidence: release.Evidence{Known: false, Error: "partial plan"}, Proposals: []release.Proposal{proposal}}},
 		Authority:    []dispatch.View{{Target: target, SHA: "head-sha", Granted: true, Warnings: []string{"slow retry threshold reached"}, Offers: []dispatch.Offer{{ID: "offer-1", Proposal: proposal, Allowed: true, CanApprove: true}}}},
 	}}
@@ -360,18 +360,12 @@ func TestRecommendedTagConfirmationIsSeparateFromPRSelection(t *testing.T) {
 	w := httptest.NewRecorder()
 	b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
 	body := w.Body.String()
-	_, tags, ok := strings.Cut(body, `<details id="tag-selection" open>`)
-	if !ok {
-		t.Fatal("pending tag recommendations should open the tag selection section")
-	}
-	tags, prs, ok := strings.Cut(tags, `id="pr-selection"`)
-	if !ok {
-		t.Fatal("tag selection must precede the separate PR selection section")
-	}
+	tags := between(t, body, `<details id="tag-selection" open>`, `<section class="panel" id="component-images-panel">`)
+	prs := between(t, body, `<section class="panel" aria-labelledby="pr-selection-heading"`, `<section class="panel" id="retry-proposals">`)
 	if strings.Contains(tags, "A selectable change") || !strings.Contains(prs, "A selectable change") {
-		t.Fatal("PRs are not confined to the PR selection section")
+		t.Fatal("component PRs and tags must have separate activity views")
 	}
-	if strings.Contains(tags, "Confirm PR selection") || strings.Contains(prs, "Confirm PR selection") {
+	if strings.Contains(body, "finish-selection") {
 		t.Fatal("individual PR choices must not require extra confirmation")
 	}
 	if strings.Contains(tags, "5.0.1") {
@@ -492,7 +486,7 @@ func TestPRViewHidesMergedAndClosedPRsWithoutDiscardingCoverageEvidence(t *testi
 				t.Fatal("PR selection must show exactly the open, unmerged PR")
 			}
 			for _, hidden := range []string{
-				"Merged change", "Closed merged change", "Merged flag takes precedence", "Closed unmerged change",
+				"Closed merged change", "Merged flag takes precedence", "Closed unmerged change",
 				"Old merged PR retry observations", "Old merged PR permission panel",
 			} {
 				if strings.Contains(body, hidden) {
@@ -817,7 +811,7 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 		strings.Count(releaseImages, `class="image-result"`) != 2 || strings.Contains(releaseImages, `data-component="fact"`) || strings.Contains(releaseImages, `data-component="collector"`) {
 		t.Fatal("component prerequisites and later ACS RC.0 images are mixed")
 	}
-	for _, control := range []string{`<details id="component-images" open>`, `<details id="release-images">`, `<details id="next-steps" open>`, `<details id="retry-details" open>`, `<details id="comment-offers-details" open>`} {
+	for _, control := range []string{`<details id="component-images" open>`, `<details id="release-images">`, `<details id="component-prs-next-steps" open>`, `<details id="retry-details" open>`, `<details id="comment-offers-details" open>`} {
 		if !strings.Contains(body, control) {
 			t.Errorf("missing section fold control %s", control)
 		}
@@ -879,7 +873,7 @@ func TestFoldControlsHaveUniqueStableIdentities(t *testing.T) {
 		seen[key] = true
 	}
 	for _, key := range []string{
-		"release-configuration", "activity-details", "previous-cycles", "readiness-details",
+		"release-configuration", "activity-details", "previous-cycles",
 		"tag-alternatives:fact:acme/fact", "tag-alternatives:collector:acme/collector",
 		"tag-evidence:fact:acme/fact@3.25.1", "tag-evidence:collector:acme/collector@3.25.1",
 		"pr-evidence:acme/fact#1", "pr-evidence:acme/fact#2", "pr-evidence:acme/collector#1",
@@ -900,10 +894,10 @@ func TestActivityErrorsKeepSummaryAndPerCheckDetailsTogether(t *testing.T) {
 	}}
 	text := activityText(snapshot)
 	for _, want := range []string{
-		"[checks-error] stackrox/stackrox#24065: Error: PipelineRun identity verification failed for 2 checks",
+		"Error: Could not read build results in stackrox#24065. PipelineRun identity verification failed for 2 checks",
 		"\n  check build-a (run 17): API: HTTP 403 Forbidden; archive: HTTP 404 Not Found\n  check build-b (run 18): dial tcp: lookup cluster.example: no such host\n",
-		"[github-error]: Error: request timed out",
-		"[checks-recovered]: Reads recovered.",
+		"Error: Could not read pull requests and release tags in the release. Error: request timed out",
+		"Info: Reading build results in the release is working again.",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q in activity:\n%s", want, text)
@@ -920,7 +914,7 @@ func TestPartialTagInventoryShowsVerifiedChoicesImmediately(t *testing.T) {
 	tag := release.Tag{Name: source.Stream + ".1", SHA: "tag-head", Belongs: release.Yes, Evidence: release.Evidence{At: time.Now(), Known: true}}
 	snapshot := app.Snapshot{Config: config, Repositories: []release.Repository{{Source: source, Head: "branch-head", Tags: []release.Tag{tag}, TagsPending: true, Evidence: release.Evidence{At: time.Now()}}}}
 	model := makePage(snapshot, "csrf", "")
-	if len(model.TagRepos) != 1 || len(model.TagRepos[0].Tags) != 1 || len(model.TagRepos[0].OtherTags) != 0 || model.TagRepos[0].Tags[0].Proposed {
+	if len(model.TagRepos) != len(config.Components) || len(model.TagRepos[0].Tags) != 1 || len(model.TagRepos[0].OtherTags) != 0 || model.TagRepos[0].Tags[0].Proposed {
 		t.Fatal("partial tag choices are hidden or presented as a complete-inventory recommendation")
 	}
 	b := newBrowser(t, &fakeApplication{snapshot: snapshot})

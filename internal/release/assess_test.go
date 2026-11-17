@@ -62,7 +62,7 @@ func TestAssessTagScenarios(t *testing.T) {
 				in.Choices.PRs[pr.Target] = Included
 			},
 			wantStatus: Yes,
-			wantReason: "merged into its configured component branch",
+			wantReason: "merged into its configured ACS release branch",
 		},
 		"selected open PR requires merge": {
 			mutate: func(in *Input) {
@@ -286,6 +286,95 @@ func TestAssessReadinessDoesNotRequireSelectionConfirmation(t *testing.T) {
 	a := Assess(in)
 	if !a.Ready {
 		t.Fatalf("fresh complete input should be ready without a selection confirmation: %v", a.Conditions)
+	}
+}
+
+func TestAssessActivityGuidance(t *testing.T) {
+	tests := map[string]struct {
+		mutate func(*Input)
+		check  func(*testing.T, Assessment)
+	}{
+		"should guide component merges before any tag exists": {
+			mutate: func(in *Input) {
+				in.Choices.Tags = nil
+				in.Repositories[1].Tags = nil
+				pr := mergedPR("fact", 40, "")
+				pr.State, pr.Merged = "open", false
+				in.Repositories[1].PRs = []PR{pr}
+				in.Choices.PRs[pr.Target] = Included
+			},
+			check: func(t *testing.T, a Assessment) {
+				merges := strings.Join(a.ComponentPRRecommendations, " ")
+				if !strings.Contains(merges, "merge it into release-0.3") || strings.Contains(merges, "tag") {
+					t.Fatalf("component merge guidance depends on tags: %s", merges)
+				}
+				releases := strings.Join(a.ComponentReleaseRecommendations, " ")
+				if !strings.Contains(releases, "Wait for the included fact PRs to merge") || !strings.Contains(a.ReleaseGuides["fact"], "/docs/release.md") {
+					t.Fatalf("release prerequisites and guide missing: %s", releases)
+				}
+				if a.Ready || a.Commands != "" {
+					t.Fatal("missing tag choices allowed release readiness or pinning commands")
+				}
+			},
+		},
+		"should allow preparing a newer tag despite a suitable existing tag": {
+			mutate: func(in *Input) { delete(in.Choices.Tags, "fact") },
+			check: func(t *testing.T, a Assessment) {
+				releases := strings.Join(a.ComponentReleaseRecommendations, " ")
+				if !strings.Contains(releases, "Existing fact tag v0.3.79") || !strings.Contains(releases, "or prepare a newer tag") {
+					t.Fatalf("existing tag is forced instead of offered: %s", releases)
+				}
+			},
+		},
+		"should show image failures alongside another component's tag guidance": {
+			mutate: func(in *Input) {
+				delete(in.Choices.Tags, "collector")
+				in.Inventory.Images[0].Present = No
+			},
+			check: func(t *testing.T, a Assessment) {
+				releases := strings.Join(a.ComponentReleaseRecommendations, " ")
+				if !strings.Contains(releases, "Existing collector tag") || !strings.Contains(releases, "ci image is missing") {
+					t.Fatalf("simultaneous release work was hidden: %s", releases)
+				}
+			},
+		},
+		"should guide ACS merges independently of component releases": {
+			mutate: func(in *Input) {
+				in.Choices.Tags = nil
+				pr := PR{Target: Target{Repo: in.Config.ACS().Repo, PR: 41}, Base: in.Config.Branch, State: "open", Evidence: freshEvidence()}
+				in.Repositories[0].PRs = []PR{pr}
+				in.Choices.PRs[pr.Target] = Included
+			},
+			check: func(t *testing.T, a Assessment) {
+				acs := strings.Join(a.ACSRecommendations, " ")
+				if !strings.Contains(acs, "Review the checks for included PR stackrox/stackrox#41 and merge it into release-5.0") {
+					t.Fatalf("ACS merge guidance missing: %s", acs)
+				}
+				if !strings.Contains(acs, "Select component tags in Component releases when ready") || strings.Contains(acs, "pin discovery") || strings.Contains(acs, "..") {
+					t.Fatalf("expected tag choices were presented as discovery failures: %s", acs)
+				}
+				condition := conditionByName(t, a, "included PR stackrox/stackrox#41")
+				if strings.Contains(condition.Reason, "tag") || strings.Contains(condition.Reason, "component") {
+					t.Fatalf("ACS merge condition refers to component releases: %s", condition.Reason)
+				}
+			},
+		},
+		"should keep release guides available for already selected tags": {
+			check: func(t *testing.T, a Assessment) {
+				if a.ReleaseGuides["fact"] == "" || a.ReleaseGuides["collector"] == "" {
+					t.Fatal("selected tags hid manual release instructions")
+				}
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			in := readyInput()
+			if tt.mutate != nil {
+				tt.mutate(&in)
+			}
+			tt.check(t, Assess(in))
+		})
 	}
 }
 

@@ -59,7 +59,7 @@ func TestConfiguredPinningPRMonitoringAndGrant(t *testing.T) {
 	if !strings.Contains(body, ">Pinning PR</span>") || !strings.Contains(body, "configured pinning PR") {
 		t.Error("retry proposal does not distinguish the configured pinning PR scope")
 	}
-	if !strings.Contains(body, `href="#retry-details" data-open-section`) {
+	if !strings.Contains(body, `href="/?tab=acs-prs#acs-prs-retry-details" data-open-section`) {
 		t.Error("open pinning PR has no retry proposal link")
 	}
 
@@ -165,7 +165,7 @@ func TestConfiguredPinningPRGrantIsDisabledWhenIdentityOrWritesAreUnsafe(t *test
 			if !grantFound {
 				t.Error("configured pinning PR has no RW permission checkbox")
 			}
-			if tc.pr.State != "open" && strings.Contains(section, "href=\"#retry-details\"") {
+			if tc.pr.State != "open" && strings.Contains(section, "href=\"/?tab=acs-prs#acs-prs-retry-details\"") {
 				t.Error("non-open pinning PR has a retry invitation")
 			}
 		})
@@ -189,7 +189,7 @@ func assertGrantFields(t *testing.T, form string, b browser, target release.Targ
 
 func pinningSection(t *testing.T, body string) string {
 	t.Helper()
-	start := strings.Index(body, `<details class="panel" id="pinning-details">`)
+	start := strings.Index(body, `<details class="panel" id="pinning-details" open>`)
 	if start < 0 {
 		t.Fatal("pinning details section missing")
 	}
@@ -248,7 +248,7 @@ func TestPinningPRShowsNextActionInsteadOfCheckInventory(t *testing.T) {
 					t.Errorf("unhelpful detail %q shown", unwanted)
 				}
 			}
-			retries := between(t, body, `<section class="panel" id="retry-proposals">`, `</section>`)
+			retries := between(t, body, `<section class="panel" id="acs-prs-retry">`, `</section>`)
 			if strings.Contains(retries, "passing-run") {
 				t.Error("pinning runs duplicated in retries")
 			}

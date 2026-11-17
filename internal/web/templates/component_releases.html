@@ -1,0 +1,45 @@
+{{define "component-releases"}}
+  <section class="panel" aria-labelledby="tag-selection-heading" id="tag-selection-panel">
+    <details id="tag-selection" open>
+      <summary id="tag-selection-heading" class="section-summary">{{if .TagsSelected}}Component tags selected <span class="summary-detail">{{range $i,$source := .Snapshot.Config.Components}}{{if $i}} · {{end}}{{title $source.Name}} {{index $.Snapshot.Choices.Tags $source.Name}}{{end}}</span>{{else}}Component tag selection{{end}}{{if .TagUpdates}} <span class="pill">Tag updates available</span>{{end}}</summary>
+      <p class="muted">{{if .TagsSelected}}Tag selection is complete. Coverage, builds, images, and pins determine release readiness.{{else}}Select tags when you are ready to release components. Component PR monitoring works before tags exist.{{end}}</p>
+      {{range .TagRepos}}
+        <article class="tag-repo" data-live-key="tag-repo:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}">
+          <h3>{{title .Repository.Source.Name}} <span class="muted">{{.Repository.Source.Repo}} · {{.Repository.Source.Branch}} · stream {{.Repository.Source.Stream}}</span></h3>
+          {{if $.ACS}}{{if $.ACS.PreviousPins.Evidence.Fresh}}<p class="muted">Previous ACS patch used <code>{{pinVersion $.ACS.PreviousPins .Repository.Source.Name}}</code>.{{else}}{{if $.ACS.PreviousPins.Evidence.Error}}<p class="muted">Previous ACS patch versions unavailable: {{$.ACS.PreviousPins.Evidence.Error}}</p>{{end}}{{end}}{{end}}
+          {{if .CurrentTag}}
+            {{if .SelectedTag}}{{template "component-tag" .SelectedTag}}{{else}}<p class="unknown">Selected {{.CurrentTag}} · current tag observation unavailable; coverage is unknown.</p>{{end}}
+            <form method="post" action="/action#tag-selection" class="inline-form"><input type="hidden" name="tab" value="component-releases"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="clear-tag"><input type="hidden" name="component" value="{{.Repository.Source.Name}}"><button type="submit">Prepare a new tag</button><span class="muted">Clear this selection while you prepare another release. Component PR monitoring continues.</span></form>
+            {{if .NewerTag}}<p class="tag-update">Newer tag available: <strong>{{.NewerTag}}</strong>. The selected tag remains {{.CurrentTag}}.</p>{{end}}
+            <details class="tag-alternatives" data-fold-key="tag-alternatives:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}"><summary>Change tag…</summary>
+              {{range .Tags}}{{if not .Current}}{{template "component-tag" .}}{{end}}{{end}}
+              {{range .OtherTags}}{{template "component-tag" .}}{{end}}
+              {{if and (not .Tags) (not .OtherTags)}}<p class="muted">No alternative tag observations are available.</p>{{end}}
+            </details>
+          {{else}}
+            <p class="muted">No tag selected for this ACS release yet. Existing tags may belong to an earlier release; select one only when you intend to use it.</p>
+            {{range .Tags}}{{template "component-tag" .}}{{end}}
+            {{if .OtherTags}}<details class="other-tags" data-fold-key="tag-alternatives:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}"><summary>Other observed tags ({{len .OtherTags}})</summary>
+              {{range .OtherTags}}{{template "component-tag" .}}{{end}}
+            </details>{{else}}{{if not .Tags}}<p class="muted">No final tag observations are available for this component.</p>{{end}}{{end}}
+          {{end}}
+          {{if .Repository.Evidence.Error}}<p class="error-text">{{.Repository.Evidence.Error}}</p>{{end}}
+        </article>
+      {{else}}<p class="muted">No component tag observations yet.</p>{{end}}
+    </details>
+  </section>
+  <section class="panel" id="component-images-panel">
+    <details id="component-images" open>
+      <summary class="section-summary">Component images <span class="summary-detail">Before ACS pinning</span></summary>
+      <p class="muted">CI and Konflux images for the selected Fact, Collector{{if .ACS4}}, and Scanner{{end}} versions. These must be available before updating the ACS component pins.</p>
+      <p class="muted">Available means the registry confirmed the exact tag exists. Not found means it confirmed absence. Unable to check means a tag is not selected or the request could not complete. Names come from saved patterns.</p>
+      {{if .Snapshot.Assessment.ImageProblem}}<p class="notice warning">{{.Snapshot.Assessment.ImageProblem}}</p>{{end}}
+      {{if .ComponentImages}}{{template "image-results" .ComponentImages}}{{else}}<p class="muted">No component image checks have completed yet. Select component tags to determine the expected images.</p>{{end}}
+    </details>
+  </section>
+  {{if .History}}<section id="previous-cycles-panel" class="panel"><details id="previous-cycles"><summary class="section-summary">Previous component cycles</summary>
+    <p class="eyebrow">Earlier confirmed tags</p>
+    {{range .History}}<article class="history-card"><div class="section-heading"><h3>{{.Cycle.Component}} · {{.Cycle.Tag}}</h3><span>SHA <code>{{.Cycle.SHA}}</code> · observed {{when .Cycle.At}}</span></div><p>Retained build plan: {{.Cycle.Plan.Action}} — {{.Cycle.Plan.Message}}</p>{{if .Cycle.Plan.Evidence.Error}}<p class="error-text">{{.Cycle.Plan.Evidence.Error}}</p>{{end}}{{if .Cycle.Images}}<table><thead><tr><th>Family</th><th>Reference</th><th>Status</th><th>Evidence</th></tr></thead><tbody>{{range .Cycle.Images}}<tr><td>{{.Family}}</td><td><code>{{.Reference}}</code></td><td>{{if .Evidence.Fresh}}{{truth .Present}}{{else}}unknown{{if .Present}} (last observed {{truth .Present}}){{end}}{{end}}</td><td>{{if .Evidence.Error}}{{.Evidence.Error}}{{else}}observed at {{when .Evidence.At}}{{end}}</td></tr>{{end}}</tbody></table>{{else}}<p class="muted">No image observations were retained for this cycle.</p>{{end}}</article>{{end}}
+    </details>
+  </section>{{end}}
+{{end}}

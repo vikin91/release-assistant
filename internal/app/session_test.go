@@ -47,6 +47,8 @@ func (f *fixture) Discover(ctx context.Context, r DiscoveryRequest) (release.Rep
 	if r.Scope != ReadAll {
 		if !r.Reads(ReadTags) {
 			repo.Tags = nil
+		} else if r.ConfirmedTag != "" {
+			repo.Tags = slices.DeleteFunc(repo.Tags, func(tag release.Tag) bool { return tag.Name != r.ConfirmedTag })
 		}
 		if !r.Reads(ReadPRs) {
 			repo.PRs = slices.DeleteFunc(repo.PRs, func(p release.PR) bool {
@@ -131,9 +133,6 @@ func refreshAll(t *testing.T, s *Session) {
 		if err := s.Refresh(t.Context(), x.Generation, source, true); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if s.Snapshot().SelectionReady && !s.Snapshot().SelectionComplete {
-		apply(t, s, Action{Kind: "finish-selection"})
 	}
 }
 func TestFixtureReleaseWorkflow(t *testing.T) {
@@ -244,7 +243,7 @@ func TestPollingBackoffRecoveryAndBrowserIndependence(t *testing.T) {
 		time.Sleep(time.Minute)
 		synctest.Wait()
 		f.mu.Lock()
-		if f.calls["fact"] != 3 {
+		if f.calls["fact"] != 4 {
 			t.Fatal(maps.Clone(f.calls))
 		}
 		f.mu.Unlock()
@@ -284,7 +283,7 @@ func TestConfigurationStartsInitialLoadWithoutWaitingForPoll(t *testing.T) {
 					f.mu.Lock()
 					for _, source := range []string{"acs", "fact", "collector"} {
 						want := attempt + 1
-						if source == "fact" && fail {
+						if source != "acs" {
 							want *= 2
 						}
 						if f.calls[source] != want {

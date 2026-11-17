@@ -57,7 +57,6 @@ func (s *Session) initializePinnedTags() bool {
 		changed = true
 	}
 	if changed {
-		s.selectionComplete = false
 		s.workRevision++
 	}
 	return changed

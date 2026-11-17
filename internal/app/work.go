@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -11,43 +13,10 @@ import (
 )
 
 type sourceWork struct {
-	revision                           uint64
-	scope                              DiscoveryScope
-	plans, images, releaseImages, skip bool
-}
-
-func (s *Session) tagsConfirmed() bool {
-	for _, source := range s.config.Components {
-		if s.choices.Tags[source.Name] == "" {
-			return false
-		}
-	}
-	return true
-}
-
-func (s *Session) selectionReady() bool {
-	if !s.tagsConfirmed() {
-		return false
-	}
-	for _, source := range append([]release.Source{s.config.ACS()}, s.config.Components...) {
-		if !s.prLoaded[source.Name] {
-			return false
-		}
-	}
-	return true
-}
-
-func (s *Session) phase() string {
-	if !s.tagsConfirmed() {
-		return "tags"
-	}
-	if !s.selectionComplete {
-		return "prs"
-	}
-	if s.rcReady() {
-		return "rc"
-	}
-	return "builds"
+	revision                     uint64
+	scope                        DiscoveryScope
+	plans, images, releaseImages bool
+	tagInventory                 bool
 }
 
 func (s *Session) rcReady() bool {
@@ -65,84 +34,61 @@ func (s *Session) rcReady() bool {
 }
 
 func (s *Session) work(source release.Source, discover bool) sourceWork {
-	switch s.phase() {
-	case "tags":
-		if source.Name == "acs" {
-			return sourceWork{scope: ReadPins, skip: !discover}
+	scope := ReadTargets | ReadChecks
+	if discover {
+		scope |= ReadPRs
+	}
+	if source.Name == "acs" {
+		scope |= ReadPins
+		if discover {
+			scope |= ReadPreviousPins
 		}
-		return sourceWork{scope: ReadTags, skip: !discover}
-	case "prs":
-		scope := ReadPRs | ReadTargets
-		if source.Name == "acs" {
-			scope |= ReadPins
-		}
-		return sourceWork{scope: scope, skip: !discover}
-	case "rc":
-		if source.Name == "acs" {
-			return sourceWork{scope: ReadPins, images: true, releaseImages: true}
-		}
-		return sourceWork{scope: ReadTags, skip: !discover}
-	default:
-		scope := ReadTags | ReadTargets | ReadChecks | ReadCoverage
-		if source.Name == "acs" {
-			scope = ReadPins | ReadTargets | ReadChecks
-		}
-		return sourceWork{scope: scope, plans: true, images: source.Name == "acs"}
+	} else if s.choices.Tags[source.Name] != "" {
+		scope |= ReadTags | ReadCoverage
+	}
+	return sourceWork{
+		scope: scope, plans: true, images: source.Name == "acs",
+		releaseImages: source.Name == "acs" && s.rcReady(),
 	}
 }
 
 func (s *Session) refreshPlanned(ctx context.Context, generation uint64, source release.Source, discover bool) error {
 	s.mu.Lock()
 	work := s.work(source, discover)
-	phase := s.phase()
 	work.revision = s.workRevision
 	s.mu.Unlock()
-	if work.skip {
-		return nil
-	}
 	priority := githubread.Builds
-	if phase == "tags" {
-		priority = githubread.Tags
-		if source.Name == "acs" {
-			priority = githubread.Background
-		}
-	}
-	if phase == "prs" {
+	if discover {
 		priority = githubread.PRs
 	}
-	if phase == "rc" {
-		if source.Name == "acs" {
-			discover = true
-		} else {
-			priority = githubread.Background
-		}
-	}
 	ctx = githubread.WithPriority(ctx, priority, source.Repo)
-	ctx, usage := githubread.Track(ctx, 80)
-	err := s.refresh(ctx, generation, source, discover, work)
+	ctx, _ = githubread.Track(ctx, 80)
+	err := s.refresh(ctx, generation, source, true, work)
+	if !discover || source.Name == "acs" || ctx.Err() != nil {
+		return err
+	}
+	// Tag inventories have their own result so incomplete ancestry reads cannot
+	// prevent PR observations or selected build checks from being published.
 	s.mu.Lock()
-	if generation == s.generation {
-		s.record(release.Target{Repo: source.Repo}, "", "work-complete", "", fmt.Sprintf("Phase=%s; GitHub reads=%d.", phase, usage.Calls()), "system")
-	}
+	revision := s.workRevision
 	s.mu.Unlock()
-	return err
-}
-
-// suspendPlans removes retry authority while keeping earlier build observations visible.
-// The caller holds the session lock.
-func (s *Session) suspendPlans() {
-	s.inventory.ReleaseImages = unverifiedImages(s.inventory.ReleaseImages, "")
-	for target, plan := range s.plans {
-		plan.Proposals = nil
-		plan.Evidence.Known = false
-		plan.Evidence.Error = ""
-		s.plans[target] = plan
-		s.dispatcher.ObservePlan(plan)
-	}
+	tags := sourceWork{scope: ReadTags, revision: revision, tagInventory: true}
+	tagErr := s.refresh(githubread.WithPriority(ctx, githubread.Background, source.Repo), generation, source, true, tags)
+	return errors.Join(err, tagErr)
 }
 
 func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) release.Repository {
-	if !request.Reads(ReadTags) || (request.Scope != ReadAll && request.ConfirmedTag != "") {
+	if !request.Reads(ReadCoverage) {
+		for i := range latest.Tags {
+			for _, tag := range old.Tags {
+				if tag.Name == latest.Tags[i].Name && tag.SHA == latest.Tags[i].SHA {
+					latest.Tags[i].Contains = maps.Clone(tag.Contains)
+					break
+				}
+			}
+		}
+	}
+	if latest.TagsPending || !request.Reads(ReadTags) || (request.Scope != ReadAll && request.ConfirmedTag != "") {
 		tags := slices.Clone(old.Tags)
 		if latest.Head != old.Head {
 			for i := range tags {
@@ -158,6 +104,11 @@ func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) re
 			}
 		}
 		latest.Tags = tags
+	}
+	if !request.Reads(ReadChecks) {
+		for i := range latest.PRs {
+			latest.PRs[i].ChecksEvidence.Known = false
+		}
 	}
 	if !request.Reads(ReadPRs) {
 		prs := slices.Clone(old.PRs)
@@ -177,16 +128,55 @@ func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) re
 		}
 		latest.PRs = prs
 	}
-	if !request.Reads(ReadChecks) {
-		for i := range latest.PRs {
-			latest.PRs[i].ChecksEvidence.Known = false
-		}
+	if request.Scope == ReadTags && latest.Head == old.Head && old.Evidence.Fresh() {
+		latest.Evidence = old.Evidence
+	}
+	if !request.Reads(ReadPreviousPins) {
+		latest.PreviousPins, latest.PreviousPublished = old.PreviousPins, old.PreviousPublished
 	}
 	if !request.Reads(ReadPins) {
-		latest.Pins, latest.PinningPR, latest.PinningPins, latest.PinningEvidence, latest.PreviousPublished = old.Pins, old.PinningPR, old.PinningPins, old.PinningEvidence, old.PreviousPublished
+		latest.Pins, latest.PinningPR, latest.PinningPins, latest.PinningEvidence = old.Pins, old.PinningPR, old.PinningPins, old.PinningEvidence
 		if latest.Head != old.Head {
 			latest.Pins.Evidence.Known = false
 		}
 	}
 	return latest
+}
+
+// recordDiscoveryChanges reports newly available work and PR transitions once.
+// The caller holds the session lock.
+func (s *Session) recordDiscoveryChanges(old, latest release.Repository, request DiscoveryRequest) {
+	if request.Reads(ReadTags) && request.ConfirmedTag == "" {
+		newTags := 0
+		for _, tag := range latest.Tags {
+			if tag.Evidence.Fresh() && tag.Belongs == release.Yes && !slices.ContainsFunc(old.Tags, func(previous release.Tag) bool { return previous.Name == tag.Name }) {
+				newTags++
+			}
+		}
+		if newTags > 0 {
+			message := fmt.Sprintf("Found %s on %s. Review component release choices.", counted(newTags, "additional release tag"), consoleBranch(latest.Source))
+			if len(old.Tags) == 0 {
+				message = discoverySummary(request, latest, latest.TagsPending)
+			}
+			s.record(release.Target{Repo: latest.Source.Repo}, "", "tags-discovered", "", message, "system", message)
+		}
+	}
+	for _, pr := range latest.PRs {
+		if !pr.Evidence.Fresh() {
+			continue
+		}
+		index := slices.IndexFunc(old.PRs, func(previous release.PR) bool { return previous.Target == pr.Target })
+		message := ""
+		switch {
+		case index < 0 && pr.State == "open":
+			message = fmt.Sprintf("Found pull request %s targeting %s: %s.", consoleTarget(pr.Target), pr.Base, pr.Title)
+		case index >= 0 && !old.PRs[index].Merged && pr.Merged:
+			message = fmt.Sprintf("Pull request %s merged into %s at merge commit %s.", consoleTarget(pr.Target), pr.Base, pr.MergeSHA)
+		case index >= 0 && old.PRs[index].State == "open" && pr.State == "closed":
+			message = fmt.Sprintf("Pull request %s closed without merging.", consoleTarget(pr.Target))
+		}
+		if message != "" {
+			s.record(pr.Target, pr.SHA, "pr-state", "", message, "system", message)
+		}
+	}
 }

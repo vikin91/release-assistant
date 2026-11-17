@@ -195,7 +195,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 			result.PRs = append(result.PRs, p)
 			continue
 		}
-		if p.State == "open" && req.Reads(app.ReadChecks) {
+		if p.State == "open" && req.Reads(app.ReadChecks) && (req.Scope == app.ReadAll || tracked[p.Target.PR] || p.Target.PR == req.PinningPR) {
 			c.readChecks(ctx, source, &p)
 		}
 		result.PRs = append(result.PRs, p)
@@ -307,9 +307,14 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 				}
 			}
 		}
-		if req.Scope == app.ReadAll {
-			previous, _ := c.previousPublished(ctx, req.Version)
-			result.PreviousPublished = previous
+	}
+	if source.Name == "acs" && req.Reads(app.ReadPreviousPins) {
+		if cycle.remaining >= 12 && cycle.budgetErr == nil && cycle.rateErr == nil {
+			baseline := &discoveryCycle{reads: map[string]cachedRead{}, limit: 12, remaining: 12}
+			baselineCtx := context.WithValue(ctx, discoveryCycleKey{}, baseline)
+			result.PreviousPins, result.PreviousPublished = c.previousPins(baselineCtx, source.Repo, req.Version)
+		} else {
+			result.PreviousPins.Evidence = release.Evidence{At: time.Now(), Error: "Previous ACS release versions are deferred until GitHub read allowance is available."}
 		}
 	}
 	if result.TagsPending {
@@ -716,57 +721,40 @@ func (c *Client) File(ctx context.Context, repo, sha, filePath string) ([]byte, 
 	return decoded, nil
 }
 
-func (c *Client) previousPublished(ctx context.Context, version string) (release.Truth, error) {
+func (c *Client) previousPins(ctx context.Context, repo, version string) (release.Pins, release.Truth) {
 	major, minor, patch, ok := release.Version(version)
-	if !ok {
-		return "", fmt.Errorf("release version is invalid")
+	if !ok || patch == 0 {
+		return release.Pins{Evidence: release.Evidence{At: time.Now(), Error: "No previous ACS patch tag is defined for this release."}}, ""
 	}
-	if patch == 0 {
-		return release.No, nil
+	previous := fmt.Sprintf("%d.%d.%d", major, minor, patch-1)
+	var ref gitTagResponse
+	name := previous
+	endpoint := repoPath(repo) + "/git/ref/tags/"
+	err := c.get(ctx, endpoint+segment(name), &ref)
+	if failure, ok := errors.AsType[*requestError](err); ok && failure.statusCode == 404 {
+		name = "v" + previous
+		err = c.get(ctx, endpoint+segment(name), &ref)
 	}
-	name := fmt.Sprintf("%d.%d.%d", major, minor, patch-1)
-	var found string
-	err := c.pages(ctx, "/repos/stackrox/stackrox/tags", func(raw json.RawMessage) error {
-		var t tagResponse
-		if e := json.Unmarshal(raw, &t); e != nil {
-			return fmt.Errorf("malformed tag record")
-		}
-		if t.Name == name || t.Name == "v"+name {
-			found = t.Name
-		}
-		return nil
-	})
+	evidence := release.Evidence{At: time.Now(), URL: "https://github.com/" + repo + "/tree/" + name}
 	if err != nil {
-		return "", err
-	}
-	if found == "" {
-		return release.No, nil
-	}
-	var ref struct {
-		Object struct {
-			SHA  string `json:"sha"`
-			Type string `json:"type"`
-		} `json:"object"`
-	}
-	if err := c.get(ctx, "/repos/stackrox/stackrox/git/ref/tags/"+segment(found), &ref); err != nil {
-		return "", err
+		evidence.Error = "Unable to read previous ACS release tag " + previous + ": " + requestProblem(err)
+		return release.Pins{Evidence: evidence}, ""
 	}
 	sha, kind := ref.Object.SHA, ref.Object.Type
 	for depth := 0; kind == "tag" && depth < 5; depth++ {
-		var obj gitTagResponse
-		if err := c.get(ctx, "/repos/stackrox/stackrox/git/tags/"+segment(sha), &obj); err != nil {
-			return "", err
+		var tag gitTagResponse
+		if err := c.get(ctx, repoPath(repo)+"/git/tags/"+segment(sha), &tag); err != nil {
+			evidence.Error = "Unable to resolve previous ACS release tag " + name + ": " + requestProblem(err)
+			return release.Pins{Evidence: evidence}, ""
 		}
-		sha, kind = obj.Object.SHA, obj.Object.Type
+		sha, kind = tag.Object.SHA, tag.Object.Type
 	}
 	if sha == "" || kind != "commit" {
-		return "", fmt.Errorf("previous ACS tag could not be resolved")
+		evidence.Error = "Previous ACS release tag " + name + " did not resolve to a commit."
+		return release.Pins{Evidence: evidence}, ""
 	}
-	var commit commitResponse
-	if err := c.get(ctx, "/repos/stackrox/stackrox/commits/"+segment(sha), &commit); err != nil {
-		return "", err
-	}
-	return release.Yes, nil
+	pins, _ := c.readPins(ctx, repo, sha, previous)
+	return pins, release.Yes
 }
 
 // ReadTarget returns fresh PR or tag identity and opt-out state.

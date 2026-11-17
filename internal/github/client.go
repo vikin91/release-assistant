@@ -34,6 +34,7 @@ type (
 	requestError struct {
 		diagnostic, problem string
 		cause               error
+		statusCode          int
 	}
 )
 
@@ -110,7 +111,7 @@ func (c *Client) get(ctx context.Context, endpoint string, dst any) (err error) 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		failure := &requestError{diagnostic: fmt.Sprintf("GitHub GET %s rejected (HTTP %d): %s", safeEndpoint(req.URL.String(), c.token), resp.StatusCode, httpStatusHint(resp)), problem: fmt.Sprintf("%s (HTTP %d).", httpStatusHint(resp), resp.StatusCode)}
+		failure := &requestError{diagnostic: fmt.Sprintf("GitHub GET %s rejected (HTTP %d): %s", safeEndpoint(req.URL.String(), c.token), resp.StatusCode, httpStatusHint(resp)), problem: fmt.Sprintf("%s (HTTP %d).", httpStatusHint(resp), resp.StatusCode), statusCode: resp.StatusCode}
 		if rateLimited(resp) {
 			c.backoff.record(resp, failure)
 			if cycle != nil {

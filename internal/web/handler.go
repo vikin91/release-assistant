@@ -48,13 +48,10 @@ func New(application Application) (http.Handler, error) {
 	if application == nil {
 		return nil, errors.New("web application is required")
 	}
-	data, err := fs.ReadFile(assets, "templates/index.html")
-	if err != nil {
-		return nil, fmt.Errorf("read embedded page template: %w", err)
-	}
 	page, err := template.New("index.html").Funcs(template.FuncMap{
 		"pinVersion": pinVersion,
-		"truth":      truthLabel, "when": formatTime, "url": safeURL,
+		"tabPage":    tabPage, "tabTitle": tabTitle, "tabHelp": tabHelp, "tabStep": tabStep,
+		"truth": truthLabel, "when": formatTime, "url": safeURL,
 		"activity": activityText,
 		"slice":    func(values ...string) []string { return values },
 		"title": func(value string) string {
@@ -66,7 +63,7 @@ func New(application Application) (http.Handler, error) {
 			}
 			return strings.ToUpper(value[:1]) + value[1:]
 		},
-	}).Parse(string(data))
+	}).ParseFS(assets, "templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse embedded page template: %w", err)
 	}
@@ -149,7 +146,9 @@ func (s *server) get(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	token := fmt.Sprintf("%x", s.csrf[:])
 	http.SetCookie(w, &http.Cookie{Name: csrfName(r.Host), Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 3600})
-	if err := s.template.Execute(w, makePage(s.app.Snapshot(), token, "")); err != nil {
+	page := makePage(s.app.Snapshot(), token, "")
+	page.Tab = validTab(r.URL.Query().Get("tab"))
+	if err := s.template.Execute(w, page); err != nil {
 		http.Error(w, "page rendering failed", http.StatusInternalServerError)
 	}
 }
@@ -164,22 +163,7 @@ func (s *server) getActivity(w http.ResponseWriter, _ *http.Request) {
 func activityText(snapshot app.Snapshot) string {
 	var text strings.Builder
 	for _, entry := range snapshot.LogEntries {
-		fmt.Fprintf(&text, "%s [%s]", formatTime(entry.At), entry.Decision)
-		if entry.Release != "" {
-			fmt.Fprintf(&text, " ACS %s", entry.Release)
-		}
-		if entry.Target.Repo != "" {
-			target := entry.Target.Repo
-			if entry.Target.PR != 0 || entry.Target.Tag != "" {
-				target = entry.Target.String()
-			}
-			fmt.Fprintf(&text, " %s", target)
-		}
-		result := entry.Result
-		if strings.HasSuffix(entry.Decision, "-error") && !strings.HasPrefix(result, "Error: ") {
-			result = "Error: " + result
-		}
-		fmt.Fprintf(&text, ": %s\n", strings.ReplaceAll(result, "\n", "\n  "))
+		fmt.Fprintf(&text, "%s %s: %s\n", formatTime(entry.At), entry.Level(), strings.ReplaceAll(entry.Message(), "\n", "\n  "))
 	}
 	if snapshot.LogError != "" {
 		fmt.Fprintf(&text, "[log-error] Error: %s\n", strings.ReplaceAll(snapshot.LogError, "\n", "\n  "))
@@ -213,8 +197,9 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	destination := "/"
-	if action.Kind == "tag" && allTagsSelected(s.app.Snapshot()) {
-		destination = "/#tag-selection-panel"
+	if tab := r.PostForm.Get("tab"); tab != "" {
+		destination = "/?tab=" + validTab(tab)
+
 	}
 	http.Redirect(w, r, destination, http.StatusSeeOther)
 }
@@ -234,6 +219,7 @@ func (s *server) renderError(w http.ResponseWriter, r *http.Request, cause error
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	page := makePage(s.app.Snapshot(), fmt.Sprintf("%x", s.csrf[:]), cause.Error())
+	page.Tab = validTab(r.PostForm.Get("tab"))
 	if r.PostForm.Get("kind") == "configure" {
 		// Rejected text remains a page-local draft, separate from the active configuration.
 		page.ConfigForm = r.PostForm
@@ -299,9 +285,13 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 		if a.SHA == "" {
 			return a, fmt.Errorf("grant requires the displayed SHA")
 		}
-	case "finish-selection":
 	case "interactive":
 		a.Enabled = formHasValue(form, "enabled", "true")
+	case "clear-tag":
+		a.Component = form.Get("component")
+		if a.Component == "" {
+			return a, fmt.Errorf("component is required to prepare a new tag")
+		}
 	case "tag":
 		a.Component = form.Get("component")
 		a.Tag = form.Get("tag")

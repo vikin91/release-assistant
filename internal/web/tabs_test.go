@@ -1,0 +1,249 @@
+package web
+
+import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"regexp"
+	"strings"
+	"testing"
+	"time"
+
+	"release-assistant/internal/app"
+	"release-assistant/internal/dispatch"
+	"release-assistant/internal/release"
+)
+
+func TestActivityTabsWorkWithoutComponentTags(t *testing.T) {
+	config := validACS5Config()
+	component := release.Target{Repo: config.Components[0].Repo, PR: 17}
+	acs := release.Target{Repo: config.ACS().Repo, PR: 18}
+	application := &fakeApplication{snapshot: app.Snapshot{
+		Config: config, Generation: 7,
+		Choices: release.Choices{PRs: map[release.Target]release.Choice{component: release.Included, acs: release.Included}},
+		Repositories: []release.Repository{
+			{Source: config.Components[0], PRs: []release.PR{{Target: component, Title: "Component change", State: "open"}}},
+			{Source: config.ACS(), PRs: []release.PR{{Target: acs, Title: "ACS change", State: "open"}}},
+		},
+		Plans:     []release.Plan{{Target: component, Message: "component-build-observation"}, {Target: acs, Message: "acs-build-observation"}},
+		Authority: []dispatch.View{{Target: component, Message: "component-write-offer"}, {Target: acs, Message: "acs-write-offer"}},
+		Assessment: release.Assessment{
+			ComponentPRRecommendations:      []string{"Merge component changes."},
+			ComponentReleaseRecommendations: []string{"Prepare a tag when changes are ready."},
+			ACSRecommendations:              []string{"Merge ACS changes."},
+		},
+	}}
+	browser := newBrowser(t, application)
+	for _, tab := range []string{"component-prs", "component-releases", "acs-prs", "acs-rcs"} {
+		response := httptest.NewRecorder()
+		browser.handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/?tab="+tab, nil))
+		body := response.Body.String()
+		if response.Code != http.StatusOK || !strings.Contains(body, `data-active-tab="`+tab+`"`) {
+			t.Fatalf("tab %s is inaccessible without tags: %d", tab, response.Code)
+		}
+		for _, other := range []string{"component-prs", "component-releases", "acs-prs", "acs-rcs"} {
+			if !strings.Contains(body, `href="/?tab=`+other+`"`) {
+				t.Fatalf("tab %s is missing a link to %s", tab, other)
+			}
+			panel := `<section id="panel-` + other + `" class="workflow-panel" role="tabpanel" aria-labelledby="tab-` + other + `" data-workflow-panel="` + other + `" tabindex="0"`
+			if other != tab {
+				panel += " hidden"
+			}
+			if !strings.Contains(body, panel+">") {
+				t.Fatalf("tab %s has wrong visibility for %s", tab, other)
+			}
+		}
+		seen := map[string]bool{}
+		for _, match := range regexp.MustCompile(`\sid="([^"]+)"`).FindAllStringSubmatch(body, -1) {
+			if seen[match[1]] {
+				t.Fatalf("duplicate DOM id %s across activity panels", match[1])
+			}
+			seen[match[1]] = true
+		}
+		for _, form := range renderedFormRE.FindAllString(body, -1) {
+			if formInputValue(t, form, "tab") == "" {
+				t.Fatal("action has no presentation destination")
+			}
+		}
+		componentView := activityPanel(t, body, "component-prs")
+		acsView := activityPanel(t, body, "acs-prs")
+		for _, marker := range []string{"Component change", "component-build-observation", "component-write-offer", "Merge component changes."} {
+			if !strings.Contains(componentView, marker) || strings.Contains(acsView, marker) {
+				t.Fatalf("component activity crossed into ACS view: %s", marker)
+			}
+		}
+		for _, marker := range []string{"ACS change", "acs-build-observation", "acs-write-offer", "Merge ACS changes."} {
+			if !strings.Contains(acsView, marker) || strings.Contains(componentView, marker) {
+				t.Fatalf("ACS activity crossed into component view: %s", marker)
+			}
+		}
+		if strings.Contains(body, "finish-selection") || strings.Contains(body, "Confirm component tags and wait for PR inventories") {
+			t.Fatal("tab presentation retained a global selection prerequisite")
+		}
+	}
+	if len(application.actions) != 0 {
+		t.Fatal("viewing a tab changed the release session")
+	}
+}
+
+func TestTagPreparationKeepsExistingCandidatesAndReturnsToActivity(t *testing.T) {
+	config := validACS5Config()
+	source := config.Components[0]
+	observed := release.Evidence{Known: true, At: time.Now()}
+	application := &fakeApplication{snapshot: app.Snapshot{
+		Config: config, Generation: 19,
+		Choices: release.Choices{Tags: map[string]string{source.Name: "3.25.1"}},
+		Repositories: []release.Repository{
+			{Source: source, Tags: []release.Tag{{Name: "3.25.1", SHA: "selected-sha", Belongs: release.Yes, Evidence: observed}, {Name: "3.25.2", SHA: "next-sha", Belongs: release.Yes, Evidence: observed}}},
+			{Source: config.ACS(), PreviousPins: release.Pins{Versions: map[string]string{source.Name: "3.25.0"}, Evidence: observed}},
+		},
+	}}
+	browser := newBrowser(t, application)
+	body := activityPanel(t, browser.getBody(t), "component-releases")
+	if !strings.Contains(body, "Previous ACS patch used <code>3.25.0</code>") || !strings.Contains(body, "3.25.2") {
+		t.Fatal("component release view lost baseline or existing candidate tags")
+	}
+	var form string
+	for _, candidate := range renderedFormRE.FindAllString(body, -1) {
+		if strings.Contains(candidate, "Prepare a new tag") {
+			form = candidate
+			break
+		}
+	}
+	if form == "" {
+		t.Fatal("selected tag cannot be cleared while preparing a newer release")
+	}
+	values := url.Values{}
+	for _, field := range []string{"kind", "generation", "component", "tab"} {
+		values.Set(field, formInputValue(t, form, field))
+	}
+	response := browser.post(values)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/?tab=component-releases" {
+		t.Fatalf("tag preparation lost activity: %d %s", response.Code, response.Header().Get("Location"))
+	}
+	if len(application.actions) != 1 || application.actions[0].Kind != "clear-tag" || application.actions[0].Component != source.Name {
+		t.Fatalf("tag preparation action = %+v", application.actions)
+	}
+}
+
+func TestActivityDestinationIsValidated(t *testing.T) {
+	browser := newBrowser(t, &fakeApplication{})
+	response := browser.post(url.Values{"kind": {"interactive"}, "generation": {"0"}, "tab": {"https://untrusted.example"}})
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/?tab=component-prs" {
+		t.Fatal("presentation destination accepted an external redirect")
+	}
+}
+
+func activityPanel(t *testing.T, body, tab string) string {
+	t.Helper()
+	start := strings.Index(body, `<section id="panel-`+tab+`"`)
+	if start < 0 {
+		t.Fatalf("activity panel %s missing", tab)
+	}
+	rest := body[start:]
+	end := strings.Index(rest[len("<section"):], `<section id="panel-`)
+	if end < 0 {
+		end = strings.Index(rest, `<section class="panel" id="activity-console"`)
+		if end < 0 {
+			return rest
+		}
+		return rest[:end]
+	}
+	return rest[:end+len("<section")]
+}
+
+func TestRejectedActionKeepsItsActivityAndEscapesError(t *testing.T) {
+	application := &fakeApplication{snapshot: app.Snapshot{Config: validACS5Config()}, err: errors.New("Cannot apply <script>external text</script>")}
+	browser := newBrowser(t, application)
+	response := browser.post(url.Values{"kind": {"interactive"}, "generation": {"0"}, "tab": {"acs-prs"}})
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), `data-active-tab="acs-prs"`) {
+		t.Fatal("rejected action lost its activity")
+	}
+	if strings.Contains(response.Body.String(), "<script>external text</script>") || !strings.Contains(response.Body.String(), "&lt;script&gt;external text&lt;/script&gt;") {
+		t.Fatal("action error was not escaped")
+	}
+}
+
+func TestIncludedClosedPRCanBeExcludedFromItsActivity(t *testing.T) {
+	config := validACS5Config()
+	for _, source := range []release.Source{config.Components[0], config.ACS()} {
+		t.Run(source.Name, func(t *testing.T) {
+			target := release.Target{Repo: source.Repo, PR: 36}
+			observed := release.Evidence{Known: true, At: time.Now()}
+			application := &fakeApplication{snapshot: app.Snapshot{
+				Config: config, Generation: 23, WritesEnabled: true,
+				Choices: release.Choices{PRs: map[release.Target]release.Choice{target: release.Included}},
+				Repositories: []release.Repository{{Source: source, Evidence: observed, PRs: []release.PR{{
+					Target: target, SHA: "closed-head", Title: "Closed selected fix", State: "closed", Base: source.Branch, Evidence: observed,
+				}}}},
+				Plans:     []release.Plan{{Target: target, Message: "closed-pr-retry-plan"}},
+				Authority: []dispatch.View{{Target: target, Granted: true, Message: "closed-pr-offer", Offers: []dispatch.Offer{{CanApprove: true}}}},
+			}}
+			browser := newBrowser(t, application)
+			tab := "component-prs"
+			if source.Name == "acs" {
+				tab = "acs-prs"
+			}
+			body := activityPanel(t, browser.getBody(t), tab)
+			card := prCardContaining(body, "Closed selected fix")
+			if card == "" || !strings.Contains(card, "Closed without merging") || !strings.Contains(card, `name="choice" value="excluded"`) {
+				t.Fatal("included closed PR has no visible recovery control")
+			}
+			if strings.Contains(body, "closed-pr-retry-plan") || strings.Contains(body, "closed-pr-offer") {
+				t.Fatal("closed PR retained retry or write offers")
+			}
+			var choiceForm string
+			for _, form := range renderedFormRE.FindAllString(card, -1) {
+				if formInputValue(t, form, "kind") == "grant" && !strings.Contains(form, `disabled> RW allowed`) {
+					t.Fatal("closed PR retained an enabled RW control")
+				}
+				if formInputValue(t, form, "kind") == "choice" {
+					choiceForm = form
+				}
+			}
+			values := url.Values{"choice": {"excluded"}}
+			for _, field := range []string{"kind", "generation", "repo", "pr", "sha", "tab"} {
+				values.Set(field, formInputValue(t, choiceForm, field))
+			}
+			response := browser.post(values)
+			if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/?tab="+tab {
+				t.Fatal("excluding closed PR lost its activity")
+			}
+			if len(application.actions) != 1 || application.actions[0].Choice != release.Excluded || application.actions[0].Target != target {
+				t.Fatalf("closed PR exclusion action = %+v", application.actions)
+			}
+			application.snapshot.Choices.PRs[target] = release.Excluded
+			if strings.Contains(browser.getBody(t), "Closed selected fix") {
+				t.Fatal("excluded closed PR remained in the actionable inventory")
+			}
+			assessment := release.Assess(release.Input{Config: config, Choices: application.snapshot.Choices, Repositories: application.snapshot.Repositories})
+			for _, condition := range assessment.Conditions {
+				if condition.Name == "included PR "+target.String() {
+					t.Fatal("excluded closed PR still blocks release assessment")
+				}
+			}
+		})
+	}
+}
+
+func TestPRGrantRequiresCurrentOpenIdentity(t *testing.T) {
+	config := validACS5Config()
+	source := config.Components[0]
+	for name, mutate := range map[string]func(*release.PR){
+		"stale identity": func(pr *release.PR) { pr.Evidence.Known = false },
+		"wrong base":     func(pr *release.PR) { pr.Base = "master" },
+		"missing SHA":    func(pr *release.PR) { pr.SHA = "" },
+		"opt out":        func(pr *release.PR) { pr.OptOut = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			pr := release.PR{Target: release.Target{Repo: source.Repo, PR: 37}, SHA: "head", Title: "Unsafe grant", State: "open", Base: source.Branch, Evidence: release.Evidence{Known: true, At: time.Now()}}
+			mutate(&pr)
+			application := &fakeApplication{snapshot: app.Snapshot{Config: config, WritesEnabled: true, Repositories: []release.Repository{{Source: source, PRs: []release.PR{pr}}}}}
+			card := prCardContaining(newBrowser(t, application).getBody(t), pr.Title)
+			if card == "" || !strings.Contains(card, `disabled> RW allowed`) {
+				t.Fatal("unsafe PR identity has an enabled RW control")
+			}
+		})
+	}
+}

@@ -36,7 +36,7 @@ func TestWriteModeControls(t *testing.T) {
 					PRs:  map[release.Target]release.Choice{prTarget: release.Included},
 				},
 				Repositories: []release.Repository{
-					{Source: release.Source{Name: "acs", Repo: "acme/rox", Branch: "release-5.0"}, PRs: []release.PR{{Target: prTarget, SHA: "head-sha", Title: "Included PR", State: "open", OptOut: tc.optOut, Evidence: release.Evidence{Known: true, At: time.Now()}}}},
+					{Source: release.Source{Name: "acs", Repo: "acme/rox", Branch: "release-5.0"}, PRs: []release.PR{{Target: prTarget, SHA: "head-sha", Title: "Included PR", State: "open", Base: "release-5.0", OptOut: tc.optOut, Evidence: release.Evidence{Known: true, At: time.Now()}}}},
 					{Source: release.Source{Name: "fact", Repo: "acme/fact", Branch: "release-3.25", Stream: "3.25"}, Tags: []release.Tag{
 						{Name: "3.25.7", SHA: "tag-sha", Belongs: release.Yes, Evidence: release.Evidence{Known: true, At: time.Now()}},
 						{Name: "3.25.8", SHA: "next-tag-sha", Belongs: release.Yes, Evidence: release.Evidence{Known: true, At: time.Now()}},

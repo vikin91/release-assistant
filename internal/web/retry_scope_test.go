@@ -79,8 +79,8 @@ func TestRetryAndCommentSectionsUseExplicitCurrentScope(t *testing.T) {
 	}}
 	b := newBrowser(t, application)
 	body := b.getBody(t)
-	proposals := between(t, body, `<section class="panel" id="retry-proposals">`, `</section>`)
-	offers := between(t, body, `<section class="panel" id="comment-offers">`, `</section>`)
+	proposals := between(t, body, `<section class="panel" id="retry-proposals">`, `</section>`) + between(t, body, `<section class="panel" id="component-releases-retry">`, `</section>`)
+	offers := between(t, body, `<section class="panel" id="comment-offers">`, `</section>`) + between(t, body, `<section class="panel" id="component-releases-offers">`, `</section>`)
 	for _, section := range []struct {
 		name string
 		body string
@@ -127,30 +127,20 @@ func TestRetryAndCommentSectionsUseExplicitCurrentScope(t *testing.T) {
 	if excludedCard == "" || !strings.Contains(excludedCard, `name="enabled" value="true" checked`) {
 		t.Fatal("excluded PR lost its independent RW checked state when retry panels hide it")
 	}
-	if strings.Contains(body, "Ignored open PR") || strings.Contains(body, "Merged PR") || strings.Contains(body, "Closed PR") {
-		t.Fatal("ignored, merged, or closed PRs should not remain in ordinary PR selection")
+	if strings.Contains(body, "Ignored open PR") {
+		t.Fatal("ignored PR should not remain in ordinary PR selection")
 	}
 }
 
-func TestRetryProposalsEmptyStatePointsToPRSelection(t *testing.T) {
-	application := &fakeApplication{snapshot: app.Snapshot{
-		Config: validACS5Config(), Generation: 12, Phase: "prs",
-		Choices: release.Choices{Tags: map[string]string{"fact": "3.25.2", "collector": "3.25.4"}},
-	}}
+func TestRetryProposalsDoNotRequireSelectionConfirmation(t *testing.T) {
+	application := &fakeApplication{snapshot: app.Snapshot{Config: validACS5Config(), Generation: 12}}
 	body := newBrowser(t, application).getBody(t)
 	proposals := between(t, body, `<section class="panel" id="retry-proposals">`, `</section>`)
-	if !strings.Contains(proposals, "Finish the PR selection to activate retry proposals.") {
-		t.Fatal("empty retry proposals during PR selection does not explain how to activate them")
+	if strings.Contains(body, "Finish PR selection") || strings.Contains(body, "finish-selection") {
+		t.Fatal("activity tabs retained the global selection gate")
 	}
-
-	application.snapshot.Phase = "builds"
-	body = newBrowser(t, application).getBody(t)
-	proposals = between(t, body, `<section class="panel" id="retry-proposals">`, `</section>`)
-	if strings.Contains(proposals, "Finish the PR selection") {
-		t.Fatal("empty retry proposals after selection still ask to finish PR selection")
-	}
-	if !strings.Contains(proposals, "No retry observations for selected tags or included PRs yet.") {
-		t.Fatal("empty retry proposals outside PR selection lost their neutral explanation")
+	if !strings.Contains(proposals, "No retry observations yet") {
+		t.Fatal("empty retry proposals lost their activity-specific explanation")
 	}
 }
 
