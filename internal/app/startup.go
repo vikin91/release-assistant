@@ -29,7 +29,7 @@ func (s *Session) monitorRelease(ctx context.Context, generation uint64, config 
 
 func (s *Session) loadTags(ctx context.Context, generation uint64, source release.Source) {
 	s.mu.Lock()
-	if s.generation != generation || s.tagsLoaded[source.Name] {
+	if s.generation != generation || s.tagsLoaded[source.Name] || s.choices.Tags[source.Name] != "" {
 		s.mu.Unlock()
 		return
 	}
@@ -54,6 +54,7 @@ func (s *Session) loadTags(ctx context.Context, generation uint64, source releas
 	}
 	s.publishTags(source, repo)
 	s.tagsLoaded[source.Name] = true
+	s.initiallyLoaded[source.Name] = true
 	message := ""
 	if err != nil {
 		message = err.Error()

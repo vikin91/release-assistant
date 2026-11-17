@@ -7,13 +7,14 @@
   <title>{{.Title}}</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
-<body data-loading="{{and .Configured .Snapshot.Loading}}">
+<body data-loading="{{and .Configured (or .Snapshot.Loading (eq .Snapshot.Phase "tags") (eq .Snapshot.Phase "prs"))}}">
 <header class="topbar">
   <div><p class="eyebrow">Release preparation</p><h1>{{.Title}}</h1></div>
   <span class="pill {{if .Snapshot.Assessment.Ready}}good{{else}}unknown{{end}}">{{if .Snapshot.Assessment.Ready}}Ready to create ACS RC.0{{else}}Preparing release{{end}}</span>
 </header>
 <main>
   {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
+  {{if .Configured}}<p class="notice" role="status">{{if eq .Snapshot.Phase "tags"}}Selecting component tags. PR discovery and build checks follow tag selection.{{else}}{{if eq .Snapshot.Phase "prs"}}Review PRs, then finish PR selection to start build monitoring.{{else}}{{if eq .Snapshot.Phase "rc"}}Pinning is merged and branch versions match. Checking release candidate images.{{else}}Monitoring selected builds and ACS pinning.{{end}}{{end}}{{end}}</p>{{end}}
   {{if and .Configured .Snapshot.Loading}}<p class="notice" role="status">Loading release data… Results appear as each repository finishes.</p>{{end}}
   <section class="panel" aria-labelledby="setup-heading">
     <details id="release-configuration" {{if or (not .Configured) .ConfigDraft}}open{{end}}>
@@ -94,7 +95,8 @@
   <section class="panel" aria-labelledby="pr-selection-heading" id="pr-selection-panel">
     <details id="pr-selection" open>
     <summary id="pr-selection-heading" class="section-summary">PR selection</summary>
-    <p class="muted">Each Include, Exclude, or Ignore choice takes effect immediately. RW allowed controls permission to post retry comments independently.</p>
+    <p class="muted">Include selects a PR for monitoring. Exclude stops detailed monitoring and retries; Ignore also hides it. RW allowed controls permission to post retry comments independently.</p>
+    {{if .Snapshot.SelectionComplete}}<p class="muted">PR selection is complete. Changing a tag or PR choice opens selection again.</p>{{else}}<form method="post" action="/action#pr-selection"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Snapshot.Generation}}"><input type="hidden" name="kind" value="finish-selection"><button type="submit"{{if not .Snapshot.SelectionReady}} disabled{{end}}>Finish PR selection</button>{{if not .Snapshot.SelectionReady}}<span class="muted">Confirm component tags and wait for PR inventories.</span>{{end}}</form>{{end}}
     {{range .Repos}}
       <article class="pr-repo">
         <h3>{{title .Repository.Source.Name}} <span class="muted">{{.Repository.Source.Repo}} · {{.Repository.Source.Branch}}</span></h3>

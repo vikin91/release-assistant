@@ -151,6 +151,8 @@ type (
 		Choices      Choices
 		Repositories []Repository
 		Inventory    Inventory
+		// SelectionPending withholds readiness until the user finishes PR selection.
+		SelectionPending bool
 	}
 	// Condition explains one readiness predicate and its evidence.
 	Condition struct {
@@ -180,7 +182,7 @@ const (
 	No Truth = "no"
 	// Included records a selected PR.
 	Included Choice = "included"
-	// Excluded keeps a PR monitored outside the selected scope.
+	// Excluded retains a PR in the inventory without detailed monitoring or retries.
 	Excluded Choice = "excluded"
 	// Ignored stops detailed reads and all writes.
 	Ignored Choice = "ignored"

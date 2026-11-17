@@ -56,5 +56,9 @@ func (s *Session) initializePinnedTags() bool {
 		s.record(target, selected.SHA, "tag-from-pinning-pr", "", fmt.Sprintf("Selected from merged ACS pinning PR #%d.", pr.Target.PR), "system")
 		changed = true
 	}
+	if changed {
+		s.selectionComplete = false
+		s.workRevision++
+	}
 	return changed
 }

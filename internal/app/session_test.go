@@ -44,6 +44,28 @@ func (f *fixture) Discover(ctx context.Context, r DiscoveryRequest) (release.Rep
 	f.requests = append(f.requests, r)
 	repo := cloneRepository(f.repos[r.Source.Name])
 	repo.Source = r.Source
+	if r.Scope != ReadAll {
+		if !r.Reads(ReadTags) {
+			repo.Tags = nil
+		}
+		if !r.Reads(ReadPRs) {
+			repo.PRs = slices.DeleteFunc(repo.PRs, func(p release.PR) bool {
+				return !(r.Reads(ReadTargets) && slices.Contains(r.Tracked, p.Target)) && !(r.Reads(ReadPins) && p.Target.PR == r.PinningPR)
+			})
+		}
+		if !r.Reads(ReadChecks) {
+			for i := range repo.PRs {
+				repo.PRs[i].Checks = nil
+				repo.PRs[i].ChecksEvidence = release.Evidence{}
+			}
+		}
+		if !r.Reads(ReadPins) {
+			repo.Pins = release.Pins{}
+			repo.PinningPR = nil
+			repo.PinningPins = release.Pins{}
+			repo.PinningEvidence = release.Evidence{}
+		}
+	}
 	if f.fail[r.Source.Name] {
 		return release.Repository{}, errors.New("outage")
 	}
@@ -106,6 +128,9 @@ func refreshAll(t *testing.T, s *Session) {
 		if err := s.Refresh(t.Context(), x.Generation, source, true); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if s.Snapshot().SelectionReady && !s.Snapshot().SelectionComplete {
+		apply(t, s, Action{Kind: "finish-selection"})
 	}
 }
 func TestFixtureReleaseWorkflow(t *testing.T) {
@@ -208,7 +233,7 @@ func TestPollingBackoffRecoveryAndBrowserIndependence(t *testing.T) {
 		time.Sleep(time.Minute)
 		synctest.Wait()
 		f.mu.Lock()
-		if f.calls["collector"] < 3 || f.calls["fact"] != 2 {
+		if f.calls["collector"] < 2 || f.calls["fact"] != 2 {
 			t.Fatal(maps.Clone(f.calls))
 		}
 		f.fail["fact"] = false
@@ -256,7 +281,7 @@ func TestConfigurationStartsInitialLoadWithoutWaitingForPoll(t *testing.T) {
 					f.mu.Lock()
 					for _, source := range []string{"acs", "fact", "collector"} {
 						want := attempt + 1
-						if source != "acs" {
+						if source == "fact" && fail {
 							want *= 2
 						}
 						if f.calls[source] != want {

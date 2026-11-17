@@ -39,5 +39,20 @@ const (
 	// ReadAll preserves complete discovery for callers without an explicit scope.
 	ReadAll DiscoveryScope = 0
 	// ReadTags observes tag identity and ancestry without PR or build reads.
-	ReadTags DiscoveryScope = 1
+	ReadTags DiscoveryScope = 1 << (iota - 1)
+	// ReadPRs lists open PRs on the configured branch.
+	ReadPRs
+	// ReadTargets refreshes explicitly tracked PR identities.
+	ReadTargets
+	// ReadChecks refreshes checks for the requested PRs.
+	ReadChecks
+	// ReadPins observes ACS branch and pinning-PR versions.
+	ReadPins
+	// ReadCoverage verifies selected merges against the requested tags.
+	ReadCoverage
 )
+
+// Reads distinguishes omitted work from a requested observation.
+func (r DiscoveryRequest) Reads(scope DiscoveryScope) bool {
+	return r.Scope == ReadAll || r.Scope&scope != 0
+}

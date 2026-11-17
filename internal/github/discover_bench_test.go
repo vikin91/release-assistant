@@ -258,3 +258,44 @@ func BenchmarkTagSelectionFirstChoice(b *testing.B) {
 	b.ReportMetric(float64(first)/float64(b.N), "requests/first-choice")
 	b.ReportMetric(float64(total)/float64(b.N), "requests/op")
 }
+
+func TestScopedDiscoveryAvoidsUnrelatedRequests(t *testing.T) {
+	t.Run("PR inventory", func(t *testing.T) {
+		client, request, counts := discoveryFixture(t, 100, 500, 20)
+		request.Scope = app.ReadPRs
+		repo, err := client.Discover(t.Context(), request)
+		total := 0
+		for _, n := range counts {
+			total += n
+		}
+		if err != nil || total != 2 || len(repo.PRs) != 20 || len(repo.Tags) != 0 {
+			t.Fatalf("requests=%v tags=%d PRs=%d error=%v", counts, len(repo.Tags), len(repo.PRs), err)
+		}
+		for _, pr := range repo.PRs {
+			if pr.ChecksEvidence.Fresh() {
+				t.Fatal("unread checks were confirmed")
+			}
+		}
+		t.Log("20 PR choices in 2 requests; tag, check, and merged-search calls=0")
+	})
+	t.Run("selected tag and merge", func(t *testing.T) {
+		client, request, counts := discoveryFixture(t, 100, 500, 20)
+		request.Scope = app.ReadTags | app.ReadTargets | app.ReadCoverage
+		request.ConfirmedTag = "3.25.100"
+		request.Tracked = []release.Target{{Repo: request.Source.Repo, PR: 1001}}
+		repo, err := client.Discover(t.Context(), request)
+		if err != nil || len(repo.Tags) != 1 || len(repo.PRs) != 1 || repo.Tags[0].Contains[repo.PRs[0].MergeSHA] != release.Yes || counts["tag_ref"] != 1 || counts["pr_detail"] != 1 || counts["open_list"] != 0 || counts["merged_search"] != 0 {
+			t.Fatalf("counts=%v repo=%+v error=%v", counts, repo, err)
+		}
+	})
+	t.Run("excluded target", func(t *testing.T) {
+		client, request, counts := discoveryFixture(t, 100, 500, 20)
+		request.Scope = app.ReadTargets | app.ReadChecks
+		request.Tracked = []release.Target{{Repo: request.Source.Repo, PR: 1}}
+		request.Ignored = request.Tracked
+		repo, err := client.Discover(t.Context(), request)
+		if err != nil || len(repo.PRs) != 0 || counts["pr_detail"] != 0 || counts["checks"] != 0 {
+			t.Fatalf("counts=%v error=%v", counts, err)
+		}
+	})
+}

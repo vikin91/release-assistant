@@ -103,7 +103,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		result.Evidence = release.Evidence{At: time.Now(), Error: "GitHub returned no commit SHA for the configured branch."}
 		issues = append(issues, fmt.Errorf("GitHub returned no commit SHA for the configured branch"))
 	}
-	if req.Source.Name == "acs" && req.Scope != app.ReadTags {
+	if req.Source.Name == "acs" && req.Reads(app.ReadPins) {
 		cycle.reserved = min(pinReadReserve, cycle.remaining)
 	}
 
@@ -115,27 +115,37 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		}
 	}
 	result.Source = source
-	tags, tagErr := c.listTags(ctx, source, result.Head, func(tags []resolvedTag) {
-		if req.Progress == nil {
-			return
+	if req.Reads(app.ReadTags) {
+		publish := func(tags []resolvedTag) {
+			if req.Progress == nil {
+				return
+			}
+			partial := result
+			partial.Tags = nil
+			for _, tag := range tags {
+				partial.Tags = append(partial.Tags, tag.observation)
+			}
+			partial.Evidence.Known = false
+			partial.Evidence.Error = "Tag inventory is still being read."
+			req.Progress(partial)
 		}
-		partial := result
-		partial.Tags = nil
+		var tags []resolvedTag
+		var tagErr error
+		if req.Scope != app.ReadAll && req.ConfirmedTag != "" {
+			var tag resolvedTag
+			tag, tagErr = c.resolveTag(ctx, source, req.ConfirmedTag, result.Head)
+			if tag.observation.Name != "" {
+				tags = append(tags, tag)
+			}
+		} else {
+			tags, tagErr = c.listTags(ctx, source, result.Head, publish)
+		}
+		if tagErr != nil {
+			issues = append(issues, tagErr)
+		}
 		for _, tag := range tags {
-			partial.Tags = append(partial.Tags, tag.observation)
+			result.Tags = append(result.Tags, tag.observation)
 		}
-		partial.Evidence.Known = false
-		partial.Evidence.Error = "Tag inventory is still being read."
-		req.Progress(partial)
-	})
-	if tagErr != nil {
-		issues = append(issues, tagErr)
-	}
-	for _, tag := range tags {
-		result.Tags = append(result.Tags, tag.observation)
-	}
-	if req.Scope == app.ReadTags {
-		return finishDiscovery(result, issues, cycle)
 	}
 	best := -1
 	for i := range result.Tags {
@@ -150,13 +160,30 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		}
 	}
 
-	prs, prErr := c.listRelevantPRs(ctx, source, result.Tags, best, req.ConfirmedTag, ignored)
-	if prErr != nil {
-		issues = append(issues, prErr)
+	var prs []prResponse
+	if req.Reads(app.ReadPRs) {
+		var prErr error
+		if req.Scope == app.ReadAll {
+			prs, prErr = c.listRelevantPRs(ctx, source, result.Tags, best, req.ConfirmedTag, ignored)
+		} else {
+			prErr = c.pages(ctx, base+"/pulls?state=open&base="+url.QueryEscape(source.Branch), func(raw json.RawMessage) error {
+				var p prResponse
+				if err := json.Unmarshal(raw, &p); err != nil {
+					return fmt.Errorf("malformed pull request record")
+				}
+				if p.Base.Ref == source.Branch {
+					prs = append(prs, p)
+				}
+				return nil
+			})
+		}
+		if prErr != nil {
+			issues = append(issues, prErr)
+		}
 	}
 	tracked := map[int]bool{}
 	for _, target := range req.Tracked {
-		if target.Repo == req.Source.Repo && target.PR > 0 {
+		if req.Reads(app.ReadTargets) && target.Repo == req.Source.Repo && target.PR > 0 {
 			tracked[target.PR] = true
 		}
 	}
@@ -166,7 +193,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 			result.PRs = append(result.PRs, p)
 			continue
 		}
-		if p.State == "open" {
+		if p.State == "open" && req.Reads(app.ReadChecks) {
 			c.readChecks(ctx, source, &p)
 		}
 		result.PRs = append(result.PRs, p)
@@ -181,7 +208,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 			continue
 		}
 		p := convertPR(req.Source.Repo, raw)
-		if p.State == "open" {
+		if p.State == "open" && req.Reads(app.ReadChecks) {
 			c.readChecks(ctx, source, &p)
 		}
 		result.PRs = append(result.PRs, p)
@@ -192,7 +219,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 			merged = append(merged, p)
 		}
 	}
-	if len(merged) > 0 && len(result.Tags) > 0 {
+	if req.Reads(app.ReadCoverage) && len(merged) > 0 && len(result.Tags) > 0 {
 		roots := slices.Clone(result.Tags)
 		slices.SortStableFunc(roots, func(a, b release.Tag) int { return compareTagNames(b.Name, a.Name) })
 		var shas []string
@@ -216,7 +243,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		}
 	}
 
-	if source.Name == "acs" {
+	if source.Name == "acs" && req.Reads(app.ReadPins) {
 		cycle.reserved = 0
 		if result.Head == "" {
 			result.Pins.Evidence = result.Evidence
@@ -238,7 +265,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 				result.PinningEvidence.Known = true
 				p := convertPR(req.Source.Repo, raw)
 				eligible := p.Base == req.Source.Branch && p.State == "open" && !p.Merged && p.SHA != ""
-				if eligible {
+				if eligible && req.Reads(app.ReadChecks) {
 					if existing := findPR(result.PRs, p.Target.PR); existing != nil && existing.SHA == p.SHA && !existing.ChecksEvidence.At.IsZero() {
 						p.Checks = existing.Checks
 						p.ChecksEvidence = existing.ChecksEvidence
@@ -278,8 +305,10 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 				}
 			}
 		}
-		previous, _ := c.previousPublished(ctx, req.Version)
-		result.PreviousPublished = previous
+		if req.Scope == app.ReadAll {
+			previous, _ := c.previousPublished(ctx, req.Version)
+			result.PreviousPublished = previous
+		}
 	}
 	return finishDiscovery(result, issues, cycle)
 }
@@ -309,12 +338,6 @@ type resolvedTag struct {
 func (c *Client) listTags(ctx context.Context, src release.Source, headSHA string, progress ...func([]resolvedTag)) ([]resolvedTag, error) {
 	var out []resolvedTag
 	var firstErr error
-	add := func(tag resolvedTag) {
-		out = append(out, tag)
-		for _, publish := range progress {
-			publish(out)
-		}
-	}
 	err := c.pages(ctx, repoPath(src.Repo)+"/tags", func(raw json.RawMessage) error {
 		var t tagResponse
 		if err := json.Unmarshal(raw, &t); err != nil {
@@ -325,81 +348,69 @@ func (c *Client) listTags(ctx context.Context, src release.Source, headSHA strin
 		if !ok || !streamOK || major != sm || minor != sn {
 			return nil
 		}
-		var sha, kind string
-		var ref struct {
-			Object struct {
-				SHA  string `json:"sha"`
-				Type string `json:"type"`
-			} `json:"object"`
+		tag, err := c.resolveTag(ctx, src, t.Name, headSHA)
+		if err != nil && firstErr == nil {
+			firstErr = err
 		}
-		if err := c.get(ctx, repoPath(src.Repo)+"/git/ref/tags/"+segment(t.Name), &ref); err != nil {
-			if firstErr == nil {
-				firstErr = err
+		if tag.observation.Name != "" {
+			out = append(out, tag)
+			for _, publish := range progress {
+				publish(out)
 			}
-			return nil
 		}
-		sha, kind = ref.Object.SHA, ref.Object.Type
-		for depth := 0; kind == "tag" && depth < 5; depth++ {
-			var obj gitTagResponse
-			if err := c.get(ctx, repoPath(src.Repo)+"/git/tags/"+segment(sha), &obj); err != nil {
-				if firstErr == nil {
-					firstErr = err
-				}
-				return nil
-			}
-			sha, kind = obj.Object.SHA, obj.Object.Type
-		}
-		if sha == "" || kind == "tag" {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("tag %s could not be resolved", t.Name)
-			}
-			return nil
-		}
-		if kind != "commit" {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("tag %s does not resolve to a commit", t.Name)
-			}
-			return nil
-		}
-		tag := release.Tag{Name: t.Name, SHA: sha, Contains: map[string]release.Truth{}, Evidence: release.Evidence{At: time.Now(), URL: "https://github.com/" + src.Repo + "/tree/" + t.Name, Known: true}}
-		var date commitResponse
-		if err := c.get(ctx, repoPath(src.Repo)+"/commits/"+segment(sha), &date); err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
-			tag.Evidence.Known = false
-			tag.Evidence.Error = "tag commit metadata unavailable"
-		} else {
-			if headSHA == "" {
-				tag.Evidence.Known = false
-				tag.Evidence.Error = "branch head unavailable for ancestry"
-			} else {
-				var cmp compareResponse
-				if err := c.get(ctx, repoPath(src.Repo)+"/compare/"+segment(sha)+"..."+segment(headSHA), &cmp); err != nil {
-					if firstErr == nil {
-						firstErr = err
-					}
-					tag.Evidence.Known = false
-					tag.Evidence.Error = "tag ancestry unavailable"
-				} else if cmp.Status == "ahead" || cmp.Status == "identical" {
-					tag.Belongs = release.Yes
-				} else if cmp.Status == "behind" || cmp.Status == "diverged" {
-					tag.Belongs = release.No
-				} else {
-					tag.Evidence.Known = false
-					tag.Evidence.Error = "tag ancestry status unknown"
-				}
-			}
-			add(resolvedTag{observation: tag, commitDate: date.Commit.Committer.Date})
-			return nil
-		}
-		add(resolvedTag{observation: tag})
 		return nil
 	})
-	if err != nil {
-		return out, err
+	return out, errors.Join(err, firstErr)
+}
+
+func (c *Client) resolveTag(ctx context.Context, src release.Source, name, headSHA string) (resolvedTag, error) {
+	var ref gitTagResponse
+	if err := c.get(ctx, repoPath(src.Repo)+"/git/ref/tags/"+segment(name), &ref); err != nil {
+		return resolvedTag{}, err
 	}
-	return out, firstErr
+	sha, kind := ref.Object.SHA, ref.Object.Type
+	for depth := 0; kind == "tag" && depth < 5; depth++ {
+		var obj gitTagResponse
+		if err := c.get(ctx, repoPath(src.Repo)+"/git/tags/"+segment(sha), &obj); err != nil {
+			return resolvedTag{}, err
+		}
+		sha, kind = obj.Object.SHA, obj.Object.Type
+	}
+	if sha == "" || kind == "tag" {
+		return resolvedTag{}, fmt.Errorf("tag %s could not be resolved", name)
+	}
+	if kind != "commit" {
+		return resolvedTag{}, fmt.Errorf("tag %s does not resolve to a commit", name)
+	}
+	tag := resolvedTag{observation: release.Tag{Name: name, SHA: sha, Contains: map[string]release.Truth{}, Evidence: release.Evidence{At: time.Now(), URL: "https://github.com/" + src.Repo + "/tree/" + name, Known: true}}}
+	var metadata commitResponse
+	if err := c.get(ctx, repoPath(src.Repo)+"/commits/"+segment(sha), &metadata); err != nil {
+		tag.observation.Evidence.Known = false
+		tag.observation.Evidence.Error = "tag commit metadata unavailable"
+		return tag, err
+	}
+	tag.commitDate = metadata.Commit.Committer.Date
+	if headSHA == "" {
+		tag.observation.Evidence.Known = false
+		tag.observation.Evidence.Error = "branch head unavailable for ancestry"
+		return tag, nil
+	}
+	var cmp compareResponse
+	if err := c.get(ctx, repoPath(src.Repo)+"/compare/"+segment(sha)+"..."+segment(headSHA), &cmp); err != nil {
+		tag.observation.Evidence.Known = false
+		tag.observation.Evidence.Error = "tag ancestry unavailable"
+		return tag, err
+	}
+	switch cmp.Status {
+	case "ahead", "identical":
+		tag.observation.Belongs = release.Yes
+	case "behind", "diverged":
+		tag.observation.Belongs = release.No
+	default:
+		tag.observation.Evidence.Known = false
+		tag.observation.Evidence.Error = "tag ancestry status unknown"
+	}
+	return tag, nil
 }
 
 func (c *Client) listRelevantPRs(ctx context.Context, src release.Source, tags []release.Tag, best int, confirmed string, ignored map[int]bool) ([]prResponse, error) {

@@ -119,6 +119,11 @@ func Assess(in Input) Assessment {
 		}
 	}
 
+	if in.SelectionPending {
+		add("PR selection", "", "Confirm component tags and finish PR selection before build verification.")
+		a.Commands = ""
+		a.Recommendations = append([]string{"Confirm component tags and finish PR selection before build verification."}, a.Recommendations...)
+	}
 	a.Ready = len(a.Conditions) > 0
 	for _, condition := range a.Conditions {
 		if condition.Status != Yes {

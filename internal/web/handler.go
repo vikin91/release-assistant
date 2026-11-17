@@ -299,6 +299,7 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 		if a.SHA == "" {
 			return a, fmt.Errorf("grant requires the displayed SHA")
 		}
+	case "finish-selection":
 	case "interactive":
 		a.Enabled = formHasValue(form, "enabled", "true")
 	case "tag":

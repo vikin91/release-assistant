@@ -44,6 +44,9 @@ type (
 		LogEntries      []Record
 		// Loading remains true until every source completes its first refresh attempt.
 		Loading bool
+		// Phase identifies the next release decision receiving background work.
+		Phase                             string
+		SelectionComplete, SelectionReady bool
 	}
 	// Action is a typed browser or CLI session decision.
 	Action struct {
@@ -57,27 +60,30 @@ type (
 	}
 	// Session owns release observations. Dispatcher alone owns write grants.
 	Session struct {
-		mu              sync.Mutex
-		config          release.Config
-		choices         release.Choices
-		repos           map[string]release.Repository
-		plans           map[release.Target]release.Plan
-		inventory       release.Inventory
-		confirmedSHAs   map[string]string
-		tagInitialized  map[string]bool
-		initiallyLoaded map[string]bool
-		tagsLoaded      map[string]bool
-		readErrors      map[string]string
-		generation      uint64
-		errorText       string
-		discovery       Discoverer
-		planner         Planner
-		images          Inspector
-		dispatcher      *dispatch.Dispatcher
-		log             *Log
-		options         Options
-		changed         chan struct{}
-		history         []Cycle
+		mu                sync.Mutex
+		config            release.Config
+		choices           release.Choices
+		repos             map[string]release.Repository
+		plans             map[release.Target]release.Plan
+		inventory         release.Inventory
+		confirmedSHAs     map[string]string
+		tagInitialized    map[string]bool
+		initiallyLoaded   map[string]bool
+		tagsLoaded        map[string]bool
+		prLoaded          map[string]bool
+		selectionComplete bool
+		workRevision      uint64
+		readErrors        map[string]string
+		generation        uint64
+		errorText         string
+		discovery         Discoverer
+		planner           Planner
+		images            Inspector
+		dispatcher        *dispatch.Dispatcher
+		log               *Log
+		options           Options
+		changed           chan struct{}
+		history           []Cycle
 	}
 )
 
@@ -114,6 +120,9 @@ func (s *Session) reset() {
 	s.tagInitialized = map[string]bool{}
 	s.initiallyLoaded = map[string]bool{}
 	s.tagsLoaded = map[string]bool{}
+	s.prLoaded = map[string]bool{}
+	s.selectionComplete = false
+	s.workRevision++
 	s.readErrors = map[string]string{}
 	s.inventory = release.Inventory{}
 	s.history = nil
@@ -182,6 +191,9 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		s.config.Components = slices.Clone(a.Config.Components)
 		s.initiallyLoaded = map[string]bool{}
 		s.tagsLoaded = map[string]bool{}
+		s.prLoaded = map[string]bool{}
+		s.selectionComplete = false
+		s.workRevision++
 		s.errorText = ""
 		s.record(release.Target{}, "", "configure", "", "new selection context", "user")
 		select {
@@ -196,11 +208,18 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			return fmt.Errorf("unknown target")
 		}
 		s.choices.PRs[a.Target] = a.Choice
-		s.dispatcher.Ignore(a.Target, a.Choice == release.Ignored)
-		if a.Choice == release.Ignored {
+		s.dispatcher.Ignore(a.Target, a.Choice == release.Ignored || a.Choice == release.Excluded)
+		if a.Choice == release.Ignored || a.Choice == release.Excluded {
 			delete(s.plans, a.Target)
 		}
+		s.selectionComplete = false
+		s.workRevision++
+		s.suspendPlans()
 		s.record(a.Target, a.SHA, "inclusion", "", string(a.Choice), "user")
+		select {
+		case s.changed <- struct{}{}:
+		default:
+		}
 	case "grant":
 		if !s.hasTarget(a.Target) {
 			return fmt.Errorf("unknown target")
@@ -245,11 +264,25 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			s.history = append(s.history, cycle)
 			s.dispatcher.Ignore(release.Target{Repo: r.Source.Repo, Tag: old}, true)
 		}
+		s.selectionComplete = false
+		s.workRevision++
+		s.suspendPlans()
 		s.choices.Tags[a.Component] = a.Tag
 		s.confirmedSHAs[a.Component] = a.SHA
 		s.tagInitialized[a.Component] = true
 		s.dispatcher.Ignore(release.Target{Repo: r.Source.Repo, Tag: a.Tag}, false)
 		s.record(release.Target{Repo: r.Source.Repo, Tag: a.Tag}, a.SHA, "tag-confirmed", "", a.Tag, "user")
+		select {
+		case s.changed <- struct{}{}:
+		default:
+		}
+	case "finish-selection":
+		if !s.selectionReady() {
+			return fmt.Errorf("confirm component tags and load PR inventories before finishing selection")
+		}
+		s.selectionComplete = true
+		s.workRevision++
+		s.record(release.Target{}, "", "selection-complete", "", "PR selection confirmed; monitoring selected builds and pinning.", "user")
 		select {
 		case s.changed <- struct{}{}:
 		default:
@@ -302,6 +335,7 @@ func (s *Session) Snapshot() Snapshot {
 	choices.Acknowledged = maps.Clone(choices.Acknowledged)
 	x := Snapshot{
 		Config: c, Choices: choices, Error: s.errorText, Generation: s.generation,
+		Phase: s.phase(), SelectionComplete: s.selectionComplete, SelectionReady: s.selectionReady(),
 		Interactive: s.dispatcher.IsInteractive(), WritesEnabled: s.dispatcher.WritesEnabled(),
 		Authority: s.dispatcher.Views(),
 	}
@@ -348,7 +382,7 @@ func (s *Session) Snapshot() Snapshot {
 		x.LogError = s.log.Error()
 		x.LogEntries = s.log.Recent()
 	}
-	x.Assessment = release.Assess(release.Input{Config: c, Choices: choices, Repositories: x.Repositories, Inventory: x.Inventory})
+	x.Assessment = release.Assess(release.Input{Config: c, Choices: choices, Repositories: x.Repositories, Inventory: x.Inventory, SelectionPending: !s.selectionComplete})
 	return x
 }
 func cloneRepository(r release.Repository) release.Repository {
@@ -407,11 +441,16 @@ func (s *Session) Run(ctx context.Context) {
 
 func (s *Session) monitor(ctx context.Context, generation uint64, source release.Source) {
 	var discoverAt time.Time
+	s.mu.Lock()
+	if source.Name != "acs" && s.tagsLoaded[source.Name] && len(s.repos[source.Name].Tags) > 0 && s.phase() == "tags" {
+		discoverAt = time.Now().Add(s.options.Discovery)
+	}
+	s.mu.Unlock()
 	var delay time.Duration
 	failures := 0
 	for {
 		previousDelay := delay
-		err := s.Refresh(ctx, generation, source, !time.Now().Before(discoverAt))
+		err := s.refreshPlanned(ctx, generation, source, !time.Now().Before(discoverAt))
 		if ctx.Err() != nil {
 			return
 		}
@@ -442,9 +481,12 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 	}
 }
 
-// Refresh performs one bounded source cycle; it also supports fixture-driven integration tests.
-// ACS refreshes inspect registry images alongside discovery.
+// Refresh performs an explicit full source cycle. Scheduled refreshes obey release phases.
 func (s *Session) Refresh(ctx context.Context, generation uint64, source release.Source, discover bool) error {
+	return s.refresh(ctx, generation, source, discover, sourceWork{scope: ReadAll, plans: true, images: source.Name == "acs"})
+}
+
+func (s *Session) refresh(ctx context.Context, generation uint64, source release.Source, discover bool, work sourceWork) error {
 	ctx, cancel := context.WithTimeout(ctx, s.options.Timeout)
 	var imageReads sync.WaitGroup
 	defer func() {
@@ -452,7 +494,7 @@ func (s *Session) Refresh(ctx context.Context, generation uint64, source release
 		imageReads.Wait()
 	}()
 	s.mu.Lock()
-	if generation != s.generation {
+	if generation != s.generation || (work.scope != ReadAll && work.revision != s.workRevision) {
 		s.mu.Unlock()
 		return nil
 	}
@@ -461,19 +503,20 @@ func (s *Session) Refresh(ctx context.Context, generation uint64, source release
 	if initial {
 		s.record(release.Target{Repo: source.Repo}, "", "github-start", "", "Reading GitHub branch "+source.Branch+", PRs, and tags.", "system")
 	}
-	request := DiscoveryRequest{Source: source, ConfirmedTag: s.choices.Tags[source.Name], PinningPR: c.PinningPR, Version: c.Version}
+	request := DiscoveryRequest{Source: source, ConfirmedTag: s.choices.Tags[source.Name], PinningPR: c.PinningPR, Version: c.Version, Scope: work.scope}
+	revision := s.workRevision
 	for t, choice := range s.choices.PRs {
 		if t.Repo == source.Repo {
-			if choice == release.Ignored {
+			if choice == release.Ignored || choice == release.Excluded {
 				request.Ignored = append(request.Ignored, t)
-			} else {
+			} else if choice == release.Included || work.scope == ReadAll {
 				request.Tracked = append(request.Tracked, t)
 			}
 		}
 	}
 	s.mu.Unlock()
 	var imageErr error
-	if source.Name == "acs" {
+	if work.images {
 		imageReads.Go(func() { imageErr = s.refreshImages(ctx, generation, initial) })
 	}
 	var errs []error
@@ -486,7 +529,7 @@ func (s *Session) Refresh(ctx context.Context, generation uint64, source release
 			errs = append(errs, err)
 		}
 		s.mu.Lock()
-		if generation != s.generation {
+		if generation != s.generation || (work.scope != ReadAll && revision != s.workRevision) {
 			s.mu.Unlock()
 			return nil
 		}
@@ -499,6 +542,12 @@ func (s *Session) Refresh(ctx context.Context, generation uint64, source release
 			s.record(release.Target{Repo: source.Repo}, r.Head, "github-complete", "", fmt.Sprintf("GitHub discovery returned %d PRs and %d tags; complete=%t.", len(r.PRs), len(r.Tags), err == nil), "system")
 		}
 		old := s.repos[source.Name]
+		if work.scope != ReadAll {
+			r = mergeDiscovery(old, r, request)
+		}
+		if request.Reads(ReadPRs) {
+			s.prLoaded[source.Name] = err == nil
+		}
 		if err != nil && r.Head == "" {
 			r = retainDiscoveryFailure(old, r, err)
 		}
@@ -545,6 +594,13 @@ func (s *Session) Refresh(ctx context.Context, generation uint64, source release
 					if tag.SHA != "" && tag.SHA != s.confirmedSHAs[source.Name] {
 						delete(s.choices.Tags, source.Name)
 						delete(s.confirmedSHAs, source.Name)
+						s.selectionComplete = false
+						s.workRevision++
+						s.suspendPlans()
+						select {
+						case s.changed <- struct{}{}:
+						default:
+						}
 						s.record(t, tag.SHA, "tag-invalidated", "", "resolved commit changed", "system")
 					}
 				}
@@ -563,24 +619,24 @@ func (s *Session) Refresh(ctx context.Context, generation uint64, source release
 		s.mu.Unlock()
 	}
 	s.mu.Lock()
-	if generation != s.generation {
+	if generation != s.generation || (work.scope != ReadAll && revision != s.workRevision) {
 		s.mu.Unlock()
 		return nil
 	}
 	r := s.repos[source.Name]
 	var targets []release.Target
 	for _, p := range r.PRs {
-		if s.choices.PRs[p.Target] != release.Ignored && p.State == "open" {
+		if work.plans && s.choices.PRs[p.Target] != release.Ignored && s.choices.PRs[p.Target] != release.Excluded && (work.scope == ReadAll || s.choices.PRs[p.Target] == release.Included || p.Target == c.PinningTarget()) && p.State == "open" {
 			targets = append(targets, p.Target)
 		}
 	}
-	if tag := s.choices.Tags[source.Name]; tag != "" {
+	if tag := s.choices.Tags[source.Name]; work.plans && tag != "" {
 		targets = append(targets, release.Target{Repo: source.Repo, Tag: tag})
 	}
 	s.mu.Unlock()
 	for _, target := range targets {
 		s.mu.Lock()
-		ignore := generation != s.generation || s.choices.PRs[target] == release.Ignored
+		ignore := generation != s.generation || (work.scope != ReadAll && revision != s.workRevision) || (s.choices.PRs[target] == release.Ignored || s.choices.PRs[target] == release.Excluded)
 		if initial && !ignore {
 			s.record(target, "", "checks-start", "", "Reading build observations.", "system")
 		}
@@ -596,7 +652,7 @@ func (s *Session) Refresh(ctx context.Context, generation uint64, source release
 			errs = append(errs, err)
 		}
 		s.mu.Lock()
-		if generation != s.generation || s.choices.PRs[target] == release.Ignored {
+		if generation != s.generation || (work.scope != ReadAll && revision != s.workRevision) || (s.choices.PRs[target] == release.Ignored || s.choices.PRs[target] == release.Excluded) {
 			s.mu.Unlock()
 			continue
 		}
@@ -677,7 +733,7 @@ func (s *Session) Refresh(ctx context.Context, generation uint64, source release
 	s.mu.Lock()
 	currentGeneration := s.generation == generation
 	s.mu.Unlock()
-	if currentGeneration && !s.dispatcher.IsInteractive() {
+	if work.plans && currentGeneration && !s.dispatcher.IsInteractive() {
 		for _, view := range s.dispatcher.Views() {
 			if view.Target.Repo != source.Repo {
 				continue
