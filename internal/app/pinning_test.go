@@ -47,7 +47,7 @@ func newPinningSession(t *testing.T) (*Session, *pinningServices, release.Config
 	config := configuration()
 	config.PinningPR = 123
 	target := config.PinningTarget()
-	pin := release.PR{Target: target, SHA: "pin-head", Base: config.Branch, State: "open", Evidence: observed(), ChecksEvidence: observed(), Checks: []release.Check{{Name: "build", Status: "completed", Conclusion: "failure"}}}
+	pin := release.PR{Target: target, SHA: "pin-head", Base: config.Branch, State: "open", Evidence: observed(), ChecksEvidence: observed(), Checks: []release.Check{{Name: "build", Status: "completed", Conclusion: "success", Required: release.Yes}}}
 	acs := fixture.repos["acs"]
 	acs.PinningPR, acs.PRs = &pin, []release.PR{pin}
 	fixture.repos["acs"] = acs
@@ -171,6 +171,33 @@ func TestPinningReadFailureKeepsConcreteCause(t *testing.T) {
 			}
 			if keepPrevious && (len(plans[0].Runs) != 1 || plans[0].Runs[0].Image.Evidence.Error != cause) {
 				t.Fatal("retained build image lost its failure cause")
+			}
+		})
+	}
+}
+
+func TestPinningImagesWaitForHealthyChecksWithoutSuppressingRetests(t *testing.T) {
+	for name, mutate := range map[string]func(*release.PR){
+		"failed":               func(pr *release.PR) { pr.Checks[0].Conclusion = "failure" },
+		"running":              func(pr *release.PR) { pr.Checks[0].Status = "in_progress"; pr.Checks[0].Conclusion = "" },
+		"unavailable":          func(pr *release.PR) { pr.ChecksEvidence.Error = "GitHub timeout" },
+		"unknown requirements": func(pr *release.PR) { pr.Checks[0].Required = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, f, config := newPinningSession(t)
+			repo := f.repos["acs"]
+			mutate(repo.PinningPR)
+			repo.PRs[0] = *repo.PinningPR
+			f.repos["acs"] = repo
+			if err := s.Refresh(t.Context(), s.Snapshot().Generation, config.ACS(), true); err != nil {
+				t.Fatal(err)
+			}
+			if len(f.refs) != 0 {
+				t.Fatal("images inspected before required checks passed")
+			}
+			plans := s.Snapshot().Plans
+			if len(plans) != 1 || len(plans[0].Proposals) != 1 {
+				t.Fatal("check health suppressed library retests")
 			}
 		})
 	}

@@ -29,6 +29,10 @@ type (
 		PinPRState           string
 		PinningPR            *prModel
 		PinningCanGrant      bool
+		PinningHealth        release.Truth
+		PinningFailures      []release.Check
+		PinningRetests       []release.Proposal
+		PinningPending       int
 		PinningImages        []pinningImageModel
 		PinningBuildProblems []string
 		History              []historyModel
@@ -171,6 +175,18 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 	}
 	if model.PinningPR != nil {
 		p := model.PinningPR.PR
+		model.PinningHealth = p.ChecksStatus()
+		for _, check := range p.Checks {
+			if check.Required == release.No {
+				continue
+			}
+			switch check.Result() {
+			case release.No:
+				model.PinningFailures = append(model.PinningFailures, check)
+			case "":
+				model.PinningPending++
+			}
+		}
 		if authority, exists := authorities[pinTarget]; exists {
 			model.PinningPR.Authority = &authority
 		}
@@ -290,6 +306,9 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 				model.PinningBuildProblems = append([]string{plan.Evidence.Error}, plan.Warnings...)
 			}
 			pr := model.PinningPR.PR
+			if plan.SHA == pr.SHA && plan.Evidence.Fresh() {
+				model.PinningRetests = plan.Proposals
+			}
 			for _, run := range plan.Runs {
 				if run.Image.Reference == "" {
 					continue

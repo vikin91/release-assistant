@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"release-assistant/internal/app"
 	"release-assistant/internal/release"
@@ -173,4 +174,24 @@ func pinningPRJSON(state string, merged bool, sha, base, title string, optOut bo
 		label = `,"labels":[{"name":"no-release-assistant"}]`
 	}
 	return `{"number":44,"title":"` + title + `","state":"` + state + `","merged":` + strconv.FormatBool(merged) + `,"html_url":"https://github.com/acme/acs/pull/44","head":{"sha":"` + sha + `"},"base":{"ref":"` + base + `"}` + label + `}`
+}
+
+func TestPinningHealthUsesLatestStatusesAndWaitsForMissingRequiredChecks(t *testing.T) {
+	srv := newFakeServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/check-runs"):
+			_, _ = w.Write([]byte(`{"total_count":0,"check_runs":[]}`))
+		case strings.HasSuffix(r.URL.Path, "/statuses"):
+			_, _ = w.Write([]byte(`[{"context":"build","state":"success"},{"context":"build","state":"failure"}]`))
+		case strings.HasSuffix(r.URL.Path, "/required_status_checks"):
+			_, _ = w.Write([]byte(`{"contexts":["build","not-yet-reported"]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	pr := release.PR{SHA: "head", Evidence: release.Evidence{Known: true, At: time.Now()}}
+	New(srv.URL, "", srv.Client()).readChecks(t.Context(), release.Source{Repo: "acme/acs", Branch: "release"}, &pr)
+	if len(pr.Checks) != 2 || pr.Checks[0].Status != "success" || pr.Checks[1].Name != "not-yet-reported" || pr.Checks[1].Required != release.Yes || pr.ChecksStatus() != "" {
+		t.Fatalf("incorrect health evidence: %+v", pr)
+	}
 }

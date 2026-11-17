@@ -15,7 +15,7 @@ func (s *Session) inspectPinningImages(ctx context.Context, generation uint64, p
 	current := false
 	if selected {
 		for _, pr := range s.repos["acs"].PRs {
-			if pr.Target == plan.Target && pr.SHA == plan.SHA && pr.State == "open" && !pr.Merged && pr.Base == s.config.Branch && pr.Evidence.Fresh() {
+			if pr.Target == plan.Target && pr.SHA == plan.SHA && pr.State == "open" && !pr.Merged && pr.Base == s.config.Branch && pr.Evidence.Fresh() && pr.ChecksStatus() == release.Yes {
 				current = true
 				break
 			}

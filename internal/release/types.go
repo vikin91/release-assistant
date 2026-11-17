@@ -267,3 +267,43 @@ func (t Target) Valid() bool {
 
 // Fresh requires a successful current observation.
 func (e Evidence) Fresh() bool { return e.Known && e.Error == "" && !e.At.IsZero() }
+
+// Result classifies a check without granting retry permission.
+func (c Check) Result() Truth {
+	result := c.Conclusion
+	if result == "" {
+		result = c.Status
+	}
+	switch result {
+	case "success", "neutral", "skipped":
+		return Yes
+	case "failure", "error", "cancelled", "timed_out", "action_required", "startup_failure", "stale":
+		return No
+	default:
+		return ""
+	}
+}
+
+// ChecksStatus requires current evidence and successful required checks.
+func (p PR) ChecksStatus() Truth {
+	if !p.Evidence.Fresh() || !p.ChecksEvidence.Fresh() {
+		return ""
+	}
+	status := Yes
+	for _, check := range p.Checks {
+		if check.Required == No {
+			continue
+		}
+		if check.Required == "" {
+			status = ""
+			continue
+		}
+		switch check.Result() {
+		case No:
+			return No
+		case "":
+			status = ""
+		}
+	}
+	return status
+}

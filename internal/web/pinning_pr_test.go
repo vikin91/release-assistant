@@ -35,8 +35,7 @@ func TestConfiguredPinningPRMonitoringAndGrant(t *testing.T) {
 	body := b.getBody(t)
 	section := pinningSection(t, body)
 	for _, want := range []string{
-		"Pin release components", "Unable to get current checks from pinning PR #481", "one check source failed", "unit", "success",
-		"https://github.com/stackrox/stackrox/actions/runs/10", "Unable to check", "Build belongs to commit stale-plan-sha; current PR commit is pin-sha.",
+		"Pin release components", "Unable to get current checks from pinning PR #481", "one check source failed",
 	} {
 		if !strings.Contains(section, want) {
 			t.Errorf("pinning PR section omitted %q", want)
@@ -48,8 +47,8 @@ func TestConfiguredPinningPRMonitoringAndGrant(t *testing.T) {
 	if strings.Contains(section, "before RC.0") || strings.Contains(section, "ACS RC.0 build") {
 		t.Error("pinning image rows contain phase labels")
 	}
-	if !strings.Contains(body, `data-fold-key="pinning-image:stackrox/stackrox#481:fact-build"`) || !strings.Contains(body, "quay.io/stackrox/rox@sha256:abc123") {
-		t.Error("pinning image reference is not shown in its stable fold")
+	if strings.Contains(section, "quay.io/stackrox/rox@sha256:abc123") || strings.Contains(section, ">unit</a>") || strings.Contains(section, "<table>") {
+		t.Error("unverified checks or images clutter the pinning summary")
 	}
 	if strings.Contains(body, "must remain out of scope") {
 		t.Error("unrelated undecided PR proposal appeared in retry proposals")
@@ -91,7 +90,7 @@ func TestConfiguredPinningPRMonitoringAndGrant(t *testing.T) {
 func TestConfiguredPinningPRImagesShowPerRowStatusAndMissingObservations(t *testing.T) {
 	target := release.Target{Repo: "stackrox/stackrox", PR: 482}
 	observed := release.Evidence{Known: true, At: time.Now(), URL: "https://quay.io/repository/stackrox/rox?tag=latest"}
-	pr := release.PR{Target: target, SHA: "pin-sha", State: "open", Base: "release-5.0", Evidence: release.Evidence{Known: true, At: time.Now()}}
+	pr := release.PR{Target: target, SHA: "pin-sha", State: "open", Base: "release-5.0", Evidence: observed, ChecksEvidence: observed, Checks: []release.Check{{Name: "healthy-build", Status: "completed", Conclusion: "success", Required: release.Yes}}}
 	application := &fakeApplication{snapshot: app.Snapshot{
 		Config:       func() release.Config { c := validACS5Config(); c.PinningPR = target.PR; return c }(),
 		Repositories: []release.Repository{{Source: release.Source{Name: "acs", Repo: target.Repo}, PinningPR: &pr}},
@@ -114,11 +113,16 @@ func TestConfiguredPinningPRImagesShowPerRowStatusAndMissingObservations(t *test
 		}
 	}
 
+	application.snapshot.Plans[0].SHA = "old-head"
+	stale := pinningSection(t, newBrowser(t, application).getBody(t))
+	if strings.Contains(stale, ">Available<") || !strings.Contains(stale, "Build belongs to commit old-head; current PR commit is pin-sha.") {
+		t.Error("images from another head were presented as current")
+	}
 	application.snapshot.Plans = nil
 	body = newBrowser(t, application).getBody(t)
 	section = pinningSection(t, body)
-	if !strings.Contains(section, "Pending checks.") || !strings.Contains(section, "Pending build images.") {
-		t.Error("open PR with no observations did not state that checks and images are missing")
+	if !strings.Contains(section, "Required checks passed.") || !strings.Contains(section, "Pending build images.") {
+		t.Error("healthy PR did not advance to image readiness")
 	}
 }
 
@@ -209,4 +213,48 @@ func pinningSection(t *testing.T, body string) string {
 	}
 	t.Fatal("pinning details section is not balanced")
 	return ""
+}
+
+func TestPinningPRShowsNextActionInsteadOfCheckInventory(t *testing.T) {
+	for name, tc := range map[string]struct {
+		check    release.Check
+		proposal bool
+		want     string
+	}{
+		"should show the job to retest on failure":              {check: release.Check{Name: "failing-build", Status: "completed", Conclusion: "failure", Required: release.Yes}, proposal: true, want: "failing-build: view retest comment"},
+		"should link to failure when no verified retest exists": {check: release.Check{Name: "failing-build", Status: "failure", Required: release.Yes}, want: "No verified retest is available"},
+		"should wait for running checks":                        {check: release.Check{Name: "running-build", Status: "in_progress", Required: release.Yes}, want: "Wait for their results before retesting"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			config := validACS5Config()
+			config.PinningPR = 484
+			target := config.PinningTarget()
+			observed := release.Evidence{Known: true, At: time.Now()}
+			pr := release.PR{Target: target, SHA: "head", State: "open", Base: config.Branch, Evidence: observed, ChecksEvidence: observed, Checks: []release.Check{
+				{Name: "passing-unit", Status: "success", Required: release.Yes},
+				{Name: "optional-failure", Status: "failure", Required: release.No}, tc.check,
+			}}
+			plan := release.Plan{Target: target, SHA: pr.SHA, Evidence: observed, Runs: []release.Run{{Job: "passing-run", Status: "success"}}}
+			if tc.proposal {
+				plan.Proposals = []release.Proposal{{Target: target, SHA: pr.SHA, Job: "failing-build", Payload: "/konflux-retest failing-build"}}
+			}
+			body := newBrowser(t, &fakeApplication{snapshot: app.Snapshot{Config: config, Repositories: []release.Repository{{Source: config.ACS(), PinningPR: &pr}}, Plans: []release.Plan{plan}}}).getBody(t)
+			section := pinningSection(t, body)
+			if !strings.Contains(section, tc.want) {
+				t.Fatalf("missing next action %q: %s", tc.want, section)
+			}
+			for _, unwanted := range []string{"passing-unit", "optional-failure", "Pending build images", "<table>"} {
+				if strings.Contains(section, unwanted) {
+					t.Errorf("unhelpful detail %q shown", unwanted)
+				}
+			}
+			retries := between(t, body, `<section class="panel" id="retry-proposals">`, `</section>`)
+			if strings.Contains(retries, "passing-run") {
+				t.Error("pinning runs duplicated in retries")
+			}
+			if tc.proposal && !strings.Contains(retries, "/konflux-retest failing-build") {
+				t.Error("exact retest comment missing")
+			}
+		})
+	}
 }

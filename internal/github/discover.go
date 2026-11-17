@@ -479,7 +479,9 @@ func (c *Client) readChecks(ctx context.Context, src release.Source, p *release.
 		if err := json.Unmarshal(raw, &status); err != nil {
 			return fmt.Errorf("malformed commit status")
 		}
-		p.Checks = append(p.Checks, release.Check{Name: status.Context, Status: status.State, URL: status.URL})
+		if !slices.ContainsFunc(p.Checks, func(check release.Check) bool { return check.Name == status.Context }) {
+			p.Checks = append(p.Checks, release.Check{Name: status.Context, Status: status.State, URL: status.URL})
+		}
 		return nil
 	})
 	if err != nil {
@@ -494,13 +496,15 @@ func (c *Client) readChecks(ctx context.Context, src release.Source, p *release.
 			requiredNames = append(requiredNames, check.Context)
 		}
 		for i := range p.Checks {
-			if len(requiredNames) == 0 {
-				continue
-			}
 			if slices.Contains(requiredNames, p.Checks[i].Name) {
 				p.Checks[i].Required = release.Yes
 			} else {
 				p.Checks[i].Required = release.No
+			}
+		}
+		for _, name := range requiredNames {
+			if !slices.ContainsFunc(p.Checks, func(check release.Check) bool { return check.Name == name }) {
+				p.Checks = append(p.Checks, release.Check{Name: name, Status: "pending", Required: release.Yes})
 			}
 		}
 	}
