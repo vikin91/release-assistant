@@ -1,0 +1,99 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+    name: basic-component-pipeline
+spec:
+    params:
+        - description: Source Repository URL
+          name: git-url
+          type: string
+        - default: ""
+          description: Revision of the Source Repository
+          name: revision
+          type: string
+        - description: Output Image Repository
+          name: output-image-repo
+          type: string
+        - default: -fast
+          description: Suffix that will be appended to the output image tag.
+          name: output-tag-suffix
+          type: string
+        - default: .
+          description: Path to the source code of an application's component from where to build image.
+          name: path-context
+          type: string
+        - default: Dockerfile
+          description: Path to the Dockerfile inside the context specified by parameter path-context
+          name: dockerfile
+          type: string
+        - default: "false"
+          description: Skip checks against built image
+          name: skip-checks
+          type: string
+        - default: "false"
+          description: Execute the build with network isolation
+          name: hermetic
+          type: string
+        - default: ""
+          description: Build dependencies to be prefetched by Cachi2
+          name: prefetch-input
+          type: string
+        - description: Image tag expiration time, time values could be something like 1h, 2d, 3w for hours, days, and weeks, respectively.
+          name: image-expires-after
+          type: string
+        - default: "true"
+          description: Build a source image.
+          name: build-source-image
+          type: string
+        - default: "0"
+          description: Depth of the git clone in number of commits. Use "1" for shallow clone. Use "0" for deep clone, i.e. to fetch all commits.
+          name: clone-depth
+          type: string
+        - default: "true"
+          description: Fetch tags with git clone
+          name: clone-fetch-tags
+          type: string
+        - default: 1d
+          description: This sets the expiration time for intermediate OCI artifacts produced and used during builds after which they can be garbage collected.
+          name: oci-artifact-expires-after
+          type: string
+        - default: docker
+          description: The format for the resulting image's mediaType. Valid values are oci or docker.
+          name: buildah-format
+          type: string
+        - description: Additional labels to put on the built containers.
+          name: extra-labels
+          type: array
+        - default:
+            - linux/amd64
+            - linux/arm64
+            - linux/ppc64le
+            - linux/s390x
+          description: |
+            List of platforms to build the container images for. The available set of values is determined by the configuration of the multi-platform-controller on the cluster: https://konflux.pages.redhat.com/docs/users/getting-started/multi-platform-builds.html
+          name: build-platforms
+          type: array
+        - default: "false"
+          description: Enable cache proxy configuration
+          name: enable-cache-proxy
+          type: string
+        - default: .
+          description: Target directories to scan with SAST tools. Multiple values should be separated with commas.
+          name: sast-target-dirs
+          type: string
+        - default: "true"
+          description: Use the package registry proxy when prefetching dependencies
+          name: enable-package-registry-proxy
+          type: string
+        - default: ""
+          description: Sets the image created time and the SOURCE_DATE_EPOCH build argument. On its own, it does not change file timestamps inside the layers (set rewrite-timestamp to "true" for that). Leave empty to keep the actual build time.
+          name: source-date-epoch
+          type: string
+        - default: "false"
+          description: When "true", clamp file modification times in the image layers to at most source-date-epoch. Does nothing unless source-date-epoch is set.
+          name: rewrite-timestamp
+          type: string
+        - default: "false"
+          description: When "true", omit the build history (history timestamps, layer metadata, etc.) from the resulting image.
+          name: omit-history
+          type: string

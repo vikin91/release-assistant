@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{{.Title}}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body data-loading="{{and .Configured .Snapshot.Loading}}">
+<header class="topbar">
+  <div><p class="eyebrow">Release preparation</p><h1>{{.Title}}</h1></div>
+  <span class="pill {{if .Snapshot.Assessment.Ready}}good{{else}}unknown{{end}}">{{if .Snapshot.Assessment.Ready}}Ready to create ACS RC.0{{else}}Preparing release{{end}}</span>
+</header>
+<main>
+  {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
+  {{if and .Configured .Snapshot.Loading}}<p class="notice" role="status">Loading release data… Results appear as each repository finishes.</p>{{end}}
+  <section class="panel" aria-labelledby="setup-heading">
+    <details id="release-configuration" {{if or (not .Configured) .ConfigDraft}}open{{end}}>
+      <summary id="setup-heading">{{if .Configured}}Release configuration{{else}}Configure release{{end}}</summary>
+      <form method="post" action="/action" class="config-grid"{{if .ConfigDraft}} data-config-draft{{end}}>
+        <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="configure">
+        <label>ACS version<input name="version" required value="{{.ConfigForm.Get "version"}}" placeholder="5.0.1"></label>
+        <label>ACS release branch<input name="branch" required value="{{.ConfigForm.Get "branch"}}" placeholder="release-5.0"></label>
+        <label>Pinning PR number (optional)<input name="pinning_pr" inputmode="numeric" pattern="[0-9]+" placeholder="12345" value="{{.ConfigForm.Get "pinning_pr"}}"></label>
+        {{range $name := (slice "fact" "collector")}}
+          {{$source := index $.ConfiguredSources $name}}
+          <fieldset data-component-config data-configured-repo="{{$source.Repo}}" data-configured-stream="{{$source.Stream}}" data-configured-branch="{{$source.Branch}}"><legend>{{title $name}}</legend>
+            <label>Repository<input name="{{$name}}_repo" required value="{{$.ConfigForm.Get (printf "%s_repo" $name)}}" placeholder="stackrox/{{$name}}"></label>
+            <label>Release stream<input name="{{$name}}_stream" data-release-stream required value="{{$.ConfigForm.Get (printf "%s_stream" $name)}}"></label>
+            <label>Release branch<input name="{{$name}}_branch" data-release-branch readonly value="{{$.ConfigForm.Get (printf "%s_branch" $name)}}"></label>
+          </fieldset>
+        {{end}}
+        {{$scanner := index .ConfiguredSources "scanner"}}
+        <fieldset data-component-config data-configured-repo="{{$scanner.Repo}}" data-configured-stream="{{$scanner.Stream}}" data-configured-branch="{{$scanner.Branch}}" data-scanner-fields {{if and .Configured (not .ACS4)}}hidden{{end}}><legend>Scanner (ACS 4.x only)</legend>
+          <label>Repository<input name="scanner_repo" value="{{.ConfigForm.Get "scanner_repo"}}" placeholder="stackrox/scanner"></label>
+          <label>Release stream<input name="scanner_stream" data-release-stream value="{{.ConfigForm.Get "scanner_stream"}}"></label>
+          <label>Release branch<input name="scanner_branch" data-release-branch readonly value="{{.ConfigForm.Get "scanner_branch"}}"></label>
+        </fieldset>
+        <p class="muted">Scanner values are used for ACS 4.x and omitted automatically for ACS 5.x.</p>
+        <button type="submit">Save configuration</button>
+      </form>
+    </details>
+  </section>
+
+  {{if .Configured}}
+  {{if not .Snapshot.WritesEnabled}}<p class="notice read-only-notice" role="status">Read-only mode. Restart with <code>-enable-writes</code> to allow retry comments.</p>{{end}}
+  <nav class="section-nav" aria-label="Release sections"><a href="#tag-selection" data-open-section>Tags</a><a href="#pr-selection" data-open-section>PRs</a><a href="#component-images" data-open-section>Component images</a><a href="#release-images" data-open-section>ACS RC.0 images</a></nav>
+  <div class="release-pills" aria-label="Selected release versions">
+    {{range .Snapshot.Config.Components}}<span class="pill selected">{{title .Name}}: {{with index $.Snapshot.Choices.Tags .Name}}{{.}}{{else}}not selected{{end}}</span>{{end}}
+    <a class="pill {{truth .Snapshot.Assessment.Pins.BranchStatus}}" href="#pinning-details" data-open-section title="{{.Snapshot.Assessment.Pins.BranchReason}}">ACS pins: {{if eq (truth .Snapshot.Assessment.Pins.BranchStatus) "yes"}}match selected tags{{else}}{{if eq (truth .Snapshot.Assessment.Pins.BranchStatus) "no"}}versions differ{{else}}unable to check{{end}}{{end}}</a>
+    {{if .Snapshot.Assessment.Pins.PRNumber}}<a class="pill {{truth .Snapshot.Assessment.Pins.PRStatus}}" href="{{url .Snapshot.Assessment.Pins.PRURL}}" target="_blank" rel="noreferrer" title="{{.Snapshot.Assessment.Pins.PRReason}}">Pin PR #{{.Snapshot.Assessment.Pins.PRNumber}}: {{.PinPRState}}</a>{{else}}<span class="pill muted">Pin PR: not supplied</span>{{end}}
+  </div>
+  <p class="pin-legend">Pin colours: <span class="yes">green = selected versions are on the ACS branch</span>; <span class="unknown">yellow = waiting or unable to check</span>; <span class="no">red = a verified mismatch or PR problem</span>.</p>
+  <section class="panel" aria-label="Next release actions">
+    <details id="next-steps" open>
+    <summary class="section-summary">Recommended next steps</summary>
+    {{if .Problems}}<details class="readiness-details" id="readiness-details"><summary>Checks that need attention</summary><ol>{{range .Problems}}<li>{{.Reason}}{{range .Evidence}}{{if .Error}} · {{.Error}}{{end}}{{end}}</li>{{end}}</ol></details>{{end}}
+    <section class="recommendations">
+      {{if .Snapshot.Assessment.Recommendations}}<ol>{{range .Snapshot.Assessment.Recommendations}}<li>{{.}}</li>{{end}}</ol>{{else}}<p class="muted">No recommendations are available yet.</p>{{end}}
+      {{if .Snapshot.Assessment.ReleaseGuides}}<h4>Component release instructions</h4><p>Use your configured branch and stream when following these upstream guides. The assistant does not start releases.</p><ol>{{range $component,$url:=.Snapshot.Assessment.ReleaseGuides}}<li><a href="{{url $url}}" target="_blank" rel="noreferrer">{{$component}} release guide</a></li>{{end}}</ol>{{end}}
+      {{if .Snapshot.Assessment.Commands}}<h4>Copyable pinning commands</h4><pre><code>{{.Snapshot.Assessment.Commands}}</code></pre>{{end}}
+    </section>
+    </details>
+  </section>
+
+  <section class="panel" aria-labelledby="tag-selection-heading" id="tag-selection-panel">
+    <details id="tag-selection" open>
+      <summary id="tag-selection-heading" class="section-summary">{{if .TagsSelected}}Component tags selected <span class="summary-detail">{{range $i,$source := .Snapshot.Config.Components}}{{if $i}} · {{end}}{{title $source.Name}} {{index $.Snapshot.Choices.Tags $source.Name}}{{end}}</span>{{else}}Component tag selection{{end}}{{if .TagUpdates}} <span class="pill">Tag updates available</span>{{end}}</summary>
+      <p class="muted">{{if .TagsSelected}}Tag selection is complete. Coverage, builds, images, and pins determine release readiness.{{else}}Select a tag for each component. Selection is separate from coverage, build, and image readiness.{{end}}</p>
+      {{range .TagRepos}}
+        <article class="tag-repo">
+          <h3>{{title .Repository.Source.Name}} <span class="muted">{{.Repository.Source.Repo}} · {{.Repository.Source.Branch}} · stream {{.Repository.Source.Stream}}</span></h3>
+          {{if .CurrentTag}}
+            {{if .SelectedTag}}{{template "component-tag" .SelectedTag}}{{else}}<p class="unknown">Selected {{.CurrentTag}} · current tag observation unavailable; coverage is unknown.</p>{{end}}
+            {{if .NewerTag}}<p class="tag-update">Newer tag available: <strong>{{.NewerTag}}</strong>. The selected tag remains {{.CurrentTag}}.</p>{{end}}
+            <details class="tag-alternatives" data-fold-key="tag-alternatives:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}"><summary>Change tag…</summary>
+              {{range .Tags}}{{if not .Current}}{{template "component-tag" .}}{{end}}{{end}}
+              {{range .OtherTags}}{{template "component-tag" .}}{{end}}
+              {{if and (not .Tags) (not .OtherTags)}}<p class="muted">No alternative tag observations are available.</p>{{end}}
+            </details>
+          {{else}}
+            {{range .Tags}}{{template "component-tag" .}}{{end}}
+            {{if .OtherTags}}<details class="other-tags" data-fold-key="tag-alternatives:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}"><summary>Other observed tags ({{len .OtherTags}})</summary>
+              {{range .OtherTags}}{{template "component-tag" .}}{{end}}
+            </details>{{else}}{{if not .Tags}}<p class="muted">No final tag observations are available for this component.</p>{{end}}{{end}}
+          {{end}}
+          {{if .Repository.Evidence.Error}}<p class="error-text">{{.Repository.Evidence.Error}}</p>{{end}}
+        </article>
+      {{else}}<p class="muted">No component tag observations yet.</p>{{end}}
+    </details>
+  </section>
+
+  <section class="panel" aria-labelledby="pr-selection-heading" id="pr-selection-panel">
+    <details id="pr-selection" open>
+    <summary id="pr-selection-heading" class="section-summary">PR selection</summary>
+    <p class="muted">Each Include, Exclude, or Ignore choice takes effect immediately. RW allowed controls permission to post retry comments independently.</p>
+    {{range .Repos}}
+      <article class="pr-repo">
+        <h3>{{title .Repository.Source.Name}} <span class="muted">{{.Repository.Source.Repo}} · {{.Repository.Source.Branch}}</span></h3>
+        {{range .PRs}}
+          <article class="pr-card">
+            <div class="pr-summary">
+              <div class="pr-title"><a href="{{url .PR.URL}}" target="_blank" rel="noreferrer">#{{.PR.Target.PR}} {{.PR.Title}}</a> <span class="pill">{{.ChoiceLabel}}</span></div>
+              <div class="pr-meta"><span>{{if .PR.Author}}@{{.PR.Author}}{{else}}Author unknown{{end}}</span> · <span>{{if .PR.Merged}}merged{{else}}{{.PR.State}}{{end}}</span>{{if not .PR.Evidence.Fresh}} · <span class="unknown">PR identity unknown or stale</span>{{end}}{{if .PR.OptOut}} · <strong class="error-text">no-release-assistant opt-out</strong>{{end}}</div>
+            </div>
+            <div class="control-row">
+              <form method="post" action="/action#pr-selection" class="inline-form choice-form" aria-label="PR {{.PR.Target.PR}} inclusion"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="choice"><input type="hidden" name="repo" value="{{.PR.Target.Repo}}"><input type="hidden" name="pr" value="{{.PR.Target.PR}}"><input type="hidden" name="sha" value="{{.PR.SHA}}">
+                <button type="submit" name="choice" value="included" aria-pressed="{{if eq .Choice "included"}}true{{else}}false{{end}}">Included</button>
+                <button type="submit" name="choice" value="excluded" aria-pressed="{{if eq .Choice "excluded"}}true{{else}}false{{end}}">Excluded</button>
+                <button type="submit" name="choice" value="ignored">Ignore &amp; hide</button>
+              </form>
+              <form method="post" action="/action#pr-selection" class="inline-form grant-form" data-autosubmit><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="grant"><input type="hidden" name="repo" value="{{.PR.Target.Repo}}"><input type="hidden" name="pr" value="{{.PR.Target.PR}}"><input type="hidden" name="sha" value="{{.PR.SHA}}"><input type="hidden" name="enabled" value="false"><label class="check{{if or (not $.Snapshot.WritesEnabled) .PR.OptOut}} disabled-control{{end}}" title="Saves immediately"><input type="checkbox" name="enabled" value="true" {{if and .Authority .Authority.Granted}}checked{{end}}{{if or (not $.Snapshot.WritesEnabled) .PR.OptOut}} disabled{{end}}> RW allowed</label><noscript><button type="submit"{{if or (not $.Snapshot.WritesEnabled) .PR.OptOut}} disabled{{end}}>Apply RW permission</button></noscript>{{if .PR.OptOut}}<span class="error-text">Writes disabled by opt-out label</span>{{end}}</form>
+            </div>
+            <details class="pr-details" data-fold-key="pr-evidence:{{.PR.Target.Repo}}#{{.PR.Target.PR}}"><summary>Evidence and checks</summary>
+              <p>Head <code>{{.PR.SHA}}</code> · base {{.PR.Base}}{{if .PR.MergeSHA}} · merge <code>{{.PR.MergeSHA}}</code>{{end}}</p>
+              <div class="evidence"><span>{{if .PR.Evidence.Known}}PR identity observed{{else}}PR identity unknown{{end}} at {{when .PR.Evidence.At}}</span>{{if .PR.Evidence.Error}}<span class="error-text">{{.PR.Evidence.Error}}</span>{{end}}</div><p class="evidence">{{if .PR.ChecksEvidence.Fresh}}Checks observed at {{when .PR.ChecksEvidence.At}}{{else}}Check and required-status evidence is unknown or stale at {{when .PR.ChecksEvidence.At}}{{end}}{{if .PR.ChecksEvidence.Error}} · {{.PR.ChecksEvidence.Error}}{{end}}</p>{{if .PR.Checks}}<table><thead><tr><th>Check</th><th>Status</th><th>Conclusion</th><th>Required</th></tr></thead><tbody>{{range .PR.Checks}}<tr><td>{{if url .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td><td>{{.Status}}</td><td>{{.Conclusion}}</td><td>{{truth .Required}}</td></tr>{{end}}</tbody></table>{{else}}<p class="muted">No check rows were returned.</p>{{end}}</details>
+          </article>
+        {{else}}<p class="muted">No open PR observations.</p>{{end}}
+        <details class="repo-evidence" data-fold-key="repo-evidence:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}"><summary>Repository evidence</summary>
+          <p>Head <code>{{.Repository.Head}}</code></p>
+          <div class="evidence"><span>{{if .Repository.Evidence.Known}}Head observed{{else}}Head unknown{{end}} at {{when .Repository.Evidence.At}}</span>{{if .Repository.Evidence.Error}}<span class="error-text">{{.Repository.Evidence.Error}}</span>{{end}}{{if url .Repository.Evidence.URL}}<a href="{{url .Repository.Evidence.URL}}" target="_blank" rel="noreferrer">Branch source</a>{{end}}</div>
+        </details>
+      </article>
+    {{else}}<p class="muted">No repository observations yet.</p>{{end}}
+    </details>
+  </section>
+
+  <section class="panel" id="component-images-panel">
+    <details id="component-images" open>
+      <summary class="section-summary">Component images <span class="summary-detail">Before ACS pinning</span></summary>
+      <p class="muted">CI and Konflux images for the selected Fact, Collector{{if .ACS4}}, and Scanner{{end}} versions. These must be available before updating the ACS component pins.</p>
+      <p class="muted">Available means the registry confirmed the exact tag exists. Not found means it confirmed absence. Unable to check means a tag is not selected or the request could not complete. Names come from saved patterns.</p>
+      {{if .Snapshot.Assessment.ImageProblem}}<p class="notice warning">{{.Snapshot.Assessment.ImageProblem}}</p>{{end}}
+      {{if .ComponentImages}}{{template "image-results" .ComponentImages}}{{else}}<p class="muted">No component image checks have completed yet. Select component tags to determine the expected images.</p>{{end}}
+    </details>
+  </section>
+
+  <section class="panel" id="release-images-panel">
+    <details id="release-images">
+      <summary class="section-summary">ACS {{.Snapshot.Config.Version}} RC.0 images <span class="summary-detail">After ACS pinning and RC.0 creation</span></summary>
+      <p class="muted">This later phase checks images built for ACS {{.Snapshot.Config.Version}}-rc.0. Their absence does not block preparation for creating RC.0.</p>
+      <p class="muted">Available means the registry confirmed the exact tag exists. Not found means it confirmed absence. Unable to check means the registry request could not complete. Names come from saved patterns.</p>
+      {{if .ReleaseImages}}{{template "image-results" .ReleaseImages}}{{else}}<p class="muted">No ACS RC.0 image checks have completed yet.</p>{{end}}
+    </details>
+  </section>
+
+  <details class="panel" id="pinning-details"><summary class="section-summary">ACS pinning details</summary>
+    <p>{{.Snapshot.Assessment.Pins.BranchSummary}}</p>
+    {{if .Snapshot.Assessment.Pins.BranchProblems}}<ol class="pin-problems">{{range .Snapshot.Assessment.Pins.BranchProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}
+    {{if .ACS}}<ol>{{range $.Snapshot.Config.Components}}<li>{{title .Name}}: selected <code>{{with index $.Snapshot.Choices.Tags .Name}}{{.}}{{else}}Choose tag{{end}}</code>; ACS branch uses <code>{{pinVersion $.ACS.Pins .Name}}</code>{{if $.Snapshot.Config.PinningPR}}; pinning PR version <code>{{pinVersion $.ACS.PinningPins .Name}}</code>{{end}}.</li>{{end}}</ol>{{end}}
+    {{if .Snapshot.Assessment.Pins.PRNumber}}<p><a href="{{url .Snapshot.Assessment.Pins.PRURL}}" target="_blank" rel="noreferrer">Open pinning PR #{{.Snapshot.Assessment.Pins.PRNumber}}</a>: {{.Snapshot.Assessment.Pins.PRSummary}}</p>{{else}}<p>Set a pinning PR number to monitor its checks.</p>{{end}}
+    {{if .Snapshot.Assessment.Pins.PRProblems}}<ol class="pin-problems">{{range .Snapshot.Assessment.Pins.PRProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}
+    {{if .PinningPR}}{{$pin := .PinningPR.PR}}<article class="pr-card" data-fold-key="pinning-pr:{{$pin.Target.Repo}}#{{$pin.Target.PR}}">
+      <h3><a href="{{url $pin.URL}}" target="_blank" rel="noreferrer">Pinning PR #{{$pin.Target.PR}}{{if $pin.Title}} · {{$pin.Title}}{{end}}</a></h3>
+      {{if not $pin.Evidence.Fresh}}<p class="evidence">Last observed PR status: {{$pin.State}}.</p>{{else}}{{if or $pin.Merged (eq $pin.State "merged")}}<p class="yes">Merged.</p>{{else}}{{if eq $pin.State "closed"}}<p class="no">Closed without merging.</p>{{else}}{{if eq $pin.State "open"}}<p>Open · head <code>{{$pin.SHA}}</code> · base {{$pin.Base}}.{{if and (eq $pin.Base $.Snapshot.Config.Branch) (ne $.PinningPR.Choice "ignored")}} <a href="#retry-details" data-open-section>Builds and retries</a>.{{end}}</p>{{else}}<p class="unknown">Pending PR status.</p>{{end}}{{end}}{{end}}{{end}}
+      {{if or (eq $pin.State "open") $pin.Checks}}<p class="evidence">{{if $pin.ChecksEvidence.Fresh}}Checks updated at {{when $pin.ChecksEvidence.At}}{{else}}{{if $pin.ChecksEvidence.Error}}Unable to get current checks from pinning PR #{{$pin.Target.PR}}{{else}}Pending: reading checks{{end}}{{if not $pin.ChecksEvidence.At.IsZero}} · last observed {{when $pin.ChecksEvidence.At}}{{end}}{{end}}{{if $pin.ChecksEvidence.Error}} · <span class="error-text">{{$pin.ChecksEvidence.Error}}</span>{{end}}</p>
+      {{if $pin.Checks}}<table><thead><tr><th>Check</th><th>Status</th><th>Conclusion</th></tr></thead><tbody>{{range $pin.Checks}}<tr><td>{{if url .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td><td>{{.Status}}</td><td>{{if .Conclusion}}{{.Conclusion}}{{else}}{{if or (eq .Status "pending") (eq .Status "queued") (eq .Status "in_progress")}}Pending{{else}}{{if or (eq .Status "success") (eq .Status "failure") (eq .Status "error")}}{{.Status}}{{else}}Result missing{{end}}{{end}}{{end}}</td></tr>{{end}}</tbody></table>{{else}}{{if and (eq $pin.State "open") (not $pin.Merged) (not $pin.ChecksEvidence.Error)}}<p class="muted">Pending checks.</p>{{end}}{{end}}{{end}}
+      <form method="post" action="/action#pinning-details" class="inline-form grant-form" data-autosubmit><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="grant"><input type="hidden" name="repo" value="{{$pin.Target.Repo}}"><input type="hidden" name="pr" value="{{$pin.Target.PR}}"><input type="hidden" name="sha" value="{{$pin.SHA}}"><input type="hidden" name="enabled" value="false"><label class="check{{if not $.PinningCanGrant}} disabled-control{{end}}" title="Saves immediately"><input type="checkbox" name="enabled" value="true" {{if and $.PinningPR.Authority $.PinningPR.Authority.Granted}}checked{{end}}{{if not $.PinningCanGrant}} disabled{{end}}> RW allowed</label><noscript><button type="submit"{{if not $.PinningCanGrant}} disabled{{end}}>Apply RW permission</button></noscript></form>
+      {{if and (eq $pin.State "open") (not $pin.Merged)}}
+        {{if .PinningImages}}<h4>Konflux images</h4><ol class="image-results">{{range .PinningImages}}<li class="image-result"><div class="section-heading"><strong>{{if .Image.Name}}{{.Image.Name}}{{else}}{{if .Job}}{{.Job}}{{else}}Image name unknown{{end}}{{end}}</strong><span class="pill {{truth .Status}}">{{if eq (truth .Status) "yes"}}Available{{else}}{{if eq (truth .Status) "no"}}Not found{{else}}Unable to check{{end}}{{end}}</span></div>{{if .Image.Reference}}<details data-fold-key="pinning-image:{{$pin.Target.Repo}}#{{$pin.Target.PR}}:{{.Job}}"><summary>Image reference</summary><p><code>{{.Image.Reference}}</code></p></details>{{end}}{{if url .URL}}<p><a href="{{url .URL}}" target="_blank" rel="noreferrer">Build evidence{{if .Job}} · {{.Job}}{{end}}</a></p>{{else}}{{if .Job}}<p>{{.Job}}</p>{{end}}{{end}}{{if url .Image.Evidence.URL}}<p><a href="{{url .Image.Evidence.URL}}" target="_blank" rel="noreferrer">Image evidence</a></p>{{end}}{{if .Reason}}<p class="error-text">{{.Reason}}</p>{{end}}</li>{{end}}</ol>{{else}}<p class="muted">{{if .PinningBuildProblems}}Unable to get build images from pinning PR #{{$pin.Target.PR}}.{{else}}Pending build images.{{end}}</p>{{if .PinningBuildProblems}}<ol>{{range .PinningBuildProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}{{end}}
+      {{end}}
+    </article>{{end}}
+  </details>
+
+  {{if .History}}<section class="panel"><details id="previous-cycles"><summary class="section-summary">Previous component cycles</summary>
+    <p class="eyebrow">Earlier confirmed tags</p>
+    {{range .History}}<article class="history-card"><div class="section-heading"><h3>{{.Cycle.Component}} · {{.Cycle.Tag}}</h3><span>SHA <code>{{.Cycle.SHA}}</code> · observed {{when .Cycle.At}}</span></div><p>Retained build plan: {{.Cycle.Plan.Action}} — {{.Cycle.Plan.Message}}</p>{{if .Cycle.Plan.Evidence.Error}}<p class="error-text">{{.Cycle.Plan.Evidence.Error}}</p>{{end}}{{if .Cycle.Images}}<table><thead><tr><th>Family</th><th>Reference</th><th>Status</th><th>Evidence</th></tr></thead><tbody>{{range .Cycle.Images}}<tr><td>{{.Family}}</td><td><code>{{.Reference}}</code></td><td>{{if .Evidence.Fresh}}{{truth .Present}}{{else}}unknown{{if .Present}} (last observed {{truth .Present}}){{end}}{{end}}</td><td>{{if .Evidence.Error}}{{.Evidence.Error}}{{else}}observed at {{when .Evidence.At}}{{end}}</td></tr>{{end}}</tbody></table>{{else}}<p class="muted">No image observations were retained for this cycle.</p>{{end}}</article>{{end}}
+    </details>
+  </section>{{end}}
+
+  <section class="panel" id="retry-proposals"><details id="retry-details" open><summary class="section-summary">Retry proposals</summary><div class="section-heading"><p class="eyebrow">Konflux observations</p><form method="post" action="/action"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Snapshot.Generation}}"><input type="hidden" name="kind" value="interactive"><input type="hidden" name="enabled" value="false"><label class="check{{if not .Snapshot.WritesEnabled}} disabled-control{{end}}"><input type="checkbox" name="enabled" value="true" {{if .Snapshot.Interactive}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}> Interactive confirmation</label><button type="submit"{{if not .Snapshot.WritesEnabled}} disabled{{end}}>Save mode</button></form></div>
+    <p class="muted">Retry observations for your selected component tags, PRs marked Included, and the configured pinning PR.</p>
+    {{range .Plans}}{{$plan := .Plan}}<article class="plan-card"><div class="section-heading"><h3>{{.Plan.Target}} {{if .Plan.Target.PR}}<span class="pill">{{if .Pinning}}Pinning PR{{else}}Included PR{{end}}</span>{{else}}<span class="pill">Selected tag</span>{{end}}</h3><span>{{.Plan.Action}}</span></div><p>{{.Plan.Message}}</p><p>SHA <code>{{.Plan.SHA}}</code> · observed at {{when .Plan.Evidence.At}} · {{if .Plan.Evidence.Known}}known{{else}}unknown{{end}}</p>{{if .Plan.Evidence.Error}}<p class="error-text">{{.Plan.Evidence.Error}}</p>{{end}}
+      {{if .Plan.Runs}}<h4>Observed runs</h4><table><thead><tr><th>Job</th><th>Run</th><th>Status</th><th>Outcome</th><th>Retry eligible</th></tr></thead><tbody>{{range .Plan.Runs}}<tr><td>{{.Job}}</td><td>{{if url .URL}}<a href="{{url .URL}}">{{.ID}}</a>{{else}}{{.ID}}{{end}}</td><td>{{.Status}}</td><td>{{.Outcome}}</td><td>{{if .Eligible}}yes{{else}}no or unknown{{end}}</td></tr>{{end}}</tbody></table>{{end}}
+      {{if .Plan.Warnings}}<h4>Warnings</h4><ol>{{range .Plan.Warnings}}<li>{{.}}</li>{{end}}</ol>{{end}}
+      {{if .Plan.Advisories}}<h4>Conforma advisories</h4><p class="muted" id="review-help-{{$plan.Target}}">Mark as reviewed records that you have read an advisory for this session and adds an action-log entry. It does not change check results, retry eligibility, write permissions, or release readiness. Reviews reset on restart.</p>{{range .Plan.Advisories}}<div class="advisory">
+        <p>{{.Message}}</p>
+        {{if url .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer">Evidence</a>{{end}}
+        {{if index $.Snapshot.Choices.Acknowledged .ID}}<p class="review-status"><span class="pill selected">Reviewed for this session</span></p>{{end}}
+        <form method="post" action="/action#retry-proposals" class="inline-form"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="acknowledge"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="repo" value="{{$plan.Target.Repo}}"><input type="hidden" name="pr" value="{{if $plan.Target.PR}}{{$plan.Target.PR}}{{end}}"><input type="hidden" name="tag" value="{{$plan.Target.Tag}}"><input type="hidden" name="sha" value="{{$plan.SHA}}"><input type="hidden" name="enabled" value="{{if index $.Snapshot.Choices.Acknowledged .ID}}false{{else}}true{{end}}"><button type="submit" aria-describedby="review-help-{{$plan.Target}}">{{if index $.Snapshot.Choices.Acknowledged .ID}}Mark as unreviewed{{else}}Mark as reviewed{{end}}</button></form>
+      </div>{{end}}{{end}}
+      {{if .Plan.Proposals}}<h4>Copyable comments</h4>{{range .Plan.Proposals}}<article class="proposal"><p>{{.Target}} · SHA <code>{{.SHA}}</code> · {{.Job}} · run {{.RunID}}</p><pre><code>{{.Payload}}</code></pre></article>{{end}}{{end}}
+    </article>{{else}}<p class="muted">No retry observations for selected tags or included PRs yet.</p>{{end}}
+    </details>
+  </section>
+
+  <section class="panel" id="comment-offers"><details id="comment-offers-details" open><summary class="section-summary">Exact comment offers</summary><p class="eyebrow">Write authority</p>
+    {{range .Authority}}<article class="offer-card"><h3>{{.View.Target}} <span class="muted">SHA {{.View.SHA}}</span></h3><p>RW {{if .View.Granted}}allowed{{else}}not allowed{{end}} · {{if .View.Ignored}}ignored{{else}}monitored{{end}}{{if .View.OptOut}} · no-release-assistant disables writes{{end}}</p>{{if .View.Message}}<p>{{.View.Message}}</p>{{end}}{{if .View.Warnings}}<ol>{{range .View.Warnings}}<li class="warning">{{.}}</li>{{end}}</ol>{{end}}
+      {{range .View.Offers}}<div class="offer"><p>Offer {{.ID}} · {{.Proposal.Target}} · SHA {{.Proposal.SHA}} · {{.Proposal.Job}} · run {{.Proposal.RunID}} · failures {{.Failures}}{{if .Rejected}} · rejected{{end}}</p><p>{{if .Reason}}{{.Reason}}{{else}}Ready for exact confirmation{{end}}{{if not .WaitingUntil.IsZero}} · wait until {{when .WaitingUntil}}{{end}}</p><pre><code>{{.Proposal.Payload}}</code></pre>
+        {{if .CanApprove}}<form method="post" action="/action"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="send"><input type="hidden" name="repo" value="{{.Proposal.Target.Repo}}"><input type="hidden" name="pr" value="{{if .Proposal.Target.PR}}{{.Proposal.Target.PR}}{{end}}"><input type="hidden" name="tag" value="{{.Proposal.Target.Tag}}"><input type="hidden" name="sha" value="{{.Proposal.SHA}}"><input type="hidden" name="id" value="{{.ID}}"><label class="check{{if not $.Snapshot.WritesEnabled}} disabled-control{{end}}"><input type="checkbox" name="confirm" value="yes" required{{if not $.Snapshot.WritesEnabled}} disabled{{end}}> I confirm this exact comment</label><button type="submit"{{if not $.Snapshot.WritesEnabled}} disabled{{end}}>Send one comment</button></form>{{end}}
+        {{if .Rejected}}<form method="post" action="/action" class="inline-form"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="reject"><input type="hidden" name="repo" value="{{.Proposal.Target.Repo}}"><input type="hidden" name="pr" value="{{if .Proposal.Target.PR}}{{.Proposal.Target.PR}}{{end}}"><input type="hidden" name="tag" value="{{.Proposal.Target.Tag}}"><input type="hidden" name="sha" value="{{.Proposal.SHA}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="enabled" value="false"><button type="submit">Reconsider this run</button></form>{{else}}<form method="post" action="/action" class="inline-form"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="reject"><input type="hidden" name="repo" value="{{.Proposal.Target.Repo}}"><input type="hidden" name="pr" value="{{if .Proposal.Target.PR}}{{.Proposal.Target.PR}}{{end}}"><input type="hidden" name="tag" value="{{.Proposal.Target.Tag}}"><input type="hidden" name="sha" value="{{.Proposal.SHA}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="enabled" value="true"><button type="submit">Reject this run</button></form>{{end}}
+      </div>{{else}}<p class="muted">No current offers.</p>{{end}}
+    </article>{{else}}<p class="muted">No comment offers for selected tags or included PRs.</p>{{end}}
+    </details>
+  </section>
+  {{end}}
+  <section class="panel" id="activity-console">
+    <details id="activity-details" open>
+      <summary class="section-summary">Activity and errors</summary>
+      <p class="muted">Latest 200 events from this process. Updates every two seconds without reloading your forms.</p>
+      <pre id="activity-log" role="log" aria-label="Activity and errors" aria-live="off">{{activity .Snapshot}}</pre>
+      <p id="activity-refresh-error" class="error-text" role="status" hidden></p>
+    </details>
+  </section>
+</main>
+<script src="/static/app.js" defer></script>
+</body>
+</html>
+
+{{define "component-tag"}}
+<article class="tag-card{{if .Current}} selected-tag{{else}}{{if .Proposed}} proposed-tag{{end}}{{end}}">
+  <div class="section-heading">
+    <div><strong>{{.Tag.Name}}</strong>{{if .Current}} <span class="pill selected">Selected</span>{{else}}{{if .Proposed}} <span class="pill">recommended</span>{{end}}{{end}}</div>
+    {{if and (not .Current) .Tag.Evidence.Fresh (eq (truth .Tag.Belongs) "yes")}}
+      <form method="post" action="/action#tag-selection" class="inline-form"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Generation}}"><input type="hidden" name="kind" value="tag"><input type="hidden" name="component" value="{{.Component}}"><input type="hidden" name="tag" value="{{.Tag.Name}}"><input type="hidden" name="sha" value="{{.Tag.SHA}}"><button type="submit">{{if .Switch}}Switch to{{else}}Confirm{{end}} {{.Component}} {{.Tag.Name}}</button></form>
+    {{end}}
+  </div>
+  {{if .Current}}<p class="coverage-summary {{truth .CoverageStatus}}">{{if eq (truth .CoverageStatus) "yes"}}Covers the selected changes.{{else}}{{if eq (truth .CoverageStatus) "no"}}Does not yet cover the selected scope.{{else}}Coverage unknown.{{end}}{{end}} <a href="#component-images" data-open-section>Review build and image readiness</a>.</p>{{else}}<p class="muted">Branch membership: {{truth .Tag.Belongs}}. Review the evidence before selecting this tag.</p>{{end}}
+  <details class="tag-evidence" data-fold-key="tag-evidence:{{.Component}}:{{.Repo}}@{{.Tag.Name}}"><summary>Evidence</summary>
+    <p>SHA <code>{{.Tag.SHA}}</code> · branch membership {{truth .Tag.Belongs}}</p>
+    <div class="evidence"><span>{{if .Tag.Evidence.Fresh}}Observed{{else}}Unknown or stale{{end}} at {{when .Tag.Evidence.At}}</span>{{if .Tag.Evidence.Error}}<span class="error-text">{{.Tag.Evidence.Error}}</span>{{end}}{{if url .Tag.Evidence.URL}}<a href="{{url .Tag.Evidence.URL}}" target="_blank" rel="noreferrer">Tag source</a>{{end}}</div>
+    {{if .Current}}<p>{{.CoverageReason}}</p>{{end}}
+    {{if .MergeCoverage}}<p>Included merge coverage: {{range .MergeCoverage}}<code>{{.SHA}}</code> {{truth .Status}} · {{end}}</p>{{end}}
+  </details>
+  {{if .Current}}<form method="post" action="/action#tag-selection" class="inline-form grant-form" data-autosubmit><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Generation}}"><input type="hidden" name="kind" value="grant"><input type="hidden" name="repo" value="{{.Repo}}"><input type="hidden" name="tag" value="{{.Tag.Name}}"><input type="hidden" name="sha" value="{{.Tag.SHA}}"><input type="hidden" name="enabled" value="false"><label class="check{{if or (not .WritesEnabled) (and .Authority .Authority.OptOut)}} disabled-control{{end}}" title="Saves immediately"><input type="checkbox" name="enabled" value="true" {{if and .Authority .Authority.Granted}}checked{{end}}{{if or (not .WritesEnabled) (and .Authority .Authority.OptOut)}} disabled{{end}}> RW allowed</label><noscript><button type="submit"{{if or (not .WritesEnabled) (and .Authority .Authority.OptOut)}} disabled{{end}}>Apply RW permission</button></noscript>{{if and .Authority .Authority.OptOut}}<span class="error-text">Writes disabled by opt-out label</span>{{end}}</form>{{end}}
+</article>
+{{end}}
+
+{{define "image-results"}}
+<ol class="image-results">{{range .}}<li class="image-result" data-component="{{.Check.Image.Component}}" data-family="{{.Check.Image.Family}}">
+      <div class="section-heading"><strong>{{title .Check.Image.Component}} · {{if .Name}}{{.Name}}{{else}}image name not determined{{end}} · {{if eq .Check.Image.Family "ci"}}CI{{else}}{{if eq .Check.Image.Family "konflux"}}Konflux{{else}}{{.Check.Image.Family}}{{end}}{{end}}</strong><span class="pill {{truth .Check.Status}}">{{if eq (truth .Check.Status) "yes"}}Available{{else}}{{if eq (truth .Check.Status) "no"}}Not found{{else}}Unable to check{{end}}{{end}}</span></div>
+      <p class="image-tag">Image tag: <code>{{if .Tag}}{{.Tag}}{{else}}not determined{{end}}</code>{{if and .Check.Required .Check.SelectedTag}} · selected {{title .Check.Image.Component}} tag: {{.Check.SelectedTag}}{{end}}</p>
+      {{if .Check.Image.Reference}}<p class="image-reference">{{if .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer"><code>{{.Check.Image.Reference}}</code></a>{{else}}<code>{{.Check.Image.Reference}}</code>{{end}}</p>{{end}}
+      {{if not .Check.Status}}<p>{{.Check.Reason}}</p>{{end}}{{if .Check.Image.Evidence.Error}}<p class="error-text">{{.Check.Image.Evidence.Error}}</p>{{end}}{{if and (not .Check.Image.Evidence.Fresh) .Check.Image.Present}}<p class="muted">Last confirmed {{if eq .Check.Image.Present "yes"}}available{{else}}not found{{end}} at {{when .Check.Image.Evidence.At}}; current availability is unverified.</p>{{end}}
+      {{if url .Check.Image.DefinitionURL}}<a class="definition-link" href="{{url .Check.Image.DefinitionURL}}" target="_blank" rel="noreferrer">Saved pattern source</a>{{end}}
+    </li>{{end}}</ol>
+{{end}}

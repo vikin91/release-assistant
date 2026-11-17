@@ -1,0 +1,4 @@
+      - name: Tag release branch with rc.0 ${{needs.variables.outputs.branch}}
+        run: |
+          git tag --annotate --message "Upstream automation" \
+            "${{needs.variables.outputs.release}}.${{needs.variables.outputs.patch}}-rc.0" HEAD

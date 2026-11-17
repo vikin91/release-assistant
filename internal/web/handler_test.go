@@ -1,0 +1,846 @@
+package web
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"html"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"reflect"
+	"regexp"
+	"strings"
+	"testing"
+	"time"
+
+	"release-assistant/internal/app"
+	"release-assistant/internal/dispatch"
+	"release-assistant/internal/release"
+)
+
+type fakeApplication struct {
+	snapshot app.Snapshot
+	actions  []app.Action
+	err      error
+}
+
+func (f *fakeApplication) Snapshot() app.Snapshot { return f.snapshot }
+func (f *fakeApplication) Apply(_ context.Context, action app.Action) error {
+	f.actions = append(f.actions, action)
+	return f.err
+}
+
+type browser struct {
+	handler      http.Handler
+	csrf, cookie string
+}
+
+func validACS5Config() release.Config {
+	return release.Config{Version: "5.0.1", Branch: "release-5.0", Components: []release.Source{
+		{Name: "fact", Repo: "acme/fact", Branch: "release-3.25", Stream: "3.25"},
+		{Name: "collector", Repo: "acme/collector", Branch: "release-3.25", Stream: "3.25"},
+	}}
+}
+
+func newBrowser(t *testing.T, application *fakeApplication) browser {
+	t.Helper()
+	handler, err := New(application)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil)
+	r.Host = "127.0.0.1:8080"
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET status=%d body=%s", w.Code, w.Body.String())
+	}
+	cookies := w.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("GET did not issue CSRF cookie")
+	}
+	name, _, ok := strings.Cut(w.Body.String(), `name="csrf" value="`)
+	_ = name
+	if !ok {
+		t.Fatal("CSRF input missing")
+	}
+	part := strings.SplitN(w.Body.String(), `name="csrf" value="`, 2)[1]
+	csrf := strings.SplitN(part, "\"", 2)[0]
+	return browser{handler: handler, csrf: csrf, cookie: cookies[0].Name + "=" + cookies[0].Value}
+}
+
+func (b browser) post(values url.Values) *httptest.ResponseRecorder {
+	values.Set("csrf", b.csrf)
+	r := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8080/action", strings.NewReader(values.Encode()))
+	r.Host = "127.0.0.1:8080"
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Set("Origin", "http://127.0.0.1:8080")
+	r.Header.Set("Cookie", b.cookie)
+	w := httptest.NewRecorder()
+	b.handler.ServeHTTP(w, r)
+	return w
+}
+
+func TestGETDoesNotMutateAndRendersIndependentPRControls(t *testing.T) {
+	target := release.Target{Repo: "acme/rox", PR: 12}
+	appFake := &fakeApplication{snapshot: app.Snapshot{Config: validACS5Config(), Generation: 8, Repositories: []release.Repository{{Source: release.Source{Name: "acs", Repo: "acme/rox", Branch: "release"}, PRs: []release.PR{{Target: target, SHA: "head-1", Title: "A PR", State: "open", Base: "release", Evidence: release.Evidence{Known: true, At: time.Now()}}}}}}}
+	b := newBrowser(t, appFake)
+	r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/?kind=interactive", nil)
+	r.Host = "127.0.0.1:8080"
+	w := httptest.NewRecorder()
+	b.handler.ServeHTTP(w, r)
+	body := w.Body.String()
+	if len(appFake.actions) != 0 {
+		t.Fatalf("GET applied actions: %+v", appFake.actions)
+	}
+	for _, needle := range []string{"Included", "Excluded", "RW allowed", "Ignore &amp; hide", "#12 A PR"} {
+		if !strings.Contains(body, needle) {
+			t.Errorf("page missing %q", needle)
+		}
+	}
+}
+
+func TestPOSTForwardsInclusionGrantAndGenerationSeparately(t *testing.T) {
+	target := release.Target{Repo: "acme/rox", PR: 12}
+	appFake := &fakeApplication{snapshot: app.Snapshot{Generation: 9}}
+	b := newBrowser(t, appFake)
+	choice := url.Values{"kind": {"choice"}, "generation": {"9"}, "repo": {"acme/rox"}, "pr": {"12"}, "sha": {"head-2"}, "choice": {"excluded", "included"}}
+	if w := b.post(choice); w.Code != http.StatusSeeOther {
+		t.Fatalf("choice status=%d body=%s", w.Code, w.Body.String())
+	}
+	grant := url.Values{"kind": {"grant"}, "generation": {"9"}, "repo": {"acme/rox"}, "pr": {"12"}, "sha": {"head-2"}, "enabled": {"false", "true"}}
+	if w := b.post(grant); w.Code != http.StatusSeeOther {
+		t.Fatalf("grant status=%d body=%s", w.Code, w.Body.String())
+	}
+	if len(appFake.actions) != 2 {
+		t.Fatalf("got %d actions", len(appFake.actions))
+	}
+	if appFake.actions[0].Kind != "choice" || appFake.actions[0].Target != target || appFake.actions[0].Choice != release.Included || appFake.actions[0].Generation != 9 || appFake.actions[0].SHA != "head-2" {
+		t.Fatalf("choice action=%+v", appFake.actions[0])
+	}
+	if appFake.actions[1].Kind != "grant" || !appFake.actions[1].Enabled || appFake.actions[1].Generation != 9 || appFake.actions[1].SHA != "head-2" {
+		t.Fatalf("grant action=%+v", appFake.actions[1])
+	}
+}
+
+func TestConfigureForACS5OmitsScannerAndForwardsFields(t *testing.T) {
+	appFake := &fakeApplication{}
+	b := newBrowser(t, appFake)
+	form := url.Values{"kind": {"configure"}, "version": {"5.0.1"}, "branch": {"release-5.0"}, "fact_repo": {"acme/fact"}, "fact_branch": {"release-3.25"}, "fact_stream": {"3.25"}, "collector_repo": {"acme/collector"}, "collector_branch": {"release-3.25"}, "collector_stream": {"3.25"}, "scanner_repo": {"acme/scanner"}, "scanner_branch": {"release-4.8"}, "scanner_stream": {"4.8"}, "pinning_pr": {"41"}}
+	if w := b.post(form); w.Code != http.StatusSeeOther {
+		t.Fatalf("configure status=%d body=%s", w.Code, w.Body.String())
+	}
+	if len(appFake.actions) != 1 {
+		t.Fatalf("actions=%+v", appFake.actions)
+	}
+	config := appFake.actions[0].Config
+	if len(config.Components) != 2 || config.Components[0].Name != "fact" || config.Components[1].Name != "collector" || config.PinningPR != 41 {
+		t.Fatalf("config=%+v", config)
+	}
+	if err := config.Validate(); err != nil {
+		t.Fatalf("configuration does not pass session validation: %v", err)
+	}
+}
+
+func TestConfigureForACS4IncludesScanner(t *testing.T) {
+	appFake := &fakeApplication{}
+	b := newBrowser(t, appFake)
+	form := url.Values{"kind": {"configure"}, "version": {"4.8.2"}, "branch": {"release-4.8"}, "fact_repo": {"acme/fact"}, "fact_branch": {"release-3.25"}, "fact_stream": {"3.25"}, "collector_repo": {"acme/collector"}, "collector_branch": {"release-3.25"}, "collector_stream": {"3.25"}, "scanner_repo": {"acme/scanner"}, "scanner_branch": {"release-4.8"}, "scanner_stream": {"4.8"}}
+	if w := b.post(form); w.Code != http.StatusSeeOther {
+		t.Fatalf("configure status=%d body=%s", w.Code, w.Body.String())
+	}
+	config := appFake.actions[0].Config
+	if len(config.Components) != 3 || config.Components[2] != (release.Source{Name: "scanner", Repo: "acme/scanner", Branch: "release-4.8", Stream: "4.8"}) {
+		t.Fatalf("config=%+v", config)
+	}
+	if err := config.Validate(); err != nil {
+		t.Fatalf("ACS 4 config does not pass session validation: %v", err)
+	}
+}
+
+func TestCrossSiteHostOriginAndCSRFRequestsAreRejected(t *testing.T) {
+	appFake := &fakeApplication{}
+	b := newBrowser(t, appFake)
+	request := func(host, origin, csrf string) *httptest.ResponseRecorder {
+		form := url.Values{"kind": {"interactive"}, "enabled": {"true"}, "generation": {"0"}, "csrf": {csrf}}
+		r := httptest.NewRequest(http.MethodPost, "http://"+host+"/action", strings.NewReader(form.Encode()))
+		r.Host = host
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("Origin", origin)
+		r.Header.Set("Cookie", b.cookie)
+		w := httptest.NewRecorder()
+		b.handler.ServeHTTP(w, r)
+		return w
+	}
+	if got := request("example.com", "http://example.com", b.csrf).Code; got != http.StatusForbidden {
+		t.Fatalf("foreign host status=%d", got)
+	}
+	if got := request("127.0.0.1:8080", "http://evil.test", b.csrf).Code; got != http.StatusForbidden {
+		t.Fatalf("foreign origin status=%d", got)
+	}
+	if got := request("127.0.0.1:8080", "http://127.0.0.1:8080", "wrong").Code; got != http.StatusForbidden {
+		t.Fatalf("bad CSRF status=%d", got)
+	}
+	if len(appFake.actions) != 0 {
+		t.Fatalf("rejected request mutated app: %+v", appFake.actions)
+	}
+}
+
+func TestOpaqueOriginRequiresSameOriginFetchMetadataAndCSRF(t *testing.T) {
+	appFake := &fakeApplication{}
+	b := newBrowser(t, appFake)
+	request := func(origin, site string) *httptest.ResponseRecorder {
+		form := url.Values{"kind": {"interactive"}, "enabled": {"true"}, "generation": {"0"}, "csrf": {b.csrf}}
+		r := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8080/action", strings.NewReader(form.Encode()))
+		r.Host = "127.0.0.1:8080"
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("Cookie", b.cookie)
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
+		if site != "" {
+			r.Header.Set("Sec-Fetch-Site", site)
+		}
+		w := httptest.NewRecorder()
+		b.handler.ServeHTTP(w, r)
+		return w
+	}
+	if got := request("null", "same-origin").Code; got != http.StatusSeeOther {
+		t.Fatalf("opaque same-origin submission status=%d", got)
+	}
+	if got := request("", "same-origin").Code; got != http.StatusSeeOther {
+		t.Fatalf("absent-origin same-origin submission status=%d", got)
+	}
+	if got := request("null", "").Code; got != http.StatusForbidden {
+		t.Fatalf("opaque origin without fetch metadata status=%d", got)
+	}
+	if got := request("http://evil.test", "same-origin").Code; got != http.StatusForbidden {
+		t.Fatalf("foreign origin with same-origin metadata status=%d", got)
+	}
+	if len(appFake.actions) != 2 {
+		t.Fatalf("accepted actions=%d, want 2", len(appFake.actions))
+	}
+}
+
+func TestPageEscapesExternalTextAndShowsUnknownEvidenceAndExactOffer(t *testing.T) {
+	target := release.Target{Repo: "acme/rox", PR: 7}
+	proposal := release.Proposal{Target: target, SHA: "head-sha", Job: "unit", RunID: "run-77", Payload: "/konflux-retest unit"}
+	appFake := &fakeApplication{snapshot: app.Snapshot{
+		Config:       validACS5Config(),
+		Generation:   4,
+		Choices:      release.Choices{PRs: map[release.Target]release.Choice{target: release.Included}},
+		Repositories: []release.Repository{{Source: release.Source{Name: "acs", Repo: "acme/rox", Branch: "release"}, PRs: []release.PR{{Target: target, SHA: "head-sha", Title: `<script>alert("x")</script>`, URL: "javascript:alert(1)", State: "open", Base: "release", Evidence: release.Evidence{At: time.Now(), Error: "head observation partial"}}}}},
+		Assessment:   release.Assessment{Conditions: []release.Condition{{Name: "Tag coverage", Status: "", Reason: "Coverage cannot be established", Evidence: []release.Evidence{{Error: "compare API unavailable"}}}}, Recommendations: []string{"Review the proposed <tag>"}, Commands: "cdrox && pin --version 3.25.7"},
+		Plans:        []release.Plan{{Target: target, SHA: "head-sha", Evidence: release.Evidence{Known: false, Error: "partial plan"}, Proposals: []release.Proposal{proposal}}},
+		Authority:    []dispatch.View{{Target: target, SHA: "head-sha", Granted: true, Warnings: []string{"slow retry threshold reached"}, Offers: []dispatch.Offer{{ID: "offer-1", Proposal: proposal, Allowed: true, CanApprove: true}}}},
+	}}
+	b := newBrowser(t, appFake)
+	body := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil)
+	r.Host = "127.0.0.1:8080"
+	b.handler.ServeHTTP(body, r)
+	text := body.Body.String()
+	if strings.Contains(text, `<script>alert("x")</script>`) {
+		t.Fatal("external PR title was rendered as markup")
+	}
+	for _, needle := range []string{"&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", "unknown", "compare API unavailable", "/konflux-retest unit", "run-77", "I confirm this exact comment", "Review the proposed &lt;tag&gt;", "cdrox &amp;&amp; pin --version 3.25.7"} {
+		if !strings.Contains(text, needle) {
+			t.Errorf("rendered page missing %q", needle)
+		}
+	}
+	if strings.Contains(text, `href="javascript:alert(1)"`) {
+		t.Fatal("unsafe external URL was emitted")
+	}
+	if !strings.Contains(text, "slow retry threshold reached") {
+		t.Fatal("dispatcher warning was not rendered")
+	}
+}
+
+func TestIgnoredPRIsHiddenAndConfirmedTagHasIndependentRWControl(t *testing.T) {
+	prTarget := release.Target{Repo: "acme/rox", PR: 8}
+	tagTarget := release.Target{Repo: "acme/fact", Tag: "3.25.7"}
+	appFake := &fakeApplication{snapshot: app.Snapshot{
+		Config:  validACS5Config(),
+		Choices: release.Choices{PRs: map[release.Target]release.Choice{prTarget: release.Ignored}, Tags: map[string]string{"fact": "3.25.7"}},
+		Repositories: []release.Repository{
+			{Source: release.Source{Name: "acs", Repo: "acme/rox", Branch: "release-5.0"}, PRs: []release.PR{{Target: prTarget, SHA: "ignored-sha", Title: "Ignored PR", State: "open"}}},
+			{Source: release.Source{Name: "fact", Repo: "acme/fact", Branch: "release-3.25", Stream: "3.25"}, Tags: []release.Tag{{Name: "3.25.7", SHA: "tag-sha", Belongs: release.Yes, Evidence: release.Evidence{Known: true, At: time.Now()}}}},
+		},
+		Authority: []dispatch.View{{Target: prTarget, SHA: "ignored-sha", Ignored: true}, {Target: tagTarget, SHA: "tag-sha", Granted: true}},
+	}}
+	b := newBrowser(t, appFake)
+	r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil)
+	r.Host = "127.0.0.1:8080"
+	w := httptest.NewRecorder()
+	b.handler.ServeHTTP(w, r)
+	body := w.Body.String()
+	if strings.Contains(body, "Ignored PR") {
+		t.Fatal("ignored PR remained visible")
+	}
+	if !strings.Contains(body, "value=\"acme/fact\"") || !strings.Contains(body, "value=\"3.25.7\"") || !strings.Contains(body, "RW allowed") {
+		t.Fatal("confirmed tag target is missing independent RW controls")
+	}
+}
+
+func TestSendRequiresExactConfirmationAndForwardsTargetSHA(t *testing.T) {
+	appFake := &fakeApplication{}
+	b := newBrowser(t, appFake)
+	base := url.Values{"kind": {"send"}, "generation": {"6"}, "repo": {"acme/rox"}, "pr": {"7"}, "sha": {"head-sha"}, "id": {"offer-1"}}
+	if w := b.post(base); w.Code != http.StatusBadRequest {
+		t.Fatalf("unconfirmed send status=%d", w.Code)
+	}
+	base.Add("confirm", "yes")
+	if w := b.post(base); w.Code != http.StatusSeeOther {
+		t.Fatalf("confirmed send status=%d body=%s", w.Code, w.Body.String())
+	}
+	if len(appFake.actions) != 1 {
+		t.Fatalf("actions=%+v", appFake.actions)
+	}
+	a := appFake.actions[0]
+	if a.Kind != "send" || a.Target != (release.Target{Repo: "acme/rox", PR: 7}) || a.SHA != "head-sha" || a.ID != "offer-1" {
+		t.Fatalf("send action=%+v", a)
+	}
+}
+
+func TestReconsiderActionDoesNotReRejectOffer(t *testing.T) {
+	appFake := &fakeApplication{}
+	b := newBrowser(t, appFake)
+	form := url.Values{"kind": {"reject"}, "generation": {"2"}, "repo": {"acme/rox"}, "pr": {"7"}, "sha": {"head-sha"}, "id": {"offer-1"}, "enabled": {"false"}}
+	if w := b.post(form); w.Code != http.StatusSeeOther {
+		t.Fatalf("reconsider status=%d body=%s", w.Code, w.Body.String())
+	}
+	if len(appFake.actions) != 1 || appFake.actions[0].Enabled {
+		t.Fatalf("reconsider action=%+v", appFake.actions)
+	}
+}
+
+func TestTagConfirmationForwardsExactIdentity(t *testing.T) {
+	appFake := &fakeApplication{}
+	b := newBrowser(t, appFake)
+	form := url.Values{"kind": {"tag"}, "generation": {"3"}, "component": {"fact"}, "tag": {"3.25.7"}, "sha": {"exact-sha"}}
+	if w := b.post(form); w.Code != http.StatusSeeOther {
+		t.Fatalf("tag confirmation status=%d body=%s", w.Code, w.Body.String())
+	}
+	if len(appFake.actions) != 1 {
+		t.Fatalf("actions=%+v", appFake.actions)
+	}
+	a := appFake.actions[0]
+	if a.Kind != "tag" || a.Component != "fact" || a.Tag != "3.25.7" || a.SHA != "exact-sha" || a.Generation != 3 {
+		t.Fatalf("tag action=%+v", a)
+	}
+}
+
+func TestRecommendedTagConfirmationIsSeparateFromPRSelection(t *testing.T) {
+	application := &fakeApplication{snapshot: app.Snapshot{
+		Config: validACS5Config(), Generation: 17,
+		Assessment: release.Assessment{ProposedTags: map[string]string{"fact": "3.25.9"}},
+		Repositories: []release.Repository{
+			{Source: release.Source{Name: "acs", Repo: "acme/rox"}, Tags: []release.Tag{{Name: "5.0.1"}}},
+			{Source: release.Source{Name: "fact", Repo: "acme/fact", Stream: "3.25"},
+				PRs: []release.PR{{Target: release.Target{Repo: "acme/fact", PR: 9}, Title: "A selectable change", State: "open"}},
+				Tags: []release.Tag{
+					{Name: "3.25.1", SHA: "old", Belongs: release.Yes, Evidence: release.Evidence{Known: true, At: time.Now()}},
+					{Name: "3.25.9", SHA: "recommended-sha", Belongs: release.Yes, Evidence: release.Evidence{Known: true, At: time.Now()}},
+				}},
+		},
+	}}
+	b := newBrowser(t, application)
+	w := httptest.NewRecorder()
+	b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+	body := w.Body.String()
+	_, tags, ok := strings.Cut(body, `<details id="tag-selection" open>`)
+	if !ok {
+		t.Fatal("pending tag recommendations should open the tag selection section")
+	}
+	tags, prs, ok := strings.Cut(tags, `id="pr-selection"`)
+	if !ok {
+		t.Fatal("tag selection must precede the separate PR selection section")
+	}
+	if strings.Contains(tags, "A selectable change") || !strings.Contains(prs, "A selectable change") {
+		t.Fatal("PRs are not confined to the PR selection section")
+	}
+	if strings.Contains(tags, "Confirm PR selection") || strings.Contains(prs, "Confirm PR selection") {
+		t.Fatal("individual PR choices must not require extra confirmation")
+	}
+	if strings.Contains(tags, "5.0.1") {
+		t.Fatal("ACS release tags must not be offered as component tags")
+	}
+	if strings.Index(tags, "Confirm fact 3.25.9") > strings.Index(tags, `<details class="other-tags"`) {
+		t.Fatal("recommended tag was buried in the collapsed alternatives")
+	}
+	form := ""
+	for _, candidate := range regexp.MustCompile(`(?s)<form\b[^>]*>.*?</form>`).FindAllString(tags, -1) {
+		if strings.Contains(candidate, "Confirm fact 3.25.9") {
+			form = candidate
+			break
+		}
+	}
+	if form == "" {
+		t.Fatal("recommended tag confirmation form missing")
+	}
+	values := url.Values{}
+	for _, field := range []string{"csrf", "kind", "generation", "component", "tag", "sha"} {
+		values.Set(field, inputValue(t, form, field))
+	}
+	if values.Get("csrf") != b.csrf {
+		t.Fatal("nested tag form lost its CSRF token")
+	}
+	if result := b.post(values); result.Code != http.StatusSeeOther {
+		t.Fatalf("rendered tag form rejected: %d %s", result.Code, result.Body.String())
+	}
+	action := application.actions[0]
+	if action.Component != "fact" || action.Tag != "3.25.9" || action.SHA != "recommended-sha" || action.Generation != 17 {
+		t.Fatalf("rendered form changed the recommended identity: %+v", action)
+	}
+}
+
+func TestTagSelectionDoesNotAutoFoldAfterConfirmationAndWithholdsUnknownTags(t *testing.T) {
+	for name, evidence := range map[string]release.Evidence{
+		"unknown": {At: time.Now()},
+		"stale":   {Known: true, At: time.Now().Add(-time.Hour), Error: "latest discovery failed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			b := newBrowser(t, &fakeApplication{snapshot: app.Snapshot{
+				Config:     validACS5Config(),
+				Choices:    release.Choices{Tags: map[string]string{"fact": "3.25.9", "collector": "3.25.4"}},
+				Assessment: release.Assessment{ProposedTags: map[string]string{"fact": "3.25.9"}},
+				Repositories: []release.Repository{{Source: release.Source{Name: "fact", Repo: "acme/fact"},
+					Tags: []release.Tag{{Name: "3.25.9", SHA: "tag-sha", Belongs: release.Yes, Evidence: evidence}}}},
+			}})
+			w := httptest.NewRecorder()
+			b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+			body := w.Body.String()
+			if !strings.Contains(body, `<details id="tag-selection" open>`) {
+				t.Fatal("tag confirmation must not choose a new fold state")
+			}
+			if strings.Contains(body, "Confirm fact 3.25.9") || !strings.Contains(body, "Unknown or stale") {
+				t.Fatal("unknown tag evidence must remain visible without a confirmation control")
+			}
+		})
+	}
+}
+
+func TestPRSelectionShowsAuthorsAndPreservesEvidenceInCollapsedDetails(t *testing.T) {
+	target := release.Target{Repo: "acme/fact", PR: 1}
+	b := newBrowser(t, &fakeApplication{snapshot: app.Snapshot{
+		Config:  validACS5Config(),
+		Choices: release.Choices{PRs: map[release.Target]release.Choice{target: release.Included}},
+		Repositories: []release.Repository{{Source: release.Source{Name: "fact", Repo: "acme/fact"}, PRs: []release.PR{
+			{Target: target, Author: "octocat", State: "open", SHA: "exact-pr-head", OptOut: true, Checks: []release.Check{{Name: "unit-tests", Conclusion: "failure"}}},
+			{Target: release.Target{Repo: "acme/fact", PR: 2}, Author: "", State: "open", SHA: "other-head"},
+			{Target: release.Target{Repo: "acme/fact", PR: 3}, Author: `<img src=x onerror=alert(1)>`, State: "open"},
+		}}},
+	}})
+	w := httptest.NewRecorder()
+	b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+	body := w.Body.String()
+	for _, want := range []string{"@octocat", "Author unknown", "&lt;img src=x onerror=alert(1)&gt;", "PR identity unknown or stale", "no-release-assistant opt-out"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("PR selection missing %q", want)
+		}
+	}
+	if strings.Contains(body, `<img src=x`) {
+		t.Fatal("author was rendered as markup")
+	}
+	card := regexp.MustCompile(`(?s)<article class="pr-card">.*?</article>`).FindString(body)
+	controls, details, ok := strings.Cut(card, `<details class="pr-details"`)
+	if !ok || !strings.Contains(details, "exact-pr-head") || !strings.Contains(details, "unit-tests") || !strings.Contains(details, "failure") {
+		t.Fatal("collapsed PR details must retain identity and check evidence")
+	}
+	if !strings.Contains(controls, `value="included" aria-pressed="true"`) || !strings.Contains(controls, `value="true"  disabled> RW allowed`) {
+		t.Fatal("inclusion must stay selected independently of the unchecked RW permission")
+	}
+}
+
+func TestPRViewHidesMergedAndClosedPRsWithoutDiscardingCoverageEvidence(t *testing.T) {
+	for name, source := range map[string]release.Source{
+		"ACS":       {Name: "acs", Repo: "acme/rox", Branch: "release-5.0"},
+		"component": {Name: "fact", Repo: "acme/fact", Branch: "release-3.25", Stream: "3.25"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			merged := release.Target{Repo: source.Repo, PR: 2}
+			application := &fakeApplication{snapshot: app.Snapshot{
+				Config:  validACS5Config(),
+				Choices: release.Choices{PRs: map[release.Target]release.Choice{merged: release.Included}},
+				Repositories: []release.Repository{{Source: source, PRs: []release.PR{
+					{Target: release.Target{Repo: source.Repo, PR: 1}, State: "open", Title: "Open change"},
+					{Target: merged, State: "merged", Merged: true, MergeSHA: "merge-sha", Title: "Merged change"},
+					{Target: release.Target{Repo: source.Repo, PR: 3}, State: "closed", Merged: true, Title: "Closed merged change"},
+					{Target: release.Target{Repo: source.Repo, PR: 4}, State: "open", Merged: true, Title: "Merged flag takes precedence"},
+					{Target: release.Target{Repo: source.Repo, PR: 5}, State: "closed", Title: "Closed unmerged change"},
+				}, Tags: []release.Tag{{Name: "3.25.9", Contains: map[string]release.Truth{"merge-sha": release.Yes}}}}},
+				Plans:     []release.Plan{{Target: merged, Message: "Old merged PR retry observations"}},
+				Authority: []dispatch.View{{Target: merged, Message: "Old merged PR permission panel"}},
+			}}
+			b := newBrowser(t, application)
+			w := httptest.NewRecorder()
+			b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+			body := w.Body.String()
+			if !strings.Contains(body, "Open change") || strings.Count(body, `<article class="pr-card">`) != 1 {
+				t.Fatal("PR selection must show exactly the open, unmerged PR")
+			}
+			for _, hidden := range []string{
+				"Merged change", "Closed merged change", "Merged flag takes precedence", "Closed unmerged change",
+				"Old merged PR retry observations", "Old merged PR permission panel",
+			} {
+				if strings.Contains(body, hidden) {
+					t.Errorf("inactive PR information still visible: %s", hidden)
+				}
+			}
+			repo := application.snapshot.Repositories[0]
+			if len(repo.PRs) != 5 || repo.PRs[1].MergeSHA != "merge-sha" ||
+				application.snapshot.Choices.PRs[merged] != release.Included ||
+				repo.Tags[0].Contains["merge-sha"] != release.Yes {
+				t.Fatal("view filtering discarded merge identity, inclusion intent, or tag coverage")
+			}
+			application.snapshot.Repositories[0].PRs[0].State = "merged"
+			application.snapshot.Repositories[0].PRs[0].Merged = true
+			afterMerge := httptest.NewRecorder()
+			b.handler.ServeHTTP(afterMerge, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+			if strings.Contains(afterMerge.Body.String(), `<article class="pr-card">`) ||
+				!strings.Contains(afterMerge.Body.String(), "No open PR observations.") {
+				t.Fatal("an observed merge must remove the open PR row on refresh")
+			}
+		})
+	}
+}
+
+func TestFormBodyLimit(t *testing.T) {
+	appFake := &fakeApplication{}
+	b := newBrowser(t, appFake)
+	large := "csrf=" + url.QueryEscape(b.csrf) + "&x=" + strings.Repeat("x", maxFormBytes+1)
+	r := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8080/action", strings.NewReader(large))
+	r.Host = "127.0.0.1:8080"
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Set("Origin", "http://127.0.0.1:8080")
+	r.Header.Set("Cookie", b.cookie)
+	w := httptest.NewRecorder()
+	b.handler.ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest {
+		body, _ := io.ReadAll(w.Result().Body)
+		t.Fatalf("oversized body status=%d body=%s", w.Code, body)
+	}
+}
+
+func TestIncompleteInitialConfigKeepsSetupOpenAndVersionInTitle(t *testing.T) {
+	appFake := &fakeApplication{snapshot: app.Snapshot{Config: release.Config{Version: "5.0.1"}}}
+	b := newBrowser(t, appFake)
+	r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil)
+	r.Host = "127.0.0.1:8080"
+	w := httptest.NewRecorder()
+	b.handler.ServeHTTP(w, r)
+	body := w.Body.String()
+	if !strings.Contains(body, "<title>ACS 5.0.1 Release Assistant</title>") || !strings.Contains(body, `<details id="release-configuration" open>`) {
+		t.Fatal("incomplete CLI configuration did not keep setup visible")
+	}
+	if strings.Contains(body, "Confirm PR selection") {
+		t.Fatal("incomplete configuration rendered session controls")
+	}
+}
+
+func TestParallelPortsUseDistinctCSRFCookies(t *testing.T) {
+	handler, err := New(&fakeApplication{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, host := range []string{"127.0.0.1:8080", "127.0.0.1:8081"} {
+		r := httptest.NewRequest(http.MethodGet, "http://"+host+"/", nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		cookies := w.Result().Cookies()
+		if len(cookies) != 1 || names[cookies[0].Name] {
+			t.Fatal("parallel instances overwrite CSRF cookie")
+		}
+		names[cookies[0].Name] = true
+	}
+}
+
+func TestConfigurationErrorsPreserveSubmittedInputs(t *testing.T) {
+	for name, tc := range map[string]struct {
+		version, pinning, branch string
+		applyError               error
+		status, actions          int
+	}{
+		"invalid PR URL on initial setup":                          {"4.10.2", "https://github.com/stackrox/stackrox/pull/12345?x=1&y=2", "release-4.10", nil, http.StatusBadRequest, 0},
+		"invalid version before other fields parse":                {"not-a-version", "12345", "release-4.10", nil, http.StatusBadRequest, 0},
+		"application validation while editing saved configuration": {"4.10.2", "12345", "", errors.New("an explicit ACS branch is required"), http.StatusConflict, 1},
+		"escaped rejected input":                                   {"4.10.2", `"><script>alert(1)</script>`, "release-4.10", nil, http.StatusBadRequest, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			snapshot := app.Snapshot{}
+			if tc.applyError != nil {
+				snapshot.Config = validACS5Config()
+			}
+			application := &fakeApplication{snapshot: snapshot, err: tc.applyError}
+			b := newBrowser(t, application)
+			form := url.Values{"kind": {"configure"}, "version": {tc.version}, "branch": {tc.branch}, "pinning_pr": {tc.pinning}, "fact_repo": {"stackrox/fact"}, "fact_branch": {"release-0.3"}, "fact_stream": {"0.3"}, "collector_repo": {"stackrox/collector"}, "collector_branch": {"release-3.24"}, "collector_stream": {"3.24"}, "scanner_repo": {"stackrox/scanner"}, "scanner_branch": {"release-2.39"}, "scanner_stream": {"2.39"}}
+			w := b.post(form)
+			if w.Code != tc.status {
+				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+			}
+			body := w.Body.String()
+			for field, values := range form {
+				if field == "kind" || field == "csrf" {
+					continue
+				}
+				if got := inputValue(t, body, field); got != values[0] {
+					t.Errorf("%s = %q, want submitted %q", field, got, values[0])
+				}
+			}
+			if !strings.Contains(body, `<details id="release-configuration" open>`) || !strings.Contains(body, "data-config-draft") {
+				t.Error("rejected configuration must remain open and protected from automatic refresh")
+			}
+			if strings.Contains(body, "<script>alert(1)</script>") {
+				t.Error("submitted input was not escaped")
+			}
+			if len(application.actions) != tc.actions || !reflect.DeepEqual(application.snapshot, snapshot) {
+				t.Fatal("rejected draft changed the active session")
+			}
+			if name == "invalid PR URL on initial setup" {
+				form.Set("pinning_pr", "12345")
+				if corrected := b.post(form); corrected.Code != http.StatusSeeOther {
+					t.Fatal("corrected draft could not be submitted")
+				}
+				if len(application.actions) != 1 || application.actions[0].Config.PinningPR != 12345 {
+					t.Fatal("corrected PR number was not applied")
+				}
+				if err := application.actions[0].Config.Validate(); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func TestPinningPRFieldExplainsAndConstrainsNumberInput(t *testing.T) {
+	b := newBrowser(t, &fakeApplication{})
+	w := httptest.NewRecorder()
+	b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+	body := w.Body.String()
+	for _, want := range []string{"Pinning PR number (optional)", `pattern="[0-9]+"`, `placeholder="12345"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing number guidance %q", want)
+		}
+	}
+}
+
+func TestComponentStreamsArePrefilledAndBranchesAreReadOnly(t *testing.T) {
+	b := newBrowser(t, &fakeApplication{})
+	w := httptest.NewRecorder()
+	b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+	body := w.Body.String()
+	for name, stream := range map[string]string{"fact": "0.4", "collector": "3.26", "scanner": "2.40"} {
+		if got := inputValue(t, body, name+"_stream"); got != stream {
+			t.Errorf("%s stream = %q, want prefilled %q", name, got, stream)
+		}
+		if got := inputValue(t, body, name+"_branch"); got != "release-"+stream {
+			t.Errorf("%s branch = %q", name, got)
+		}
+		branch := regexp.MustCompile(`<input\b[^>]*\bname="` + name + `_branch"[^>]*>`).FindString(body)
+		if !strings.Contains(branch, " readonly ") {
+			t.Errorf("%s branch must be read-only", name)
+		}
+		if strings.Index(body, `name="`+name+`_repo"`) > strings.Index(body, `name="`+name+`_stream"`) ||
+			strings.Index(body, `name="`+name+`_stream"`) > strings.Index(body, `name="`+name+`_branch"`) {
+			t.Errorf("%s fields must appear in repository, stream, branch order", name)
+		}
+	}
+}
+
+func TestConfigureDerivesBranchesAndPreservesUnchangedCLIOverrides(t *testing.T) {
+	for name, tc := range map[string]struct {
+		repo, stream, branch string
+	}{
+		"unchanged CLI override": {"acme/fact", "3.25", "test-release"},
+		"changed release stream": {"acme/fact", "0.5", "release-0.5"},
+		"changed repository":     {"other/fact", "3.25", "release-3.25"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			config := validACS5Config()
+			config.Components[0].Branch = "test-release"
+			application := &fakeApplication{snapshot: app.Snapshot{Config: config}}
+			b := newBrowser(t, application)
+			w := httptest.NewRecorder()
+			b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+			if inputValue(t, w.Body.String(), "fact_stream") != "3.25" || inputValue(t, w.Body.String(), "fact_branch") != "test-release" {
+				t.Fatal("saved configuration was overwritten by defaults")
+			}
+			form := url.Values{
+				"kind": {"configure"}, "version": {"5.0.1"}, "branch": {"release-5.0"},
+				"fact_repo": {tc.repo}, "fact_stream": {tc.stream}, "fact_branch": {"forged-branch"},
+				"collector_repo": {"acme/collector"}, "collector_stream": {"3.26"},
+			}
+			if result := b.post(form); result.Code != http.StatusSeeOther {
+				t.Fatalf("configure status=%d body=%s", result.Code, result.Body.String())
+			}
+			got := application.actions[0].Config
+			if got.Components[0].Branch != tc.branch || got.Components[1].Branch != "release-3.26" {
+				t.Fatalf("submitted branches were not resolved from component scope: %+v", got.Components)
+			}
+		})
+	}
+}
+
+func TestInvalidDraftKeepsEmptyStreamAndRecomputesReadOnlyBranches(t *testing.T) {
+	config := validACS5Config()
+	config.Components[0].Stream = "0.4"
+	config.Components[0].Branch = "test-release"
+	b := newBrowser(t, &fakeApplication{snapshot: app.Snapshot{Config: config}})
+	w := b.post(url.Values{
+		"kind": {"configure"}, "version": {"4.10.2"}, "pinning_pr": {"not-a-number"},
+		"fact_repo": {"acme/fact"}, "fact_stream": {""}, "fact_branch": {"forged-branch"},
+		"collector_stream": {"3.27"}, "collector_branch": {"stale-branch"},
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d", w.Code)
+	}
+	body := w.Body.String()
+	if inputValue(t, body, "fact_stream") != "" || inputValue(t, body, "fact_branch") != "" {
+		t.Fatal("rejected empty stream must remain empty without a branch")
+	}
+	if got := inputValue(t, body, "collector_branch"); got != "release-3.27" {
+		t.Fatalf("read-only branch=%q, want release-3.27", got)
+	}
+	if !strings.Contains(body, `data-configured-repo="acme/fact" data-configured-stream="0.4" data-configured-branch="test-release"`) {
+		t.Fatal("rejected draft lost the CLI override needed when restoring the configured stream")
+	}
+}
+
+func inputValue(t *testing.T, body, name string) string {
+	t.Helper()
+	input := regexp.MustCompile(`<input\b[^>]*\bname="` + regexp.QuoteMeta(name) + `"[^>]*>`).FindString(body)
+	if input == "" {
+		t.Fatalf("input %q missing", name)
+	}
+	value := regexp.MustCompile(`\bvalue="([^"]*)"`).FindStringSubmatch(input)
+	if len(value) != 2 {
+		t.Fatalf("input %q value missing", name)
+	}
+	return html.UnescapeString(value[1])
+}
+
+func TestInitialLoadingStateIsVisibleUntilRefreshCompletes(t *testing.T) {
+	application := &fakeApplication{snapshot: app.Snapshot{Config: validACS5Config(), Loading: true}}
+	b := newBrowser(t, application)
+	body := b.getBody(t)
+	if !strings.Contains(body, `data-loading="true"`) || !strings.Contains(body, `role="status">Loading release data…`) {
+		t.Fatal("initial load is not visible to the browser")
+	}
+	application.snapshot.Loading = false
+	body = b.getBody(t)
+	if !strings.Contains(body, `data-loading="false"`) || strings.Contains(body, "Loading release data…") {
+		t.Fatal("completed load still requests rapid refresh")
+	}
+}
+
+func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
+	observed := release.Evidence{Known: true, At: time.Now()}
+	image := func(name, component, family, ref string, status release.Truth) release.ImageStatus {
+		evidence := observed
+		evidence.URL = "https://quay.io/repository/fixture/" + name + "?tag=" + strings.Split(ref, ":")[1]
+		return release.ImageStatus{Image: release.Image{Name: name, Component: component, Family: family, Reference: ref, Present: status, Evidence: evidence, DefinitionURL: "https://github.com/stackrox/stackrox/blob/exact-sha/.tekton/" + name + ".yaml"}, Status: status, Required: component != "acs"}
+	}
+	rows := []release.ImageStatus{image("fact", "fact", "ci", "quay.io/fixture/fact:3.25.1", release.Yes), image("collector", "collector", "konflux", "quay.io/fixture/collector:3.25.4-fast", release.No), image("main", "acs", "ci", "quay.io/fixture/main:5.0.1-rc.0", release.No), image("scanner-v4", "acs", "konflux", "quay.io/fixture/scanner-v4:5.0.1-rc.0-fast", "")}
+	rows[3].Image.Evidence.Known = false
+	rows[3].Image.Evidence.Error = "Registry access denied"
+	rows[3].Reason = "The registry request could not complete."
+	application := &fakeApplication{snapshot: app.Snapshot{Config: validACS5Config(), Choices: release.Choices{Tags: map[string]string{"fact": "3.25.1", "collector": "3.25.4"}}, Assessment: release.Assessment{Images: rows, Pins: release.PinSummary{BranchStatus: release.Yes, PRNumber: 99, PRURL: "https://github.com/stackrox/stackrox/pull/99"}, Conditions: []release.Condition{{Name: "configuration", Status: release.Yes, Reason: "Release configuration is valid"}}}, Repositories: []release.Repository{{Source: release.Source{Name: "acs"}, PinningPR: &release.PR{Target: release.Target{Repo: "stackrox/stackrox", PR: 99}, State: "open", Evidence: observed}}}}}
+	body := newBrowser(t, application).getBody(t)
+	for _, want := range []string{"Fact: 3.25.1", "Collector: 3.25.4", "ACS pins: match selected tags", "Pin PR #99: Open", `href="https://github.com/stackrox/stackrox/pull/99"`, `<ol class="image-results">`, "Available", "Not found", "Unable to check", "3.25.4-fast", "5.0.1-rc.0", "Registry access denied", "Saved pattern source", "green = selected versions are on the ACS branch"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"Release status", "Release configuration is valid", "Confirm PR selection", "confirm-selection", "image inventory evidence is not fresh"} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("unexpected obsolete status/control %q", forbidden)
+		}
+	}
+	if !strings.Contains(body, `class="pill unknown" href="https://github.com/stackrox/stackrox/pull/99"`) {
+		t.Fatal("an open pin PR must not imply its proposed versions have merged")
+	}
+	if strings.Count(body, `class="image-result"`) != 4 {
+		t.Fatal("some expected images are hidden")
+	}
+	components := between(t, body, `id="component-images-panel"`, `</section>`)
+	releaseImages := between(t, body, `id="release-images-panel"`, `</section>`)
+	if strings.Count(components, `class="image-result"`) != 2 || strings.Contains(components, "5.0.1-rc.0") ||
+		strings.Count(releaseImages, `class="image-result"`) != 2 || strings.Contains(releaseImages, `data-component="fact"`) || strings.Contains(releaseImages, `data-component="collector"`) {
+		t.Fatal("component prerequisites and later ACS RC.0 images are mixed")
+	}
+	for _, control := range []string{`<details id="component-images" open>`, `<details id="release-images">`, `<details id="next-steps" open>`, `<details id="retry-details" open>`, `<details id="comment-offers-details" open>`} {
+		if !strings.Contains(body, control) {
+			t.Errorf("missing section fold control %s", control)
+		}
+	}
+	if !strings.Contains(body, `href="https://quay.io/repository/fixture/fact?tag=3.25.1"`) {
+		t.Fatal("image evidence must link to the exact tag")
+	}
+}
+
+func TestActivityConsoleEscapesErrorsAndReadEndpointDoesNotMutate(t *testing.T) {
+	message := `GET /repos/acme/fact/branches/release rejected (HTTP 401) <script>alert(1)</script>`
+	application := &fakeApplication{snapshot: app.Snapshot{LogEntries: []app.Record{{At: time.Now(), Target: release.Target{Repo: "acme/fact"}, Decision: "github-error", Result: message, Payload: "not-for-console"}}}}
+	b := newBrowser(t, application)
+	body := b.getBody(t)
+	if !strings.Contains(body, `id="activity-console"`) || !strings.Contains(body, html.EscapeString(message)) || strings.Contains(body, "not-for-console") || strings.Contains(body, "<script>alert(1)</script>") {
+		t.Fatal("console omitted or failed to escape diagnostic text")
+	}
+	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/activity", nil)
+	response := httptest.NewRecorder()
+	b.handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "text/plain; charset=utf-8" || response.Header().Get("Cache-Control") != "no-store" || !strings.Contains(response.Body.String(), message) || len(application.actions) != 0 {
+		t.Fatalf("activity read returned an unsafe response or mutated state: %d %s", response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodGet, "http://evil.example/activity", nil)
+	response = httptest.NewRecorder()
+	b.handler.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatal("activity endpoint accepted a foreign host")
+	}
+}
+
+func TestFoldControlsHaveUniqueStableIdentities(t *testing.T) {
+	snapshot := app.Snapshot{
+		Config:     validACS5Config(),
+		Choices:    release.Choices{Tags: map[string]string{"fact": "3.25.1"}},
+		Assessment: release.Assessment{Conditions: []release.Condition{{Name: "Selected changes", Reason: "Waiting"}}},
+		History:    []app.Cycle{{Component: "fact", Tag: "3.25.0"}},
+	}
+	for _, source := range snapshot.Config.Components {
+		repo := release.Repository{Source: source}
+		for i := range 2 {
+			repo.Tags = append(repo.Tags, release.Tag{Name: fmt.Sprintf("3.25.%d", i+1), SHA: "tag", Belongs: release.Yes, Evidence: release.Evidence{Known: true, At: time.Now()}})
+			repo.PRs = append(repo.PRs, release.PR{Target: release.Target{Repo: source.Repo, PR: i + 1}, State: "open"})
+		}
+		snapshot.Repositories = append(snapshot.Repositories, repo)
+	}
+	body := newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t)
+	seen := map[string]bool{}
+	identity := regexp.MustCompile(`(?:id|data-fold-key)="([^"]+)"`)
+	for _, section := range regexp.MustCompile(`<details\b[^>]*>`).FindAllString(body, -1) {
+		match := identity.FindStringSubmatch(section)
+		if len(match) != 2 {
+			t.Fatalf("fold control has no stable identity: %s", section)
+		}
+		key := html.UnescapeString(match[1])
+		if seen[key] {
+			t.Errorf("duplicate fold identity %q", key)
+		}
+		seen[key] = true
+	}
+	for _, key := range []string{
+		"release-configuration", "activity-details", "previous-cycles", "readiness-details",
+		"tag-alternatives:fact:acme/fact", "tag-alternatives:collector:acme/collector",
+		"tag-evidence:fact:acme/fact@3.25.1", "tag-evidence:collector:acme/collector@3.25.1",
+		"pr-evidence:acme/fact#1", "pr-evidence:acme/fact#2", "pr-evidence:acme/collector#1",
+		"repo-evidence:fact:acme/fact", "repo-evidence:collector:acme/collector",
+	} {
+		if !seen[key] {
+			t.Errorf("missing stable fold identity %q", key)
+		}
+	}
+}

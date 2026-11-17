@@ -1,0 +1,122 @@
+// Package konflux isolates the public konflux-retest API from application contracts.
+package konflux
+
+import (
+	"context"
+	"net/http"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"release-assistant/internal/release"
+
+	retry "github.com/vikin91/konflux-retest"
+)
+
+type (
+	// Config supplies startup credentials without storing them in application snapshots.
+	Config struct {
+		GitHubToken, QuayUsername, QuayPassword string
+		HTTPClient                              *http.Client
+		KonfluxToken                            func(context.Context, string) (string, error)
+	}
+	observationError struct {
+		message string
+		cause   error
+	}
+	// Adapter calls only the dependency's public read-only entrypoints.
+	Adapter struct {
+		config retry.Config
+		pr     func(context.Context, retry.Config, string, int) (retry.Result, error)
+		tag    func(context.Context, retry.Config, string, string) (retry.Result, error)
+	}
+)
+
+func (e *observationError) Error() string { return e.message }
+
+func (e *observationError) Unwrap() error { return e.cause }
+
+// New constructs the retry boundary.
+func New(c Config) *Adapter {
+	return &Adapter{config: retry.Config{VerifyRunIdentity: true, GitHubToken: c.GitHubToken, QuayUsername: c.QuayUsername, QuayPassword: c.QuayPassword, HTTPClient: c.HTTPClient, KonfluxToken: c.KonfluxToken}, pr: retry.CheckPR, tag: retry.CheckTag}
+}
+
+// Plan preserves partial results. Missing stable run evidence prevents automatic dispatch.
+func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, error) {
+	var r retry.Result
+	var err error
+	if t.PR > 0 {
+		r, err = a.pr(ctx, a.config, t.Repo, t.PR)
+	} else {
+		r, err = a.tag(ctx, a.config, t.Repo, t.Tag)
+	}
+	p := release.Plan{Target: t, SHA: r.SHA, Action: string(r.Action), Message: r.Message, Warnings: append([]string(nil), r.Warnings...), Evidence: release.Evidence{At: time.Now(), URL: r.URL, Known: err == nil}}
+	for i := range p.Warnings {
+		p.Warnings[i] = observationProblem(p.Warnings[i], a.config)
+	}
+	if err != nil {
+		p.Evidence.Error = observationProblem(err.Error(), a.config)
+		err = &observationError{message: p.Evidence.Error, cause: err}
+	}
+	for _, run := range r.Runs {
+		id := ""
+		if run.IdentityKnown && run.ID > 0 {
+			id = strconv.FormatInt(run.ID, 10)
+		}
+		p.Runs = append(p.Runs, release.Run{Job: run.Job, ID: id, Status: run.Status, Outcome: run.Conclusion, URL: run.URL, Eligible: run.Eligible, Image: imageOutput(run, p.Evidence.At)})
+	}
+	for _, advisory := range r.Advisories {
+		p.Advisories = append(p.Advisories, release.Advisory{ID: t.String() + ":" + strconv.FormatInt(advisory.ID, 10), Message: advisory.Name + ": " + advisory.Conclusion, URL: advisory.URL})
+	}
+	for _, job := range r.Jobs {
+		payload := "/konflux-retest " + job
+		if t.Tag != "" {
+			payload = "/retest " + job + " tag:" + t.Tag
+		}
+		runID := ""
+		for _, run := range p.Runs {
+			if run.Job == job && run.Eligible {
+				runID = run.ID
+			}
+		}
+		p.Proposals = append(p.Proposals, release.Proposal{RunID: runID, Target: t, SHA: r.SHA, Job: job, Payload: payload, At: p.Evidence.At})
+	}
+	return p, err
+}
+
+var (
+	outputImagePattern  = regexp.MustCompile(`^(quay\.io/[a-z0-9_-]+/[a-z0-9._/-]+)(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@(sha256:[a-f0-9]{64}))?$`)
+	outputDigestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+)
+
+// imageOutput preserves scoped build evidence without treating it as registry availability.
+func imageOutput(run retry.Run, at time.Time) release.Image {
+	if !run.IdentityKnown || run.ID <= 0 || run.ImageURL == "" {
+		return release.Image{}
+	}
+	image := release.Image{Component: "acs", Family: "konflux", Reference: run.ImageURL, Evidence: release.Evidence{At: at, URL: run.URL}}
+	parts := outputImagePattern.FindStringSubmatch(run.ImageURL)
+	switch {
+	case len(parts) != 3 || strings.Contains(parts[1], ".."):
+		image.Evidence.Error = "The build reported an unsupported image reference."
+	case !outputDigestPattern.MatchString(run.ImageDigest):
+		image.Evidence.Error = "The build has not reported a valid image digest."
+	case parts[2] != "" && parts[2] != run.ImageDigest:
+		image.Evidence.Error = "The build reported conflicting image digests."
+	default:
+		image.Reference = parts[1] + "@" + run.ImageDigest
+		image.Evidence.Known = true
+	}
+	return image
+}
+
+// observationProblem exposes dependency diagnostics without startup credentials.
+func observationProblem(message string, config retry.Config) string {
+	for _, credential := range []string{config.GitHubToken, config.QuayPassword} {
+		if credential != "" {
+			message = strings.ReplaceAll(message, credential, "[redacted]")
+		}
+	}
+	return message
+}
