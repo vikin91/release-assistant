@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"release-assistant/internal/app"
-	"release-assistant/internal/release"
 	"strconv"
 	"strings"
 	"testing"
+
+	"release-assistant/internal/app"
+	"release-assistant/internal/release"
 )
 
 func discoveryFixture(t testing.TB, tags, merged, open int) (*Client, app.DiscoveryRequest, map[string]int) {
@@ -48,20 +49,7 @@ func discoveryFixture(t testing.TB, tags, merged, open int) (*Client, app.Discov
 		case strings.Contains(path, "/git/ref/tags/"):
 			kind = "tag_ref"
 			n, _ := strconv.Atoi(strings.TrimPrefix(path, "/repos/acme/fact/git/ref/tags/3.25."))
-			objectKind, sha := "commit", fmt.Sprintf("tag-%d", n)
-			if 0 > 0 {
-				objectKind, sha = "tag", fmt.Sprintf("annot-%d-1", n)
-			}
-			body = map[string]any{"object": map[string]string{"type": objectKind, "sha": sha}}
-		case strings.Contains(path, "/git/tags/"):
-			kind = "annotation"
-			var n, depth int
-			_, _ = fmt.Sscanf(strings.TrimPrefix(path, "/repos/acme/fact/git/tags/"), "annot-%d-%d", &n, &depth)
-			objectKind, sha := "commit", fmt.Sprintf("tag-%d", n)
-			if depth < 0 {
-				objectKind, sha = "tag", fmt.Sprintf("annot-%d-%d", n, depth+1)
-			}
-			body = map[string]any{"object": map[string]string{"type": objectKind, "sha": sha}}
+			body = map[string]any{"object": map[string]string{"type": "commit", "sha": fmt.Sprintf("tag-%d", n)}}
 		case path == "/repos/acme/fact/pulls":
 			kind = "open_list"
 			items := []map[string]any{}
@@ -141,7 +129,7 @@ func BenchmarkDiscover(b *testing.B) {
 		b.Run(fmt.Sprintf("tags=%d/merged=500/open=20", tags), func(b *testing.B) {
 			client, request, counts := discoveryFixture(b, tags, 500, 20)
 			for b.Loop() {
-				repo, err := client.Discover(b.Context(), request)
+				repo, err := client.discover(b.Context(), request, 1000)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -164,7 +152,7 @@ func TestDiscoverCoverageRequestGrowth(t *testing.T) {
 			client, request, counts := discoveryFixture(t, tags, 500, 20)
 			for cycle := 1; cycle <= 2; cycle++ {
 				clear(counts)
-				repo, err := client.Discover(t.Context(), request)
+				repo, err := client.discover(t.Context(), request, 1000)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -187,6 +175,31 @@ func TestDiscoverCoverageRequestGrowth(t *testing.T) {
 				}
 				t.Logf("cycle=%d total=%d graph=%d protection=%d", cycle, total, counts["graph"], counts["protection"])
 			}
+		})
+	}
+}
+
+func BenchmarkDiscoverBudget(b *testing.B) {
+	for name, size := range map[string]struct {
+		tags, merged, open int
+		incomplete         bool
+	}{
+		"small_complete": {10, 10, 3, false},
+		"large_partial":  {100, 500, 20, true},
+	} {
+		b.Run(name, func(b *testing.B) {
+			client, request, counts := discoveryFixture(b, size.tags, size.merged, size.open)
+			for b.Loop() {
+				repo, err := client.Discover(b.Context(), request)
+				if (err != nil) != size.incomplete || repo.Evidence.Fresh() == size.incomplete {
+					b.Fatalf("error=%v evidence=%+v", err, repo.Evidence)
+				}
+			}
+			total := 0
+			for _, n := range counts {
+				total += n
+			}
+			b.ReportMetric(float64(total)/float64(b.N), "requests/op")
 		})
 	}
 }

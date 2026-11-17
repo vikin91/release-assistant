@@ -79,9 +79,15 @@ type (
 	}
 )
 
-// Discover observes one repository while preserving incomplete evidence.
+// Discover observes one repository within a fixed HTTP request budget.
+// It returns partial observations alongside errors when reads are incomplete.
 func (c *Client) Discover(ctx context.Context, req app.DiscoveryRequest) (release.Repository, error) {
-	ctx = context.WithValue(ctx, discoveryCycleKey{}, &discoveryCycle{reads: map[string]cachedRead{}})
+	return c.discover(ctx, req, maxDiscoveryRequests)
+}
+
+func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit int) (release.Repository, error) {
+	cycle := &discoveryCycle{reads: map[string]cachedRead{}, limit: limit, remaining: limit}
+	ctx = context.WithValue(ctx, discoveryCycleKey{}, cycle)
 	result := release.Repository{Source: req.Source}
 	var issues []error
 	base := repoPath(req.Source.Repo)
@@ -96,6 +102,9 @@ func (c *Client) Discover(ctx context.Context, req app.DiscoveryRequest) (releas
 	if result.Head == "" && result.Evidence.Error == "" {
 		result.Evidence = release.Evidence{At: time.Now(), Error: "GitHub returned no commit SHA for the configured branch."}
 		issues = append(issues, fmt.Errorf("GitHub returned no commit SHA for the configured branch"))
+	}
+	if req.Source.Name == "acs" {
+		cycle.reserved = min(pinReadReserve, cycle.remaining)
 	}
 
 	source := req.Source
@@ -193,6 +202,7 @@ func (c *Client) Discover(ctx context.Context, req app.DiscoveryRequest) (releas
 	}
 
 	if source.Name == "acs" {
+		cycle.reserved = 0
 		if result.Head == "" {
 			result.Pins.Evidence = result.Evidence
 		} else {
@@ -255,6 +265,12 @@ func (c *Client) Discover(ctx context.Context, req app.DiscoveryRequest) (releas
 		}
 		previous, _ := c.previousPublished(ctx, req.Version)
 		result.PreviousPublished = previous
+	}
+	if cycle.budgetErr != nil {
+		issues = append(issues, cycle.budgetErr)
+	}
+	if cycle.rateErr != nil {
+		issues = append(issues, cycle.rateErr)
 	}
 	if len(issues) > 0 {
 		result.Evidence.At = time.Now()
