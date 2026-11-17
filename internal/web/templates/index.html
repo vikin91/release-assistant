@@ -191,7 +191,7 @@
         <form method="post" action="/action#retry-proposals" class="inline-form"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="acknowledge"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="repo" value="{{$plan.Target.Repo}}"><input type="hidden" name="pr" value="{{if $plan.Target.PR}}{{$plan.Target.PR}}{{end}}"><input type="hidden" name="tag" value="{{$plan.Target.Tag}}"><input type="hidden" name="sha" value="{{$plan.SHA}}"><input type="hidden" name="enabled" value="{{if index $.Snapshot.Choices.Acknowledged .ID}}false{{else}}true{{end}}"><button type="submit" aria-describedby="review-help-{{$plan.Target}}">{{if index $.Snapshot.Choices.Acknowledged .ID}}Mark as unreviewed{{else}}Mark as reviewed{{end}}</button></form>
       </div>{{end}}{{end}}
       {{if .Plan.Proposals}}<h4>Copyable comments</h4>{{range .Plan.Proposals}}<article class="proposal"><p>{{.Target}} · SHA <code>{{.SHA}}</code> · {{.Job}} · run {{.RunID}}</p><pre><code>{{.Payload}}</code></pre></article>{{end}}{{end}}
-    </article>{{else}}<p class="muted">No retry observations for selected tags or included PRs yet.</p>{{end}}
+    </article>{{else}}{{if eq .Snapshot.Phase "prs"}}<p class="muted">Finish the PR selection to activate retry proposals.</p>{{else}}<p class="muted">No retry observations for selected tags or included PRs yet.</p>{{end}}{{end}}
     </details>
   </section>
 

@@ -132,6 +132,28 @@ func TestRetryAndCommentSectionsUseExplicitCurrentScope(t *testing.T) {
 	}
 }
 
+func TestRetryProposalsEmptyStatePointsToPRSelection(t *testing.T) {
+	application := &fakeApplication{snapshot: app.Snapshot{
+		Config: validACS5Config(), Generation: 12, Phase: "prs",
+		Choices: release.Choices{Tags: map[string]string{"fact": "3.25.2", "collector": "3.25.4"}},
+	}}
+	body := newBrowser(t, application).getBody(t)
+	proposals := between(t, body, `<section class="panel" id="retry-proposals">`, `</section>`)
+	if !strings.Contains(proposals, "Finish the PR selection to activate retry proposals.") {
+		t.Fatal("empty retry proposals during PR selection does not explain how to activate them")
+	}
+
+	application.snapshot.Phase = "builds"
+	body = newBrowser(t, application).getBody(t)
+	proposals = between(t, body, `<section class="panel" id="retry-proposals">`, `</section>`)
+	if strings.Contains(proposals, "Finish the PR selection") {
+		t.Fatal("empty retry proposals after selection still ask to finish PR selection")
+	}
+	if !strings.Contains(proposals, "No retry observations for selected tags or included PRs yet.") {
+		t.Fatal("empty retry proposals outside PR selection lost their neutral explanation")
+	}
+}
+
 func TestAdvisoryReviewAndUndoFormsSubmitBoundActions(t *testing.T) {
 	target := release.Target{Repo: "acme/fact", PR: 31}
 	application := &fakeApplication{snapshot: app.Snapshot{
