@@ -1,9 +1,10 @@
 package app
 
 import (
-	"encoding/json"
+	"fmt"
 	"io"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,7 +25,7 @@ type (
 		Result   string         `json:"result"`
 		Origin   string         `json:"origin"`
 	}
-	// Log appends JSON decisions and exposes write failures to the UI.
+	// Log writes readable decisions and exposes write failures to the UI.
 	Log struct {
 		mu      sync.Mutex
 		output  io.Writer
@@ -44,7 +45,29 @@ func (l *Log) Append(r Record) {
 		l.recent = slices.Delete(l.recent, 0, 1)
 	}
 	l.recent = append(l.recent, r)
-	if err := json.NewEncoder(l.output).Encode(r); err != nil {
+	var text strings.Builder
+	fmt.Fprintf(&text, "%s [%s]", r.At.Format(time.RFC3339Nano), r.Decision)
+	target := r.Target.Repo
+	if r.Target.PR > 0 || r.Target.Tag != "" {
+		target = r.Target.String()
+	}
+	if target != "" {
+		fmt.Fprintf(&text, " %s", target)
+	}
+	if r.Release != "" {
+		fmt.Fprintf(&text, " release=%s", r.Release)
+	}
+	if r.SHA != "" {
+		fmt.Fprintf(&text, " sha=%s", r.SHA)
+	}
+	if r.Origin != "" {
+		fmt.Fprintf(&text, " origin=%s", r.Origin)
+	}
+	fmt.Fprintf(&text, ": %s\n", strings.ReplaceAll(r.Result, "\n", "\n    "))
+	if r.Payload != "" {
+		fmt.Fprintf(&text, "    Payload: %s\n", strings.ReplaceAll(r.Payload, "\n", "\n    "))
+	}
+	if _, err := io.WriteString(l.output, text.String()); err != nil {
 		l.failure = "Action log write failed"
 	} else {
 		l.failure = ""

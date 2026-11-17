@@ -71,7 +71,7 @@ Session state is in memory. Browser reload preserves it; server restart clears c
 
 The Activity and errors console at the bottom shows the latest 200 events from this process, including initial discovery progress, safe GitHub request failures, retry waits, and recovery. It refreshes every two seconds independently of forms. Request diagnostics include endpoints and HTTP status or timeout/network categories; credentials and response bodies are excluded.
 
-The CLI prints every recorded event to stdout as a complete JSON line, including events beyond the UI console’s 200-event window. Records include release/target/SHA, timestamps, decisions, proposed comments, attempt results, and user/system origin. Output failures are visible in the UI. Credentials, response bodies, and unchanged polls are excluded. The assistant does not create a log file; redirect stdout to retain the logs.
+The CLI prints every recorded event to stdout as readable text, including events beyond the UI console's 200-event window. Each entry shows a timestamp, event name, target, release, SHA, origin, and message where available. Proposed comments appear on indented lines. Output failures are visible in the UI. Credentials, response bodies, and unchanged polls are excluded. The assistant does not create a log file; redirect stdout to retain the logs.
 
 The server binds to loopback and protects forms with local Host/Origin checks and CSRF tokens. Read failures preserve prior observations for display while invalidating affected current evidence. Per-source polling and bounded requests allow other components to progress during outages.
 

@@ -1,10 +1,7 @@
 package app
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"io"
 	"reflect"
 	"testing"
 
@@ -21,8 +18,6 @@ func (w *writeCounter) Write(context.Context, release.Proposal) (dispatch.Delive
 
 func TestAdvisoryReviewIsSessionLocalMetadata(t *testing.T) {
 	s, f := newFixture()
-	var audit bytes.Buffer
-	s.log = NewLog(&audit)
 	writer := &writeCounter{}
 	s.dispatcher = dispatch.New(f, f, writer, dispatch.Options{EnableWrites: true})
 
@@ -67,7 +62,6 @@ func TestAdvisoryReviewIsSessionLocalMetadata(t *testing.T) {
 	}
 	s.dispatcher.ObservePlan(plan)
 	s.drain()
-	audit.Reset()
 
 	before := s.Snapshot()
 	if len(before.Authority) != 1 || !before.Authority[0].Granted || len(before.Authority[0].Offers) != 1 || !before.Authority[0].Offers[0].CanApprove {
@@ -108,18 +102,7 @@ func TestAdvisoryReviewIsSessionLocalMetadata(t *testing.T) {
 		}
 	}
 
-	var records []Record
-	decoder := json.NewDecoder(bytes.NewReader(audit.Bytes()))
-	for {
-		var record Record
-		if err := decoder.Decode(&record); err != nil {
-			if err == io.EOF {
-				break
-			}
-			t.Fatalf("decode review audit record: %v", err)
-		}
-		records = append(records, record)
-	}
+	records := s.log.Recent()[len(before.LogEntries):]
 	if len(records) != 2 {
 		t.Fatalf("got %d audit records, want one for each review action", len(records))
 	}

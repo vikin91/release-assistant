@@ -2,10 +2,9 @@ package app
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
-	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 func TestLogPrintsFullHistoryToConsole(t *testing.T) {
 	var console bytes.Buffer
 	log := NewLog(&console)
-	var want []Record
 	for index := range maxRecentRecords + 3 {
 		record := Record{
 			At:      time.Date(2026, time.November, 17, 12, 0, index, 0, time.UTC),
@@ -24,24 +22,37 @@ func TestLogPrintsFullHistoryToConsole(t *testing.T) {
 			Result: strconv.Itoa(index), Origin: "system",
 		}
 		log.Append(record)
-		want = append(want, record)
 	}
-	decoder := json.NewDecoder(bytes.NewReader(console.Bytes()))
-	for index, record := range want {
-		var got Record
-		if err := decoder.Decode(&got); err != nil {
-			t.Fatalf("console record %d: %v", index, err)
-		}
-		if !reflect.DeepEqual(got, record) {
-			t.Fatalf("console record %d = %+v, want %+v", index, got, record)
-		}
+	if got := strings.Count(console.String(), "[proposal]"); got != maxRecentRecords+3 {
+		t.Fatalf("console printed %d events, want %d", got, maxRecentRecords+3)
 	}
-	var extra Record
-	if err := decoder.Decode(&extra); err != io.EOF {
-		t.Fatalf("unexpected trailing console output: %v", err)
+	want := "2026-11-17T12:00:00Z [proposal] stackrox/stackrox release=5.0.1 sha=abc123 origin=system: 0\n    Payload: /konflux-retest job\n    full payload\n"
+	if !strings.HasPrefix(console.String(), want) {
+		t.Fatalf("console output does not start with %q: %s", want, console.String())
 	}
 	if log.Error() != "" || len(log.Recent()) != maxRecentRecords {
 		t.Fatal("console output changed recent history or log status")
+	}
+}
+
+func TestLogFormatsTargetsAndMultilineResults(t *testing.T) {
+	for name, tc := range map[string]struct {
+		target release.Target
+		want   string
+	}{
+		"should show PR number":    {release.Target{Repo: "stackrox/fact", PR: 7}, " stackrox/fact#7"},
+		"should show tag":          {release.Target{Repo: "stackrox/fact", Tag: "v0.2.1"}, " stackrox/fact@v0.2.1"},
+		"should omit empty target": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var output bytes.Buffer
+			log := NewLog(&output)
+			log.Append(Record{At: time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC), Target: tc.target, Decision: "checks-error", Result: "Read failed\nRetry later"})
+			want := "2026-11-17T12:00:00Z [checks-error]" + tc.want + ": Read failed\n    Retry later\n"
+			if output.String() != want {
+				t.Fatalf("output = %q, want %q", output.String(), want)
+			}
+		})
 	}
 }
 
