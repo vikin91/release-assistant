@@ -203,3 +203,58 @@ func BenchmarkDiscoverBudget(b *testing.B) {
 		})
 	}
 }
+
+func TestDiscoverPublishesTagsBeforePRAndCheckReads(t *testing.T) {
+	client, request, counts := discoveryFixture(t, 100, 500, 20)
+	request.Scope = app.ReadTags
+	firstRequests := 0
+	request.Progress = func(repo release.Repository) {
+		if firstRequests != 0 {
+			return
+		}
+		for _, n := range counts {
+			firstRequests += n
+		}
+		if len(repo.Tags) != 1 || !repo.Tags[0].Evidence.Fresh() || repo.Tags[0].Belongs != release.Yes || repo.Evidence.Fresh() {
+			t.Fatalf("invalid partial tag inventory: %+v", repo)
+		}
+	}
+	repo, err := client.Discover(t.Context(), request)
+	if firstRequests != 5 || len(repo.Tags) == 0 || err == nil {
+		t.Fatalf("first choice requests=%d tags=%d error=%v", firstRequests, len(repo.Tags), err)
+	}
+	for _, kind := range []string{"open_list", "merged_search", "pr_detail", "checks", "statuses", "protection", "merge_coverage", "graph"} {
+		if counts[kind] != 0 {
+			t.Fatalf("unrelated %s calls during tag selection: %v", kind, counts)
+		}
+	}
+	t.Logf("first selectable tag after %d requests; PR/check/coverage calls=0", firstRequests)
+}
+
+func BenchmarkTagSelectionFirstChoice(b *testing.B) {
+	client, request, counts := discoveryFixture(b, 100, 500, 20)
+	request.Scope = app.ReadTags
+	first, total := 0, 0
+	for b.Loop() {
+		clear(counts)
+		published := false
+		request.Progress = func(repo release.Repository) {
+			if published || len(repo.Tags) == 0 || !repo.Tags[0].Evidence.Fresh() {
+				return
+			}
+			published = true
+			for _, n := range counts {
+				first += n
+			}
+		}
+		repo, err := client.Discover(b.Context(), request)
+		if !published || len(repo.Tags) == 0 || err == nil {
+			b.Fatalf("unexpected tag discovery result: tags=%d error=%v", len(repo.Tags), err)
+		}
+		for _, n := range counts {
+			total += n
+		}
+	}
+	b.ReportMetric(float64(first)/float64(b.N), "requests/first-choice")
+	b.ReportMetric(float64(total)/float64(b.N), "requests/op")
+}

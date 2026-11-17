@@ -7,6 +7,8 @@ import (
 )
 
 type (
+	// DiscoveryScope selects independently publishable repository observations.
+	DiscoveryScope uint8
 	// DiscoveryRequest scopes reads and preserves ignored and previously selected targets.
 	DiscoveryRequest struct {
 		Source           release.Source
@@ -14,6 +16,9 @@ type (
 		Tracked, Ignored []release.Target
 		PinningPR        int
 		Version          string
+		Scope            DiscoveryScope
+		// Progress publishes verified tags while the remaining inventory is still loading.
+		Progress func(release.Repository)
 	}
 	// Discoverer returns partial observations alongside errors safe for diagnostic display.
 	Discoverer interface {
@@ -28,4 +33,11 @@ type (
 		Inspect(context.Context, release.Config, map[string]string) (release.Inventory, error)
 		InspectReference(context.Context, string) (release.Image, error)
 	}
+)
+
+const (
+	// ReadAll preserves complete discovery for callers without an explicit scope.
+	ReadAll DiscoveryScope = 0
+	// ReadTags observes tag identity and ancestry without PR or build reads.
+	ReadTags DiscoveryScope = 1
 )

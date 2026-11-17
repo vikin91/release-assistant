@@ -66,6 +66,7 @@ type (
 		confirmedSHAs   map[string]string
 		tagInitialized  map[string]bool
 		initiallyLoaded map[string]bool
+		tagsLoaded      map[string]bool
 		readErrors      map[string]string
 		generation      uint64
 		errorText       string
@@ -112,6 +113,7 @@ func (s *Session) reset() {
 	s.confirmedSHAs = map[string]string{}
 	s.tagInitialized = map[string]bool{}
 	s.initiallyLoaded = map[string]bool{}
+	s.tagsLoaded = map[string]bool{}
 	s.readErrors = map[string]string{}
 	s.inventory = release.Inventory{}
 	s.history = nil
@@ -179,6 +181,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		s.config = a.Config
 		s.config.Components = slices.Clone(a.Config.Components)
 		s.initiallyLoaded = map[string]bool{}
+		s.tagsLoaded = map[string]bool{}
 		s.errorText = ""
 		s.record(release.Target{}, "", "configure", "", "new selection context", "user")
 		select {
@@ -388,9 +391,7 @@ func (s *Session) Run(ctx context.Context) {
 		child, cancel := context.WithCancel(ctx)
 		var wg sync.WaitGroup
 		if valid {
-			for _, source := range append([]release.Source{c.ACS()}, c.Components...) {
-				wg.Go(func() { s.monitor(child, gen, source) })
-			}
+			wg.Go(func() { s.monitorRelease(child, gen, c) })
 		}
 		select {
 		case <-ctx.Done():

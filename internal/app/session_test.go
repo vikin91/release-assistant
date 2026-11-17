@@ -208,7 +208,7 @@ func TestPollingBackoffRecoveryAndBrowserIndependence(t *testing.T) {
 		time.Sleep(time.Minute)
 		synctest.Wait()
 		f.mu.Lock()
-		if f.calls["collector"] < 2 || f.calls["fact"] != 1 {
+		if f.calls["collector"] < 3 || f.calls["fact"] != 2 {
 			t.Fatal(maps.Clone(f.calls))
 		}
 		f.fail["fact"] = false
@@ -216,7 +216,7 @@ func TestPollingBackoffRecoveryAndBrowserIndependence(t *testing.T) {
 		time.Sleep(time.Minute)
 		synctest.Wait()
 		f.mu.Lock()
-		if f.calls["fact"] != 2 {
+		if f.calls["fact"] != 3 {
 			t.Fatal(maps.Clone(f.calls))
 		}
 		f.mu.Unlock()
@@ -255,8 +255,12 @@ func TestConfigurationStartsInitialLoadWithoutWaitingForPoll(t *testing.T) {
 					}
 					f.mu.Lock()
 					for _, source := range []string{"acs", "fact", "collector"} {
-						if f.calls[source] != attempt+1 {
-							t.Errorf("%s discovery calls=%d, want %d", source, f.calls[source], attempt+1)
+						want := attempt + 1
+						if source != "acs" {
+							want *= 2
+						}
+						if f.calls[source] != want {
+							t.Errorf("%s discovery calls=%d, want %d", source, f.calls[source], want)
 						}
 					}
 					f.mu.Unlock()

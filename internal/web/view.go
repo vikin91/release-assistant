@@ -253,6 +253,17 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 				r.OtherTags = append(r.OtherTags, t)
 			}
 		}
+		if r.CurrentTag == "" && len(r.Tags) == 0 && !repo.Evidence.Fresh() {
+			var remaining []tagModel
+			for _, tag := range r.OtherTags {
+				if len(r.Tags) == 0 && tag.Tag.Belongs == release.Yes && tag.Tag.Evidence.Fresh() {
+					r.Tags = append(r.Tags, tag)
+				} else {
+					remaining = append(remaining, tag)
+				}
+			}
+			r.OtherTags = remaining
+		}
 		model.Repos = append(model.Repos, r)
 		if repo.Source.Name != "acs" {
 			model.TagRepos = append(model.TagRepos, r)

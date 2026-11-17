@@ -103,7 +103,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		result.Evidence = release.Evidence{At: time.Now(), Error: "GitHub returned no commit SHA for the configured branch."}
 		issues = append(issues, fmt.Errorf("GitHub returned no commit SHA for the configured branch"))
 	}
-	if req.Source.Name == "acs" {
+	if req.Source.Name == "acs" && req.Scope != app.ReadTags {
 		cycle.reserved = min(pinReadReserve, cycle.remaining)
 	}
 
@@ -115,12 +115,27 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		}
 	}
 	result.Source = source
-	tags, tagErr := c.listTags(ctx, source, result.Head)
+	tags, tagErr := c.listTags(ctx, source, result.Head, func(tags []resolvedTag) {
+		if req.Progress == nil {
+			return
+		}
+		partial := result
+		partial.Tags = nil
+		for _, tag := range tags {
+			partial.Tags = append(partial.Tags, tag.observation)
+		}
+		partial.Evidence.Known = false
+		partial.Evidence.Error = "Tag inventory is still being read."
+		req.Progress(partial)
+	})
 	if tagErr != nil {
 		issues = append(issues, tagErr)
 	}
 	for _, tag := range tags {
 		result.Tags = append(result.Tags, tag.observation)
+	}
+	if req.Scope == app.ReadTags {
+		return finishDiscovery(result, issues, cycle)
 	}
 	best := -1
 	for i := range result.Tags {
@@ -266,6 +281,10 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		previous, _ := c.previousPublished(ctx, req.Version)
 		result.PreviousPublished = previous
 	}
+	return finishDiscovery(result, issues, cycle)
+}
+
+func finishDiscovery(result release.Repository, issues []error, cycle *discoveryCycle) (release.Repository, error) {
 	if cycle.budgetErr != nil {
 		issues = append(issues, cycle.budgetErr)
 	}
@@ -287,9 +306,15 @@ type resolvedTag struct {
 	commitDate  time.Time
 }
 
-func (c *Client) listTags(ctx context.Context, src release.Source, headSHA string) ([]resolvedTag, error) {
+func (c *Client) listTags(ctx context.Context, src release.Source, headSHA string, progress ...func([]resolvedTag)) ([]resolvedTag, error) {
 	var out []resolvedTag
 	var firstErr error
+	add := func(tag resolvedTag) {
+		out = append(out, tag)
+		for _, publish := range progress {
+			publish(out)
+		}
+	}
 	err := c.pages(ctx, repoPath(src.Repo)+"/tags", func(raw json.RawMessage) error {
 		var t tagResponse
 		if err := json.Unmarshal(raw, &t); err != nil {
@@ -365,10 +390,10 @@ func (c *Client) listTags(ctx context.Context, src release.Source, headSHA strin
 					tag.Evidence.Error = "tag ancestry status unknown"
 				}
 			}
-			out = append(out, resolvedTag{observation: tag, commitDate: date.Commit.Committer.Date})
+			add(resolvedTag{observation: tag, commitDate: date.Commit.Committer.Date})
 			return nil
 		}
-		out = append(out, resolvedTag{observation: tag})
+		add(resolvedTag{observation: tag})
 		return nil
 	})
 	if err != nil {
