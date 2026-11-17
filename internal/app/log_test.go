@@ -26,7 +26,7 @@ func TestLogPrintsFullHistoryToConsole(t *testing.T) {
 	if got := strings.Count(console.String(), " Info: "); got != maxRecentRecords+3 {
 		t.Fatalf("console printed %d events, want %d", got, maxRecentRecords+3)
 	}
-	want := "2026-11-17T12:00:00Z Info: 0\n2026-11-17T12:00:00Z Debug: Context for stackrox: release 5.0.1; repository stackrox/stackrox; commit abc123; reported by system.\n2026-11-17T12:00:00Z Debug: Payload for stackrox:\n    /konflux-retest job\n    full payload\n"
+	want := "2026-11-17T12:00:00Z Info: 0\n2026-11-17T12:00:00Z Debug: Retry comment for stackrox:\n    /konflux-retest job\n    full payload\n"
 	if !strings.HasPrefix(console.String(), want) {
 		t.Fatalf("console output does not start with %q: %s", want, console.String())
 	}
@@ -56,6 +56,67 @@ func TestLogFormatsTargetsAndMultilineResults(t *testing.T) {
 	}
 }
 
+func TestLogOmitsRoutineConsoleNoiseWithoutChangingUIHistory(t *testing.T) {
+	for name, record := range map[string]Record{
+		"should omit request count summaries":   {Decision: "work-complete", Result: "Phase=prs; GitHub reads=9."},
+		"should omit generic freshness reports": {Decision: "observation", Result: "current=true"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var output bytes.Buffer
+			log := NewLog(&output)
+			log.Append(record)
+			if output.Len() != 0 {
+				t.Fatalf("unexpected console noise: %s", output.String())
+			}
+			if got := log.Recent(); len(got) != 1 || got[0] != record {
+				t.Fatal("console filtering changed UI history")
+			}
+		})
+	}
+	var output bytes.Buffer
+	NewLog(&output).Append(Record{Decision: "configure", Release: "4.10.12", SHA: "ambiguous-commit", Origin: "system"})
+	if strings.Contains(output.String(), "Context for") || strings.Contains(output.String(), "ambiguous-commit") {
+		t.Fatalf("unexplained context leaked into the log: %s", output.String())
+	}
+}
+
+func TestLogLabelsCommitRoles(t *testing.T) {
+	for name, tc := range map[string]struct {
+		target release.Target
+		want   string
+	}{
+		"should identify PR head commits": {release.Target{Repo: "stackrox/fact", PR: 7}, "fact#7 (pull request head commit abc123)"},
+		"should identify tag commits":     {release.Target{Repo: "stackrox/fact", Tag: "v0.2.1"}, "fact/v0.2.1 (tag commit abc123)"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var output bytes.Buffer
+			NewLog(&output).Append(Record{Decision: "dispatch", Target: tc.target, SHA: "abc123"})
+			if !strings.Contains(output.String(), "Posting a retry comment in "+tc.want+".\n") {
+				t.Fatalf("unexplained commit in log: %s", output.String())
+			}
+		})
+	}
+}
+
+func TestDiscoverySummaryNamesBranchAndRequestedData(t *testing.T) {
+	for name, tc := range map[string]struct {
+		scope DiscoveryScope
+		want  string
+	}{
+		"should report only requested PRs":  {ReadPRs, "Found 4 pull requests while checking fact/release-0.2. Branch head of fact/release-0.2 is branch-head."},
+		"should report only requested tags": {ReadTags, "Found 0 release tags while checking fact/release-0.2. Branch head of fact/release-0.2 is branch-head."},
+		"should report both when requested": {ReadPRs | ReadTags, "Found 4 pull requests and 0 release tags while checking fact/release-0.2. Branch head of fact/release-0.2 is branch-head."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			request := DiscoveryRequest{Source: release.Source{Repo: "stackrox/fact", Branch: "release-0.2"}, Scope: tc.scope}
+			repo := release.Repository{Head: "branch-head", PRs: make([]release.PR, 4)}
+			if got := discoverySummary(request, repo, false); got != tc.want {
+				t.Fatalf("summary = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestLogPrintsSeverityLevels(t *testing.T) {
 	for name, tc := range map[string]struct {
 		decision, result, level string
@@ -73,8 +134,6 @@ func TestLogPrintsSeverityLevels(t *testing.T) {
 		"should report successful deliveries as info":     {"delivery", "sent", "Info"},
 		"should report completed user selections as info": {"selection-complete", "Selection confirmed", "Info"},
 		"should report discovery starts as info":          {"github-start", "Reading GitHub", "Info"},
-		"should report cycle diagnostics as debug":        {"work-complete", "GitHub reads=5", "Debug"},
-		"should report observations as debug":             {"observation", "current=true", "Debug"},
 		"should report check diagnostics as debug":        {"checks", "No actions", "Debug"},
 		"should report image diagnostics as debug":        {"image", "yes", "Debug"},
 	} {

@@ -1,12 +1,63 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"slices"
+	"strings"
 	"testing"
+	"testing/synctest"
 
 	"release-assistant/internal/release"
 )
+
+func TestMonitorWarningNamesFailedReadAndBranch(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, fixture := newFixture()
+		s.config = configuration()
+		fixture.fail["acs"] = true
+		var output bytes.Buffer
+		s.log = NewLog(&output)
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() { defer close(done); s.monitor(ctx, s.generation, s.config.ACS()) }()
+		synctest.Wait()
+		cancel()
+		<-done
+		for _, want := range []string{
+			"Could not read component version pins on stackrox/release-5.0. outage",
+			"Warn: The last monitoring attempt failed while reading component version pins on stackrox/release-5.0: outage.",
+			"The next monitoring attempt for stackrox/release-5.0 is in 2 minutes.",
+		} {
+			if !strings.Contains(output.String(), want) {
+				t.Fatalf("warning lacks %q: %s", want, output.String())
+			}
+		}
+		for _, unwanted := range []string{"Results in stackrox are out of date", "Context for", "Finished checking", "0 release tags"} {
+			if strings.Contains(output.String(), unwanted) {
+				t.Fatalf("misleading log %q: %s", unwanted, output.String())
+			}
+		}
+	})
+}
+
+func TestPRDiscoveryLogDoesNotClaimTagsWereRead(t *testing.T) {
+	s, fixture := newFixture()
+	s.config = configuration()
+	source := s.config.Components[0]
+	repo := fixture.repos[source.Name]
+	repo.PRs = make([]release.PR, 4)
+	fixture.repos[source.Name] = repo
+	var output bytes.Buffer
+	s.log = NewLog(&output)
+	if err := s.refresh(t.Context(), s.generation, source, true, sourceWork{scope: ReadPRs, revision: s.workRevision}); err != nil {
+		t.Fatal(err)
+	}
+	want := "Found 4 pull requests while checking fact/release-0.3. Branch head of fact/release-0.3 is fact-head."
+	if !strings.Contains(output.String(), want) || strings.Contains(output.String(), "release tags") {
+		t.Fatalf("discovery log misrepresents the request: %s", output.String())
+	}
+}
 
 type workServices struct {
 	*fixture

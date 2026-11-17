@@ -145,7 +145,7 @@ func (s *Session) drain() {
 }
 
 // recordReadResult logs changed failures and recovery without repeating unchanged polls.
-func (s *Session) recordReadResult(target release.Target, operation, message string) {
+func (s *Session) recordReadResult(target release.Target, operation, message string, description ...string) {
 	key := operation + " " + target.String()
 	previous := s.readErrors[key]
 	if message == previous {
@@ -153,11 +153,19 @@ func (s *Session) recordReadResult(target release.Target, operation, message str
 	}
 	if message == "" {
 		delete(s.readErrors, key)
-		s.record(target, "", operation+"-recovered", "", "Reads recovered.", "system")
+		console := ""
+		if len(description) > 0 {
+			console = fmt.Sprintf("Reading %s is working again.", description[0])
+		}
+		s.record(target, "", operation+"-recovered", "", "Reads recovered.", "system", console)
 		return
 	}
 	s.readErrors[key] = message
-	s.record(target, "", operation+"-error", "", message, "system")
+	console := ""
+	if len(description) > 0 {
+		console = fmt.Sprintf("Could not read %s. %s", description[0], message)
+	}
+	s.record(target, "", operation+"-error", "", message, "system", console)
 }
 
 // Apply validates configuration and enforces session actions independently of the UI.
@@ -472,7 +480,7 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 		if err != nil && (failures == 1 || delay != previousDelay) {
 			s.mu.Lock()
 			if generation == s.generation {
-				message := fmt.Sprintf("Results in %s are out of date. Retrying in %s. Checking for pull requests and tags again at %s.", consoleTarget(release.Target{Repo: source.Repo}), retryDelay(delay), discoverAt.Format(time.RFC3339))
+				message := fmt.Sprintf("The last monitoring attempt failed while %s. The next monitoring attempt for %s is in %s.", err, consoleBranch(source), retryDelay(delay))
 				s.record(release.Target{Repo: source.Repo}, "", "retry-wait", "", fmt.Sprintf("Next check attempt in %s; next GitHub discovery at %s.", delay, discoverAt.Format(time.RFC3339)), "system", message)
 			}
 			s.mu.Unlock()
@@ -506,9 +514,6 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	}
 	c := s.config
 	initial := discover && !s.initiallyLoaded[source.Name]
-	if initial {
-		s.record(release.Target{Repo: source.Repo}, "", "github-start", "", "Reading GitHub branch "+source.Branch+", PRs, and tags.", "system", fmt.Sprintf("Checking pull requests and release tags on %s/%s.", consoleTarget(release.Target{Repo: source.Repo}), source.Branch))
-	}
 	request := DiscoveryRequest{Source: source, ConfirmedTag: s.choices.Tags[source.Name], PinningPR: c.PinningPR, Version: c.Version, Scope: work.scope}
 	revision := s.workRevision
 	for t, choice := range s.choices.PRs {
@@ -519,6 +524,10 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 				request.Tracked = append(request.Tracked, t)
 			}
 		}
+	}
+	if initial {
+		message := fmt.Sprintf("Checking %s on %s.", discoverySubject(request), consoleBranch(source))
+		s.record(release.Target{Repo: source.Repo}, "", "github-start", "", "Reading GitHub branch "+source.Branch+", PRs, and tags.", "system", message)
 	}
 	s.mu.Unlock()
 	var imageErr error
@@ -531,10 +540,10 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	if discover {
 		r, err := s.discovery.Discover(ctx, request)
 		if err != nil && ctx.Err() != nil {
-			return ctx.Err()
+			return fmt.Errorf("reading %s on %s: %w", discoverySubject(request), consoleBranch(source), ctx.Err())
 		}
 		if err != nil {
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("reading %s on %s: %w", discoverySubject(request), consoleBranch(source), err))
 		}
 		s.mu.Lock()
 		if generation != s.generation || (work.scope != ReadAll && revision != s.workRevision) {
@@ -545,12 +554,9 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		if err != nil {
 			message = err.Error()
 		}
-		s.recordReadResult(release.Target{Repo: source.Repo}, "github", message)
+		s.recordReadResult(release.Target{Repo: source.Repo}, "github", message, discoverySubject(request)+" on "+consoleBranch(source))
 		if initial {
-			message := fmt.Sprintf("Found %s and %s in %s.", counted(len(r.PRs), "pull request"), counted(len(r.Tags), "release tag"), consoleTarget(release.Target{Repo: source.Repo}))
-			if err != nil || r.TagsPending {
-				message += " These results are incomplete."
-			}
+			message := discoverySummary(request, r, err != nil || r.TagsPending)
 			s.record(release.Target{Repo: source.Repo}, r.Head, "github-complete", "", fmt.Sprintf("GitHub discovery returned %d PRs and %d tags; complete=%t.", len(r.PRs), len(r.Tags), err == nil && !r.TagsPending), "system", message)
 		}
 		oldPhase := s.phase()
@@ -634,9 +640,12 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			}
 		}
 		if old.Head != r.Head || old.Evidence.Fresh() != r.Evidence.Fresh() {
-			message := fmt.Sprintf("Results in %s are up to date.", consoleTarget(release.Target{Repo: source.Repo}))
-			if !r.Evidence.Fresh() {
-				message = fmt.Sprintf("Results in %s are out of date.", consoleTarget(release.Target{Repo: source.Repo}))
+			message := ""
+			if !initial && old.Head != r.Head && r.Head != "" {
+				message = fmt.Sprintf("Branch head of %s is %s.", consoleBranch(source), r.Head)
+				if old.Head != "" {
+					message = fmt.Sprintf("Branch head of %s changed from %s to %s.", consoleBranch(source), old.Head, r.Head)
+				}
 			}
 			s.record(release.Target{Repo: source.Repo}, r.Head, "observation", "", fmt.Sprintf("current=%t", r.Evidence.Fresh()), "system", message)
 		}
@@ -674,10 +683,10 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		}
 		plan, err := s.planner.Plan(ctx, target)
 		if imageErr := s.inspectPinningImages(ctx, generation, &plan); imageErr != nil {
-			errs = append(errs, imageErr)
+			errs = append(errs, fmt.Errorf("checking built images for %s: %w", consoleRevision(target, plan.SHA), imageErr))
 		}
 		if err != nil {
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("reading build results for %s: %w", consoleRevision(target, plan.SHA), err))
 		}
 		s.mu.Lock()
 		if generation != s.generation || (work.scope != ReadAll && revision != s.workRevision) || (s.choices.PRs[target] == release.Ignored || s.choices.PRs[target] == release.Excluded) {
@@ -694,7 +703,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 				message += " The request timed out."
 			}
 		}
-		s.recordReadResult(target, "checks", message)
+		s.recordReadResult(target, "checks", message, "build results for "+consoleRevision(target, plan.SHA))
 		expected := ""
 		for _, p := range s.repos[source.Name].PRs {
 			if p.Target == target {
@@ -740,7 +749,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			oldPlan := s.plans[target]
 			for _, proposal := range plan.Proposals {
 				if !slices.ContainsFunc(oldPlan.Proposals, func(old release.Proposal) bool { return dispatch.ID(old) == dispatch.ID(proposal) }) {
-					s.record(target, proposal.SHA, "proposal", proposal.Payload, "run "+proposal.RunID, "system", fmt.Sprintf("A retry is available for %s in %s (run %s).", proposal.Job, consoleTarget(target), proposal.RunID))
+					s.record(target, proposal.SHA, "proposal", proposal.Payload, "run "+proposal.RunID, "system", fmt.Sprintf("A retry is available for %s in %s (run %s).", proposal.Job, consoleRevision(target, proposal.SHA), proposal.RunID))
 				}
 			}
 			if oldPlan.Action != plan.Action || oldPlan.Evidence.Fresh() != plan.Evidence.Fresh() {
@@ -761,7 +770,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 						}
 					}
 				}
-				s.record(target, plan.SHA, "checks", "", plan.Action, "system", strings.TrimSpace(fmt.Sprintf("Checked build results in %s. %s", consoleTarget(target), summary)))
+				s.record(target, plan.SHA, "checks", "", plan.Action, "system", strings.TrimSpace(fmt.Sprintf("Checked build results in %s. %s", consoleRevision(target, plan.SHA), summary)))
 			}
 			s.plans[target] = plan
 			s.dispatcher.ObservePlan(plan)
@@ -771,7 +780,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	}
 	imageReads.Wait()
 	if imageErr != nil {
-		errs = append(errs, imageErr)
+		errs = append(errs, fmt.Errorf("checking container images for release %s: %w", c.Version, imageErr))
 	}
 
 	// A fresh revalidation occurs inside Send; a polled proposal is never queued.
@@ -787,7 +796,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 				if offer.CanApprove {
 					_, err := s.dispatcher.Send(ctx, view.Target, offer.ID, false)
 					if err != nil {
-						errs = append(errs, err)
+						errs = append(errs, fmt.Errorf("posting a retry comment for %s: %w", consoleRevision(view.Target, view.SHA), err))
 					}
 					break
 				}
@@ -876,7 +885,7 @@ func (s *Session) refreshImagesScoped(ctx context.Context, generation uint64, in
 		if err != nil {
 			message = err.Error()
 		}
-		s.recordReadResult(release.Target{Repo: c.ACS().Repo}, "images", message)
+		s.recordReadResult(release.Target{Repo: c.ACS().Repo}, "images", message, "container images for release "+c.Version)
 		if err != nil && len(inventory.Images) == 0 && len(s.inventory.Images) > 0 {
 			reason := inventory.Evidence.Error
 			if reason == "" {

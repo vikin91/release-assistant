@@ -66,11 +66,8 @@ func (s *Session) loadTags(ctx context.Context, generation uint64, source releas
 	if err != nil {
 		message = err.Error()
 	}
-	s.recordReadResult(release.Target{Repo: source.Repo}, "tags", message)
-	message = fmt.Sprintf("Found %s in %s after %s.", counted(len(repo.Tags), "release tag"), consoleTarget(release.Target{Repo: source.Repo}), counted(int(usage.Calls()), "GitHub request"))
-	if err != nil || repo.TagsPending {
-		message += " These results are incomplete."
-	}
+	s.recordReadResult(release.Target{Repo: source.Repo}, "tags", message, "release tags on "+consoleBranch(source))
+	message = discoverySummary(request, repo, err != nil || repo.TagsPending)
 	s.record(release.Target{Repo: source.Repo}, repo.Head, "tags-complete", "", fmt.Sprintf("Observed %d component tags; complete=%t; GitHub reads=%d.", len(repo.Tags), err == nil && !repo.TagsPending, usage.Calls()), "system", message)
 }
 

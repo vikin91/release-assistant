@@ -25,10 +25,10 @@ func TestStartupLogsReadableTagProgress(t *testing.T) {
 			if !strings.Contains(output.String(), "Info: Checking release tags on fact/release-0.3.\n") {
 				t.Fatalf("tag start is unreadable: %s", output.String())
 			}
-			want := "Info: Found 1 release tag in fact after 0 GitHub requests.\n"
+			want := "Info: Found 1 release tag while checking fact/release-0.3. Branch head of fact/release-0.3 is fact-head.\n"
 			if failed {
-				want = "Info: Found 0 release tags in fact after 0 GitHub requests. These results are incomplete.\n"
-				if !strings.Contains(output.String(), "Error: Could not read release tags in fact. outage\n") {
+				want = "Info: Found 0 release tags while checking fact/release-0.3. These results are incomplete.\n"
+				if !strings.Contains(output.String(), "Error: Could not read release tags on fact/release-0.3. outage\n") {
 					t.Fatalf("tag failure was hidden: %s", output.String())
 				}
 			}

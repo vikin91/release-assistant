@@ -51,7 +51,7 @@ func (s *Session) inspectPinningImages(ctx context.Context, generation uint64, p
 		if err != nil {
 			message = err.Error()
 		}
-		s.recordReadResult(plan.Target, "pinning-images", message)
+		s.recordReadResult(plan.Target, "pinning-images", message, "build images for "+consoleRevision(plan.Target, plan.SHA))
 	}
 	return err
 }

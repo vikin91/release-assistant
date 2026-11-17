@@ -48,27 +48,14 @@ func (l *Log) Append(r Record) {
 		l.recent = slices.Delete(l.recent, 0, 1)
 	}
 	l.recent = append(l.recent, r)
+	if r.Decision == "work-complete" || (r.Decision == "observation" && r.message == "") {
+		return
+	}
 	var text strings.Builder
 	stamp := r.At.Format(time.RFC3339)
 	fmt.Fprintf(&text, "%s %s: %s\n", stamp, recordLevel(r), strings.ReplaceAll(recordMessage(r), "\n", "\n    "))
-	var details []string
-	if r.Release != "" {
-		details = append(details, "release "+r.Release)
-	}
-	if r.Target.Repo != "" {
-		details = append(details, "repository "+r.Target.Repo)
-	}
-	if r.SHA != "" {
-		details = append(details, "commit "+r.SHA)
-	}
-	if r.Origin != "" {
-		details = append(details, "reported by "+r.Origin)
-	}
-	if len(details) > 0 {
-		fmt.Fprintf(&text, "%s Debug: Context for %s: %s.\n", stamp, consoleTarget(r.Target), strings.Join(details, "; "))
-	}
 	if r.Payload != "" && r.Decision != "image" {
-		fmt.Fprintf(&text, "%s Debug: Payload for %s:\n    %s\n", stamp, consoleTarget(r.Target), strings.ReplaceAll(r.Payload, "\n", "\n    "))
+		fmt.Fprintf(&text, "%s Debug: Retry comment for %s:\n    %s\n", stamp, consoleRevision(r.Target, r.SHA), strings.ReplaceAll(r.Payload, "\n", "\n    "))
 	}
 	if _, err := io.WriteString(l.output, text.String()); err != nil {
 		l.failure = "Action log write failed"
@@ -112,12 +99,89 @@ func consoleTarget(target release.Target) string {
 	return repo
 }
 
+// consoleBranch identifies the branch used by a repository read.
+func consoleBranch(source release.Source) string {
+	return consoleTarget(release.Target{Repo: source.Repo}) + "/" + source.Branch
+}
+
+// consoleRevision distinguishes PR head commits from commits resolved through tags.
+func consoleRevision(target release.Target, sha string) string {
+	name := consoleTarget(target)
+	if sha == "" {
+		return name
+	}
+	if target.PR > 0 {
+		return fmt.Sprintf("%s (pull request head commit %s)", name, sha)
+	}
+	if target.Tag != "" {
+		return fmt.Sprintf("%s (tag commit %s)", name, sha)
+	}
+	return name
+}
+
+// discoverySubject names only work included in the requested scope.
+func discoverySubject(request DiscoveryRequest) string {
+	var subjects []string
+	if request.Reads(ReadPRs) {
+		subjects = append(subjects, "pull requests")
+	} else if request.Reads(ReadTargets) && len(request.Tracked) > 0 {
+		subjects = append(subjects, "selected pull requests")
+	}
+	if request.Reads(ReadTags) {
+		if request.Scope != ReadAll && request.ConfirmedTag != "" {
+			subjects = append(subjects, "release tag "+request.ConfirmedTag)
+		} else {
+			subjects = append(subjects, "release tags")
+		}
+	}
+	if request.Source.Name == "acs" && request.Reads(ReadPins) {
+		subjects = append(subjects, "component version pins")
+	}
+	if request.Reads(ReadChecks) {
+		subjects = append(subjects, "pull request checks")
+	}
+	if request.Reads(ReadCoverage) {
+		subjects = append(subjects, "tag coverage of merged pull requests")
+	}
+	if len(subjects) == 0 {
+		return "the branch head"
+	}
+	return strings.Join(subjects, ", ")
+}
+
+// discoverySummary reports scoped counts and identifies the observed branch head.
+func discoverySummary(request DiscoveryRequest, repo release.Repository, incomplete bool) string {
+	var counts []string
+	if request.Reads(ReadPRs) || (request.Reads(ReadTargets) && len(request.Tracked) > 0) {
+		counts = append(counts, counted(len(repo.PRs), "pull request"))
+	}
+	if request.Reads(ReadTags) {
+		counts = append(counts, counted(len(repo.Tags), "release tag"))
+	}
+	branch := consoleBranch(request.Source)
+	message := fmt.Sprintf("Checked %s on %s.", discoverySubject(request), branch)
+	if len(counts) > 0 {
+		message = fmt.Sprintf("Found %s while checking %s.", strings.Join(counts, " and "), branch)
+	}
+	if incomplete {
+		if len(counts) == 0 {
+			message = fmt.Sprintf("Could not finish checking %s on %s.", discoverySubject(request), branch)
+		} else {
+			message += " These results are incomplete."
+		}
+	}
+	if repo.Head != "" {
+		message += fmt.Sprintf(" Branch head of %s is %s.", branch, repo.Head)
+	}
+	return message
+}
+
 // recordMessage translates audit decisions into sentences for the CLI.
 func recordMessage(r Record) string {
 	if r.message != "" {
 		return r.message
 	}
-	target := consoleTarget(r.Target)
+	target := consoleRevision(r.Target, r.SHA)
 	for operation, subject := range map[string]string{
 		"tags": "release tags", "github": "pull requests and release tags",
 		"checks": "build results", "images": "image availability", "pinning-images": "build images",
@@ -140,6 +204,9 @@ func recordMessage(r Record) string {
 	case "tag-confirmed":
 		return fmt.Sprintf("Selected release tag %s.", target)
 	case "tag-invalidated":
+		if r.SHA != "" {
+			return fmt.Sprintf("Release tag %s now points to commit %s. Select it again before continuing.", consoleTarget(r.Target), r.SHA)
+		}
 		return fmt.Sprintf("The commit for %s changed. Select the tag again before continuing.", target)
 	case "selection-complete":
 		return "Pull request selection is complete. Monitoring selected builds and release pins."
@@ -197,7 +264,7 @@ func recordLevel(r Record) string {
 		return "Error"
 	case r.Decision == "retry-wait", r.Decision == "tag-invalidated", r.Decision == "revoked", r.Decision == "withheld", r.Decision == "delivery" && r.Result == "uncertain":
 		return "Warn"
-	case r.Decision == "work-complete", r.Decision == "observation", r.Decision == "checks", r.Decision == "image":
+	case r.Decision == "observation", r.Decision == "checks", r.Decision == "image":
 		return "Debug"
 	default:
 		return "Info"
