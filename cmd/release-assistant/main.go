@@ -37,7 +37,6 @@ func run() error {
 	var options app.Options
 	var limits dispatch.Options
 	var port int
-	var logPath string
 	flag.StringVar(&config.Version, "version", "", "ACS patch version, e.g. 5.0.1")
 	flag.StringVar(&config.Branch, "branch", "", "explicit ACS target branch")
 	flag.IntVar(&config.PinningPR, "pinning-pr", 0, "optional ACS pinning PR number")
@@ -49,7 +48,6 @@ func run() error {
 		flag.StringVar(&components[n].Stream, name+"-stream", "", "component major.minor stream")
 	}
 	flag.IntVar(&port, "port", 8080, "loopback HTTP port")
-	flag.StringVar(&logPath, "log", "release-assistant.jsonl", "append-only action log path")
 	flag.DurationVar(&options.Poll, "poll", time.Minute, "active-check polling interval")
 	flag.DurationVar(&options.Discovery, "discover", 5*time.Minute, "PR and tag discovery interval")
 	flag.DurationVar(&options.BackoffCap, "backoff-cap", 5*time.Minute, "maximum per-source access-error backoff")
@@ -80,11 +78,7 @@ func run() error {
 	planner := konflux.New(konflux.Config{GitHubToken: credentials.github, QuayUsername: credentials.quayUser, QuayPassword: credentials.quayPassword, HTTPClient: client, KonfluxToken: credentials.clusterToken})
 	inspector := images.New(client, credentials.quayUser, credentials.quayPassword)
 	dispatcher := dispatch.New(gh, planner, github.NewWriter(gh), limits)
-	log, err := app.OpenLog(logPath)
-	if err != nil {
-		return fmt.Errorf("open action log: %w", err)
-	}
-	defer log.Close()
+	log := app.NewLog(os.Stdout)
 	session := app.New(gh, planner, inspector, dispatcher, log, options)
 
 	handler, err := web.New(session)

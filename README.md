@@ -27,9 +27,9 @@ go run ./cmd/release-assistant \
   --port 8080
 ```
 
-Run `go run ./cmd/release-assistant --help` for repository overrides, optional `--pinning-pr`, log location, polling, backoff, request timeout, and retry limits. Defaults are one-minute active-check polls, five-minute discovery, a five-minute backoff cap, one comment per minute per target, and an hourly per-job cooldown after ten distinct eligible unsuccessful runs. Failure counts never increase merely because a poll repeats. Writes are disabled by default. Start with `--enable-writes` to allow retry comments after per-target RW permission and required confirmation. Without this flag, RW and send controls are disabled in the UI and the server rejects grants and sends.
+Run `go run ./cmd/release-assistant --help` for repository overrides, optional `--pinning-pr`, polling, backoff, request timeout, and retry limits. Defaults are one-minute active-check polls, five-minute discovery, a five-minute backoff cap, one comment per minute per target, and an hourly per-job cooldown after ten distinct eligible unsuccessful runs. Failure counts never increase merely because a poll repeats. Writes are disabled by default. Start with `--enable-writes` to allow retry comments after per-target RW permission and required confirmation. Without this flag, RW and send controls are disabled in the UI and the server rejects grants and sends.
 
-Use a different port and log path for each instance. Avoid overlapping targets across instances; there is no cross-process coordination.
+Use a different port for each instance. Avoid overlapping targets across instances; there is no cross-process coordination.
 
 ## Authentication
 
@@ -69,9 +69,9 @@ A PR head change revokes its grant and preserves inclusion. A tag grant binds re
 
 Session state is in memory. Browser reload preserves it; server restart clears choices, confirmations, counters, and grants, starts interactive mode on, and rediscovers completed external work. Logs are not replayed.
 
-The Activity and errors console at the bottom shows the latest 200 events from this process, including initial discovery progress, safe GitHub request failures, retry waits, and recovery. It refreshes every two seconds independently of forms. Request diagnostics include endpoints and HTTP status or timeout/network categories; credentials and response bodies are excluded. The append-only action log retains the events beyond the console's in-memory window.
+The Activity and errors console at the bottom shows the latest 200 events from this process, including initial discovery progress, safe GitHub request failures, retry waits, and recovery. It refreshes every two seconds independently of forms. Request diagnostics include endpoints and HTTP status or timeout/network categories; credentials and response bodies are excluded.
 
-The default append-only action log is `release-assistant.jsonl` in the current directory, configurable with `--log`. It records release/target/SHA, timestamps, decisions, proposed comments, attempt results, and user/system origin. Log failures are visible in the UI. Credentials, response bodies, and unchanged polls are excluded. Rotate or remove logs while the server is stopped.
+The CLI prints every recorded event to stdout as a complete JSON line, including events beyond the UI console’s 200-event window. Records include release/target/SHA, timestamps, decisions, proposed comments, attempt results, and user/system origin. Output failures are visible in the UI. Credentials, response bodies, and unchanged polls are excluded. The assistant does not create a log file; redirect stdout to retain the logs.
 
 The server binds to loopback and protects forms with local Host/Origin checks and CSRF tokens. Read failures preserve prior observations for display while invalidating affected current evidence. Per-source polling and bounded requests allow other components to progress during outages.
 
