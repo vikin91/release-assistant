@@ -59,13 +59,11 @@
     <details id="component-images" open>
       <summary id="component-images-heading" class="section-summary">
         Component images <span class="summary-detail">Before ACS pinning</span>
-        {{with .ComponentImages}}{{if .Total}}<span class="component-image-counts">
-          {{.Available}} of {{.Total}} available{{if .Missing}} · {{.Missing}} not found{{end}}{{if .Unknown}} · {{.Unknown}} unable to check{{end}}
-        </span>{{end}}{{end}}
+        {{template "image-counts" .ComponentImages}}
       </summary>
       {{if .Snapshot.Assessment.ImageProblem}}<p class="notice warning">{{.Snapshot.Assessment.ImageProblem}}</p>{{end}}
       {{with .ComponentImages}}
-        {{if .Groups}}{{template "component-image-table" .Groups}}{{end}}
+        {{if .Groups}}{{template "image-table" .Groups}}{{end}}
         {{if .Other}}{{template "image-results" .Other}}{{end}}
         {{if not .Total}}<p class="muted">No component image checks have completed yet. Select component tags to determine the expected images.</p>{{end}}
       {{end}}
@@ -78,17 +76,24 @@
   </section>{{end}}
 {{end}}
 
-{{define "component-image-table"}}
+{{define "image-counts"}}
+  {{if .Total}}<span class="component-image-counts">
+    {{.Available}} of {{.Total}} available{{if .Missing}} · {{.Missing}} not found{{end}}{{if .Unknown}} · {{.Unknown}} unable to check{{end}}
+  </span>{{end}}
+{{end}}
+
+{{define "image-table"}}
+  {{$acs := eq (index . 0).Component "acs"}}
   <div class="component-image-table-scroll">
-    <table class="component-image-table" aria-labelledby="component-images-heading">
-      <colgroup><col class="component-image-identity"><col class="component-image-identity"><col><col></colgroup>
-      <thead><tr><th scope="col">Component</th><th scope="col">Image</th><th scope="col">CI</th><th scope="col">Konflux</th></tr></thead>
+    <table class="component-image-table" aria-labelledby="{{if $acs}}release-images-heading{{else}}component-images-heading{{end}}">
+      <colgroup>{{if not $acs}}<col class="component-image-identity">{{end}}<col class="component-image-identity"><col><col></colgroup>
+      <thead><tr>{{if not $acs}}<th scope="col">Component</th>{{end}}<th scope="col">Image</th><th scope="col">CI</th><th scope="col">Konflux</th></tr></thead>
       {{range .}}
       <tbody>
         {{$group := .}}
         {{range $i, $row := .Rows}}
         <tr>
-          {{if eq $i 0}}<th scope="rowgroup" rowspan="{{len $group.Rows}}">
+          {{if and (not $acs) (eq $i 0)}}<th scope="rowgroup" rowspan="{{len $group.Rows}}">
             {{if eq $group.Component "scanner"}}Scanner V2{{else}}{{title $group.Component}}{{end}}
             <span class="component-image-tag">{{if $group.SelectedTag}}<code>{{$group.SelectedTag}}</code>{{else}}No tag selected{{end}}</span>
           </th>{{end}}
@@ -109,7 +114,7 @@
       <summary>
         <span class="pill component-image-status {{truth .Check.Status}}">{{if eq (truth .Check.Status) "yes"}}Available{{else if eq (truth .Check.Status) "no"}}Not found{{else}}Unable to check{{end}}</span>
         {{if not .Check.Status}}
-          <span class="component-image-note">{{if not .Check.SelectedTag}}No tag selected{{else if and (not .Check.Image.Evidence.Fresh) .Check.Image.Present}}Last result unverified{{else if and .Check.Image.Reference .Check.Image.Evidence.Error}}Registry check failed{{else}}{{.Check.Reason}}{{end}}</span>
+          <span class="component-image-note">{{if and .Check.Required (not .Check.SelectedTag)}}No tag selected{{else if and (not .Check.Image.Evidence.Fresh) .Check.Image.Present}}Last result unverified{{else if and .Check.Image.Reference .Check.Image.Evidence.Error}}Registry check failed{{else}}{{.Check.Reason}}{{end}}</span>
         {{end}}
       </summary>
       <div class="component-image-evidence">

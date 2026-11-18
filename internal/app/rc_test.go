@@ -68,6 +68,10 @@ func TestReleaseImagesWaitForVerifiedMergeAndMatchingBranchPins(t *testing.T) {
 			if inspector.release != 0 || inspector.components == 0 || s.rcReady() {
 				t.Fatalf("premature RC reads: release=%d components=%d ready=%t", inspector.release, inspector.components, s.rcReady())
 			}
+			reason := s.Snapshot().RCImageWaitReason()
+			if reason == "" || (name == "unmerged" && reason != "Waiting for the pinning PR to merge.") {
+				t.Fatalf("missing or incorrect image check prerequisite: %q", reason)
+			}
 		})
 	}
 }

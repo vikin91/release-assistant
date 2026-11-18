@@ -1,10 +1,16 @@
 {{define "acs-rcs"}}
   <section class="panel" id="release-images-panel">
     <details id="release-images" open>
-      <summary class="section-summary">ACS {{.Snapshot.Config.Version}} RC.0 images <span class="summary-detail">After ACS pinning and RC.0 creation</span></summary>
-      <p class="muted">This later phase checks images built for ACS {{.Snapshot.Config.Version}}-rc.0. Checks start after the configured pinning PR is verified as merged and release branch pins match the selected tags. Their absence does not block preparation for creating RC.0.</p>
-      <p class="muted">Available means the registry confirmed the exact tag exists. Not found means it confirmed absence. Unable to check means the registry request could not complete. Names come from saved patterns.</p>
-      {{if .ReleaseImages}}{{template "image-results" .ReleaseImages}}{{else}}<p class="muted">No ACS RC.0 image checks have completed yet.</p>{{end}}
+      <summary id="release-images-heading" class="section-summary">ACS {{.Snapshot.Config.Version}} RC.0 images
+        {{template "image-counts" .ReleaseImages}}
+      </summary>
+      {{$waiting := .Snapshot.RCImageWaitReason}}
+      {{if $waiting}}<p class="muted">{{$waiting}}</p>
+      {{else if not .ReleaseImages.Total}}<p class="muted">Waiting for the first RC.0 image check results.</p>{{end}}
+      {{with .ReleaseImages}}
+        {{if .Groups}}{{template "image-table" .Groups}}{{end}}
+        {{if .Other}}{{template "image-results" .Other}}{{end}}
+      {{end}}
     </details>
   </section>
 {{end}}

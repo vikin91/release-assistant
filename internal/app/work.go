@@ -20,17 +20,44 @@ type sourceWork struct {
 }
 
 func (s *Session) rcReady() bool {
-	acs := s.repos["acs"]
-	p := acs.PinningPR
-	if p == nil || p.Target != s.config.PinningTarget() || !p.Merged || p.Base != s.config.Branch || p.MergeSHA == "" || !p.Evidence.Fresh() || !acs.PinningEvidence.Fresh() || !acs.Pins.Evidence.Fresh() {
-		return false
-	}
-	for _, source := range s.config.Components {
-		if strings.TrimPrefix(acs.Pins.Versions[source.Name], "v") != strings.TrimPrefix(s.choices.Tags[source.Name], "v") {
-			return false
+	return rcImageWaitReason(s.config, s.choices, s.repos["acs"]) == ""
+}
+
+// RCImageWaitReason describes the first prerequisite preventing RC.0 image checks.
+func (s Snapshot) RCImageWaitReason() string {
+	for _, repo := range s.Repositories {
+		if repo.Source.Name == "acs" {
+			return rcImageWaitReason(s.Config, s.Choices, repo)
 		}
 	}
-	return true
+	return rcImageWaitReason(s.Config, s.Choices, release.Repository{})
+}
+
+func rcImageWaitReason(config release.Config, choices release.Choices, acs release.Repository) string {
+	if config.PinningPR == 0 {
+		return "Add the pinning PR number in Release configuration to start verification."
+	}
+	p := acs.PinningPR
+	switch {
+	case p == nil || p.Target != config.PinningTarget() || !p.Evidence.Fresh() || !acs.PinningEvidence.Fresh():
+		return "Waiting to verify the pinning PR."
+	case p.Base != config.Branch:
+		return "The pinning PR targets a different branch."
+	case !p.Merged && p.State == "closed":
+		return "The pinning PR closed without merging."
+	case !p.Merged:
+		return "Waiting for the pinning PR to merge."
+	case p.MergeSHA == "":
+		return "Waiting to verify the pinning PR merge commit."
+	case !acs.Pins.Evidence.Fresh():
+		return "Waiting to verify the component pins on the ACS release branch."
+	}
+	for _, source := range config.Components {
+		if strings.TrimPrefix(acs.Pins.Versions[source.Name], "v") != strings.TrimPrefix(choices.Tags[source.Name], "v") {
+			return "The ACS release branch pins must match the selected component tags."
+		}
+	}
+	return ""
 }
 
 func (s *Session) work(source release.Source, discover bool) sourceWork {

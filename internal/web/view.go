@@ -30,7 +30,7 @@ type (
 		PinningStartFailures                                     bool
 		Authority                                                []authorityModel
 		ComponentImages                                          componentImagesModel
-		ReleaseImages                                            []imageModel
+		ReleaseImages                                            componentImagesModel
 		ACS                                                      *release.Repository
 		PinPRState                                               string
 		PinningPR                                                *prModel
@@ -353,7 +353,7 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 			}
 		}
 		if check.Image.Component == "acs" {
-			model.ReleaseImages = append(model.ReleaseImages, row)
+			model.ReleaseImages.add(row, "")
 		} else {
 			model.ComponentImages.add(row, snapshot.Choices.Tags[check.Image.Component])
 		}

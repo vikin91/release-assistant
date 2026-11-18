@@ -56,7 +56,8 @@ func TestConfiguredPinningPRMonitoringAndGrant(t *testing.T) {
 	if strings.Count(body, "Pin release components") != 1 {
 		t.Error("configured PR was duplicated in normal PR selection")
 	}
-	if !strings.Contains(body, ">Pinning PR</span>") || !strings.Contains(body, "configured pinning PR") {
+	retries := between(t, body, `id="acs-prs-retry"`, "</section>")
+	if !strings.Contains(retries, ">Pinning PR</span>") || !strings.Contains(retries, target.String()) {
 		t.Error("retry proposal does not distinguish the configured pinning PR scope")
 	}
 	if !strings.Contains(body, `href="/?tab=acs-prs#acs-prs-retry-details" data-open-section`) {

@@ -797,9 +797,10 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 	collectorCI.Image.Evidence.Known = false
 	collectorCI.Image.Evidence.Error = "Registry timed out"
 	rows = append(rows, factKonflux, collectorCI)
+	rows = append(rows, image("main", "acs", "konflux", "quay.io/fixture/release-main:5.0.1-rc.0-fast", release.Yes))
 	application := &fakeApplication{snapshot: app.Snapshot{Config: validACS5Config(), Choices: release.Choices{Tags: map[string]string{"fact": "3.25.1", "collector": "3.25.4"}}, Assessment: release.Assessment{Images: rows, Pins: release.PinSummary{BranchStatus: release.Yes, PRNumber: 99, PRURL: "https://github.com/stackrox/stackrox/pull/99"}, Conditions: []release.Condition{{Name: "configuration", Status: release.Yes, Reason: "Release configuration is valid"}}}, Repositories: []release.Repository{{Source: release.Source{Name: "acs"}, PinningPR: &release.PR{Target: release.Target{Repo: "stackrox/stackrox", PR: 99}, State: "open", Evidence: observed}}}}}
 	body := newBrowser(t, application).getBody(t)
-	for _, want := range []string{"Fact: 3.25.1", "Collector: 3.25.4", "ACS pins: match selected tags", "Pin PR #99: Open", `href="https://github.com/stackrox/stackrox/pull/99"`, `<ol class="image-results">`, "Available", "Not found", "Unable to check", "3.25.4-fast", "5.0.1-rc.0", "Registry access denied", "Saved pattern source", "green = selected versions are on the ACS branch"} {
+	for _, want := range []string{"Fact: 3.25.1", "Collector: 3.25.4", "ACS pins: match selected tags", "Pin PR #99: Open", `href="https://github.com/stackrox/stackrox/pull/99"`, "Available", "Not found", "Unable to check", "3.25.4-fast", "5.0.1-rc.0", "Registry access denied", "Saved pattern source", "green = selected versions are on the ACS branch"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q", want)
 		}
@@ -815,8 +816,16 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 	components := between(t, body, `id="component-images-panel"`, `</section>`)
 	releaseImages := between(t, body, `id="release-images-panel"`, `</section>`)
 	if strings.Count(components, `scope="row"`) != 2 || strings.Contains(components, "5.0.1-rc.0") ||
-		strings.Count(releaseImages, `class="image-result"`) != 2 || strings.Contains(releaseImages, `data-component="fact"`) || strings.Contains(releaseImages, `data-component="collector"`) {
+		strings.Count(releaseImages, `scope="row"`) != 2 || strings.Contains(releaseImages, "3.25.4-fast") {
 		t.Fatal("component prerequisites and later ACS RC.0 images are mixed")
+	}
+	rcHeading := between(t, releaseImages, `id="release-images-heading"`, `</summary>`)
+	if !strings.Contains(rcHeading, "1 of 3 available · 1 not found · 1 unable to check") {
+		t.Error("RC image header must report all current statuses")
+	}
+	rcMain := between(t, releaseImages, `<th scope="row"><code>main</code></th>`, "</tr>")
+	if !strings.Contains(rcMain, "component-image:acs:ci:main") || !strings.Contains(rcMain, "component-image:acs:konflux:main") {
+		t.Error("both RC image families must appear in the same row")
 	}
 	heading := between(t, components, `id="component-images-heading"`, `</summary>`)
 	if !strings.Contains(heading, "2 of 4 available · 1 not found · 1 unable to check") {
