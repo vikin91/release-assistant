@@ -36,6 +36,7 @@ type (
 	}
 	workflowRun struct {
 		ID         int64  `json:"id"`
+		Name       string `json:"name"`
 		WorkflowID int64  `json:"workflow_id"`
 		SuiteID    int64  `json:"check_suite_id"`
 		SHA        string `json:"head_sha"`
@@ -160,15 +161,16 @@ func validationChecks(runs []commitCheckRun, statuses []commitStatus, workflows 
 		}
 		names[run.Name] = true
 		check := release.ValidationCheck{Check: run.check(), App: run.App.Slug, ID: run.ID}
-		if check.URL == "" && run.ID > 0 {
-			check.URL = checksURL + "?check_run_id=" + strconv.FormatInt(run.ID, 10)
-		}
 		key := checkKey{name: run.Name, app: check.App, scope: run.Suite.ID}
 		if workflow := workflows[run.Suite.ID]; check.App == "github-actions" && workflow.ID > 0 {
 			check.Event, check.Ref = workflow.Event, workflow.Ref
+			check.WorkflowName = workflow.Name
 			check.WorkflowURL = base + "/actions/runs/" + strconv.FormatInt(workflow.ID, 10)
 			key.event, key.ref = workflow.Event, workflow.Ref
 			key.scope = cmp.Or(workflow.WorkflowID, run.Suite.ID)
+		}
+		if check.URL == "" && check.WorkflowURL == "" && run.ID > 0 {
+			check.URL = checksURL + "?check_run_id=" + strconv.FormatInt(run.ID, 10)
 		}
 		if old, ok := latest[key]; !ok || old.ID < check.ID {
 			latest[key] = check

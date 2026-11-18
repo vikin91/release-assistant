@@ -273,9 +273,9 @@ a { color: var(--accent); }
 .workflow-heading h2 { margin-bottom: .3rem; }
 .workflow-heading p:last-child { margin-bottom: .5rem; }
 
-.rc-validation-checks { min-width: 38rem; margin: .5rem 0 0; table-layout: fixed; }
+.rc-validation-checks { min-width: 32rem; margin: .5rem 0 0; table-layout: fixed; }
 .rc-validation-checks :is(th, td) { padding: .3rem .4rem; overflow-wrap: anywhere; }
 .rc-validation-checks thead th:nth-child(2) { width: 5.75rem; }
-.rc-validation-checks thead th:nth-child(3) { width: 24%; }
-.rc-validation-checks thead th:nth-child(4) { width: 27%; }
+.rc-validation-checks thead th:nth-child(3) { width: 27%; }
+.rc-validation-workflow th { background: var(--panel); }
 .rc-validation-checks .rc-row-links { margin-top: 0; }

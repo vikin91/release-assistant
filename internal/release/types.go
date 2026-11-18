@@ -54,10 +54,10 @@ type (
 	// identify the reported trigger separately from an identity-verified Konflux run.
 	ValidationCheck struct {
 		Check
-		ID          int64
-		App         string
-		Event, Ref  string
-		WorkflowURL string
+		ID                        int64
+		App                       string
+		Event, Ref                string
+		WorkflowName, WorkflowURL string
 	}
 	// Validation separates GitHub check availability from Konflux retry evidence.
 	Validation struct {

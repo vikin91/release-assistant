@@ -9,6 +9,8 @@ import (
 )
 
 func TestRCValidationShowsExceptionsAndReusesExactTagRetest(t *testing.T) {
+	const scanWorkflow = "RELEASE: Scan images for vulnerabilities"
+	const scanRun = "https://github.com/stackrox/stackrox/actions/runs/101"
 	s := workflowStatusSnapshot()
 	target := s.Config.RC0Target()
 	sha := "candidate-sha"
@@ -25,10 +27,11 @@ func TestRCValidationShowsExceptionsAndReusesExactTagRetest(t *testing.T) {
 		Validation: release.Validation{
 			SHA: sha, Evidence: s.Inventory.Evidence,
 			Checks: []release.ValidationCheck{
-				{ID: 11, App: "github-actions", Event: "push", Ref: target.Tag,
-					WorkflowURL: "https://github.com/stackrox/stackrox/actions/runs/101",
-					Check:       release.Check{Name: "ACS upgrade", Conclusion: "failure"}},
-				{ID: 12, App: "github-actions", Event: "push", Ref: "release-5.0",
+				{ID: 11, App: "github-actions", WorkflowName: scanWorkflow, WorkflowURL: scanRun,
+					Check: release.Check{Name: "Konflux: release-main", Conclusion: "failure", URL: scanRun + "/job/11"}},
+				{ID: 19, App: "github-actions", WorkflowName: scanWorkflow, WorkflowURL: scanRun,
+					Check: release.Check{Name: "Upstream: main", Conclusion: "failure", URL: scanRun + "/job/19"}},
+				{ID: 12, App: "github-actions", WorkflowURL: "https://github.com/stackrox/stackrox/actions/runs/102",
 					Check: release.Check{Name: "gke-qa-e2e-tests-konflux", Status: "in_progress"}},
 				{ID: 13, Check: release.Check{Name: "Red Hat Konflux / acs-conforma-prod-like / main", Conclusion: "failure"}},
 				{ID: 14, Check: release.Check{Name: "Red Hat Konflux / acs-conforma-prod / main", Status: "queued"}},
@@ -60,21 +63,31 @@ func TestRCValidationShowsExceptionsAndReusesExactTagRetest(t *testing.T) {
 			}
 			validation := between(t, panel, `id="rc-validation"`, "</section>")
 			table := between(t, validation, `<table class="rc-validation-checks"`, "</table>")
-			if strings.Count(table, `<tr data-live-key="rc-validation:`) != 5 ||
-				strings.Count(table, `<th scope="row">`) != 5 {
+			if strings.Count(table, `<tr data-live-key="rc-validation:`) != 6 ||
+				strings.Count(table, `<th scope="row">`) != 6 {
 				t.Fatal("each visible check should have one accessible table row")
 			}
+			if strings.Count(table, scanWorkflow) != 1 {
+				t.Fatal("scan workflow should be named once")
+			}
+			scanJobs := between(t, table, scanWorkflow, "</tbody>")
+			for _, name := range []string{"Konflux: release-main", "Upstream: main"} {
+				row := between(t, scanJobs, `<th scope="row">`+name, "</tr>")
+				if strings.Count(row, "<a ") != 1 || !strings.Contains(row, ">View check</a>") ||
+					!strings.Contains(row, `href="`+scanRun+"/job/") || !strings.Contains(row, ">Failed</span>") {
+					t.Errorf("scan job %q did not keep its result and one direct link: %s", name, row)
+				}
+			}
 			for _, want := range []string{
-				"All checks on GitHub", "candidate-sha", "ACS upgrade", "Canceled", "Running",
-				"gke-qa-e2e-tests-konflux", "push · release-5.0", "acs-conforma-prod-like", "acs-conforma-prod /",
-				"Review policy results", "Rerun in GitHub Actions", "actions/runs/101", proposal.Payload,
-				"Copy comment", "Tag push · " + target.Tag,
+				"All checks on GitHub", "candidate-sha", "Canceled", "Running",
+				"gke-qa-e2e-tests-konflux", "acs-conforma-prod-like", "acs-conforma-prod /",
+				`actions/runs/102" target="_blank" rel="noreferrer">View workflow run</a>`, proposal.Payload, "Copy comment",
 			} {
 				if !strings.Contains(validation, want) {
 					t.Errorf("missing %q in validation", want)
 				}
 			}
-			for _, hidden := range []string{"passed-test-hidden", "skipped-test-hidden", "acs-conforma-dev-5-0"} {
+			for _, hidden := range []string{"passed-test-hidden", "skipped-test-hidden", "acs-conforma-dev-5-0", "Source and trigger", "Rerun in GitHub Actions"} {
 				if strings.Contains(validation, hidden) {
 					t.Errorf("unexpected %q in validation", hidden)
 				}
