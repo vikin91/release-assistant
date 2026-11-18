@@ -24,11 +24,12 @@ const maxPages = 20
 type (
 	// Client is a read client for GitHub's REST API.
 	Client struct {
-		baseURL     string
-		token       string
-		http        *http.Client
-		backoff     readBackoff
-		inventories sync.Map
+		baseURL      string
+		token        string
+		http         *http.Client
+		backoff      readBackoff
+		inventories  sync.Map
+		candidatePRs sync.Map
 	}
 	// requestError separates safe UI causes from endpoint diagnostics.
 	requestError struct {

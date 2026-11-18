@@ -1,14 +1,36 @@
 {{define "acs-rcs"}}
   <section class="panel" id="release-images-panel">
     <div id="release-images">
-      <h3 id="release-images-heading" class="section-summary">ACS {{.Snapshot.Config.Version}} RC.0 images
+      <h3 id="release-images-heading" class="section-summary">ACS {{.Snapshot.Config.Version}} {{if .RC.TagURL}}RC.{{.RC.Candidate.Number}}{{else}}RC{{end}} images
         {{if .RC.KonfluxMissing}}
           <span class="component-image-counts">{{.RC.KonfluxMissing}} Konflux {{if eq .RC.KonfluxMissing 1}}image{{else}}images{{end}} missing</span>
         {{else}}{{template "image-counts" .ReleaseImages}}{{end}}
       </h3>
+      {{with .RC.Candidate}}
+        {{if $.RC.TagURL}}
+          <div class="control-row rc-links">
+            <a href="{{url $.RC.TagURL}}" target="_blank" rel="noreferrer">Open RC.{{.Number}} tag</a>
+            {{if $.RC.ChecksURL}}<a href="{{url $.RC.ChecksURL}}" target="_blank" rel="noreferrer">View tag checks</a>{{end}}
+          </div>
+          {{if eq .Ahead 0}}<p>No commits have landed on the release branch since RC.{{.Number}}.</p>
+          {{else}}
+            <p><a href="{{url .CompareURL}}" target="_blank" rel="noreferrer">{{.Ahead}} {{if eq .Ahead 1}}commit{{else}}commits{{end}}</a> landed on the release branch since RC.{{.Number}}.</p>
+            {{if .PRs}}<ol>{{range .PRs}}<li><a href="{{url .URL}}" target="_blank" rel="noreferrer">#{{.Number}} {{.Title}}</a></li>{{end}}</ol>
+            {{else if not .PRError}}<p class="muted">GitHub reported no associated merged PRs.</p>{{end}}
+            {{if .PRError}}<p class="muted">Some PR links are unavailable. {{.PRError}}</p>{{end}}
+          {{end}}
+        {{else if .Evidence.Error}}
+          <p>Unable to discover the current RC tag. {{.Evidence.Error}}</p>
+        {{else if .Evidence.Fresh}}
+          <p>No release candidate tag exists for this patch on the release branch.</p>
+          <p><a href="{{url $.RC.WorkflowURL}}" target="_blank" rel="noreferrer">Open release workflow</a></p>
+        {{else}}
+          <p class="muted">Waiting to discover release candidate tags.</p>
+        {{end}}
+      {{end}}
       {{$waiting := .Snapshot.RCImageWaitReason}}
       {{if $waiting}}<p class="muted">{{$waiting}}</p>
-      {{else}}
+      {{else if .RC.TagURL}}
         {{if and .RC.KonfluxMissing (or .RC.CITotal (eq .RC.MissingAfterBuild .RC.KonfluxMissing))}}
           <div class="rc-summary">
             {{if and .RC.CITotal (eq .RC.CIAvailable .RC.CITotal)}}
@@ -21,11 +43,7 @@
             {{end}}
           </div>
         {{end}}
-        {{if .RC.TagURL}}
-          <div class="control-row rc-links">
-            <a href="{{url .RC.TagURL}}" target="_blank" rel="noreferrer">Open RC.0 tag</a>
-            <a href="{{url .RC.ChecksURL}}" target="_blank" rel="noreferrer">View tag checks</a>
-          </div>
+        {{if .RC.ChecksURL}}
           {{if not .RC.ImagesAvailable}}{{with .RC.Permission}}{{template "tag-comment-permission" .}}{{end}}{{end}}
           {{with .RC.Plan}}
             {{if not .Plan.Runs}}
@@ -33,13 +51,10 @@
               {{else if and .Plan.Message (ne .Plan.Action "None")}}<p class="muted">{{.Plan.Message}}</p>{{end}}
             {{end}}
           {{end}}
-        {{else if .RC.Plan}}
-          <p>Unable to verify the RC.0 tag. If the tag hasn’t been created, open the release workflow.</p>
-          <p><a href="{{url .RC.WorkflowURL}}" target="_blank" rel="noreferrer">Open release workflow</a></p>
-        {{else}}
-          <p class="muted">Waiting to check the RC.0 tag.</p>
+        {{else if and .RC.Plan .RC.Plan.Plan.Evidence.Error}}
+          <p>Unable to verify the RC build checks.</p>
         {{end}}
-        {{if not .ReleaseImages.Total}}<p class="muted">Waiting for the first RC.0 image check results.</p>{{end}}
+        {{if not .ReleaseImages.Total}}<p class="muted">Waiting for RC image check results.</p>{{end}}
       {{end}}
       {{with .ReleaseImages}}
         {{if .Groups}}{{template "rc-image-table" .Groups}}{{end}}
@@ -64,7 +79,7 @@
 {{end}}
 
 {{define "rc-image-table"}}
-  <div class="component-image-table-scroll" role="region" aria-label="RC.0 image checks" tabindex="0">
+  <div class="component-image-table-scroll" role="region" aria-label="Release candidate image checks" tabindex="0">
     <table class="rc-image-table" aria-labelledby="release-images-heading">
       <colgroup><col class="rc-image-name"><col><col><col class="rc-image-build"><col><col class="rc-image-time"></colgroup>
       <thead><tr>

@@ -19,6 +19,12 @@ func retainDiscoveryFailure(previous, latest release.Repository, cause error) re
 		evidence.Error = cause.Error()
 	}
 	retained.Evidence = evidence
+	if previous.Source.Name == "acs" || latest.Source.Name == "acs" {
+		retained.Candidate = latest.Candidate
+		if retained.Candidate.Evidence.At.IsZero() {
+			retained.Candidate.Evidence = evidence
+		}
+	}
 	retained.Pins.Evidence = evidence
 	retained.Pins.Failures = nil
 	if latest.Pins.Evidence.Error != "" {

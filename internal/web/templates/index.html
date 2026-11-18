@@ -10,7 +10,7 @@
 <body data-configured="{{.Configured}}" data-active-tab="{{.Tab}}" data-session="{{.CSRF}}:{{.Snapshot.Generation}}" data-loading="{{and .Configured .Snapshot.Loading}}">
 <header class="topbar">
   <div><p class="eyebrow">Release preparation</p><h1>{{.Title}}</h1></div>
-  <span class="pill {{if .Snapshot.Assessment.Ready}}good{{else}}unknown{{end}}">{{if .Snapshot.Assessment.Ready}}Ready to create ACS RC.0{{else}}Preparing release{{end}}</span>
+  <span class="pill {{if .Snapshot.Assessment.Ready}}good{{else}}unknown{{end}}">{{if .Snapshot.Assessment.Ready}}Release prerequisites met{{else}}Preparing release{{end}}</span>
 </header>
 <main id="live-dashboard">
   <p id="dashboard-refresh-status" class="muted" role="status" data-live-preserve>Waiting for release updates.</p>

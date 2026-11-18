@@ -162,8 +162,8 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 		model.Error += "Action log: " + snapshot.LogError
 	}
 	retryTargets := make(map[release.Target]bool)
-	if model.Configured && snapshot.RCImageWaitReason() == "" {
-		retryTargets[snapshot.Config.RC0Target()] = true
+	if rc := snapshot.Candidate(); model.Configured && rc.Target.Valid() && snapshot.RCImageWaitReason() == "" {
+		retryTargets[rc.Target] = true
 	}
 	pinTarget := snapshot.Config.PinningTarget()
 	if pinTarget.PR > 0 && snapshot.Choices.PRs[pinTarget] != release.Ignored {

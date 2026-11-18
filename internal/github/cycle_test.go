@@ -117,6 +117,8 @@ func TestDiscoverReservesReadsForACSPins(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "/pulls/44"):
 			counts["pinning_pr"]++
 			_, _ = w.Write([]byte(pinningPRJSON("open", false, "pin-head", "release", "pin versions", false)))
+		case strings.Contains(r.URL.Path, "/git/matching-refs/tags/"):
+			_, _ = w.Write([]byte(`[]`))
 		case r.URL.Path == "/repos/stackrox/stackrox/tags":
 			counts["previous_tags"]++
 			_, _ = w.Write([]byte(`[]`))

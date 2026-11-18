@@ -24,11 +24,11 @@ var (
 		"scanner":   {"scanner", "scanner-db", "scanner-slim", "scanner-db-slim"},
 	}
 
-	rc0CIRepositoryPrefixes = [...]string{ciRepositoryPrefix, "quay.io/stackrox-io/"}
+	rcCIRepositoryPrefixes = [...]string{ciRepositoryPrefix, "quay.io/stackrox-io/"}
 
-	// rc0CICatalog lists images mirrored across the CI namespaces. The operator
+	// rcCICatalog lists images mirrored across the CI namespaces. The operator
 	// bundle and index are published only in rhacs-eng.
-	rc0CICatalog = [...]struct {
+	rcCICatalog = [...]struct {
 		name, repositoryName, tagPrefix string
 		rhacsOnly, acs4Only             bool
 	}{
@@ -48,9 +48,9 @@ var (
 		{name: "operator-index", repositoryName: "stackrox-operator-index", tagPrefix: "v", rhacsOnly: true},
 	}
 
-	// rc0KonfluxCatalog uses the full release ref. The repository and job overrides
+	// rcKonfluxCatalog uses the full release ref. The repository and job overrides
 	// cover pipelines that do not follow release-<name> and <name>-on-push.
-	rc0KonfluxCatalog = [...]struct {
+	rcKonfluxCatalog = [...]struct {
 		name, repository, job, tagPrefix, tagSuffix string
 		acs4Only                                    bool
 	}{

@@ -21,7 +21,7 @@ var (
 	bearerParamRE   = regexp.MustCompile(`([a-z]+)="([^"\r\n]*)"`)
 )
 
-// Inspector resolves and checks the CI, Konflux, and ACS RC.0 image references.
+// Inspector resolves and checks the CI, Konflux, and ACS release candidate image references.
 type Inspector struct {
 	registry *registryClient
 }
@@ -111,9 +111,9 @@ func (i *Inspector) inspect(ctx context.Context, config release.Config, confirme
 		}
 		inventory.Images = append(inventory.Images, image)
 	}
-	if includeRC {
-		inventory.ReleaseImages = inspectRC0(ctx, i, config, now)
-		inventory.Versions["acs"] = config.RC0Target().Tag
+	if tag := strings.TrimPrefix(confirmedTags["acs"], "v"); includeRC && tag != "" {
+		inventory.ReleaseImages = inspectRC(ctx, i, major, tag, now)
+		inventory.Versions["acs"] = tag
 	}
 	inventory.Evidence = release.Evidence{At: time.Now(), Known: len(metadataIssues) == 0 && !unselected}
 	if len(metadataIssues) > 0 {

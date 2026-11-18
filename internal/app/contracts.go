@@ -37,6 +37,7 @@ type (
 		InspectComponents(context.Context, release.Config, map[string]string) (release.Inventory, error)
 	}
 	// Inspector checks release images and reported build outputs without source reads.
+	// The tags map carries the observed ACS candidate under "acs" when available.
 	Inspector interface {
 		Inspect(context.Context, release.Config, map[string]string) (release.Inventory, error)
 		InspectReference(context.Context, string) (release.Image, error)
@@ -60,6 +61,8 @@ const (
 	ReadCoverage
 	// ReadPreviousPins observes the component baseline at the previous ACS patch tag.
 	ReadPreviousPins
+	// ReadRC observes ACS candidate tags and commits since the current candidate.
+	ReadRC
 )
 
 // Reads distinguishes omitted work from a requested observation.

@@ -44,7 +44,7 @@ func tabHelp(tab string) string {
 	case "acs-prs":
 		return "Pin the selected component versions and merge ACS backports and dependency updates. Keep adding PRs after pinning is green or merged."
 	case "acs-rcs":
-		return "Follow RC.0 builds and verify their published images."
+		return "Follow the current RC builds and verify their published images."
 	default:
 		return "Choose the changes for this patch, help their checks pass, and merge them into the component release branches. No component tags are required here."
 	}
@@ -72,7 +72,7 @@ func tabPage(page pageModel, tab string) pageModel {
 		case "component-prs":
 			return target.PR > 0 && target.Repo != acsRepo
 		case "acs-rcs":
-			return target == page.Snapshot.Config.RC0Target()
+			return target == page.Snapshot.Candidate().Target
 		default:
 			return false
 		}

@@ -109,7 +109,7 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 	if formInputValue(t, tagGrantForm, "repo") != "acme/fact" || formInputValue(t, tagGrantForm, "tag") != "3.25.1" || formInputValue(t, tagGrantForm, "sha") != "fact-current-sha" || formInputValue(t, tagGrantForm, "generation") != "23" || formInputValue(t, tagGrantForm, "csrf") != b.csrf {
 		t.Fatal("tag grant form lost repository/tag/SHA identity, generation, or CSRF token")
 	}
-	if !strings.Contains(body, "Fact: 3.25.1") || !strings.Contains(body, "unknown") || strings.Contains(body, "Ready for ACS RC.0") {
+	if !strings.Contains(body, "Fact: 3.25.1") || !strings.Contains(body, "unknown") || strings.Contains(body, "Release prerequisites met") {
 		t.Fatal("unknown selected-tag coverage must not be reported as ready")
 	}
 	if strings.Contains(activityPanel(t, body, "component-releases"), "Choose component tags") {

@@ -23,7 +23,7 @@ func (s *Session) rcReady() bool {
 	return rcImageWaitReason(s.config, s.choices, s.repos["acs"]) == ""
 }
 
-// RCImageWaitReason describes the first prerequisite preventing RC.0 image checks.
+// RCImageWaitReason describes the first prerequisite preventing RC image checks.
 func (s Snapshot) RCImageWaitReason() string {
 	for _, repo := range s.Repositories {
 		if repo.Source.Name == "acs" {
@@ -67,7 +67,7 @@ func (s *Session) work(source release.Source, discover bool) sourceWork {
 		scope |= ReadPRs
 	}
 	if source.Name == "acs" {
-		scope |= ReadPins
+		scope |= ReadPins | ReadRC
 		if discover {
 			scope |= ReadPreviousPins
 		}
@@ -172,6 +172,14 @@ func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) re
 		latest.Pins, latest.PinningPR, latest.PinningPins, latest.PinningEvidence = old.Pins, old.PinningPR, old.PinningPins, old.PinningEvidence
 		if latest.Head != old.Head {
 			latest.Pins.Evidence.Known = false
+		}
+	}
+	if request.Source.Name == "acs" && !request.Reads(ReadRC) {
+		latest.Candidate = old.Candidate
+		if latest.Head != old.Head {
+			latest.Candidate = release.Candidate{Evidence: release.Evidence{
+				At: latest.Evidence.At, Error: "The release branch changed before the RC could be verified.",
+			}}
 		}
 	}
 	return latest

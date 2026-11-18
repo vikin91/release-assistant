@@ -27,9 +27,9 @@ func (p *rcPlanner) Plan(_ context.Context, target release.Target) (release.Plan
 }
 
 func TestRCBuildChecksAndRetryAuthority(t *testing.T) {
-	s, _, _ := rcFixture(t)
+	s, f, _ := rcFixture(t)
 	snapshot := s.Snapshot()
-	target := snapshot.Config.RC0Target()
+	target := f.repos["acs"].Candidate.Target
 	proposal := release.Proposal{Target: target, SHA: "rc-commit", RunID: "17", Job: "main-on-push"}
 	planner := &rcPlanner{plan: release.Plan{
 		Target: target, SHA: proposal.SHA, Evidence: observed(),
@@ -104,6 +104,10 @@ func rcFixture(t *testing.T) (*Session, *fixture, *phaseImages) {
 	acs.PinningPR = &release.PR{Target: c.PinningTarget(), Base: c.Branch, SHA: "pin-head", State: "closed", Merged: true, MergeSHA: "pin-merge", Evidence: observed()}
 	acs.PinningEvidence = observed()
 	acs.PinningPins = acs.Pins
+	acs.Candidate = release.Candidate{
+		Target: release.Target{Repo: c.ACS().Repo, Tag: c.Version + "-rc.2"},
+		SHA:    "rc-commit", Number: 2, Evidence: observed(),
+	}
 	f.repos["acs"] = acs
 	inspector := &phaseImages{fixture: f}
 	s.images = inspector
@@ -178,7 +182,7 @@ func (f *rcCheckFixture) ReadRCChecks(context.Context, release.Target) release.V
 }
 
 func TestRCPlanBindsValidationToTheCandidate(t *testing.T) {
-	target := configuration().RC0Target()
+	target := release.Target{Repo: configuration().ACS().Repo, Tag: "5.0.1-rc.2"}
 	for name, tc := range map[string]struct {
 		planSHA, validationSHA, wantSHA string
 		plannerErr, wantErr             bool
@@ -228,11 +232,11 @@ func TestRCValidationRetryRespectsWriteAndConfirmationModes(t *testing.T) {
 		"read-only": {}, "interactive": {true, true}, "automatic": {true, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			s, _, _ := rcFixture(t)
+			s, f, _ := rcFixture(t)
 			config := s.Snapshot().Config
-			target := config.RC0Target()
+			target := f.repos["acs"].Candidate.Target
 			proposal := release.Proposal{
-				Target: target, SHA: "candidate", Job: "checks", RunID: "51",
+				Target: target, SHA: "rc-commit", Job: "checks", RunID: "51",
 				Payload: "/retest checks tag:" + target.Tag,
 			}
 			tr := &rcRetryTransport{rcPlanner: &rcPlanner{plan: release.Plan{
@@ -279,5 +283,49 @@ func TestRCValidationRetryRespectsWriteAndConfirmationModes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestNewCandidateReplacesImagesAndRevokesPreviousRetryAuthority(t *testing.T) {
+	s, f, _ := rcFixture(t)
+	config := s.config
+	older := f.repos["acs"].Candidate
+	proposal := release.Proposal{Target: older.Target, SHA: older.SHA, RunID: "17", Job: "main-on-push"}
+	planner := &rcPlanner{plan: release.Plan{
+		Target: older.Target, SHA: older.SHA, Evidence: observed(),
+		Runs: []release.Run{{Job: proposal.Job, ID: proposal.RunID, Eligible: true}}, Proposals: []release.Proposal{proposal},
+	}}
+	s.planner = planner
+	refresh := func() {
+		t.Helper()
+		if err := s.refreshPlanned(t.Context(), s.generation, config.ACS(), true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	refresh()
+	refresh()
+	apply(t, s, Action{Kind: "grant", Target: older.Target, SHA: older.SHA, Enabled: true})
+
+	acs := f.repos["acs"]
+	acs.Candidate = release.Candidate{
+		Target: release.Target{Repo: config.ACS().Repo, Tag: config.Version + "-rc.3"},
+		SHA:    "new-candidate", Number: 3, Evidence: observed(),
+	}
+	f.repos["acs"] = acs
+	planner.plan = release.Plan{Target: acs.Candidate.Target, SHA: acs.Candidate.SHA, Evidence: observed()}
+	refresh()
+	snapshot := s.Snapshot()
+	if snapshot.Candidate().Target != acs.Candidate.Target || snapshot.Inventory.Versions["acs"] != acs.Candidate.Target.Tag ||
+		len(snapshot.Inventory.ReleaseImages) == 0 {
+		t.Fatalf("latest candidate and images did not advance together: %+v %+v", snapshot.Candidate(), snapshot.Inventory)
+	}
+	for _, plan := range snapshot.Plans {
+		if plan.Target == older.Target {
+			t.Fatal("previous candidate plan survived the new tag")
+		}
+	}
+	err := s.Apply(t.Context(), Action{Kind: "send", Target: older.Target, ID: dispatch.ID(proposal), Generation: snapshot.Generation})
+	if err == nil {
+		t.Fatal("accepted a retry for a superseded candidate")
 	}
 }

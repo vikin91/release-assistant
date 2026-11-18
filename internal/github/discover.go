@@ -324,7 +324,13 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 	if result.TagsPending {
 		result.Evidence.Known = false
 	}
-	return finishDiscovery(result, issues, cycle)
+	result, err := finishDiscovery(result, issues, cycle)
+	if source.Name == "acs" && req.Reads(app.ReadRC) {
+		rcCycle := &discoveryCycle{reads: map[string]cachedRead{}, limit: maxCandidateRequests, remaining: maxCandidateRequests}
+		rcCtx := context.WithValue(ctx, discoveryCycleKey{}, rcCycle)
+		result.Candidate = c.readCandidate(rcCtx, source, req.Version, result.Head)
+	}
+	return result, err
 }
 
 func finishDiscovery(result release.Repository, issues []error, cycle *discoveryCycle) (release.Repository, error) {

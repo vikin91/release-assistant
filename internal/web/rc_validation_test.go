@@ -12,8 +12,8 @@ func TestRCValidationShowsExceptionsAndReusesExactTagRetest(t *testing.T) {
 	const scanWorkflow = "RELEASE: Scan images for vulnerabilities"
 	const scanRun = "https://github.com/stackrox/stackrox/actions/runs/101"
 	s := workflowStatusSnapshot()
-	target := s.Config.RC0Target()
-	sha := "candidate-sha"
+	target := s.Candidate().Target
+	sha := s.Candidate().SHA
 	proposal := release.Proposal{
 		Target: target, SHA: sha, Job: "checks", RunID: "18", Payload: "/retest checks tag:" + target.Tag,
 	}
@@ -78,7 +78,7 @@ func TestRCValidationShowsExceptionsAndReusesExactTagRetest(t *testing.T) {
 				}
 			}
 			for _, want := range []string{
-				"All checks on GitHub", "candidate-sha", "Canceled", "Running",
+				"All checks on GitHub", sha, "Canceled", "Running",
 				"gke-qa-e2e-tests-konflux", "acs-conforma-prod-like", "acs-conforma-prod /",
 				`actions/runs/102" target="_blank" rel="noreferrer">View workflow run</a>`, proposal.Payload, "Copy comment",
 			} {
@@ -110,14 +110,14 @@ func TestRCValidationRemainsVisibleWhileWaitingForEvidence(t *testing.T) {
 		sha, want string
 		observed  bool
 	}{
-		"tag unresolved":  {want: "Waiting to verify the RC.0 tag."},
-		"checks loading":  {sha: "candidate", want: "Waiting for GitHub check results."},
-		"no checks found": {sha: "candidate", observed: true, want: "No validation checks have been reported for this commit yet."},
+		"tag unresolved":  {want: "Waiting for RC build checks."},
+		"checks loading":  {sha: "rc-commit", want: "Waiting for GitHub check results."},
+		"no checks found": {sha: "rc-commit", observed: true, want: "No validation checks have been reported for this commit yet."},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := workflowStatusSnapshot()
 			if tc.sha != "" {
-				plan := release.Plan{Target: s.Config.RC0Target(), SHA: tc.sha}
+				plan := release.Plan{Target: s.Candidate().Target, SHA: tc.sha}
 				if tc.observed {
 					plan.Validation = release.Validation{SHA: tc.sha, Evidence: s.Inventory.Evidence}
 				}

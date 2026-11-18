@@ -188,7 +188,7 @@ func TestWorkflowPinningAndRCStatuses(t *testing.T) {
 	s := workflowStatusSnapshot()
 	acs := &s.Repositories[len(s.Config.Components)]
 	assertTabStatus(t, s, "acs-prs", tabComplete, "the ACS branch pins match")
-	assertTabStatus(t, s, "acs-rcs", tabInProgress, "Waiting to verify the RC.0 tag")
+	assertTabStatus(t, s, "acs-rcs", tabInProgress, "Waiting for RC build checks")
 
 	for i := range s.Inventory.ReleaseImages {
 		s.Inventory.ReleaseImages[i].Present = release.No
@@ -224,7 +224,7 @@ func TestWorkflowTabStatusIsRenderedWithAccessibleReason(t *testing.T) {
 		`aria-label="Component PRs · Action needed · Decide whether to include 1 PR."`,
 		`class="tab-status action-needed" aria-hidden="true">→`,
 		`<strong>Action needed</strong> · Decide whether to include 1 PR.`,
-		`aria-label="ACS RCs · In progress · Images are available. Waiting to verify the RC.0 tag."`,
+		`aria-label="ACS RCs · In progress · Images are available. Waiting for RC build checks."`,
 	} {
 		if !strings.Contains(body, marker) {
 			t.Errorf("missing %q", marker)
@@ -265,7 +265,7 @@ func workflowStatusSnapshot() app.Snapshot {
 		Config:  config,
 		Choices: release.Choices{PRs: map[release.Target]release.Choice{}, Tags: map[string]string{}},
 		Inventory: release.Inventory{
-			ReleaseVersion: config.Version, Evidence: evidence, Versions: map[string]string{"acs": config.Version + "-rc.0"},
+			ReleaseVersion: config.Version, Evidence: evidence, Versions: map[string]string{"acs": config.Version + "-rc.2"},
 		},
 	}
 	pins := release.Pins{Evidence: evidence, Versions: map[string]string{}, Paths: map[string]string{}}
@@ -287,6 +287,10 @@ func workflowStatusSnapshot() app.Snapshot {
 	}
 	s.Repositories = append(s.Repositories, release.Repository{
 		Source: config.ACS(), Head: "acs-head", Evidence: evidence, Pins: pins,
+		Candidate: release.Candidate{
+			Target: release.Target{Repo: config.ACS().Repo, Tag: config.Version + "-rc.2"},
+			SHA:    "rc-commit", Number: 2, Evidence: evidence,
+		},
 		PinningEvidence: evidence,
 		PinningPins:     release.Pins{Evidence: evidence, Versions: map[string]string{"fact": "3.25.1", "collector": "3.25.1"}},
 		PinningPR: &release.PR{
@@ -297,7 +301,7 @@ func workflowStatusSnapshot() app.Snapshot {
 	for _, name := range []string{"main", "roxctl", "scanner-v4"} {
 		for _, family := range []string{"ci", "konflux"} {
 			s.Inventory.ReleaseImages = append(s.Inventory.ReleaseImages, release.Image{
-				Component: "acs", Name: name, Family: family, Reference: name + ":" + config.Version + "-rc.0",
+				Component: "acs", Name: name, Family: family, Reference: name + ":" + config.Version + "-rc.2",
 				Evidence: evidence, Present: release.Yes,
 			})
 		}

@@ -8,7 +8,7 @@ import (
 	"release-assistant/internal/release"
 )
 
-func TestInspectRC0UsesMajorFamilyPatternsAndNormalizedTags(t *testing.T) {
+func TestInspectRCUsesMajorFamilyPatternsAndNormalizedTags(t *testing.T) {
 	for _, tt := range []struct {
 		version   string
 		scannerV2 bool
@@ -23,7 +23,8 @@ func TestInspectRC0UsesMajorFamilyPatternsAndNormalizedTags(t *testing.T) {
 				return response(http.StatusOK, validImageManifest, nil)
 			}), "", "")
 			config := configFor(tt.version)
-			tags := map[string]string{"fact": "0.3.4", "collector": "0.4.5"}
+			tag := tt.version + "-rc.10"
+			tags := map[string]string{"fact": "0.3.4", "collector": "0.4.5", "acs": "v" + tag}
 			if tt.scannerV2 {
 				config.Components[2].Stream = strings.Join(strings.Split(tt.version, ".")[:2], ".")
 				tags["scanner"] = config.Components[2].Stream + ".1"
@@ -32,7 +33,6 @@ func TestInspectRC0UsesMajorFamilyPatternsAndNormalizedTags(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Inspect() error = %v", err)
 			}
-			tag := tt.version + "-rc.0"
 			if inventory.Versions["acs"] != tag {
 				t.Fatalf("inventory candidate tag = %q, want %q", inventory.Versions["acs"], tag)
 			}
@@ -43,7 +43,7 @@ func TestInspectRC0UsesMajorFamilyPatternsAndNormalizedTags(t *testing.T) {
 			assertReleaseImages(t, inventory.ReleaseImages, want)
 			for _, image := range inventory.ReleaseImages {
 				if image.Present != release.Yes || !image.Evidence.Fresh() || image.Evidence.URL != sourceURL(image.Reference) {
-					t.Errorf("RC.0 registry result incomplete: %#v", image)
+					t.Errorf("RC registry result incomplete: %#v", image)
 				}
 			}
 		})
@@ -116,16 +116,16 @@ func assertReleaseImages(t *testing.T, images []release.Image, want map[string]s
 	}
 }
 
-func TestInspectRC0FailuresRemainInformationalPerRow(t *testing.T) {
+func TestInspectRCFailuresRemainInformationalPerRow(t *testing.T) {
 	inspector := New(testHTTPClient(func(request *http.Request) *http.Response {
 		if strings.Contains(request.URL.Path, "release-main") {
 			return response(http.StatusForbidden, "denied", nil)
 		}
 		return response(http.StatusOK, validImageManifest, nil)
 	}), "", "")
-	inventory, err := inspector.Inspect(t.Context(), configFor("5.0.0"), map[string]string{"fact": "0.3.1", "collector": "0.4.1"})
+	inventory, err := inspector.Inspect(t.Context(), configFor("5.0.0"), map[string]string{"fact": "0.3.1", "collector": "0.4.1", "acs": "5.0.0-rc.1"})
 	if err != nil {
-		t.Fatalf("informational RC.0 failure affected required component inventory: %v", err)
+		t.Fatalf("informational RC failure affected required component inventory: %v", err)
 	}
 	var unknownReleaseMain, knownReleaseRoxctl bool
 	for _, image := range inventory.ReleaseImages {

@@ -8,10 +8,7 @@ import (
 	"release-assistant/internal/release"
 )
 
-// inspectRC0 checks the fixed ACS release image families independently of component images.
-func inspectRC0(ctx context.Context, inspector *Inspector, config release.Config, now time.Time) []release.Image {
-	major, _, _, _ := release.Version(config.Version)
-	tag := config.RC0Target().Tag
+func inspectRC(ctx context.Context, inspector *Inspector, major int, tag string, now time.Time) []release.Image {
 	rows := append(rcCIImages(major, tag), rcKonfluxImages(major, tag)...)
 	for i := range rows {
 		image := &rows[i]
@@ -33,13 +30,13 @@ func inspectRC0(ctx context.Context, inspector *Inspector, config release.Config
 }
 
 func rcCIImages(major int, tag string) []release.Image {
-	rows := make([]release.Image, 0, len(rc0CICatalog)*len(rc0CIRepositoryPrefixes))
-	for _, item := range rc0CICatalog {
+	rows := make([]release.Image, 0, len(rcCICatalog)*len(rcCIRepositoryPrefixes))
+	for _, item := range rcCICatalog {
 		if item.acs4Only && major != 4 {
 			continue
 		}
 		name := cmp.Or(item.repositoryName, item.name)
-		for _, prefix := range rc0CIRepositoryPrefixes {
+		for _, prefix := range rcCIRepositoryPrefixes {
 			if item.rhacsOnly && prefix != ciRepositoryPrefix {
 				continue
 			}
@@ -53,8 +50,8 @@ func rcCIImages(major int, tag string) []release.Image {
 }
 
 func rcKonfluxImages(major int, tag string) []release.Image {
-	rows := make([]release.Image, 0, len(rc0KonfluxCatalog))
-	for _, item := range rc0KonfluxCatalog {
+	rows := make([]release.Image, 0, len(rcKonfluxCatalog))
+	for _, item := range rcKonfluxCatalog {
 		if item.acs4Only && major != 4 {
 			continue
 		}

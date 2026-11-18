@@ -82,9 +82,11 @@ type (
 	// Repository is a partial, revision-bound discovery result.
 	Repository struct {
 		Source Source
-		Head   string
-		PRs    []PR
-		Tags   []Tag
+		// Candidate is populated only for the ACS release branch.
+		Candidate Candidate
+		Head      string
+		PRs       []PR
+		Tags      []Tag
 		// TagsPending prevents an incomplete inventory from proving that tags are absent.
 		TagsPending bool
 		Pins        Pins
@@ -137,7 +139,7 @@ type (
 		ReleaseVersion string
 		Versions       map[string]string
 		Images         []Image
-		// ReleaseImages records the later ACS RC.0 build, independently of component prerequisites.
+		// ReleaseImages records the ACS candidate build, independently of component prerequisites.
 		ReleaseImages []Image
 		Evidence      Evidence
 	}
@@ -234,7 +236,7 @@ type (
 		ComponentReleaseRecommendations []string
 		// ComponentBaseline compares configured component tags with the preceding patch's pins.
 		ComponentBaseline []BaselineRecord
-		// ACSRecommendations guides ACS PRs, pinning, and preparation for RC.0.
+		// ACSRecommendations guides ACS PRs, pinning, and release preparation.
 		ACSRecommendations []string
 		Commands           string
 		ProposedTags       map[string]string

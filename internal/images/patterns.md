@@ -1,6 +1,6 @@
 # Image naming patterns
 
-The inspector builds component and RC.0 references from the saved catalog
+The inspector builds component and release candidate references from the saved catalog
 and checks them in Quay. When upstream naming changes, update the catalog,
 the image tests, and the source references in this guide. [Image catalog](image_config.go)
 
@@ -16,9 +16,10 @@ Fact uses `fact`, Collector uses `collector`, and ACS 4.x Scanner V2 uses
 `scanner`, `scanner-db`, `scanner-slim`, and `scanner-db-slim`. ACS 5.x does not
 include Scanner V2.
 
-## ACS RC.0 images
+## ACS release candidate images
 
-For normalized ACS version `V`, the RC.0 checker uses the release tag `V-rc.0`.
+For ACS version `V`, the inspector uses the selected StackRox tag
+`V-rc.N`. Image repositories that require a leading `v` add it to that tag.
 CI checks `main`, `central-db`, `roxctl`, `scanner-v4`, `scanner-v4-db`,
 `stackrox-operator`, `collector`, and `fact` in both `quay.io/rhacs-eng`
 and `quay.io/stackrox-io`. ACS 4.x also checks the four Scanner V2 variants
@@ -28,10 +29,10 @@ in both namespaces. In `rhacs-eng`, the CI bundle and index add a leading
 
 Konflux checks `release-main`, `release-central-db`, `release-operator`,
 `release-roxctl`, `release-scanner-v4`, `release-scanner-v4-db`,
-`release-collector`, and `release-fact`, all tagged `V-rc.0`. ACS 4.x also
+`release-collector`, and `release-fact`, all tagged `V-rc.N`. ACS 4.x also
 checks the four Scanner V2 retags with that release tag. The bundle uses
-`release-operator-bundle:vV-rc.0`. The separate catalog build uses
-`stackrox-operator-index:vV-rc.0-fast` outside the release snapshot.
+`release-operator-bundle:vV-rc.N`. The separate catalog build uses
+`stackrox-operator-index:vV-rc.N-fast` outside the release snapshot.
 
 ## Pinning PR build images
 
@@ -56,5 +57,5 @@ trace the naming patterns.
 | 5.0 | `32ef302fd73a452b292add4a6a117ce753bcf72a` | [CI library](https://github.com/stackrox/stackrox/blob/32ef302fd73a452b292add4a6a117ce753bcf72a/scripts/ci/lib.sh), [fact retag PipelineRun](https://github.com/stackrox/stackrox/blob/32ef302fd73a452b292add4a6a117ce753bcf72a/.tekton/retag-fact.yaml), [retag pipeline](https://github.com/stackrox/stackrox/blob/32ef302fd73a452b292add4a6a117ce753bcf72a/.tekton/retag-pipeline.yaml), [release workflow](https://github.com/stackrox/stackrox/blob/32ef302fd73a452b292add4a6a117ce753bcf72a/.github/workflows/start-release.yml) |
 
 The catalog uses the same rules across the supported 4.x streams and the
-same rules across 5.x streams. The RC.0 tests use excerpts from the 4.10
+same rules across 5.x streams. The RC source fixtures use excerpts from the 4.10
 and 5.0 revisions. [RC.0 source fixtures](testdata/rc0/README.md)

@@ -36,9 +36,9 @@
         </div>
       {{end}}
     {{else if and .RC.Plan .RC.Plan.Plan.Evidence.Error}}
-      <p class="muted"><span class="pill">Unavailable</span> The RC.0 tag could not be verified.</p>
+      <p class="muted"><span class="pill">Unavailable</span> The candidate commit checks are unavailable.</p>
     {{else}}
-      <p class="muted"><span class="pill">Pending</span> {{with .Snapshot.RCImageWaitReason}}{{.}}{{else}}Waiting to verify the RC.0 tag.{{end}}</p>
+      <p class="muted"><span class="pill">Pending</span> {{with .Snapshot.RCImageWaitReason}}{{.}}{{else}}Waiting for RC build checks.{{end}}</p>
     {{end}}
   </section>
 {{end}}

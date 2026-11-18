@@ -11,6 +11,7 @@ import (
 
 type (
 	rcModel struct {
+		Candidate                         release.Candidate
 		TagURL, ChecksURL, WorkflowURL    string
 		CommitURL                         string
 		Plan                              *planModel
@@ -35,9 +36,13 @@ type (
 )
 
 func (p *pageModel) prepareRC() {
-	target := p.Snapshot.Config.RC0Target()
-	repoURL := "https://github.com/" + target.Repo
+	p.RC.Candidate = p.Snapshot.Candidate()
+	target := p.RC.Candidate.Target
+	repoURL := "https://github.com/" + p.Snapshot.Config.ACS().Repo
 	p.RC.WorkflowURL = repoURL + "/actions/workflows/start-release.yml"
+	if target.Valid() {
+		p.RC.TagURL = repoURL + "/tree/refs/tags/" + url.PathEscape(target.Tag)
+	}
 	for _, check := range p.Snapshot.Assessment.Images {
 		if check.Image.Component != "acs" {
 			continue
@@ -64,11 +69,10 @@ func (p *pageModel) prepareRC() {
 	plan := group.Plan.Plan
 	p.RC.LookupTimedOut = strings.Contains(plan.Evidence.Error, "PipelineRun identity") &&
 		strings.Contains(plan.Evidence.Error, "context deadline exceeded")
-	if plan.SHA == "" {
+	if plan.SHA == "" || plan.SHA != p.RC.Candidate.SHA {
 		return
 	}
 
-	p.RC.TagURL = repoURL + "/tree/refs/tags/" + url.PathEscape(target.Tag)
 	p.RC.CommitURL = repoURL + "/commit/" + url.PathEscape(plan.SHA)
 	p.RC.ChecksURL = p.RC.CommitURL + "/checks"
 	if group.Authority != nil && group.Authority.SHA == plan.SHA && p.Snapshot.WritesEnabled &&

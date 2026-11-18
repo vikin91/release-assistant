@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"release-assistant/internal/release"
@@ -298,13 +299,20 @@ func (p pageModel) rcStatus() tabStatus {
 	snapshot := p.Snapshot
 	if snapshot.RCImageWaitReason() != "" {
 		if snapshot.Config.PinningPR == 0 && snapshot.Assessment.Pins.BranchStatus == release.Yes {
-			return tabStatus{State: tabActionNeeded, Reason: "Enter the pinning PR number to start RC.0 verification."}
+			return tabStatus{State: tabActionNeeded, Reason: "Enter the pinning PR number to start RC verification."}
 		}
 		return tabStatus{State: tabPending}
 	}
 	images := snapshot.Inventory.ReleaseImages
-	target := snapshot.Config.RC0Target()
-	version := target.Tag
+	candidate := snapshot.Candidate()
+	target := candidate.Target
+	if !target.Valid() {
+		if candidate.Evidence.Error != "" {
+			return tabStatus{State: tabNeedsAttention, Reason: "Unable to discover the current RC tag."}
+		}
+		return tabStatus{State: tabPending}
+	}
+	version := strings.TrimPrefix(target.Tag, "v")
 	if len(images) == 0 || snapshot.Inventory.Versions["acs"] != version {
 		return p.rcBuildStatus(target)
 	}
@@ -318,7 +326,7 @@ func (p pageModel) rcStatus() tabStatus {
 		}
 		item := publishingImageStatus(image, image.Present)
 		if item.State == tabPending && started && image.Present == release.No {
-			item = tabStatus{State: tabInProgress, Reason: "Waiting for the remaining ACS RC.0 images."}
+			item = tabStatus{State: tabInProgress, Reason: "Waiting for the remaining ACS RC images."}
 		}
 		status.add(item.State, item.Reason)
 	}
@@ -332,9 +340,9 @@ func (p pageModel) rcStatus() tabStatus {
 		return rc.validationStatus()
 	}
 	if rc.Plan != nil && rc.Plan.Plan.Evidence.Error != "" {
-		return tabStatus{State: tabNeedsAttention, Reason: "Images are available. Unable to verify the RC.0 tag."}
+		return tabStatus{State: tabNeedsAttention, Reason: "Images are available. Unable to verify the RC build checks."}
 	}
-	return tabStatus{State: tabInProgress, Reason: "Images are available. Waiting to verify the RC.0 tag."}
+	return tabStatus{State: tabInProgress, Reason: "Images are available. Waiting for RC build checks."}
 }
 
 func (p pageModel) rcBuildStatus(target release.Target) tabStatus {
@@ -353,11 +361,11 @@ func (p pageModel) rcBuildStatus(target release.Target) tabStatus {
 			})
 			switch {
 			case check.Result() == release.No && proposed:
-				status.add(tabActionNeeded, "A failed RC.0 Konflux build can be retested.")
+				status.add(tabActionNeeded, "A failed RC Konflux build can be retested.")
 			case check.Result() == release.No:
-				status.add(tabNeedsAttention, "An RC.0 Konflux build failed.")
+				status.add(tabNeedsAttention, "An RC Konflux build failed.")
 			case check.Running():
-				status.add(tabInProgress, "RC.0 Konflux builds are running or queued.")
+				status.add(tabInProgress, "RC Konflux builds are running or queued.")
 			}
 		}
 	}

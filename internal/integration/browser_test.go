@@ -49,10 +49,21 @@ func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (
 	f.branches[r.Source.Repo] = r.Source.Branch
 	repository := release.Repository{Source: r.Source, Head: r.Source.Name + "-tag", Evidence: observation()}
 	if r.Source.Name == "acs" {
+		if r.Reads(app.ReadRC) {
+			repository.Candidate = release.Candidate{
+				Target: release.Target{Repo: r.Source.Repo, Tag: strings.TrimPrefix(r.Version, "v") + "-rc.0"},
+				SHA:    "acs-tag", Evidence: observation(),
+			}
+		}
 		pr := release.PR{Target: release.Target{Repo: r.Source.Repo, PR: 201}, Title: "Fixture: ACS dependency backport", Author: "mintmaker", URL: "https://example.com/pr201", SHA: "acs-pr-head", State: "open", Base: r.Source.Branch, Evidence: observation(), ChecksEvidence: observation(), Checks: []release.Check{{Name: "CI build", Status: "completed", Conclusion: "failure", Required: release.Yes}}}
 		if f.step >= 4 {
 			pr.State, pr.Merged, pr.MergeSHA = "merged", true, "acs-next"
 			repository.Head = "acs-next"
+			if repository.Candidate.Target.Valid() {
+				repository.Candidate.Ahead = 1
+				repository.Candidate.CompareURL = "https://github.com/stackrox/stackrox/compare/acs-tag...acs-next"
+				repository.Candidate.PRs = []release.CandidatePR{{Number: pr.Target.PR, Title: pr.Title, URL: pr.URL}}
+			}
 		}
 		repository.PRs = []release.PR{pr}
 		repository.PreviousPins = release.Pins{Versions: map[string]string{"fact": "0.4.6", "collector": "3.26.4"}, Evidence: observation()}
@@ -129,7 +140,9 @@ func (f *browserFixture) Plan(_ context.Context, t release.Target) (release.Plan
 	}
 	var sha string
 	if t.Tag != "" {
-		if t.Tag == "0.4.8" {
+		if t.Repo == "stackrox/stackrox" {
+			sha = "acs-tag"
+		} else if t.Tag == "0.4.8" {
 			sha = "fact-next"
 		} else if t.Repo == "stackrox/fact" {
 			sha = "fact-tag"

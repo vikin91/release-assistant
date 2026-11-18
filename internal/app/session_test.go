@@ -89,7 +89,12 @@ func (f *fixture) Inspect(_ context.Context, config release.Config, versions map
 	for component, version := range versions {
 		inventory.Versions[component] = strings.TrimPrefix(version, "v")
 		for _, family := range []string{"ci", "konflux"} {
-			inventory.Images = append(inventory.Images, release.Image{Component: component, Family: family, Reference: "quay.io/fixture/" + component + ":" + version, Present: release.Yes, Evidence: observed()})
+			image := release.Image{Component: component, Family: family, Reference: "quay.io/fixture/" + component + ":" + version, Present: release.Yes, Evidence: observed()}
+			if component == "acs" {
+				inventory.ReleaseImages = append(inventory.ReleaseImages, image)
+			} else {
+				inventory.Images = append(inventory.Images, image)
+			}
 		}
 	}
 	return inventory, nil
@@ -455,14 +460,9 @@ func (f imageReaderFunc) Inspect(ctx context.Context, c release.Config, tags map
 }
 
 func TestImageRefreshPreservesPartialResultsAndInvalidatesRetainedResults(t *testing.T) {
-	s, f := newFixture()
-	c := configuration()
-	apply(t, s, Action{Kind: "configure", Config: c})
+	s, _, _ := rcFixture(t)
+	c := s.config
 	refreshAll(t, s)
-	for _, source := range c.Components {
-		tag := f.repos[source.Name].Tags[0]
-		apply(t, s, Action{Kind: "tag", Component: source.Name, Tag: tag.Name, SHA: tag.SHA})
-	}
 	refreshAll(t, s)
 	next := s.Snapshot().Inventory
 	next.Images[0].Present = release.No
@@ -470,7 +470,7 @@ func TestImageRefreshPreservesPartialResultsAndInvalidatesRetainedResults(t *tes
 	next.Images[1].Evidence.Error = "ACS definition unavailable"
 	next.Evidence.Known = false
 	next.Evidence.Error = "Some definitions could not be read"
-	next.ReleaseImages = []release.Image{{Component: "acs", Name: "main", Family: "ci", Reference: "quay.io/fixture/main:5.0.1-rc.0", Present: release.Yes, Evidence: observed()}}
+	next.ReleaseImages = []release.Image{{Component: "acs", Name: "main", Family: "ci", Reference: "quay.io/fixture/main:5.0.1-rc.2", Present: release.Yes, Evidence: observed()}}
 	s.images = imageReaderFunc(func(context.Context, release.Config, map[string]string) (release.Inventory, error) {
 		return next, errors.New("definition unavailable")
 	})

@@ -163,7 +163,7 @@ func Assess(in Input) Assessment {
 		}
 	}
 	if a.Ready {
-		a.ACSRecommendations = append(a.ACSRecommendations, "Ready for ACS RC.0 based on the current included PRs, selected component tags, images, and release branch pins. Continue monitoring for changes.")
+		a.ACSRecommendations = append(a.ACSRecommendations, "The included PRs, selected component tags, images, and release branch pins are ready.")
 	}
 	if len(a.ACSRecommendations) == 0 {
 		a.ACSRecommendations = append(a.ACSRecommendations, "Review ACS backports and dependency updates for this patch. Additional ACS PRs can be included and merged after pinning.")

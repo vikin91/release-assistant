@@ -53,7 +53,7 @@ func TestIncludedPRLogsCheckStatusChanges(t *testing.T) {
 
 func TestRCLogsValidationStatusChanges(t *testing.T) {
 	s, _ := newFixture()
-	target := configuration().RC0Target()
+	target := release.Target{Repo: configuration().ACS().Repo, Tag: "5.0.1-rc.0"}
 	var output bytes.Buffer
 	s.log = NewLog(&output)
 	plan := release.Plan{SHA: "rc-head", Validation: release.Validation{

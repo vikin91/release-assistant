@@ -11,7 +11,7 @@ import (
 
 func TestRCTabShowsBuildActionsBesideMissingImages(t *testing.T) {
 	s := workflowStatusSnapshot()
-	target := s.Config.RC0Target()
+	target := s.Candidate().Target
 	proposal := release.Proposal{
 		Target: target, SHA: "rc-commit", Job: "main-on-push", RunID: "17",
 		Payload: "/retest main-on-push tag:" + target.Tag,
@@ -47,7 +47,7 @@ func TestRCTabShowsBuildActionsBesideMissingImages(t *testing.T) {
 			}
 			body := newBrowser(t, &fakeApplication{snapshot: s}).getBody(t)
 			panel := activityPanel(t, body, "acs-rcs")
-			for _, want := range []string{"3 Konflux images missing", "Open RC.0 tag", "View tag checks"} {
+			for _, want := range []string{"3 Konflux images missing", "Open RC.2 tag", "View tag checks"} {
 				if !strings.Contains(panel, want) {
 					t.Errorf("missing %q", want)
 				}
@@ -74,7 +74,7 @@ func TestRCTabShowsBuildActionsBesideMissingImages(t *testing.T) {
 				t.Error("running or successful build unexpectedly offers a retry")
 			}
 			if strings.Contains(activityPanel(t, body, "acs-prs"), proposal.Payload) {
-				t.Error("RC.0 retry crossed into the ACS PRs tab")
+				t.Error("RC retry crossed into the ACS PRs tab")
 			}
 		})
 	}
@@ -82,7 +82,7 @@ func TestRCTabShowsBuildActionsBesideMissingImages(t *testing.T) {
 
 func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 	s := workflowStatusSnapshot()
-	target := s.Config.RC0Target()
+	target := s.Candidate().Target
 	const message = "PipelineRun identity verification failed: retag-fact: context deadline exceeded"
 	const digest = "quay.io/rhacs-eng/release-main@sha256:example"
 	plan := release.Plan{
@@ -178,17 +178,53 @@ func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 	}
 }
 
-func TestRCTabLinksReleaseWorkflowWhenTagCannotBeResolved(t *testing.T) {
+func TestRCTabLinksReleaseWorkflowWhenNoCandidateExists(t *testing.T) {
 	s := workflowStatusSnapshot()
-	s.Plans = []release.Plan{{
-		Target: s.Config.RC0Target(), Evidence: release.Evidence{Error: "GitHub API returned HTTP 404"},
-	}}
+	s.Repositories[len(s.Repositories)-1].Candidate = release.Candidate{Evidence: s.Inventory.Evidence}
+	s.Inventory.ReleaseImages = nil
+	delete(s.Inventory.Versions, "acs")
 	assessWorkflow(&s)
 	body := newBrowser(t, &fakeApplication{snapshot: s}).getBody(t)
 	panel := activityPanel(t, body, "acs-rcs")
-	for _, want := range []string{"Unable to verify the RC.0 tag", "Open release workflow", "/actions/workflows/start-release.yml"} {
+	for _, want := range []string{"No release candidate tag exists", "Open release workflow", "/actions/workflows/start-release.yml"} {
 		if !strings.Contains(panel, want) {
 			t.Errorf("missing %q", want)
 		}
+	}
+}
+
+func TestRCTabShowsPostCandidateCommitsAndPRsWithoutPinning(t *testing.T) {
+	for name, tc := range map[string]struct {
+		ahead   int
+		prError string
+		want    []string
+	}{
+		"branch and candidate match": {want: []string{"No commits have landed on the release branch since RC.2."}},
+		"two commits landed": {ahead: 2, want: []string{
+			">2 commits</a> landed on the release branch since RC.2.",
+			`href="https://github.com/stackrox/stackrox/compare/rc-commit...acs-head"`,
+			`href="https://github.com/stackrox/stackrox/pull/17"`, "#17 Backport fix",
+		}},
+		"PR results are incomplete": {ahead: 1, prError: "GitHub rate limit", want: []string{
+			">1 commit</a> landed on the release branch since RC.2.",
+			"Some PR links are unavailable.",
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := workflowStatusSnapshot()
+			s.Config.PinningPR = 0
+			rc := &s.Repositories[len(s.Repositories)-1].Candidate
+			rc.Ahead, rc.PRError = tc.ahead, tc.prError
+			rc.CompareURL = "https://github.com/stackrox/stackrox/compare/rc-commit...acs-head"
+			if tc.ahead == 2 {
+				rc.PRs = []release.CandidatePR{{Number: 17, Title: "Backport fix", URL: "https://github.com/stackrox/stackrox/pull/17"}}
+			}
+			panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-rcs")
+			for _, want := range append(tc.want, "Open RC.2 tag") {
+				if !strings.Contains(panel, want) {
+					t.Errorf("missing %q", want)
+				}
+			}
+		})
 	}
 }

@@ -20,7 +20,7 @@ func (s *Session) readRCPlan(ctx context.Context, target release.Target) (releas
 	read.Wait()
 	if validation.SHA != "" && plan.SHA != "" && validation.SHA != plan.SHA {
 		// A moved tag invalidates both the proposed retries and the combined view.
-		err := errors.New("the RC.0 tag resolved to different commits during this refresh")
+		err := errors.New("the RC tag resolved to different commits during this refresh")
 		return release.Plan{Target: target, Evidence: release.Evidence{At: plan.Evidence.At, Error: err.Error()}}, err
 	}
 	if plan.SHA == "" && validation.SHA != "" {
@@ -32,7 +32,7 @@ func (s *Session) readRCPlan(ctx context.Context, target release.Target) (releas
 }
 
 func (s *Session) clearRCPlan() {
-	target := s.config.RC0Target()
+	target := s.repos["acs"].Candidate.Target
 	if _, ok := s.plans[target]; ok {
 		delete(s.plans, target)
 		s.dispatcher.ObserveIdentity(dispatch.Identity{Target: target})
@@ -64,4 +64,14 @@ func (s *Session) observeRCPlan(target release.Target, plan release.Plan) {
 	s.recordStartFailures(previous, plan)
 	s.plans[target] = plan
 	s.dispatcher.ObservePlan(plan)
+}
+
+// Candidate returns the ACS tag observation independently of build prerequisites.
+func (s Snapshot) Candidate() release.Candidate {
+	for _, repo := range s.Repositories {
+		if repo.Source.Name == "acs" {
+			return repo.Candidate
+		}
+	}
+	return release.Candidate{}
 }
