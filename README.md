@@ -6,7 +6,24 @@ It reads GitHub, Quay, and Konflux to suggest what to do next. You merge PRs, pu
 
 ## Quick start
 
-Replace the placeholders and run the command from the repository root.
+For Konflux, log in to the build cluster before starting the assistant. An
+active login to that cluster is enough. GitHub and Quay can run without it.
+
+```sh
+oc login https://api.stone-prd-rh01.pg1f.p1.openshiftapps.com --token='YOUR_OPENSHIFT_TOKEN'
+```
+
+Get the App ID from a Konflux check run. Replace `CHECK_RUN_ID` with the
+numeric check-run ID and use the repository that owns the check.
+
+```sh
+GH_TOKEN='YOUR_GITHUB_TOKEN' gh api 'repos/stackrox/fact/check-runs/CHECK_RUN_ID' \
+  --jq '.app | {id, slug, owner: .owner.login}'
+```
+
+Verify the app slug and owner. From the repository root, run the launch
+command with the returned numeric `id` in place of `APP_ID` and the API
+hostname and namespace for your builds.
 
 ```sh
 GH_TOKEN='YOUR_GITHUB_TOKEN' QUAY_USERNAME='YOUR_QUAY_USERNAME' QUAY_PASSWORD='YOUR_QUAY_PASSWORD' \
@@ -14,10 +31,7 @@ GH_TOKEN='YOUR_GITHUB_TOKEN' QUAY_USERNAME='YOUR_QUAY_USERNAME' QUAY_PASSWORD='Y
     --allow-konflux-lookup 'APP_ID,api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant'
 ```
 
-For Konflux, run `oc login` first and use the verified numeric `APP_ID`, API
-hostname, and namespace for your builds. [Setup details](#setup-details)
-
-Open the [local assistant](http://127.0.0.1:8080).
+Open the [local assistant](http://127.0.0.1:8080). [Setup details](#setup-details)
 
 ## Setup details
 
@@ -70,18 +84,8 @@ at startup. Restart it after changing a token or login.
    or their Tekton Results records. The assistant uses the token from the
    active `oc` login for that cluster.
 
-   Find a Konflux check run for a monitored repository and query its GitHub
-   App. Set `CHECK_RUN_ID` to the numeric check-run ID and substitute the
-   repository name if the check is outside `stackrox/fact`.
-
-   ```sh
-   gh api "repos/stackrox/fact/check-runs/${CHECK_RUN_ID:?Set CHECK_RUN_ID}" \
-     --jq '.app | {id, slug, owner: .owner.login}'
-   ```
-
-   Verify the app slug and owner, then set `APP_ID` to the returned numeric
-   `id`. Use the hostname from the API URL printed by `oc`. The namespace
-   is the segment after `/ns/` in the Konflux build URL.
+   Use the hostname from the API URL printed by `oc`. The namespace is the
+   segment after `/ns/` in the Konflux build URL.
 
    Repeat `--allow-konflux-lookup` for each trusted app, host, and namespace
    combination. If you still need a check-run ID, start without the flag.
