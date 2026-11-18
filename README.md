@@ -6,6 +6,21 @@ It reads GitHub, Quay, and Konflux to suggest what to do next. You merge PRs, pu
 
 ## Quick start
 
+Replace the placeholders and run the command from the repository root.
+
+```sh
+GH_TOKEN='YOUR_GITHUB_TOKEN' QUAY_USERNAME='YOUR_QUAY_USERNAME' QUAY_PASSWORD='YOUR_QUAY_PASSWORD' \
+  go run ./cmd/release-assistant --version 5.0.1 --branch release-5.0 \
+    --allow-konflux-lookup 'APP_ID,api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant'
+```
+
+For Konflux, run `oc login` first and use the verified numeric `APP_ID`, API
+hostname, and namespace for your builds. [Setup details](#setup-details)
+
+Open the [local assistant](http://127.0.0.1:8080).
+
+## Setup details
+
 Have the GitHub CLI (`gh`) and OpenShift CLI (`oc`) available in the
 terminal you’ll use to start the assistant. The assistant reads credentials
 at startup. Restart it after changing a token or login.
@@ -68,23 +83,11 @@ at startup. Restart it after changing a token or login.
    `id`. Use the hostname from the API URL printed by `oc`. The namespace
    is the segment after `/ns/` in the Konflux build URL.
 
-5. **Start the assistant.** From the repository root, run the command for
-   your patch version and target branch. This example uses the
-   `rh-acs-tenant` namespace on the `stone-prd-rh01` cluster. Substitute your
-   API hostname and namespace, and repeat `--allow-konflux-lookup` for each
-   trusted app, host, and namespace combination.
-
-   ```sh
-   go run ./cmd/release-assistant --version 5.0.1 --branch release-5.0 \
-     --allow-konflux-lookup "${APP_ID:?Set APP_ID},api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant"
-   ```
-
-   Open the [local assistant](http://127.0.0.1:8080). Check **Activity and
-   errors** for discovery progress. If you still need the check-run ID, start
-   with the same release flags and omit `--allow-konflux-lookup`. GitHub and
-   Quay reads can proceed. A `lookup denied by caller policy` message names
-   the repository and check-run ID for a lookup that needs approval. Verify
-   the combination and restart with the flag.
+   Repeat `--allow-konflux-lookup` for each trusted app, host, and namespace
+   combination. If you still need a check-run ID, start without the flag.
+   A `lookup denied by caller policy` message in **Activity and errors**
+   names the repository and check-run ID. Verify the combination and
+   restart with the flag.
 
 To post retry comments from the app, add `--enable-writes` and follow
 [Retry comments](#retry-comments). Your GitHub credential also needs
