@@ -113,6 +113,7 @@ legend { padding: 0 .35rem; font-weight: 700; }
 .component-tag-row { margin-top: .8rem; }
 .component-tag-row h3 { margin: .3rem 0; font-size: 1rem; }
 .tag-prompt { margin: .25rem 0; font-weight: 600; }
+.tag-switch > summary { width: fit-content; color: var(--accent); text-decoration: underline; cursor: pointer; }
 .tag-options { margin: .3rem 0; font-size: .86rem; }
 .tag-options :is(th, td) { padding: .2rem .4rem; vertical-align: top; }
 .tag-options .tag-evidence { display: inline-block; }

@@ -9,11 +9,10 @@
         <article class="component-tag-row" data-live-key="tag-repo:{{$source.Name}}:{{$source.Repo}}">
           <h3>{{title $source.Name}} · <code>{{$source.Branch}}</code></h3>
           {{if not .CurrentTag}}<p class="tag-prompt">Choose a release tag for {{title $source.Name}}.</p>{{end}}
-          {{if or .CurrentTag .Tags .OtherTags}}
+          {{if .CurrentTag}}
           <table class="tag-options" aria-label="{{title $source.Name}} release tags">
             <thead><tr><th scope="col">Tag</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
             <tbody>
-            {{if .CurrentTag}}
             <tr><th scope="row"><code>{{.CurrentTag}}</code></th>
             <td class="component-tag-coverage"><strong>Selected</strong>
               <span class="pill {{truth .Coverage.Status}}">
@@ -30,11 +29,15 @@
                   <button type="submit">Clear selection</button>
                 </form>
             </td></tr>
-            {{end}}
-            {{range .Tags}}{{template "component-tag-option" .}}{{end}}
-            {{range .OtherTags}}{{template "component-tag-option" .}}{{end}}
             </tbody>
           </table>
+          {{if or .Tags .OtherTags}}
+          <details class="tag-switch" data-transient data-fold-key="tag-switch:{{$source.Name}}:{{$source.Repo}}@{{.CurrentTag}}">
+            <summary>Change tag</summary>
+            {{template "component-tag-options" .}}
+          </details>
+          {{end}}
+          {{else if or .Tags .OtherTags}}{{template "component-tag-options" .}}
           {{else}}<p class="muted">No tags observed yet.</p>{{end}}
           {{if .NewerTag}}<p class="tag-prompt">Review {{.NewerTag}} for a newer release.</p>{{end}}
           <details class="tag-evidence component-tag-details" data-fold-key="{{if .CurrentTag}}tag-evidence:{{$source.Name}}:{{$source.Repo}}@{{.CurrentTag}}{{else}}tag-repo-details:{{$source.Name}}:{{$source.Repo}}{{end}}">
@@ -73,6 +76,16 @@
     {{range .History}}<article class="history-card"><div class="section-heading"><h3>{{.Cycle.Component}} · {{.Cycle.Tag}}</h3><span>SHA <code>{{.Cycle.SHA}}</code> · observed {{when .Cycle.At}}</span></div><p>Retained build plan: {{.Cycle.Plan.Action}} — {{.Cycle.Plan.Message}}</p>{{if .Cycle.Plan.Evidence.Error}}<p class="error-text">{{.Cycle.Plan.Evidence.Error}}</p>{{end}}{{if .Cycle.Images}}<table><thead><tr><th>Family</th><th>Reference</th><th>Status</th><th>Evidence</th></tr></thead><tbody>{{range .Cycle.Images}}<tr><td>{{.Family}}</td><td><code>{{.Reference}}</code></td><td>{{if .Evidence.Fresh}}{{truth .Present}}{{else}}unknown{{if .Present}} (last observed {{truth .Present}}){{end}}{{end}}</td><td>{{if .Evidence.Error}}{{.Evidence.Error}}{{else}}observed at {{when .Evidence.At}}{{end}}</td></tr>{{end}}</tbody></table>{{else}}<p class="muted">No image observations were retained for this cycle.</p>{{end}}</article>{{end}}
     </details>
   </section>{{end}}
+{{end}}
+
+{{define "component-tag-options"}}
+  <table class="tag-options" aria-label="{{title .Repository.Source.Name}} tag choices">
+    <thead><tr><th scope="col">Tag</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
+    <tbody>
+      {{range .Tags}}{{template "component-tag-option" .}}{{end}}
+      {{range .OtherTags}}{{template "component-tag-option" .}}{{end}}
+    </tbody>
+  </table>
 {{end}}
 
 {{define "image-counts"}}

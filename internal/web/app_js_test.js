@@ -140,6 +140,15 @@ test("opens topic panels on a new app run even when the browser tab has saved fo
   assert.ok(sections.every(({ open }) => open));
 });
 
+test("starts a fresh tag choice collapsed even when revisiting the same selected tag", () => {
+  const foldKey = "tag-switch:fact:acme/fact@1.0";
+  const chooser = makeDetails({ foldKey, open: false });
+  chooser.dataset.transient = "";
+  const page = makePage({ storage: savedState({ [foldKey]: true }), sections: [chooser] });
+  page.start();
+  assert.equal(chooser.open, false);
+});
+
 test("restores exact open and closed choices across changed markup defaults", () => {
   const storage = savedState({ configuration: false, "repo:one": true });
   const first = makePage({

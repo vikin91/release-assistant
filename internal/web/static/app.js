@@ -1,6 +1,6 @@
 document.addEventListener("DOMContentLoaded", () => {
   const sections = () => Array.from(document.querySelectorAll("details"));
-  const sectionKey = (section) => section.dataset.foldKey || section.id;
+  const sectionKey = (section) => section.dataset.transient !== undefined ? "" : section.dataset.foldKey || section.id;
   const storageKey = "release-assistant:sections";
   const [appSession] = document.body.dataset.session.split(":");
   let sectionStates = {};
