@@ -22,14 +22,21 @@
   </div></details>
   {{end}}
   {{template "konflux-status" .}}
+  <details data-fold-key="write-mode" name="header-menu" class="header-menu">
+    <summary>Write mode · {{if not .Snapshot.WritesEnabled}}Read-only{{else if .Snapshot.Interactive}}Interactive{{else}}Automatic{{end}}</summary>
+    <div class="menu-content"><p>{{if not .Snapshot.WritesEnabled}}The assistant cannot post comments to GitHub.{{else if .Snapshot.Interactive}}You must confirm each eligible retry comment before the assistant posts it to a permitted PR or tag.{{else}}The assistant automatically posts eligible retry comments to GitHub for permitted PRs and tags.{{end}}</p></div>
+  </details>
 </header>
 <div id="live-dashboard" class="workspace">
 <aside class="sidebar">
+  {{if .Configured}}<h2 class="phases-title">Release phases</h2>{{end}}
   <nav class="workflow-tabs" role="tablist" aria-orientation="vertical" aria-label="Release work">
-    {{range $tab := (slice "component-prs" "component-releases" "acs-prs" "acs-rcs" "activity" "settings")}}
+    {{range $i, $tab := (slice "component-prs" "component-releases" "acs-prs" "acs-rcs" "activity" "settings")}}
     {{if or $.Configured (eq $tab "settings") (eq $tab "activity")}}
+    {{$label := tabTitle $tab}}
+    {{if lt $i 4}}{{$label = printf "%s. %s" (index (slice "1" "2" "3" "4") $i) $label}}{{end}}
     {{$status := index $.TabStatuses $tab}}
-    <a id="tab-{{$tab}}" role="tab" href="/?tab={{$tab}}" data-workflow-tab="{{$tab}}" aria-controls="panel-{{$tab}}" aria-selected="{{if eq $.Tab $tab}}true{{else}}false{{end}}" tabindex="{{if eq $.Tab $tab}}0{{else}}-1{{end}}"{{if $status.Label}} aria-label="{{tabTitle $tab}} · {{$status.Label}} · {{$status.Reason}}" title="{{$status.Label}} · {{$status.Reason}}"{{end}}>{{tabTitle $tab}} <span class="tab-status{{with $status.Class}} {{.}}{{end}}" aria-hidden="true">{{$status.Icon}}</span></a>
+    <a id="tab-{{$tab}}" role="tab" href="/?tab={{$tab}}" data-workflow-tab="{{$tab}}" aria-controls="panel-{{$tab}}" aria-selected="{{if eq $.Tab $tab}}true{{else}}false{{end}}" tabindex="{{if eq $.Tab $tab}}0{{else}}-1{{end}}"{{if $status.Label}} aria-label="{{$label}} · {{$status.Label}} · {{$status.Reason}}" title="{{$status.Label}} · {{$status.Reason}}"{{end}}>{{$label}} <span class="tab-status{{with $status.Class}} {{.}}{{end}}" aria-hidden="true">{{$status.Icon}}</span></a>
     {{end}}{{end}}
   </nav>
   <p id="dashboard-refresh-status" class="muted" role="status" data-live-preserve>Waiting for release updates.</p>
@@ -47,9 +54,9 @@
   <section id="panel-activity" class="workflow-panel" role="tabpanel" aria-labelledby="tab-activity" data-workflow-panel="activity" tabindex="0"{{if ne .Tab "activity"}} hidden{{end}}>
   <section class="panel" id="activity-console" data-live-preserve>
     <details id="activity-details" open>
-      <summary class="section-summary">Activity and errors</summary>
+      <summary class="section-summary">Log</summary>
       <p class="muted">Monitoring continues when you switch tabs. The latest 200 events refresh every two seconds.</p>
-      <pre id="activity-log" role="log" aria-label="Activity and errors" aria-live="off" tabindex="0">{{activity .Snapshot}}</pre>
+      <pre id="activity-log" role="log" aria-label="Log" aria-live="off" tabindex="0">{{activity .Snapshot}}</pre>
       <button type="button" id="activity-jump-latest" hidden>Jump to latest</button>
       <p id="activity-refresh-error" class="error-text" role="status" hidden></p>
     </details>

@@ -25,10 +25,11 @@ func TestWriteModeControls(t *testing.T) {
 		wantReadOnly  bool
 		wantDisabled  bool
 		wantMode      string
+		wantHeader    string
 	}{
-		{name: "startup read-only", interactive: true, wantReadOnly: true, wantDisabled: true, wantMode: "Read-only"},
-		{name: "writes enabled", writesEnabled: true, interactive: true, wantMode: "Confirm each comment"},
-		{name: "automatic with opt-out", writesEnabled: true, optOut: true, wantDisabled: true, wantMode: "Automatic for permitted targets"},
+		{name: "startup read-only", interactive: true, wantReadOnly: true, wantDisabled: true, wantMode: "Read-only", wantHeader: "Read-only"},
+		{name: "writes enabled", writesEnabled: true, interactive: true, wantMode: "Confirm each comment", wantHeader: "Interactive"},
+		{name: "automatic with opt-out", writesEnabled: true, optOut: true, wantDisabled: true, wantMode: "Automatic for permitted targets", wantHeader: "Automatic"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			application := &fakeApplication{snapshot: app.Snapshot{
@@ -60,6 +61,10 @@ func TestWriteModeControls(t *testing.T) {
 				t.Fatalf("GET status=%d body=%s", w.Code, w.Body.String())
 			}
 			body := w.Body.String()
+			header := between(t, body, "<header", "</header>")
+			if !strings.Contains(header, "<summary>Write mode · "+tc.wantHeader+"</summary>") {
+				t.Errorf("header must display write mode %q", tc.wantHeader)
+			}
 			if got := strings.Contains(body, "Read-only mode. Restart with"); got != tc.wantReadOnly {
 				t.Errorf("read-only notice present=%t, want %t", got, tc.wantReadOnly)
 			}

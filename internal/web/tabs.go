@@ -16,11 +16,11 @@ func tabTitle(tab string) string {
 	case "settings":
 		return "Settings"
 	case "activity":
-		return "Activity and errors"
+		return "Log"
 	case "component-releases":
 		return "Component releases"
 	case "acs-prs":
-		return "ACS PRs and pinning"
+		return "ACS PRs"
 	case "acs-rcs":
 		return "ACS RCs"
 	default:

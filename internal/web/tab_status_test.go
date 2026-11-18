@@ -221,10 +221,10 @@ func TestWorkflowTabStatusIsRenderedWithAccessibleReason(t *testing.T) {
 	assessWorkflow(&s)
 	body := newBrowser(t, &fakeApplication{snapshot: s}).getBody(t)
 	for _, marker := range []string{
-		`aria-label="Component PRs · Action needed · Decide whether to include 1 PR."`,
+		`aria-label="1. Component PRs · Action needed · Decide whether to include 1 PR."`,
 		`class="tab-status action-needed" aria-hidden="true">→`,
 		`<strong>Action needed</strong> · Decide whether to include 1 PR.`,
-		`aria-label="ACS RCs · In progress · Images are available. Waiting for RC build checks."`,
+		`aria-label="4. ACS RCs · In progress · Images are available. Waiting for RC build checks."`,
 	} {
 		if !strings.Contains(body, marker) {
 			t.Errorf("missing %q", marker)

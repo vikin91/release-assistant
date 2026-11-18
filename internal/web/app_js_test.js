@@ -588,7 +588,7 @@ test("keeps independently selected tabs across live updates and form navigation"
   assert.equal(initial.tabs[2].getAttribute("aria-selected"), "true");
   assert.deepEqual(initial.panels.map((panel) => panel.hidden), [true, true, false, true]);
   const refreshed = workflowPage();
-  const statusLabel = "ACS PRs and pinning · Action needed · Decide whether to include 1 PR.";
+  const statusLabel = "3. ACS PRs · Action needed · Decide whether to include 1 PR.";
   refreshed.tabs[2].setAttribute("aria-label", statusLabel);
   refreshed.tabs[2].insertBefore(domNode("SPAN", { class: "tab-status action-needed", "aria-hidden": "true" }), null);
   page.updateTo(refreshed);
