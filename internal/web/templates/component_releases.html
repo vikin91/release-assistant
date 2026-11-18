@@ -44,7 +44,7 @@
       {{end}}
     </details>
   </section>
-  {{if .History}}<section id="previous-cycles-panel" class="panel"><details id="previous-cycles"><summary class="section-summary">Previous component cycles</summary>
+  {{if .History}}<section id="previous-cycles-panel" class="panel"><details id="previous-cycles" open><summary class="section-summary">Previous component cycles</summary>
     <p class="eyebrow">Earlier confirmed tags</p>
     {{range .History}}<article class="history-card"><div class="section-heading"><h3>{{.Cycle.Component}} · {{.Cycle.Tag}}</h3><span>SHA <code>{{.Cycle.SHA}}</code> · observed {{when .Cycle.At}}</span></div><p>Retained build plan: {{.Cycle.Plan.Action}} — {{.Cycle.Plan.Message}}</p>{{if .Cycle.Plan.Evidence.Error}}<p class="error-text">{{.Cycle.Plan.Evidence.Error}}</p>{{end}}{{if .Cycle.Images}}<table><thead><tr><th>Family</th><th>Reference</th><th>Status</th><th>Evidence</th></tr></thead><tbody>{{range .Cycle.Images}}<tr><td>{{.Family}}</td><td><code>{{.Reference}}</code></td><td>{{if .Evidence.Fresh}}{{truth .Present}}{{else}}unknown{{if .Present}} (last observed {{truth .Present}}){{end}}{{end}}</td><td>{{if .Evidence.Error}}{{.Evidence.Error}}{{else}}observed at {{when .Evidence.At}}{{end}}</td></tr>{{end}}</tbody></table>{{else}}<p class="muted">No image observations were retained for this cycle.</p>{{end}}</article>{{end}}
     </details>

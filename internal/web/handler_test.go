@@ -829,7 +829,7 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 			t.Errorf("missing stale component evidence %q", want)
 		}
 	}
-	for _, control := range []string{`<details id="component-images" open>`, `<details id="release-images">`, `<details id="component-prs-next-steps" open>`, `<details id="retry-details" open>`, `<details id="comment-offers-details" open>`} {
+	for _, control := range []string{`<details id="component-images" open>`, `<details id="release-images" open>`, `<details id="component-prs-next-steps" open>`, `<details id="retry-details" open>`, `<details id="comment-offers-details" open>`} {
 		if !strings.Contains(body, control) {
 			t.Errorf("missing section fold control %s", control)
 		}
@@ -885,6 +885,9 @@ func TestFoldControlsHaveUniqueStableIdentities(t *testing.T) {
 			t.Fatalf("fold control has no stable identity: %s", section)
 		}
 		key := html.UnescapeString(match[1])
+		if strings.HasPrefix(match[0], `id="`) && !strings.HasSuffix(section, " open>") {
+			t.Errorf("topic panel %q should start open", key)
+		}
 		if seen[key] {
 			t.Errorf("duplicate fold identity %q", key)
 		}

@@ -2,10 +2,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const sections = () => Array.from(document.querySelectorAll("details"));
   const sectionKey = (section) => section.dataset.foldKey || section.id;
   const storageKey = "release-assistant:sections";
+  const [appSession] = document.body.dataset.session.split(":");
   let sectionStates = {};
   try {
-    const saved = JSON.parse(window.sessionStorage.getItem(storageKey) || "{}");
-    if (saved && typeof saved === "object" && !Array.isArray(saved)) sectionStates = saved;
+    const saved = JSON.parse(window.sessionStorage.getItem(storageKey));
+    if (saved?.session === appSession && saved.sections && typeof saved.sections === "object" && !Array.isArray(saved.sections)) {
+      sectionStates = saved.sections;
+    }
   } catch {}
 
   let activeTab = document.body.dataset.activeTab || "component-prs";
@@ -59,9 +62,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const key = sectionKey(section);
       if (key) sectionStates[key] = section.open;
     }
-    if (configSubmitted) delete sectionStates["release-configuration"];
+    if (configSubmitted) sectionStates["release-configuration"] = false;
     try {
-      window.sessionStorage.setItem(storageKey, JSON.stringify(sectionStates));
+      window.sessionStorage.setItem(storageKey, JSON.stringify({ session: appSession, sections: sectionStates }));
       return true;
     } catch {
       return false;

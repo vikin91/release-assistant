@@ -25,7 +25,7 @@ function makeDetails({ id = "", foldKey = "", open = false } = {}) {
   return emitter({ id, dataset: foldKey ? { foldKey } : {}, open, tagName: "DETAILS" });
 }
 
-function makePage({ sections = [], storage = new Map(), hash = "", configDraft = false, storageFails = false, activityLog, fetchActivity, livePage, fetchDashboard, parseDashboard } = {}) {
+function makePage({ sections = [], storage = new Map(), session = "session:1", hash = "", configDraft = false, storageFails = false, activityLog, fetchActivity, livePage, fetchDashboard, parseDashboard } = {}) {
   const byId = new Map(sections.filter((section) => section.id).map((section) => [section.id, section]));
   if (activityLog) {
     byId.set("activity-log", activityLog);
@@ -50,7 +50,7 @@ function makePage({ sections = [], storage = new Map(), hash = "", configDraft =
     },
   };
   const document = emitter({
-    body: { dataset: { loading: "false" } },
+    body: { dataset: { loading: "false", session } },
     activeElement: null,
     querySelectorAll(selector) {
       if (selector === "details") return livePage ? livePage.dashboard.querySelectorAll("details") : sections;
@@ -97,14 +97,22 @@ function makePage({ sections = [], storage = new Map(), hash = "", configDraft =
       document.emit("DOMContentLoaded");
     },
     stored() {
-      return JSON.parse(storage.get(storageKey) || "{}");
+      return JSON.parse(storage.get(storageKey))?.sections || {};
     },
   };
 }
 
-function savedState(states) {
-  return new Map([[storageKey, JSON.stringify(states)]]);
+function savedState(sections, session = "session") {
+  return new Map([[storageKey, JSON.stringify({ session, sections })]]);
 }
+
+test("opens topic panels on a new app run even when the browser tab has saved folds", () => {
+  const storage = savedState({ "previous-cycles": false, "release-images": false });
+  const sections = ["previous-cycles", "release-images"].map((id) => makeDetails({ id, open: true }));
+  const page = makePage({ storage, sections, session: "restarted:1" });
+  page.start();
+  assert.ok(sections.every(({ open }) => open));
+});
 
 test("restores exact open and closed choices across changed markup defaults", () => {
   const storage = savedState({ configuration: false, "repo:one": true });
@@ -118,6 +126,7 @@ test("restores exact open and closed choices across changed markup defaults", ()
 
   const next = makePage({
     storage,
+    session: "session:2",
     sections: [makeDetails({ foldKey: "repo:one", open: true }), makeDetails({ id: "configuration", open: true })],
   });
   next.start();
@@ -188,18 +197,21 @@ test("explicit navigation opens and stores a section; same-hash reload preserves
   assert.equal(reloaded.document.querySelectorAll("details")[0].open, false);
 });
 
-test("configuration submission clears only its saved choice while a rejected draft stays open", () => {
+test("configuration submission folds only configuration while a rejected draft stays open", () => {
   const config = makeDetails({ id: "release-configuration", open: false });
   const other = makeDetails({ id: "repo-panel", open: false });
+  const storage = savedState({ "release-configuration": true, "repo-panel": true, "unrendered-panel": false });
   const page = makePage({
-    storage: savedState({ "release-configuration": false, "repo-panel": true, "unrendered-panel": false }),
+    storage,
     sections: [config, other],
   });
   page.start();
   page.document.emit("submit", { target: { matches: (selector) => selector === ".config-grid" } });
-  assert.deepEqual(page.stored(), { "repo-panel": true, "unrendered-panel": false });
+  assert.deepEqual(page.stored(), { "release-configuration": false, "repo-panel": true, "unrendered-panel": false });
   page.window.emit("pagehide");
-  assert.deepEqual(page.stored(), { "repo-panel": true, "unrendered-panel": false });
+  const savedConfig = makeDetails({ id: "release-configuration", open: true });
+  makePage({ storage, sections: [savedConfig], session: "session:2" }).start();
+  assert.equal(savedConfig.open, false);
 
   const draftConfig = makeDetails({ id: "release-configuration", open: true });
   const draftPage = makePage({
@@ -583,7 +595,7 @@ test("a deep section link reveals its activity and retains section choices", () 
 });
 
 
-test("initial setup stays open when an earlier session saved configuration collapsed", () => {
+test("initial setup stays open when configuration was saved as collapsed", () => {
   const configuration = makeDetails({ id: "release-configuration", open: true });
   const page = makePage({ sections: [configuration], storage: savedState({ "release-configuration": false }) });
   page.document.body.dataset.configured = "false";
