@@ -707,6 +707,9 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		if imageErr := s.inspectPinningImages(ctx, generation, &plan); imageErr != nil {
 			errs = append(errs, fmt.Errorf("checking built images for %s: %w", consoleRevision(target, plan.SHA), imageErr))
 		}
+		if canceled(ctx) {
+			return ctx.Err()
+		}
 		if err != nil {
 			errs = append(errs, fmt.Errorf("reading build results for %s: %w", consoleRevision(target, plan.SHA), err))
 		}
@@ -815,7 +818,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	s.mu.Lock()
 	currentGeneration := s.generation == generation && (work.scope == ReadAll || revision == s.workRevision)
 	s.mu.Unlock()
-	if work.plans && currentGeneration && !s.dispatcher.IsInteractive() {
+	if work.plans && currentGeneration && !canceled(ctx) && !s.dispatcher.IsInteractive() {
 		for _, view := range s.dispatcher.Views() {
 			if view.Target.Repo != source.Repo {
 				continue
@@ -877,6 +880,9 @@ func retainLastImagePresence(current, previous []release.Image) []release.Image 
 	return images
 }
 
+// canceled reports whether shutdown or a superseding cycle ended the work, not a read failure.
+func canceled(ctx context.Context) bool { return errors.Is(ctx.Err(), context.Canceled) }
+
 // refreshImages commits registry evidence only while its release and tag choices remain current.
 func (s *Session) refreshImages(ctx context.Context, generation uint64, initial bool) error {
 	return s.refreshImagesScoped(ctx, generation, initial, true, false)
@@ -907,6 +913,9 @@ func (s *Session) refreshImagesScoped(ctx context.Context, generation uint64, in
 		inventory, err = components.InspectComponents(ctx, c, versions)
 	} else {
 		return fmt.Errorf("component-only image inspection is unavailable")
+	}
+	if canceled(ctx) {
+		return ctx.Err()
 	}
 	s.mu.Lock()
 	if generation == s.generation && maps.Equal(versions, s.choices.Tags) && (!scheduled || (revision == s.workRevision && (!includeRC || s.rcReady()))) {

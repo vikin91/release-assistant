@@ -44,6 +44,9 @@ func (s *Session) inspectPinningImages(ctx context.Context, generation uint64, p
 		}
 	}
 	err := errors.Join(issues...)
+	if canceled(ctx) {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if generation == s.generation {

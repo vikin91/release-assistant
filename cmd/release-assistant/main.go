@@ -99,6 +99,7 @@ func run() error {
 	case err = <-servingDone:
 		stop()
 	case <-ctx.Done():
+		stop()
 	}
 	dispatcher.Stop()
 	closing, cancel := context.WithTimeout(context.Background(), 10*time.Second)

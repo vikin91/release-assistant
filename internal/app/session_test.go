@@ -513,3 +513,49 @@ func TestReadOnlySessionRejectsForgedGrantAndSend(t *testing.T) {
 		t.Fatal("configuration enabled writes")
 	}
 }
+
+// blockingPlanner holds a build check until its context ends, like a canceled request.
+type blockingPlanner struct {
+	*fixture
+	started chan struct{}
+}
+
+func (p *blockingPlanner) Plan(ctx context.Context, target release.Target) (release.Plan, error) {
+	select {
+	case p.started <- struct{}{}:
+	default:
+	}
+	<-ctx.Done()
+	return release.Plan{Target: target, Evidence: release.Evidence{At: time.Now(), Error: ctx.Err().Error()}}, ctx.Err()
+}
+
+func TestCanceledRefreshRecordsNoReadFailure(t *testing.T) {
+	s, f := newFixture()
+	apply(t, s, Action{Kind: "configure", Config: configuration()})
+	refreshAll(t, s)
+	tag := f.repos["fact"].Tags[0]
+	apply(t, s, Action{Kind: "tag", Component: "fact", Tag: tag.Name, SHA: tag.SHA})
+	planner := &blockingPlanner{fixture: f, started: make(chan struct{}, 1)}
+	s.planner = planner
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- s.Refresh(ctx, s.Snapshot().Generation, configuration().Components[0], false) }()
+	<-planner.started
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("refresh error = %v, want context cancellation", err)
+	}
+	for _, entry := range s.Snapshot().LogEntries {
+		if entry.Decision == "checks" || entry.Decision == "checks-error" {
+			t.Fatalf("canceled refresh recorded %q: %s", entry.Decision, entry.Result)
+		}
+	}
+	s.mu.Lock()
+	_, published := s.plans[release.Target{Repo: "stackrox/fact", Tag: tag.Name}]
+	s.mu.Unlock()
+	if published {
+		t.Fatal("canceled read published build results")
+	}
+}
