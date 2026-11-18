@@ -277,5 +277,5 @@ a { color: var(--accent); }
 .rc-validation-checks :is(th, td) { padding: .3rem .4rem; overflow-wrap: anywhere; }
 .rc-validation-checks thead th:nth-child(2) { width: 5.75rem; }
 .rc-validation-checks thead th:nth-child(3) { width: 27%; }
-.rc-validation-workflow th { background: var(--panel); }
+.rc-validation-checks th[scope="row"] { font-weight: 400; }
 .rc-validation-checks .rc-row-links { margin-top: 0; }

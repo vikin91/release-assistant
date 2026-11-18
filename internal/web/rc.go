@@ -14,7 +14,7 @@ type (
 		CommitURL                         string
 		Plan                              *planModel
 		Permission                        *tagModel
-		ValidationGroups                  []rcValidationGroup
+		ValidationRows                    []rcValidationRow
 		ImagesAvailable                   bool
 		ValidationObserved                bool
 		UnverifiedJobs                    []release.Run

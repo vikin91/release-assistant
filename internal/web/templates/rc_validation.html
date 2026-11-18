@@ -12,18 +12,16 @@
           <details class="rc-diagnostics" data-fold-key="rc-validation-diagnostics"><summary>Some check evidence is unavailable</summary><p>{{.Evidence.Error}}</p></details>
         {{else if not .Evidence.Fresh}}<p class="muted"><span class="pill">Pending</span> Waiting for GitHub check results.</p>
         {{else if not $.RC.ValidationObserved}}<p class="muted"><span class="pill">Pending</span> No validation checks have been reported for this commit yet.</p>
-        {{else if not $.RC.ValidationGroups}}<p class="muted">No failed, canceled, or running validation checks in the current results.</p>{{end}}
+        {{else if not $.RC.ValidationRows}}<p class="muted">No failed, canceled, or running validation checks in the current results.</p>{{end}}
       {{end}}
-      {{if .RC.ValidationGroups}}
+      {{if .RC.ValidationRows}}
         <div class="component-image-table-scroll" role="region" aria-label="RC validation checks" tabindex="0">
           <table class="rc-validation-checks" aria-labelledby="rc-validation-heading">
             <thead><tr><th scope="col">Check</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
-            {{range .RC.ValidationGroups}}
-            <tbody data-live-key="rc-validation-group:{{.Key}}">
-              {{if .WorkflowName}}<tr class="rc-validation-workflow"><th scope="rowgroup" colspan="3">{{.WorkflowName}}</th></tr>{{end}}
-              {{range .Rows}}
+            <tbody>
+              {{range .RC.ValidationRows}}
                 <tr data-live-key="rc-validation:{{.Key}}">
-                  <th scope="row">{{.Name}}</th>
+                  <th scope="row">{{if .WorkflowName}}{{.WorkflowName}} / {{end}}{{.Name}}</th>
                   <td><span class="pill component-image-status {{.Class}}">{{.Status}}</span></td>
                   <td>
                     <div class="rc-row-links">
@@ -34,7 +32,6 @@
                 </tr>
               {{end}}
             </tbody>
-            {{end}}
           </table>
         </div>
       {{end}}

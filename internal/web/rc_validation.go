@@ -9,17 +9,10 @@ import (
 	"release-assistant/internal/release"
 )
 
-type (
-	rcValidationRow struct {
-		Key, Name, Status, Class, URL, LinkLabel string
-		WorkflowName, WorkflowURL                string
-		Retry                                    *rcRetryModel
-	}
-	rcValidationGroup struct {
-		Key, WorkflowName string
-		Rows              []rcValidationRow
-	}
-)
+type rcValidationRow struct {
+	Key, Name, WorkflowName, Status, Class, URL, LinkLabel string
+	Retry                                                  *rcRetryModel
+}
 
 func (rc rcModel) validationStatus() tabStatus {
 	status := tabStatus{State: tabComplete, Reason: "No failed, canceled, or running validation checks in the current results."}
@@ -30,23 +23,20 @@ func (rc rcModel) validationStatus() tabStatus {
 	case !validation.Evidence.Fresh() || !rc.ValidationObserved:
 		status = tabStatus{State: tabInProgress, Reason: "Waiting for RC validation checks."}
 	}
-	for _, group := range rc.ValidationGroups {
-		for _, row := range group.Rows {
-			switch {
-			case row.Retry != nil:
-				status.add(tabActionNeeded, "A failed or canceled RC validation check can be retested.")
-			case row.Class == "no":
-				status.add(tabNeedsAttention, "An RC validation check failed or was canceled.")
-			case row.Class == "unknown":
-				status.add(tabInProgress, "RC validation checks are still running.")
-			}
+	for _, row := range rc.ValidationRows {
+		switch {
+		case row.Retry != nil:
+			status.add(tabActionNeeded, "A failed or canceled RC validation check can be retested.")
+		case row.Class == "no":
+			status.add(tabNeedsAttention, "An RC validation check failed or was canceled.")
+		case row.Class == "unknown":
+			status.add(tabInProgress, "RC validation checks are still running.")
 		}
 	}
 	return status
 }
 
 func (p *pageModel) prepareRCValidation(plan release.Plan, runs map[string]release.Run, retries map[string]*buildRetryCandidate, imageJobs map[string]bool) {
-	var rows []rcValidationRow
 	// A verified Konflux tag run takes precedence over other runs on the same SHA.
 	for _, run := range plan.Runs {
 		if imageJobs[run.Job] || run.ID == "" {
@@ -65,7 +55,7 @@ func (p *pageModel) prepareRCValidation(plan release.Plan, runs map[string]relea
 			row.Retry = new(p.rcRetry(candidate))
 			row.Retry.Label = "Retest Konflux check"
 		}
-		rows = append(rows, row)
+		p.RC.ValidationRows = append(p.RC.ValidationRows, row)
 	}
 
 	seenKonflux := make(map[string]bool)
@@ -88,29 +78,15 @@ func (p *pageModel) prepareRCValidation(plan release.Plan, runs map[string]relea
 		p.RC.ValidationObserved = true
 		if row.Status != "" {
 			row.WorkflowName = observed.WorkflowName
-			rows = append(rows, row)
+			p.RC.ValidationRows = append(p.RC.ValidationRows, row)
 		}
 	}
-	slices.SortStableFunc(rows, func(a, b rcValidationRow) int {
+	slices.SortStableFunc(p.RC.ValidationRows, func(a, b rcValidationRow) int {
 		if a.Class != b.Class {
 			return cmp.Compare(a.Class, b.Class)
 		}
 		return cmp.Compare(a.Name, b.Name)
 	})
-	groupByRun := make(map[string]int)
-	for _, row := range rows {
-		group := rcValidationGroup{Key: row.Key, WorkflowName: row.WorkflowName, Rows: []rcValidationRow{row}}
-		if row.WorkflowName != "" && row.WorkflowURL != "" {
-			if index, ok := groupByRun[row.WorkflowURL]; ok {
-				existing := &p.RC.ValidationGroups[index]
-				existing.Rows = append(existing.Rows, row)
-				continue
-			}
-			group.Key = row.WorkflowURL
-			groupByRun[row.WorkflowURL] = len(p.RC.ValidationGroups)
-		}
-		p.RC.ValidationGroups = append(p.RC.ValidationGroups, group)
-	}
 }
 
 func conformaScenario(name string) (string, bool) {
@@ -120,12 +96,12 @@ func conformaScenario(name string) (string, bool) {
 
 func (p pageModel) rcValidationRow(check release.Check, key, workflowURL string) rcValidationRow {
 	row := rcValidationRow{
-		Key: key, Name: check.Name, LinkLabel: "View check", WorkflowURL: safeURL(workflowURL),
+		Key: key, Name: check.Name, LinkLabel: "View check",
 		URL: safeURL(check.URL),
 	}
 	if row.URL == "" {
-		if row.WorkflowURL != "" {
-			row.URL, row.LinkLabel = row.WorkflowURL, "View workflow run"
+		if link := safeURL(workflowURL); link != "" {
+			row.URL, row.LinkLabel = link, "View workflow run"
 		} else {
 			row.URL = p.RC.ChecksURL
 		}

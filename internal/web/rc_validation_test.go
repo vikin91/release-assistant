@@ -67,12 +67,11 @@ func TestRCValidationShowsExceptionsAndReusesExactTagRetest(t *testing.T) {
 				strings.Count(table, `<th scope="row">`) != 6 {
 				t.Fatal("each visible check should have one accessible table row")
 			}
-			if strings.Count(table, scanWorkflow) != 1 {
-				t.Fatal("scan workflow should be named once")
+			if strings.Count(table, scanWorkflow) != 2 || !strings.Contains(table, `<th scope="row">gke-qa-e2e-tests-konflux</th>`) {
+				t.Fatal("the scan workflow name should appear only on its own two job rows")
 			}
-			scanJobs := between(t, table, scanWorkflow, "</tbody>")
 			for _, name := range []string{"Konflux: release-main", "Upstream: main"} {
-				row := between(t, scanJobs, `<th scope="row">`+name, "</tr>")
+				row := between(t, table, `<th scope="row">`+scanWorkflow+" / "+name+"</th>", "</tr>")
 				if strings.Count(row, "<a ") != 1 || !strings.Contains(row, ">View check</a>") ||
 					!strings.Contains(row, `href="`+scanRun+"/job/") || !strings.Contains(row, ">Failed</span>") {
 					t.Errorf("scan job %q did not keep its result and one direct link: %s", name, row)
