@@ -364,11 +364,15 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 				model.PinningBuildProblems = append([]string{plan.Evidence.Error}, plan.Warnings...)
 			}
 			pr := model.PinningPR.PR
-			if plan.SHA == pr.SHA && plan.Evidence.Fresh() {
-				model.PinningRetests = plan.Proposals
+			if pr.Evidence.Fresh() && plan.SHA != "" && plan.SHA == pr.SHA {
+				for _, proposal := range plan.Proposals {
+					if proposal.RunID != "" {
+						model.PinningRetests = append(model.PinningRetests, proposal)
+					}
+				}
 			}
 			for _, run := range plan.Runs {
-				if run.Image.Reference == "" {
+				if run.Image.Reference == "" && run.Image.Evidence.Error == "" {
 					continue
 				}
 				row := pinningImageModel{Job: run.Job, URL: run.URL, Image: run.Image, Reason: run.Image.Evidence.Error}

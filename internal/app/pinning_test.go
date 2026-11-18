@@ -143,8 +143,13 @@ func TestPinningOutputsRemainUnknownWhenHeadChangesOrReadsFail(t *testing.T) {
 						t.Fatal("pinning metadata retained stale identity")
 					}
 				}
-			} else if len(x.Plans) != 1 || x.Plans[0].Runs[0].Image.Present != release.Yes || x.Plans[0].Runs[0].Image.Evidence.Fresh() {
-				t.Fatal("failed image observation lost prior result or kept it current")
+			} else {
+				if len(x.Plans) != 1 || x.Plans[0].Runs[0].Image.Present != release.Yes || x.Plans[0].Runs[0].Image.Evidence.Fresh() {
+					t.Fatal("failed image observation lost prior result or kept it current")
+				}
+				if len(x.Plans[0].Proposals) != 0 {
+					t.Fatal("failed build read retained an earlier retry proposal")
+				}
 			}
 		})
 	}

@@ -44,7 +44,6 @@
             {{else}}Source check link unavailable{{end}}</p>
             <dl class="creation-failure-facts">
               <dt>Repository</dt><dd><code>{{.Repo}}</code></dd>
-              {{if .Namespace}}<dt>Namespace in error</dt><dd><code>{{.Namespace}}</code></dd>{{end}}
               <dt>Fetched while monitoring</dt>
               <dd>{{range $i,$target:=.Targets}}{{if $i}}, {{end}}<code>{{$target}}</code>{{end}} <span class="muted">PR/tag association is unverified</span></dd>
               <dt>{{if .Failure.Evidence.Fresh}}Check read at{{else}}Last retained check read at{{end}}</dt>

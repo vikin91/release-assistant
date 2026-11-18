@@ -44,6 +44,41 @@ func TestStartupCredentials(t *testing.T) {
 	}
 }
 
+func TestKonfluxLookupRequiresExactApprovedTuple(t *testing.T) {
+	const host = "api.example.openshiftapps.com"
+	lookups := make(konfluxLookups)
+	if lookups.allows(t.Context(), 42, host, "builds") {
+		t.Fatal("empty policy allowed a lookup")
+	}
+	for _, value := range []string{"42," + host + ",builds", "43," + host + ",release"} {
+		if err := lookups.add(value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, tc := range map[string]struct {
+		konfluxLookup
+		allowed bool
+	}{
+		"approved build App":   {konfluxLookup{42, host, "builds"}, true},
+		"approved release App": {konfluxLookup{43, host, "release"}, true},
+		"wrong namespace":      {konfluxLookup{42, host, "release"}, false},
+		"wrong App":            {konfluxLookup{44, host, "builds"}, false},
+		"missing App":          {konfluxLookup{0, host, "builds"}, false},
+		"wrong hostname":       {konfluxLookup{42, "api.other.openshiftapps.com", "builds"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := lookups.allows(t.Context(), tc.appID, tc.host, tc.namespace); got != tc.allowed {
+				t.Fatalf("policy returned %t, want %t", got, tc.allowed)
+			}
+		})
+	}
+	for _, value := range []string{"0," + host + ",builds", "42,*,builds", "42," + host + ":6443,builds", "42," + host + ",*", "9223372036854775808," + host + ",builds"} {
+		if err := lookups.add(value); err == nil {
+			t.Errorf("accepted invalid lookup %q", value)
+		}
+	}
+}
+
 func TestVersionDefaultsFillOnlyUnsetComponentFields(t *testing.T) {
 	components := applyVersionDefaults("4.10.12", []release.Source{
 		{Name: "fact", Repo: "stackrox/fact"},

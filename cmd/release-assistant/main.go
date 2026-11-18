@@ -12,6 +12,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -37,6 +39,7 @@ func run() error {
 	var options app.Options
 	var limits dispatch.Options
 	var port int
+	allowedLookups := make(konfluxLookups)
 	flag.StringVar(&config.Version, "version", "", "ACS patch version, e.g. 5.0.1")
 	flag.StringVar(&config.Branch, "branch", "", "explicit ACS target branch")
 	flag.IntVar(&config.PinningPR, "pinning-pr", 0, "optional ACS pinning PR number")
@@ -56,6 +59,7 @@ func run() error {
 	flag.DurationVar(&limits.SlowGap, "slow-gap", time.Hour, "per-job gap at failure threshold")
 	flag.IntVar(&limits.Threshold, "failure-threshold", 10, "distinct consecutive failed runs before slowdown")
 	flag.BoolVar(&limits.EnableWrites, "enable-writes", false, "allow retry comments after per-target RW permission and required confirmation")
+	flag.Func("allow-konflux-lookup", "allow a Konflux lookup for APP_ID,API_HOST,NAMESPACE (repeatable)", allowedLookups.add)
 	flag.Parse()
 	if flag.NArg() != 0 {
 		return fmt.Errorf("unexpected positional arguments")
@@ -75,7 +79,10 @@ func run() error {
 	credentials := loadCredentials(ctx)
 	client := &http.Client{Transport: githubread.New(nil), Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	gh := github.New("", credentials.github, client)
-	planner := konflux.New(konflux.Config{GitHubToken: credentials.github, QuayUsername: credentials.quayUser, QuayPassword: credentials.quayPassword, HTTPClient: client, KonfluxToken: credentials.clusterToken})
+	planner := konflux.New(konflux.Config{
+		GitHubToken: credentials.github, QuayUsername: credentials.quayUser, QuayPassword: credentials.quayPassword,
+		HTTPClient: client, KonfluxToken: credentials.clusterToken, AllowKonfluxLookup: allowedLookups.allows,
+	})
 	inspector := images.New(client, credentials.quayUser, credentials.quayPassword)
 	dispatcher := dispatch.New(gh, planner, github.NewWriter(gh), limits)
 	log := app.NewLog(os.Stdout)
@@ -117,7 +124,32 @@ type (
 		github, quayUser, quayPassword, clusterHost, clusterBearer string
 		clusterToken                                               func(context.Context, string) (string, error)
 	}
+	konfluxLookup struct {
+		appID           int64
+		host, namespace string
+	}
+	konfluxLookups map[konfluxLookup]struct{}
 )
+
+var konfluxLookupPattern = regexp.MustCompile(`^([1-9][0-9]*),(api\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+openshiftapps\.com),([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)$`)
+
+func (lookups konfluxLookups) add(value string) error {
+	fields := konfluxLookupPattern.FindStringSubmatch(value)
+	if fields == nil {
+		return errors.New("expected a positive GitHub App ID, a Konflux API hostname, and a namespace, separated by commas")
+	}
+	appID, err := strconv.ParseInt(fields[1], 10, 64)
+	if err != nil {
+		return errors.New("GitHub App ID is out of range")
+	}
+	lookups[konfluxLookup{appID: appID, host: fields[2], namespace: fields[3]}] = struct{}{}
+	return nil
+}
+
+func (lookups konfluxLookups) allows(_ context.Context, appID int64, host, namespace string) bool {
+	_, allowed := lookups[konfluxLookup{appID: appID, host: host, namespace: namespace}]
+	return allowed
+}
 
 // applyVersionDefaults fills component streams and branches from the CLI version.
 // Explicit component flags win, and the values only seed the initial setup form.

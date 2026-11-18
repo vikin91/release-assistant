@@ -107,6 +107,8 @@ func TestImageOutputsStaySeparateFromRetryEligibility(t *testing.T) {
 	}{
 		"verified tag output":    {"quay.io/rhacs-eng/release-main:build-fast", digest, true, 17, true},
 		"verified digest output": {"quay.io/rhacs-eng/release-main@" + digest, digest, true, 17, true},
+		"embedded digest only":   {"quay.io/rhacs-eng/release-main@" + digest, "", true, 17, true},
+		"digest without repo":    {"", digest, true, 17, false},
 		"unknown run identity":   {"quay.io/rhacs-eng/release-main:build-fast", digest, false, 17, false},
 		"unknown stable run ID":  {"quay.io/rhacs-eng/release-main:build-fast", digest, true, 0, false},
 		"missing digest":         {"quay.io/rhacs-eng/release-main:build-fast", "", true, 17, false},
@@ -129,6 +131,9 @@ func TestImageOutputsStaySeparateFromRetryEligibility(t *testing.T) {
 			}
 			if tc.wantCurrent && image.Reference != "quay.io/rhacs-eng/release-main@"+digest {
 				t.Fatalf("output not bound to digest: %+v", image)
+			}
+			if tc.url == "" && image.Evidence.Error == "" {
+				t.Fatalf("partial output has no explanation: %+v", image)
 			}
 			if (!tc.known || tc.id <= 0) && image.Reference != "" {
 				t.Fatal("unverified output was exposed")
@@ -172,12 +177,35 @@ func TestPublicAdapterPreservesActionableIdentityErrors(t *testing.T) {
 	if err == nil || plan.Evidence.Fresh() || len(plan.Proposals) != 0 {
 		t.Fatalf("identity failure authorized a retry: plan=%+v error=%v", plan, err)
 	}
-	for _, want := range []string{"identity verification failed for 1 check", `check "Red Hat Konflux / main-on-push" (run 17`, checkURL, "HTTP 403 (Forbidden)", "User builder cannot get pipelineruns", "HTTP 404 (Not Found)", "archived PipelineRun main-17 was not found", "[redacted]"} {
+	for _, want := range []string{"identity verification failed for 1 check", `check "Red Hat Konflux / main-on-push" (run 17`, checkURL, "HTTP 403 (Forbidden)", "HTTP 404 (Not Found)"} {
 		if !strings.Contains(plan.Evidence.Error, want) || !strings.Contains(err.Error(), want) {
 			t.Fatalf("lost %q in %v", want, err)
 		}
 	}
-	if strings.Contains(err.Error(), "cluster-secret") || strings.Contains(strings.Join(plan.Warnings, "\n"), "cluster-secret") {
-		t.Fatal("cluster credential leaked in diagnostics")
+	for _, unexpected := range []string{"cluster-secret", "User builder cannot get pipelineruns", "archived PipelineRun main-17 was not found"} {
+		if strings.Contains(err.Error(), unexpected) || strings.Contains(strings.Join(plan.Warnings, "\n"), unexpected) {
+			t.Fatalf("upstream response data leaked in diagnostics: %q", unexpected)
+		}
+	}
+}
+
+func TestPublicAdapterKeepsDeniedRunUnverified(t *testing.T) {
+	transport := roundTrip(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "api.github.com" {
+			t.Fatalf("denied lookup contacted %s", r.URL.Host)
+		}
+		body := `{"state":"open","head":{"sha":"head"}}`
+		if strings.HasSuffix(r.URL.Path, "/check-runs") {
+			body = `{"check_runs":[{"id":17,"name":"Red Hat Konflux / fact-on-push","status":"completed","conclusion":"failure","details_url":"https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelinerun/run","app":{"id":42}}]}`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
+	a := New(Config{AllowKonfluxLookup: func(context.Context, int64, string, string) bool { return false }, HTTPClient: &http.Client{Transport: transport}, KonfluxToken: func(context.Context, string) (string, error) {
+		t.Fatal("denied lookup requested a token")
+		return "", nil
+	}})
+	p, err := a.Plan(t.Context(), release.Target{Repo: "stackrox/fact", PR: 1})
+	if err == nil || p.Evidence.Fresh() || p.SHA != "head" || p.Action != "Wait" || len(p.Warnings) == 0 || len(p.Proposals) != 0 || len(p.Runs) != 1 || p.Runs[0].Status != "unknown" || p.Runs[0].ID != "" || p.Runs[0].Eligible {
+		t.Fatalf("denied run was lost or became retryable: %+v (%v)", p, err)
 	}
 }

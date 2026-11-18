@@ -34,7 +34,7 @@
           {{if $pin.ChecksEvidence.Error}}<p class="error-text">Unable to get current checks from pinning PR #{{$pin.Target.PR}}: {{$pin.ChecksEvidence.Error}}</p>{{else}}{{if not $pin.ChecksEvidence.Fresh}}<p class="muted">Pending checks.</p>{{end}}{{end}}
           {{if .PinningFailures}}<p>Checks need attention{{if not $pin.ChecksEvidence.Fresh}} (last observed){{end}}. Review the failed checks.</p><ol>{{range .PinningFailures}}<li>{{if url .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer">{{.Name}}</a>{{else}}{{.Name}}{{end}}: {{if .Conclusion}}{{.Conclusion}}{{else}}{{.Status}}{{end}}.</li>{{end}}</ol>{{end}}
           {{if .PinningPending}}<p>Waiting for {{.PinningPending}} checks. Wait for their results before retesting.</p>{{end}}
-          {{if .PinningRetests}}<h4>Retest these jobs</h4><ol>{{range .PinningRetests}}<li><a href="/?tab=acs-prs#acs-prs-retry-details" data-open-section>{{.Job}}: view retest comment</a></li>{{end}}</ol>{{else}}{{if .PinningFailures}}<p>No verified retest is available. Open the failed check to investigate or rerun it.</p>{{end}}{{end}}
+          {{if .PinningRetests}}{{with .PinningBuildProblems}}<p class="error-text">{{index . 0}}</p>{{end}}<h4>Retest these jobs</h4><ol>{{range .PinningRetests}}<li><a href="/?tab=acs-prs#acs-prs-retry-details" data-open-section>{{.Job}}: view retest comment</a></li>{{end}}</ol>{{else}}{{if .PinningFailures}}<p>No verified retest is available. Open the failed check to investigate or rerun it.</p>{{end}}{{end}}
           {{if and $pin.ChecksEvidence.Fresh (not .PinningFailures) (not .PinningPending)}}<p>Unable to establish which checks are required.</p>{{end}}
         {{end}}
       {{end}}

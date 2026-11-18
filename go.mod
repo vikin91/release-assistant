@@ -2,8 +2,12 @@ module release-assistant
 
 go 1.26.0
 
-require github.com/vikin91/konflux-retest v0.1.1-0.20261118084605-5550da896bcb
+require github.com/vikin91/konflux-retest v0.1.1-0.20261118102942-38540d981acb
 
-require go.yaml.in/yaml/v3 v3.0.6 // indirect
+require (
+	github.com/distribution/reference v0.6.0 // indirect
+	github.com/opencontainers/go-digest v1.0.0 // indirect
+	go.yaml.in/yaml/v3 v3.0.6 // indirect
+)
 
 replace github.com/vikin91/konflux-retest => /Users/prygiels/code/konflux-retest

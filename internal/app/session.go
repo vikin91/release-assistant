@@ -784,11 +784,15 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		}
 		if err != nil && plan.SHA == "" {
 			old := clonePlan(s.plans[target])
+			old.Proposals = nil
 			old.Evidence.Known = false
 			old.Target = target
 			old.Evidence.Error = message
 			old.StartFailures = staleStartFailures(old.StartFailures, message)
 			for i := range old.Runs {
+				if old.Runs[i].Image.Reference == "" && old.Runs[i].Image.Evidence.Error == "" {
+					continue
+				}
 				old.Runs[i].Image.Evidence.Known = false
 				old.Runs[i].Image.Evidence.Error = message
 			}

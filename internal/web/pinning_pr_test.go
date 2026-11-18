@@ -99,11 +99,12 @@ func TestConfiguredPinningPRImagesShowPerRowStatusAndMissingObservations(t *test
 			{Job: "available-build", URL: "https://github.com/stackrox/stackrox/actions/runs/20", Image: release.Image{Name: "rox", Reference: "quay.io/stackrox/rox:1.2.3", Present: release.Yes, Evidence: observed}},
 			{Job: "missing-build", Image: release.Image{Name: "scanner", Reference: "quay.io/stackrox/scanner:1.2.3", Present: release.No, Evidence: observed}},
 			{Job: "unknown-build", Image: release.Image{Name: "collector", Reference: "quay.io/stackrox/collector:1.2.3", Evidence: release.Evidence{Error: "registry timeout"}}},
+			{Job: "digest-only-build", ID: "22", Image: release.Image{Evidence: release.Evidence{Error: "The build has not reported a valid image reference."}}},
 		}}},
 	}}
 	body := newBrowser(t, application).getBody(t)
 	section := pinningSection(t, body)
-	for _, want := range []string{"Available", "Not found", "Unable to check", "rox", "scanner", "collector", "quay.io/stackrox/rox:1.2.3", "quay.io/stackrox/scanner:1.2.3", "quay.io/stackrox/collector:1.2.3", "registry timeout", "Build evidence", "Image evidence"} {
+	for _, want := range []string{"Available", "Not found", "Unable to check", "rox", "scanner", "collector", "quay.io/stackrox/rox:1.2.3", "quay.io/stackrox/scanner:1.2.3", "quay.io/stackrox/collector:1.2.3", "registry timeout", "Build evidence", "Image evidence", "digest-only-build", "The build has not reported a valid image reference."} {
 		if !strings.Contains(section, want) {
 			t.Errorf("pinning image observations omitted %q", want)
 		}
@@ -220,9 +221,11 @@ func TestPinningPRShowsNextActionInsteadOfCheckInventory(t *testing.T) {
 	for name, tc := range map[string]struct {
 		check    release.Check
 		proposal bool
+		partial  bool
 		want     string
 	}{
 		"should show the job to retest on failure":              {check: release.Check{Name: "failing-build", Status: "completed", Conclusion: "failure", Required: release.Yes}, proposal: true, want: "failing-build: view retest comment"},
+		"should keep a verified retry after a partial read":     {check: release.Check{Name: "failing-build", Status: "completed", Conclusion: "failure", Required: release.Yes}, proposal: true, partial: true, want: "failing-build: view retest comment"},
 		"should link to failure when no verified retest exists": {check: release.Check{Name: "failing-build", Status: "failure", Required: release.Yes}, want: "No verified retest is available"},
 		"should wait for running checks":                        {check: release.Check{Name: "running-build", Status: "in_progress", Required: release.Yes}, want: "Wait for their results before retesting"},
 	} {
@@ -236,13 +239,19 @@ func TestPinningPRShowsNextActionInsteadOfCheckInventory(t *testing.T) {
 				{Name: "optional-failure", Status: "failure", Required: release.No}, tc.check,
 			}}
 			plan := release.Plan{Target: target, SHA: pr.SHA, Evidence: observed, Runs: []release.Run{{Job: "passing-run", Status: "success"}}}
+			if tc.partial {
+				plan.Evidence = release.Evidence{At: observed.At, Error: "An unrelated build lookup failed."}
+			}
 			if tc.proposal {
-				plan.Proposals = []release.Proposal{{Target: target, SHA: pr.SHA, Job: "failing-build", Payload: "/konflux-retest failing-build"}}
+				plan.Proposals = []release.Proposal{{Target: target, SHA: pr.SHA, Job: "failing-build", RunID: "17", Payload: "/konflux-retest failing-build"}}
 			}
 			body := newBrowser(t, &fakeApplication{snapshot: app.Snapshot{Config: config, Repositories: []release.Repository{{Source: config.ACS(), PinningPR: &pr}}, Plans: []release.Plan{plan}}}).getBody(t)
 			section := pinningSection(t, body)
 			if !strings.Contains(section, tc.want) {
 				t.Fatalf("missing next action %q: %s", tc.want, section)
+			}
+			if tc.partial && !strings.Contains(section, plan.Evidence.Error) {
+				t.Fatal("pinning summary omitted the partial result warning")
 			}
 			for _, unwanted := range []string{"passing-unit", "optional-failure", "Pending build images", "<table>"} {
 				if strings.Contains(section, unwanted) {

@@ -39,7 +39,7 @@ func TestCreationFailuresShowTypedCommitEvidenceWithoutGrantingRetries(t *testin
 		}
 	}
 	summary, technical, found := strings.Cut(section, "<summary>Technical details</summary>")
-	if !found || !strings.Contains(summary, "<dt>Namespace in error</dt><dd><code>test-tenant</code></dd>") ||
+	if !found || strings.Contains(summary, "test-tenant") ||
 		!strings.Contains(summary, "<dt>Repository</dt><dd><code>acme/fact</code></dd>") ||
 		!strings.Contains(summary, "Open source check #731 on GitHub") || strings.Contains(summary, "admission webhook denied") ||
 		!strings.Contains(technical, "admission webhook denied") {

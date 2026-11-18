@@ -36,7 +36,10 @@ func TestDiscoveryAndPlannerUseOneSourceAllowance(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan, err := planner.Plan(ctx, release.Target{Repo: "acme/fact", PR: 1})
-	if err == nil || plan.Evidence.Fresh() || !strings.Contains(err.Error(), "source-cycle GitHub read allowance exhausted") || usage.Calls() != 2 || calls != 2 {
-		t.Fatalf("planner bypassed source allowance: calls=%d usage=%d plan=%+v error=%v", calls, usage.Calls(), plan, err)
+	if usage.Calls() != 2 || calls != 2 {
+		t.Fatalf("planner bypassed source allowance: calls=%d usage=%d", calls, usage.Calls())
+	}
+	if err == nil || plan.Evidence.Fresh() || len(plan.Proposals) != 0 {
+		t.Fatalf("deferred planner read produced fresh evidence or proposals: plan=%+v error=%v", plan, err)
 	}
 }

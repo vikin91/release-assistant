@@ -4,7 +4,7 @@ A local browser application for preparing one ACS 4.x or 5.x patch release, from
 
 ## Run
 
-Use Go 1.26.0 or later. The module requirement records the `github.com/vikin91/konflux-retest` API revision, while the local `replace` uses the checkout at `/Users/prygiels/code/konflux-retest`. That checkout must provide identity-verified run evidence and structured PipelineRun creation failures. The assistant imports the library directly. It neither invokes its CLI nor imports its internal packages.
+Use Go 1.26.0 or later. The local `replace` uses the checkout at `/Users/prygiels/code/konflux-retest`. Use revision `38540d9` or a compatible later revision that supports `AllowKonfluxLookup`. The assistant imports the library directly. It neither invokes its CLI nor imports its internal packages.
 
 ```sh
 cd /Users/prygiels/code/release-assistant
@@ -36,8 +36,8 @@ Use a different port for each instance. Avoid overlapping targets across instanc
 Credentials load once at startup. Restart after changing environment variables or authenticated sessions:
 
 1. GitHub uses `GH_TOKEN`, then `GITHUB_TOKEN`, then `gh auth token --hostname github.com`. An invalid explicit token never causes an account fallback.
-2. Quay uses `QUAY_USERNAME` and `QUAY_PASSWORD`, or the existing `QUAY_RHACS_ENG_RO_USERNAME` and `QUAY_RHACS_ENG_RO_PASSWORD` pair when neither primary variable is supplied. Anonymous access remains possible for public images. Authentication failures leave image availability unknown.
-3. Konflux uses the existing `oc whoami --show-server` and `oc whoami --show-token` session. The startup token is returned only for that cluster's hostname. The application does not log in, change contexts, or save credentials.
+2. Quay uses `QUAY_USERNAME` and `QUAY_PASSWORD`, or the existing `QUAY_RHACS_ENG_RO_USERNAME` and `QUAY_RHACS_ENG_RO_PASSWORD` pair when neither primary variable is supplied. Use a read-only account scoped to the release image repositories you are authorized to inspect. Anonymous access remains possible for public images. Authentication failures leave image availability unknown.
+3. Konflux uses the existing `oc whoami --show-server` and `oc whoami --show-token` session. Each authenticated lookup requires an explicit `--allow-konflux-lookup APP_ID,API_HOST,NAMESPACE` startup flag. Repeat the flag for each trusted combination. Use the GitHub App's numeric ID, the cluster API hostname without a scheme or port, and the exact namespace. The startup token is available only for the active `oc` hostname. With no approved combinations, affected runs stay unverified.
 
 The assistant enables the retry library's strict run-identity mode. It verifies original PipelineRun annotations through the cluster API or Tekton Results archive, including repository, SHA, GitHub check ID, and PR number or full tag ref. If evidence is unavailable or ambiguous, affected retries remain unconfirmed. A branch run on the same commit is insufficient evidence for a tag retry. Typed Conforma findings remain visible as commit-scoped advisories even when their exact run association cannot be established.
 

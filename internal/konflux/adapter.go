@@ -21,6 +21,8 @@ type (
 		GitHubToken, QuayUsername, QuayPassword string
 		HTTPClient                              *http.Client
 		KonfluxToken                            func(context.Context, string) (string, error)
+		// AllowKonfluxLookup authorizes the GitHub App, API hostname, and namespace before token lookup.
+		AllowKonfluxLookup func(context.Context, int64, string, string) bool
 	}
 	observationError struct {
 		message string
@@ -40,7 +42,13 @@ func (e *observationError) Unwrap() error { return e.cause }
 
 // New constructs the retry boundary.
 func New(c Config) *Adapter {
-	return &Adapter{config: retry.Config{VerifyRunIdentity: true, GitHubToken: c.GitHubToken, QuayUsername: c.QuayUsername, QuayPassword: c.QuayPassword, HTTPClient: c.HTTPClient, KonfluxToken: c.KonfluxToken}, pr: retry.CheckPR, tag: retry.CheckTag}
+	return &Adapter{
+		config: retry.Config{
+			VerifyRunIdentity: true, GitHubToken: c.GitHubToken, QuayUsername: c.QuayUsername, QuayPassword: c.QuayPassword,
+			HTTPClient: c.HTTPClient, KonfluxToken: c.KonfluxToken, AllowKonfluxLookup: c.AllowKonfluxLookup,
+		},
+		pr: retry.CheckPR, tag: retry.CheckTag,
+	}
 }
 
 // Plan preserves partial results. Missing stable run evidence prevents automatic dispatch.
@@ -112,21 +120,29 @@ var (
 
 // imageOutput preserves scoped build evidence without treating it as registry availability.
 func imageOutput(run retry.Run, at time.Time) release.Image {
-	if !run.IdentityKnown || run.ID <= 0 || run.ImageURL == "" {
+	if !run.IdentityKnown || run.ID <= 0 || (run.ImageURL == "" && run.ImageDigest == "") {
 		return release.Image{}
 	}
 	image := release.Image{Component: "acs", Family: "konflux", Reference: run.ImageURL, Evidence: release.Evidence{At: at, URL: run.URL}}
 	parts := outputImagePattern.FindStringSubmatch(run.ImageURL)
 	switch {
+	case run.ImageURL == "":
+		image.Evidence.Error = "The build has not reported a valid image reference."
 	case len(parts) != 3 || strings.Contains(parts[1], ".."):
 		image.Evidence.Error = "The build reported an unsupported image reference."
-	case !outputDigestPattern.MatchString(run.ImageDigest):
-		image.Evidence.Error = "The build has not reported a valid image digest."
-	case parts[2] != "" && parts[2] != run.ImageDigest:
+	case parts[2] != "" && run.ImageDigest != "" && parts[2] != run.ImageDigest:
 		image.Evidence.Error = "The build reported conflicting image digests."
 	default:
-		image.Reference = parts[1] + "@" + run.ImageDigest
-		image.Evidence.Known = true
+		digest := run.ImageDigest
+		if digest == "" {
+			digest = parts[2]
+		}
+		if outputDigestPattern.MatchString(digest) {
+			image.Reference = parts[1] + "@" + digest
+			image.Evidence.Known = true
+		} else {
+			image.Evidence.Error = "The build has not reported a valid image digest."
+		}
 	}
 	return image
 }
