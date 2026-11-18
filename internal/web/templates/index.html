@@ -58,7 +58,8 @@
   </summary><form method="post" action="/action"><input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Snapshot.Generation}}"><input type="hidden" name="kind" value="interactive"><input type="hidden" name="enabled" value="false"><label class="check{{if not .Snapshot.WritesEnabled}} disabled-control{{end}}"><input type="checkbox" name="enabled" value="true" {{if .Snapshot.Interactive}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}> Confirm each comment</label><button type="submit"{{if not .Snapshot.WritesEnabled}} disabled{{end}}>Save mode</button></form><p class="muted">This setting applies to all tabs. Automatic retries require permission for each PR or tag.</p></details>
   <nav class="workflow-tabs" role="tablist" aria-label="Release work">
     {{range $tab := (slice "component-prs" "component-releases" "acs-prs" "acs-rcs")}}
-    <a id="tab-{{$tab}}" role="tab" href="/?tab={{$tab}}" data-workflow-tab="{{$tab}}" aria-controls="panel-{{$tab}}" aria-selected="{{if eq $.Tab $tab}}true{{else}}false{{end}}" tabindex="{{if eq $.Tab $tab}}0{{else}}-1{{end}}">{{tabTitle $tab}}</a>
+    {{$status := index $.TabStatuses $tab}}
+    <a id="tab-{{$tab}}" role="tab" href="/?tab={{$tab}}" data-workflow-tab="{{$tab}}" aria-controls="panel-{{$tab}}" aria-selected="{{if eq $.Tab $tab}}true{{else}}false{{end}}" tabindex="{{if eq $.Tab $tab}}0{{else}}-1{{end}}"{{if $status.Label}} aria-label="{{tabTitle $tab}} · {{$status.Label}} · {{$status.Reason}}" title="{{$status.Label}} · {{$status.Reason}}"{{end}}>{{tabTitle $tab}} <span class="tab-status{{with $status.Class}} {{.}}{{end}}" aria-hidden="true">{{$status.Icon}}</span></a>
     {{end}}
   </nav>
   <p class="workflow-help muted">Each tab stays available throughout the release. Monitoring continues when you switch tabs.</p>

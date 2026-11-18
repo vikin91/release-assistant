@@ -1,5 +1,6 @@
 {{define "workflow-tab"}}
   <div class="workflow-heading"><p class="eyebrow">{{tabStep .Tab}}</p><h2>{{tabTitle .Tab}}</h2><p>{{tabHelp .Tab}}</p></div>
+  {{with index .TabStatuses .Tab}}{{if .Label}}<p class="workflow-status"><strong>{{.Label}}</strong> · {{.Reason}}</p>{{end}}{{end}}
   {{if ne .Tab "acs-rcs"}}
   <section id="{{.Tab}}-next-steps-panel" class="panel" aria-label="Next actions">
     <details id="{{.Tab}}-next-steps" open><summary class="section-summary">Recommended next steps</summary>

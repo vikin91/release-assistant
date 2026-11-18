@@ -886,6 +886,7 @@ func unverifiedImages(previous []release.Image, reason string) []release.Image {
 	for index := range images {
 		images[index].Evidence.Known = false
 		images[index].Evidence.Error = reason
+		images[index].PublishingSince = time.Time{}
 	}
 	return images
 }
@@ -906,6 +907,23 @@ func retainLastImagePresence(current, previous []release.Image) []release.Image 
 		}
 	}
 	return images
+}
+
+// trackImagePublishing times verified absence once there is evidence that outputs are expected.
+func trackImagePublishing(current, previous []release.Image, publishing func(release.Image) bool) {
+	for i, image := range current {
+		if !image.Evidence.Fresh() || image.Present != release.No || !publishing(image) {
+			continue
+		}
+		current[i].PublishingSince = image.Evidence.At
+		for _, old := range previous {
+			if old.Reference == image.Reference && old.Component == image.Component && old.Family == image.Family &&
+				old.Name == image.Name && !old.PublishingSince.IsZero() {
+				current[i].PublishingSince = old.PublishingSince
+				break
+			}
+		}
+	}
 }
 
 // canceled reports whether shutdown or a superseding cycle ended the work, not a read failure.
@@ -983,6 +1001,24 @@ func (s *Session) refreshImagesScoped(ctx context.Context, generation uint64, in
 		}
 		inventory.Images = retainLastImagePresence(inventory.Images, s.inventory.Images)
 		inventory.ReleaseImages = retainLastImagePresence(inventory.ReleaseImages, s.inventory.ReleaseImages)
+		trackImagePublishing(inventory.Images, s.inventory.Images, func(image release.Image) bool {
+			for _, source := range c.Components {
+				tag := versions[source.Name]
+				if source.Name != image.Component || tag == "" {
+					continue
+				}
+				plan := s.plans[release.Target{Repo: source.Repo, Tag: tag}]
+				result, _ := plan.BuildStatus()
+				return result == release.Yes && plan.SHA != "" && plan.SHA == s.confirmedSHAs[source.Name]
+			}
+			return false
+		})
+		rcPublishing := slices.ContainsFunc(inventory.ReleaseImages, func(image release.Image) bool {
+			return image.Evidence.Fresh() && image.Present == release.Yes
+		})
+		trackImagePublishing(inventory.ReleaseImages, s.inventory.ReleaseImages, func(release.Image) bool {
+			return rcPublishing
+		})
 		previousImages := slices.Concat(s.inventory.Images, s.inventory.ReleaseImages)
 		for _, current := range slices.Concat(inventory.Images, inventory.ReleaseImages) {
 			oldPresent := release.Truth("")

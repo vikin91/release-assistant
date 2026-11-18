@@ -1,0 +1,342 @@
+package web
+
+import (
+	"fmt"
+	"slices"
+	"strings"
+	"time"
+
+	"release-assistant/internal/release"
+)
+
+type (
+	tabState  int
+	tabStatus struct {
+		State  tabState
+		Reason string
+	}
+)
+
+const (
+	tabComplete tabState = iota + 1
+	tabPending
+	tabInProgress
+	tabActionNeeded
+	tabNeedsAttention
+)
+
+const imagePublishingGrace = 15 * time.Minute
+
+// Label names the status for assistive technology and the tab's tooltip.
+func (s tabStatus) Label() string {
+	switch s.State {
+	case tabComplete:
+		return "Complete"
+	case tabInProgress:
+		return "In progress"
+	case tabActionNeeded:
+		return "Action needed"
+	case tabNeedsAttention:
+		return "Needs attention"
+	default:
+		return ""
+	}
+}
+
+// Icon gives each visible status a distinct shape.
+func (s tabStatus) Icon() string {
+	switch s.State {
+	case tabComplete:
+		return "✓"
+	case tabInProgress:
+		return "◔"
+	case tabActionNeeded:
+		return "→"
+	case tabNeedsAttention:
+		return "⚠︎"
+	default:
+		return ""
+	}
+}
+
+// Class styles the icon independently of the selected tab.
+func (s tabStatus) Class() string {
+	switch s.State {
+	case tabComplete:
+		return "complete"
+	case tabInProgress:
+		return "in-progress"
+	case tabActionNeeded:
+		return "action-needed"
+	case tabNeedsAttention:
+		return "needs-attention"
+	default:
+		return ""
+	}
+}
+
+// add keeps the highest-priority status and its reason.
+func (s *tabStatus) add(state tabState, reason string) {
+	if state > s.State {
+		*s = tabStatus{State: state, Reason: reason}
+	}
+}
+
+func (p pageModel) workflowStatuses() map[string]tabStatus {
+	componentPRs := p.prStatus(false)
+	acsPRs := p.prStatus(true)
+	pins := p.pinStatus()
+	acsPRs.add(pins.State, pins.Reason)
+	if acsPRs.State == tabComplete {
+		acsPRs.Reason = "All PR decisions are made, included PRs are merged, and the ACS branch pins match."
+	}
+	return map[string]tabStatus{
+		"component-prs":      componentPRs,
+		"component-releases": p.componentReleaseStatus(componentPRs.State == tabComplete),
+		"acs-prs":            acsPRs,
+		"acs-rcs":            p.rcStatus(),
+	}
+}
+
+func (p pageModel) prStatus(acs bool) tabStatus {
+	status := tabStatus{State: tabComplete, Reason: "All PR decisions are made and included PRs are merged."}
+	pin := p.Snapshot.Config.PinningTarget()
+	undecided := 0
+	seen := make(map[release.Target]bool)
+	var checks, inventory tabStatus
+	for _, repo := range p.Repos {
+		source := repo.Repository.Source
+		if (source.Name == "acs") != acs {
+			continue
+		}
+		evidence := repo.Repository.Evidence
+		switch {
+		case evidence.Error != "":
+			inventory.add(tabNeedsAttention, "Unable to verify PRs for "+source.Repo+".")
+		case !evidence.Fresh():
+			inventory.add(tabPending, "")
+		}
+		for _, pr := range repo.Repository.PRs {
+			choice := p.Snapshot.Choices.PRs[pr.Target]
+			if pr.Target != pin && choice == "" && undecidedCandidate(pr, source.Branch) {
+				undecided++
+			}
+			if choice == release.Included {
+				seen[pr.Target] = true
+				item := pullRequestStatus(pr, source.Branch)
+				checks.add(item.State, item.Reason)
+			}
+		}
+	}
+	for target, choice := range p.Snapshot.Choices.PRs {
+		if choice == release.Included && target.PR > 0 && !seen[target] &&
+			(target.Repo == p.Snapshot.Config.ACS().Repo) == acs {
+			if target == pin && p.PinningPR != nil {
+				item := pullRequestStatus(p.PinningPR.PR, p.Snapshot.Config.Branch)
+				checks.add(item.State, item.Reason)
+			} else {
+				status.add(tabPending, "")
+			}
+		}
+	}
+	if undecided == 1 {
+		status.add(tabActionNeeded, "Decide whether to include 1 PR.")
+	} else if undecided > 1 {
+		status.add(tabActionNeeded, fmt.Sprintf("Decide whether to include %d PRs.", undecided))
+	}
+	status.add(checks.State, checks.Reason)
+	status.add(inventory.State, inventory.Reason)
+	return status
+}
+
+func pullRequestStatus(pr release.PR, branch string) tabStatus {
+	id := fmt.Sprintf("PR #%d", pr.Target.PR)
+	checks := countRequiredChecks(pr)
+	switch {
+	case pr.Evidence.Error != "":
+		return tabStatus{State: tabNeedsAttention, Reason: "Unable to verify " + id + "."}
+	case !pr.Evidence.Fresh() || pr.Base == "":
+		return tabStatus{State: tabPending}
+	case pr.Base != branch:
+		return tabStatus{State: tabNeedsAttention, Reason: id + " targets a different branch."}
+	case pr.Merged && pr.MergeSHA != "":
+		return tabStatus{State: tabComplete}
+	case pr.State == "closed" && !pr.Merged:
+		return tabStatus{State: tabNeedsAttention, Reason: id + " closed without merging."}
+	case pr.State != "open" || pr.Merged:
+		return tabStatus{State: tabPending}
+	case checks.Failed > 0:
+		return tabStatus{State: tabNeedsAttention, Reason: id + " has failed required checks."}
+	case pr.ChecksEvidence.Error != "":
+		return tabStatus{State: tabNeedsAttention, Reason: "Unable to verify required checks for " + id + "."}
+	case checks.Running > 0:
+		return tabStatus{State: tabInProgress, Reason: "Waiting for required checks on " + id + "."}
+	case pr.Draft:
+		return tabStatus{State: tabInProgress, Reason: "Waiting for " + id + " to leave draft."}
+	case pr.ReviewRequested:
+		return tabStatus{State: tabInProgress, Reason: "Waiting for a requested review on " + id + "."}
+	case pr.ChecksStatus() == release.Yes:
+		return tabStatus{State: tabActionNeeded, Reason: "Review " + id + " for merge."}
+	default:
+		return tabStatus{State: tabPending}
+	}
+}
+
+func (p pageModel) componentReleaseStatus(prsComplete bool) tabStatus {
+	status := tabStatus{State: tabComplete, Reason: "Selected tags cover the included changes and required images are available."}
+	for _, repo := range p.TagRepos {
+		item := p.componentTagStatus(repo, prsComplete)
+		status.add(item.State, item.Reason)
+	}
+	return status
+}
+
+func (p pageModel) componentTagStatus(repo repoModel, prsComplete bool) tabStatus {
+	source := repo.Repository.Source
+	name := source.Name
+	if repo.Repository.Evidence.Error != "" {
+		return tabStatus{State: tabNeedsAttention, Reason: "Unable to verify tags for " + name + "."}
+	}
+	if repo.CurrentTag == "" {
+		if p.Snapshot.Assessment.ProposedTags[name] != "" {
+			return tabStatus{State: tabActionNeeded, Reason: "Select a component tag for " + name + "."}
+		}
+		if prsComplete && repo.Repository.Evidence.Fresh() && !repo.Repository.TagsPending {
+			return tabStatus{State: tabActionNeeded, Reason: "Cut a component tag for " + name + " and start its release."}
+		}
+		return tabStatus{State: tabPending}
+	}
+	status := tabStatus{State: tabComplete}
+	switch {
+	case repo.Coverage.Status == release.No && repo.Coverage.TagIssue != release.TagPRUnmerged:
+		status.add(tabNeedsAttention, repo.Coverage.Reason)
+	case repo.Coverage.Status != release.Yes:
+		status.add(tabPending, "")
+	}
+
+	images := tabStatus{State: tabComplete}
+	count := 0
+	for _, image := range p.Snapshot.Assessment.Images {
+		if image.Required && image.Image.Component == name && image.SelectedTag == repo.CurrentTag {
+			item := publishingImageStatus(image.Image, image.Status)
+			images.add(item.State, item.Reason)
+			count++
+		}
+	}
+	if count == 0 {
+		images.add(tabPending, "")
+	}
+	if images.State == tabComplete || repo.SelectedTag == nil || !repo.SelectedTag.Tag.Evidence.Fresh() {
+		status.add(images.State, images.Reason)
+		return status
+	}
+
+	target := release.Target{Repo: source.Repo, Tag: repo.CurrentTag}
+	for _, plan := range p.Snapshot.Plans {
+		if plan.Target != target || plan.SHA == "" || plan.SHA != repo.SelectedTag.Tag.SHA {
+			continue
+		}
+		result, running := plan.BuildStatus()
+		switch {
+		case result == release.No:
+			status.add(tabNeedsAttention, "A build failed for "+name+" "+repo.CurrentTag+".")
+		case running:
+			status.add(tabInProgress, "Waiting for builds for "+name+" "+repo.CurrentTag+".")
+		case result == release.Yes && images.State == tabPending:
+			status.add(tabInProgress, "Waiting for images for "+name+" "+repo.CurrentTag+".")
+		case plan.Evidence.Error != "":
+			status.add(tabNeedsAttention, "Unable to verify builds for "+name+" "+repo.CurrentTag+".")
+		}
+	}
+	status.add(images.State, images.Reason)
+	return status
+}
+
+func (p pageModel) pinStatus() tabStatus {
+	pins := p.Snapshot.Assessment.Pins
+	if pins.BranchStatus == release.Yes {
+		return tabStatus{State: tabComplete}
+	}
+	if p.ACS == nil {
+		return tabStatus{State: tabPending}
+	}
+	if p.ACS.Pins.Evidence.Error != "" || p.ACS.PinningEvidence.Error != "" {
+		return tabStatus{State: tabNeedsAttention, Reason: "Unable to verify ACS pinning."}
+	}
+	if p.PinningPR != nil && p.PinningPR.Choice != release.Ignored {
+		if p.ACS.PinningPins.Evidence.Error != "" {
+			return tabStatus{State: tabNeedsAttention, Reason: "Unable to verify the versions in the pinning PR."}
+		}
+		pr := p.PinningPR.PR
+		if pr.Evidence.Fresh() && pr.Merged {
+			if pins.BranchStatus == release.No {
+				return tabStatus{State: tabNeedsAttention, Reason: "ACS branch pins still differ after the pinning PR merged."}
+			}
+			return tabStatus{State: tabPending}
+		}
+		status := pullRequestStatus(pr, p.Snapshot.Config.Branch)
+		if status.State == tabNeedsAttention {
+			return status
+		}
+		switch {
+		case pins.PROpen && pins.PRStatus == release.No:
+			if p.Snapshot.Assessment.Commands != "" {
+				return tabStatus{State: tabActionNeeded, Reason: "Update the pinning PR with the selected component versions."}
+			}
+			return tabStatus{State: tabPending}
+		case !pins.PROpen || !p.ACS.PinningPins.Evidence.Fresh() || len(pins.PRProblems) > 0:
+			return tabStatus{State: tabPending}
+		}
+		return status
+	}
+	if p.Snapshot.Assessment.Commands != "" {
+		return tabStatus{State: tabActionNeeded, Reason: "Create an ACS pinning PR for the selected component versions."}
+	}
+	return tabStatus{State: tabPending}
+}
+
+func (p pageModel) rcStatus() tabStatus {
+	snapshot := p.Snapshot
+	if snapshot.RCImageWaitReason() != "" {
+		if snapshot.Config.PinningPR == 0 && snapshot.Assessment.Pins.BranchStatus == release.Yes {
+			return tabStatus{State: tabActionNeeded, Reason: "Enter the pinning PR number to start RC.0 verification."}
+		}
+		return tabStatus{State: tabPending}
+	}
+	images := snapshot.Inventory.ReleaseImages
+	version := strings.TrimPrefix(snapshot.Config.Version, "v") + "-rc.0"
+	if len(images) == 0 || snapshot.Inventory.Versions["acs"] != version {
+		return tabStatus{State: tabPending}
+	}
+	status := tabStatus{State: tabComplete, Reason: "All expected ACS RC.0 images are available."}
+	started := slices.ContainsFunc(images, func(image release.Image) bool {
+		return image.Evidence.Fresh() && image.Present == release.Yes
+	})
+	for _, image := range images {
+		if !image.Evidence.Fresh() {
+			image.Present = ""
+		}
+		item := publishingImageStatus(image, image.Present)
+		if item.State == tabPending && started && image.Present == release.No {
+			item = tabStatus{State: tabInProgress, Reason: "Waiting for the remaining ACS RC.0 images."}
+		}
+		status.add(item.State, item.Reason)
+	}
+	return status
+}
+
+func publishingImageStatus(image release.Image, result release.Truth) tabStatus {
+	switch {
+	case result == release.Yes:
+		return tabStatus{State: tabComplete}
+	case image.Evidence.Error != "":
+		return tabStatus{State: tabNeedsAttention, Reason: "Unable to verify image " + image.Reference + "."}
+	case result == release.No && !image.PublishingSince.IsZero():
+		if image.Evidence.At.Sub(image.PublishingSince) >= imagePublishingGrace {
+			return tabStatus{State: tabNeedsAttention, Reason: "Image is still missing: " + image.Reference + "."}
+		}
+		return tabStatus{State: tabInProgress, Reason: "Waiting for image " + image.Reference + " to publish."}
+	default:
+		return tabStatus{State: tabPending}
+	}
+}

@@ -38,7 +38,7 @@ type (
 	PR struct {
 		Target                                         Target
 		SHA, Title, Author, URL, State, Base, MergeSHA string
-		Merged, OptOut                                 bool
+		Merged, OptOut, Draft, ReviewRequested         bool
 		Evidence                                       Evidence
 		Checks                                         []Check
 		ChecksEvidence                                 Evidence
@@ -87,6 +87,8 @@ type (
 		Name, DefinitionURL          string
 		Present                      Truth
 		Evidence                     Evidence
+		// PublishingSince starts when publication is underway and this image is still missing.
+		PublishingSince time.Time
 	}
 	// ImageStatus explains one expected image check without hiding partial results.
 	ImageStatus struct {
@@ -332,6 +334,44 @@ func (c Check) Result() Truth {
 	default:
 		return ""
 	}
+}
+
+// Running reports whether a check is queued or underway.
+func (c Check) Running() bool {
+	if c.Conclusion != "" {
+		return false
+	}
+	switch c.Status {
+	case "pending", "queued", "in_progress", "requested", "waiting":
+		return true
+	default:
+		return false
+	}
+}
+
+// BuildStatus reports failures or success for verified runs and identifies active builds separately.
+func (p Plan) BuildStatus() (result Truth, running bool) {
+	if !p.Evidence.Fresh() || len(p.Runs) == 0 {
+		return "", false
+	}
+	result = Yes
+	for _, run := range p.Runs {
+		if run.ID == "" {
+			result = ""
+			continue
+		}
+		check := Check{Status: run.Status, Conclusion: run.Outcome}
+		switch {
+		case check.Result() == No:
+			return No, false
+		case check.Running():
+			running = true
+			result = ""
+		case run.Status != "completed" || run.Outcome != "success":
+			result = ""
+		}
+	}
+	return result, running
 }
 
 // ChecksStatus requires current evidence and successful required checks.

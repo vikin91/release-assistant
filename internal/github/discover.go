@@ -53,6 +53,7 @@ type (
 		Number  int    `json:"number"`
 		Title   string `json:"title"`
 		State   string `json:"state"`
+		Draft   bool   `json:"draft"`
 		HTMLURL string `json:"html_url"`
 		User    struct {
 			Login string `json:"login"`
@@ -63,10 +64,12 @@ type (
 		Base struct {
 			Ref string `json:"ref"`
 		} `json:"base"`
-		Merged         bool       `json:"merged"`
-		MergedAt       *time.Time `json:"merged_at"`
-		MergeCommitSHA string     `json:"merge_commit_sha"`
-		Labels         []struct {
+		Merged             bool              `json:"merged"`
+		MergedAt           *time.Time        `json:"merged_at"`
+		MergeCommitSHA     string            `json:"merge_commit_sha"`
+		RequestedReviewers []json.RawMessage `json:"requested_reviewers"`
+		RequestedTeams     []json.RawMessage `json:"requested_teams"`
+		Labels             []struct {
 			Name string `json:"name"`
 		} `json:"labels"`
 	}
@@ -588,8 +591,9 @@ func convertPR(repo string, p prResponse) release.PR {
 	r := release.PR{
 		Target: release.Target{Repo: repo, PR: p.Number}, SHA: p.Head.SHA,
 		Title: p.Title, Author: p.User.Login, URL: p.HTMLURL, State: state, Base: p.Base.Ref,
-		MergeSHA: p.MergeCommitSHA, Merged: p.Merged || p.MergedAt != nil,
-		Evidence: release.Evidence{At: time.Now(), URL: p.HTMLURL, Known: p.Head.SHA != ""},
+		MergeSHA: p.MergeCommitSHA, Merged: p.Merged || p.MergedAt != nil, Draft: p.Draft,
+		ReviewRequested: len(p.RequestedReviewers) > 0 || len(p.RequestedTeams) > 0,
+		Evidence:        release.Evidence{At: time.Now(), URL: p.HTMLURL, Known: p.Head.SHA != ""},
 	}
 	for _, l := range p.Labels {
 		if strings.EqualFold(l.Name, "no-release-assistant") {

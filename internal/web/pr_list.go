@@ -71,7 +71,7 @@ func (p pageModel) PRList() prListModel {
 				triage.Closed++
 			case row.Choice == release.Included:
 				triage.AwaitingMerge++
-			case row.Choice == "":
+			case row.Choice == "" && undecidedCandidate(row.PR, repo.Repository.Source.Branch):
 				triage.Undecided++
 			}
 			retry := retries[row.PR.Target]
@@ -93,6 +93,10 @@ func (p pageModel) PRList() prListModel {
 	return triage
 }
 
+func undecidedCandidate(pr release.PR, branch string) bool {
+	return pr.Selectable("") && pr.Evidence.Fresh() && pr.Base == branch
+}
+
 func countRequiredChecks(pr release.PR) requiredCheckCounts {
 	if !pr.Evidence.Fresh() || !pr.ChecksEvidence.Fresh() {
 		return requiredCheckCounts{}
@@ -111,8 +115,7 @@ func countRequiredChecks(pr release.PR) requiredCheckCounts {
 			counts.Failed++
 		case result == release.Yes:
 			counts.Passed++
-		case check.Status == "pending" || check.Status == "queued" || check.Status == "in_progress" ||
-			check.Status == "requested" || check.Status == "waiting":
+		case check.Running():
 			counts.Running++
 		default:
 			counts.Unverified++

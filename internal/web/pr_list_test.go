@@ -30,7 +30,7 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 	pr := func(number int, state, conclusion string) release.PR {
 		return release.PR{
 			Target: release.Target{Repo: source.Repo, PR: number},
-			Title:  fmt.Sprintf("change-%d", number), State: state, Evidence: fresh, ChecksEvidence: fresh,
+			Title:  fmt.Sprintf("change-%d", number), State: state, Base: source.Branch, Evidence: fresh, ChecksEvidence: fresh,
 			Checks: []release.Check{{Required: release.Yes, Conclusion: conclusion}},
 			URL:    fmt.Sprintf("https://github.com/%s/pull/%d", source.Repo, number),
 		}

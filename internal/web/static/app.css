@@ -248,6 +248,11 @@ a { color: var(--accent); }
 .workflow-tabs { display: flex; gap: .4rem; margin: 1.2rem 0 .5rem; padding: .3rem; border: 1px solid var(--line); border-radius: .65rem; overflow-x: auto; }
 .workflow-tabs a { flex: 1; min-width: max-content; padding: .65rem .8rem; border-radius: .4rem; text-align: center; text-decoration: none; color: CanvasText; }
 .workflow-tabs a[aria-selected=true] { background: color-mix(in srgb, var(--accent), Canvas 80%); color: var(--accent); font-weight: 700; }
+.tab-status { display: inline-block; width: 1.2em; margin-left: .2rem; font-weight: 700; }
+.tab-status.complete { color: light-dark(#176b3a, #73d39b); }
+.tab-status.in-progress { color: light-dark(#175dba, #8fbaff); }
+.tab-status.action-needed { color: light-dark(#6942a1, #c9a9f7); }
+.tab-status.needs-attention { color: light-dark(#8a5600, #ffbf54); }
 .workflow-tabs a:focus-visible, .workflow-panel:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .workflow-help, .retry-settings { font-size: .86rem; }
 .workflow-heading { padding: .8rem .1rem .1rem; max-width: 54rem; }

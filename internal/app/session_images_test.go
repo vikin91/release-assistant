@@ -5,9 +5,40 @@ import (
 	"errors"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"release-assistant/internal/release"
 )
+
+func TestTrackImagePublishing(t *testing.T) {
+	first := time.Now()
+	missing := release.Image{
+		Component: "fact", Family: "ci", Reference: "quay.io/fixture/fact:0.3.77", Present: release.No,
+		Evidence: release.Evidence{Known: true, At: first},
+	}
+	later := missing
+	later.Evidence.At = first.Add(time.Minute)
+
+	observations := []release.Image{missing}
+	trackImagePublishing(observations, nil, func(release.Image) bool { return false })
+	if !observations[0].PublishingSince.IsZero() {
+		t.Fatal("missing image started the clock without evidence of publication")
+	}
+	publishing := func(release.Image) bool { return true }
+	trackImagePublishing(observations, nil, publishing)
+	next := []release.Image{later}
+	trackImagePublishing(next, observations, publishing)
+	if !next[0].PublishingSince.Equal(first) {
+		t.Fatalf("continued absence should keep the original timestamp, got %v", next[0].PublishingSince)
+	}
+	next[0].Present = release.Yes
+	next[0].PublishingSince = time.Time{}
+	resumed := []release.Image{later}
+	trackImagePublishing(resumed, next, publishing)
+	if !resumed[0].PublishingSince.Equal(later.Evidence.At) {
+		t.Fatalf("a newly missing image should start a fresh window, got %v", resumed[0].PublishingSince)
+	}
+}
 
 func TestACSRefreshAppliesImagesWhileDiscoveryIsBlocked(t *testing.T) {
 	for name, fail := range map[string]bool{"discovery succeeds": false, "discovery fails": true} {

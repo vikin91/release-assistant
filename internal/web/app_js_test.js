@@ -587,10 +587,16 @@ test("keeps independently selected tabs across live updates and form navigation"
   assert.equal(page.window.location.search, "?tab=acs-prs");
   assert.equal(initial.tabs[2].getAttribute("aria-selected"), "true");
   assert.deepEqual(initial.panels.map((panel) => panel.hidden), [true, true, false, true]);
-  page.updateTo(workflowPage());
+  const refreshed = workflowPage();
+  const statusLabel = "ACS PRs and pinning · Action needed · Decide whether to include 1 PR.";
+  refreshed.tabs[2].setAttribute("aria-label", statusLabel);
+  refreshed.tabs[2].insertBefore(domNode("SPAN", { class: "tab-status action-needed", "aria-hidden": "true" }), null);
+  page.updateTo(refreshed);
   await page.timeouts.shift()();
   assert.equal(initial.tabs[2].getAttribute("aria-selected"), "true");
   assert.equal(initial.tabs[2].getAttribute("tabindex"), "0");
+  assert.equal(initial.tabs[2].getAttribute("aria-label"), statusLabel);
+  assert.equal(initial.tabs[2].firstChild.getAttribute("class"), "tab-status action-needed");
   assert.deepEqual(initial.panels.map((panel) => panel.hidden), [true, true, false, true]);
   page.document.emit("submit", { target: { matches: () => false } });
   assert.equal(page.window.location.search, "?tab=acs-prs");

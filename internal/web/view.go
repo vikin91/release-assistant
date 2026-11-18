@@ -18,6 +18,7 @@ type (
 		Tab, PRSection, RetrySection, RetryDetails, OfferSection string
 		Guidance                                                 []string
 		ComponentPRNotice                                        string
+		TabStatuses                                              map[string]tabStatus
 		Configured                                               bool
 		Snapshot                                                 app.Snapshot
 		Repos                                                    []repoModel
@@ -417,6 +418,9 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 	}
 	for _, cycle := range snapshot.History {
 		model.History = append(model.History, historyModel{Cycle: cycle})
+	}
+	if model.Configured {
+		model.TabStatuses = model.workflowStatuses()
 	}
 	return model
 }
