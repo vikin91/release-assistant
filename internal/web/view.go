@@ -75,6 +75,7 @@ type (
 		Authority       *dispatch.View
 		Component, Repo string
 		Tab             string
+		GrantAnchor     string
 		CSRF            string
 		Generation      uint64
 		Switch          bool

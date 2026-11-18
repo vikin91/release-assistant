@@ -749,7 +749,11 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		if ignore {
 			continue
 		}
-		plan, err := s.planner.Plan(ctx, target)
+		readPlan := s.planner.Plan
+		if isRC {
+			readPlan = s.readRCPlan
+		}
+		plan, err := readPlan(ctx, target)
 		if imageErr := s.inspectPinningImages(ctx, generation, &plan); imageErr != nil {
 			errs = append(errs, fmt.Errorf("checking built images for %s: %w", consoleRevision(target, plan.SHA), imageErr))
 		}
@@ -910,6 +914,7 @@ func clonePlan(p release.Plan) release.Plan {
 	p.Warnings = slices.Clone(p.Warnings)
 	p.Advisories = slices.Clone(p.Advisories)
 	p.StartFailures = slices.Clone(p.StartFailures)
+	p.Validation.Checks = slices.Clone(p.Validation.Checks)
 	return p
 }
 

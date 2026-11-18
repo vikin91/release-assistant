@@ -48,6 +48,21 @@ type (
 		Name, Status, Conclusion, URL string
 		Required                      Truth
 	}
+	// ValidationCheck is GitHub's commit-scoped evidence. Workflow metadata can
+	// identify the reported trigger separately from an identity-verified Konflux run.
+	ValidationCheck struct {
+		Check
+		ID          int64
+		App         string
+		Event, Ref  string
+		WorkflowURL string
+	}
+	// Validation separates GitHub check availability from Konflux retry evidence.
+	Validation struct {
+		SHA      string
+		Checks   []ValidationCheck
+		Evidence Evidence
+	}
 	// Tag retains branch membership and merge containment from commit comparisons.
 	Tag struct {
 		Name, SHA string
@@ -163,6 +178,7 @@ type (
 		Advisories           []Advisory
 		StartFailures        []StartFailure
 		Evidence             Evidence
+		Validation           Validation
 	}
 	// Choices contains only session release decisions.
 	Choices struct {

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	"release-assistant/internal/dispatch"
 	"release-assistant/internal/release"
 )
 
@@ -164,5 +165,119 @@ func TestReleasePhaseRevalidatesPinsBeforeInspectingRC(t *testing.T) {
 	}
 	if inspector.release != 1 || s.rcReady() {
 		t.Fatal("RC reads used pin metadata from before the failed revalidation")
+	}
+}
+
+type rcCheckFixture struct {
+	*fixture
+	validation release.Validation
+}
+
+func (f *rcCheckFixture) ReadRCChecks(context.Context, release.Target) release.Validation {
+	return f.validation
+}
+
+func TestRCPlanBindsValidationToTheCandidate(t *testing.T) {
+	target := configuration().RC0Target()
+	for name, tc := range map[string]struct {
+		planSHA, validationSHA, wantSHA string
+		plannerErr, wantErr             bool
+	}{
+		"matching identity keeps validation":                {"candidate", "candidate", "candidate", false, false},
+		"moved tag discards both observations":              {"old", "new", "", false, true},
+		"independent validation survives a planner timeout": {"", "candidate", "candidate", true, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, f, _ := rcFixture(t)
+			s.discovery = &rcCheckFixture{fixture: f, validation: release.Validation{
+				SHA: tc.validationSHA, Evidence: observed(),
+				Checks: []release.ValidationCheck{{Check: release.Check{Name: "unit tests", Status: "in_progress"}}},
+			}}
+			planner := &rcPlanner{plan: release.Plan{Target: target, SHA: tc.planSHA, Evidence: observed()}}
+			if tc.plannerErr {
+				planner.err = context.DeadlineExceeded
+			}
+			s.planner = planner
+			plan, err := s.readRCPlan(t.Context(), target)
+			if plan.SHA != tc.wantSHA || (err != nil) != tc.wantErr {
+				t.Fatalf("plan SHA=%q error=%v, want SHA=%q error=%t", plan.SHA, err, tc.wantSHA, tc.wantErr)
+			}
+			if (len(plan.Validation.Checks) != 0) != (tc.wantSHA != "") {
+				t.Fatalf("unexpected validation: %+v", plan.Validation)
+			}
+		})
+	}
+}
+
+type rcRetryTransport struct {
+	*rcPlanner
+	posted []release.Proposal
+}
+
+func (tr *rcRetryTransport) ReadTarget(_ context.Context, target release.Target) (dispatch.Identity, error) {
+	return dispatch.Identity{Target: target, SHA: tr.plan.SHA, Open: true, Evidence: observed()}, nil
+}
+
+func (tr *rcRetryTransport) Write(_ context.Context, proposal release.Proposal) (dispatch.Delivery, error) {
+	tr.posted = append(tr.posted, proposal)
+	return dispatch.Delivery{Status: "sent"}, nil
+}
+
+func TestRCValidationRetryRespectsWriteAndConfirmationModes(t *testing.T) {
+	for name, mode := range map[string]struct{ writes, interactive bool }{
+		"read-only": {}, "interactive": {true, true}, "automatic": {true, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, _, _ := rcFixture(t)
+			config := s.Snapshot().Config
+			target := config.RC0Target()
+			proposal := release.Proposal{
+				Target: target, SHA: "candidate", Job: "checks", RunID: "51",
+				Payload: "/retest checks tag:" + target.Tag,
+			}
+			tr := &rcRetryTransport{rcPlanner: &rcPlanner{plan: release.Plan{
+				Target: target, SHA: proposal.SHA, Evidence: observed(),
+				Runs:      []release.Run{{Job: proposal.Job, ID: proposal.RunID, Status: "completed", Outcome: "cancelled", Eligible: true}},
+				Proposals: []release.Proposal{proposal},
+			}}}
+			s.planner = tr
+			s.dispatcher = dispatch.New(tr, tr, tr, dispatch.Options{EnableWrites: mode.writes})
+			generation := s.Snapshot().Generation
+			refresh := func(discover bool) {
+				t.Helper()
+				if err := s.refreshPlanned(t.Context(), generation, config.ACS(), discover); err != nil {
+					t.Fatal(err)
+				}
+			}
+			refresh(true)
+			refresh(false)
+			grant := Action{Kind: "grant", Target: target, SHA: proposal.SHA, Enabled: true, Generation: generation}
+			if err := s.Apply(t.Context(), grant); (err == nil) != mode.writes {
+				t.Fatalf("unexpected permission result %v", err)
+			}
+			apply(t, s, Action{Kind: "interactive", Enabled: mode.interactive})
+			refresh(false)
+			if mode.interactive {
+				if len(tr.posted) != 0 {
+					t.Fatal("posted before an interactive confirmation")
+				}
+				apply(t, s, Action{Kind: "send", Target: target, ID: dispatch.ID(proposal)})
+			}
+			if mode.writes {
+				if !slices.Equal(tr.posted, []release.Proposal{proposal}) {
+					t.Fatalf("expected exactly the authorized tag comment, got %v", tr.posted)
+				}
+			} else if len(tr.posted) != 0 {
+				t.Fatal("read-only mode posted a retry")
+			}
+			tr.plan.Proposals = nil
+			tr.plan.Runs[0] = release.Run{Job: proposal.Job, ID: "52", Status: "in_progress"}
+			refresh(false)
+			for _, view := range s.Snapshot().Authority {
+				if view.Target == target && len(view.Offers) != 0 {
+					t.Fatal("a running rerun retained a retry offer")
+				}
+			}
+		})
 	}
 }

@@ -1,11 +1,35 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"slices"
+	"sync"
 
 	"release-assistant/internal/dispatch"
 	"release-assistant/internal/release"
 )
+
+func (s *Session) readRCPlan(ctx context.Context, target release.Target) (release.Plan, error) {
+	var validation release.Validation
+	var read sync.WaitGroup
+	if reader, ok := s.discovery.(RCCheckReader); ok {
+		read.Go(func() { validation = reader.ReadRCChecks(ctx, target) })
+	}
+	plan, err := s.planner.Plan(ctx, target)
+	read.Wait()
+	if validation.SHA != "" && plan.SHA != "" && validation.SHA != plan.SHA {
+		// A moved tag invalidates both the proposed retries and the combined view.
+		err := errors.New("the RC.0 tag resolved to different commits during this refresh")
+		return release.Plan{Target: target, Evidence: release.Evidence{At: plan.Evidence.At, Error: err.Error()}}, err
+	}
+	if plan.SHA == "" && validation.SHA != "" {
+		plan.SHA = validation.SHA
+		plan.Proposals = nil
+	}
+	plan.Validation = validation
+	return plan, err
+}
 
 func (s *Session) clearRCPlan() {
 	target := s.config.RC0Target()

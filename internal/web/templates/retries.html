@@ -50,7 +50,7 @@
 {{end}}
 
 {{define "retry-offer-actions"}}
-  {{if .Offer.CanApprove}}
+  {{if and .Offer.CanApprove (or (ne .Page.Tab "acs-rcs") .Page.Snapshot.Interactive)}}
     <form method="post" action="/action">
       {{template "retry-offer-fields" .}}
       <input type="hidden" name="kind" value="send">

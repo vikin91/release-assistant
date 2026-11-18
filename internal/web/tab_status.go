@@ -308,7 +308,7 @@ func (p pageModel) rcStatus() tabStatus {
 	if len(images) == 0 || snapshot.Inventory.Versions["acs"] != version {
 		return p.rcBuildStatus(target)
 	}
-	status := tabStatus{State: tabComplete, Reason: "All expected ACS RC.0 images are available."}
+	status := tabStatus{State: tabComplete}
 	started := slices.ContainsFunc(images, func(image release.Image) bool {
 		return image.Evidence.Fresh() && image.Present == release.Yes
 	})
@@ -325,8 +325,16 @@ func (p pageModel) rcStatus() tabStatus {
 	if status.State != tabComplete {
 		build := p.rcBuildStatus(target)
 		status.add(build.State, build.Reason)
+		return status
 	}
-	return status
+	rc := tabPage(p, "acs-rcs").RC
+	if rc.CommitURL != "" {
+		return rc.validationStatus()
+	}
+	if rc.Plan != nil && rc.Plan.Plan.Evidence.Error != "" {
+		return tabStatus{State: tabNeedsAttention, Reason: "Images are available. Unable to verify the RC.0 tag."}
+	}
+	return tabStatus{State: tabInProgress, Reason: "Images are available. Waiting to verify the RC.0 tag."}
 }
 
 func (p pageModel) rcBuildStatus(target release.Target) tabStatus {

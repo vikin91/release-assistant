@@ -28,6 +28,10 @@ type (
 	Planner interface {
 		Plan(context.Context, release.Target) (release.Plan, error)
 	}
+	// RCCheckReader resolves the candidate tag and reads checks on its commit.
+	RCCheckReader interface {
+		ReadRCChecks(context.Context, release.Target) release.Validation
+	}
 	// ComponentInspector defers release candidate reads while component prerequisites are monitored.
 	ComponentInspector interface {
 		InspectComponents(context.Context, release.Config, map[string]string) (release.Inventory, error)

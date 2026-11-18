@@ -1,4 +1,5 @@
 {{define "acs-rcs"}}
+  {{if .RC.ImagesAvailable}}{{template "rc-validation" .}}{{end}}
   <section class="panel" id="release-images-panel">
     <details id="release-images" open>
       <summary id="release-images-heading" class="section-summary">ACS {{.Snapshot.Config.Version}} RC.0 images
@@ -26,7 +27,7 @@
             <a href="{{url .RC.TagURL}}" target="_blank" rel="noreferrer">Open RC.0 tag</a>
             <a href="{{url .RC.ChecksURL}}" target="_blank" rel="noreferrer">View tag checks</a>
           </div>
-          {{with .RC.Permission}}{{template "tag-comment-permission" .}}{{end}}
+          {{if not .RC.ImagesAvailable}}{{with .RC.Permission}}{{template "tag-comment-permission" .}}{{end}}{{end}}
           {{with .RC.Plan}}
             {{if not .Plan.Runs}}
               {{if .Plan.Evidence.Error}}<p class="muted">Unable to load Konflux build checks.</p>
@@ -45,7 +46,6 @@
         {{if .Groups}}{{template "image-table" .Groups}}{{end}}
         {{if .Other}}{{template "image-results" .Other}}{{end}}
       {{end}}
-      {{range .RC.OtherRetries}}{{template "rc-retry" .}}{{end}}
       {{with .RC.Plan}}
         {{if or .Plan.Evidence.Error .Plan.Warnings}}
           <details class="rc-diagnostics" data-fold-key="rc-build-diagnostics">
@@ -59,6 +59,7 @@
       {{end}}
     </details>
   </section>
+  {{if not .RC.ImagesAvailable}}{{template "rc-validation" .}}{{end}}
   {{template "start-failures" .}}
 {{end}}
 
@@ -96,7 +97,7 @@
 
 {{define "rc-retry"}}
   <details class="rc-retry" data-fold-key="rc-retry:{{.Candidate.Key}}">
-    <summary>{{if and .Actions .Candidate.Offer.CanApprove}}Retest Konflux build{{else}}Copy retest command{{end}}<span class="component-image-note">{{.Candidate.Proposal.Job}} · {{.Candidate.Status}}</span></summary>
+    <summary>{{if and .Actions .Candidate.Offer.CanApprove}}{{if .Actions.Page.Snapshot.Interactive}}{{.Label}}{{else}}View retest comment{{end}}{{else}}Copy retest command{{end}}<span class="component-image-note">{{.Candidate.Proposal.Job}} · {{.Candidate.Status}}</span></summary>
     {{template "manual-comment" .Candidate.Proposal}}
     {{with .Actions}}{{template "retry-offer-actions" .}}{{end}}
   </details>

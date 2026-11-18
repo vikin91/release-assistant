@@ -188,7 +188,7 @@ func TestWorkflowPinningAndRCStatuses(t *testing.T) {
 	s := workflowStatusSnapshot()
 	acs := &s.Repositories[len(s.Config.Components)]
 	assertTabStatus(t, s, "acs-prs", tabComplete, "the ACS branch pins match")
-	assertTabStatus(t, s, "acs-rcs", tabComplete, "All expected ACS RC.0 images")
+	assertTabStatus(t, s, "acs-rcs", tabInProgress, "Waiting to verify the RC.0 tag")
 
 	for i := range s.Inventory.ReleaseImages {
 		s.Inventory.ReleaseImages[i].Present = release.No
@@ -224,7 +224,7 @@ func TestWorkflowTabStatusIsRenderedWithAccessibleReason(t *testing.T) {
 		`aria-label="Component PRs · Action needed · Decide whether to include 1 PR."`,
 		`class="tab-status action-needed" aria-hidden="true">→`,
 		`<strong>Action needed</strong> · Decide whether to include 1 PR.`,
-		`aria-label="ACS RCs · Complete · All expected ACS RC.0 images are available."`,
+		`aria-label="ACS RCs · In progress · Images are available. Waiting to verify the RC.0 tag."`,
 	} {
 		if !strings.Contains(body, marker) {
 			t.Errorf("missing %q", marker)

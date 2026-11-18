@@ -515,45 +515,19 @@ func (c *Client) readChecks(ctx context.Context, src release.Source, p *release.
 	p.ChecksEvidence = release.Evidence{At: time.Now(), URL: p.URL, Known: true}
 	base := repoPath(src.Repo)
 	var problems []string
-	for page := 1; page <= maxPages; page++ {
-		var response struct {
-			Total int `json:"total_count"`
-			Runs  []struct {
-				Name       string `json:"name"`
-				Status     string `json:"status"`
-				Conclusion string `json:"conclusion"`
-				URL        string `json:"html_url"`
-			} `json:"check_runs"`
-		}
-		endpoint := fmt.Sprintf("%s/commits/%s/check-runs?per_page=100&page=%d", base, segment(p.SHA), page)
-		if err := c.get(ctx, endpoint, &response); err != nil {
-			problems = append(problems, "Check runs: "+requestProblem(err))
-			break
-		}
-		for _, run := range response.Runs {
-			p.Checks = append(p.Checks, release.Check{Name: run.Name, Status: run.Status, Conclusion: run.Conclusion, URL: run.URL})
-		}
-		if page*100 >= response.Total {
-			break
-		}
-		if page == maxPages {
-			problems = append(problems, "Check runs: GitHub pagination limit reached.")
-		}
+	runs, err := c.readCommitCheckRuns(ctx, src.Repo, p.SHA)
+	for _, run := range runs {
+		p.Checks = append(p.Checks, run.check())
 	}
-	err := c.pages(ctx, base+"/commits/"+segment(p.SHA)+"/statuses", func(raw json.RawMessage) error {
-		var status struct {
-			Context string `json:"context"`
-			State   string `json:"state"`
-			URL     string `json:"target_url"`
-		}
-		if err := json.Unmarshal(raw, &status); err != nil {
-			return fmt.Errorf("malformed commit status")
-		}
+	if err != nil {
+		problems = append(problems, "Check runs: "+requestProblem(err))
+	}
+	statuses, err := c.readCommitStatuses(ctx, src.Repo, p.SHA)
+	for _, status := range statuses {
 		if !slices.ContainsFunc(p.Checks, func(check release.Check) bool { return check.Name == status.Context }) {
 			p.Checks = append(p.Checks, release.Check{Name: status.Context, Status: status.State, URL: status.URL})
 		}
-		return nil
-	})
+	}
 	if err != nil {
 		problems = append(problems, "Commit statuses: "+requestProblem(err))
 	}

@@ -11,9 +11,12 @@ import (
 type (
 	rcModel struct {
 		TagURL, ChecksURL, WorkflowURL    string
+		CommitURL                         string
 		Plan                              *planModel
 		Permission                        *tagModel
-		OtherRetries                      []rcRetryModel
+		ValidationRows                    []rcValidationRow
+		ImagesAvailable                   bool
+		ValidationObserved                bool
 		UnverifiedJobs                    []release.Run
 		LookupTimedOut                    bool
 		CIAvailable, CITotal              int
@@ -27,6 +30,7 @@ type (
 	rcRetryModel struct {
 		Candidate *buildRetryCandidate
 		Actions   *retryOfferActions
+		Label     string
 	}
 )
 
@@ -47,6 +51,7 @@ func (p *pageModel) prepareRC() {
 			}
 		}
 	}
+	p.RC.ImagesAvailable = p.ReleaseImages.Total > 0 && p.ReleaseImages.Available == p.ReleaseImages.Total
 	groups := p.BuildRetries()
 	if len(groups) == 0 || groups[0].Plan == nil {
 		return
@@ -61,13 +66,17 @@ func (p *pageModel) prepareRC() {
 	}
 
 	p.RC.TagURL = repoURL + "/tree/refs/tags/" + url.PathEscape(target.Tag)
-	p.RC.ChecksURL = repoURL + "/commit/" + url.PathEscape(plan.SHA) + "/checks"
+	p.RC.CommitURL = repoURL + "/commit/" + url.PathEscape(plan.SHA)
+	p.RC.ChecksURL = p.RC.CommitURL + "/checks"
 	if group.Authority != nil && group.Authority.SHA == plan.SHA && p.Snapshot.WritesEnabled &&
 		(len(plan.Proposals) > 0 || group.Authority.Granted) {
 		p.RC.Permission = &tagModel{
 			Tag: release.Tag{Name: target.Tag, SHA: plan.SHA}, Repo: target.Repo,
 			Authority: group.Authority, WritesEnabled: p.Snapshot.WritesEnabled,
 			Tab: p.Tab, CSRF: p.CSRF, Generation: p.Snapshot.Generation,
+		}
+		if p.RC.ImagesAvailable {
+			p.RC.Permission.GrantAnchor = "rc-validation"
 		}
 	}
 	runs := make(map[string]release.Run, len(plan.Runs))
@@ -78,6 +87,7 @@ func (p *pageModel) prepareRC() {
 	for _, candidate := range group.Candidates {
 		retries[candidate.Proposal.Job] = candidate
 	}
+	imageJobs := make(map[string]bool)
 	for i, group := range p.ReleaseImages.Groups {
 		for j, row := range group.Rows {
 			if row.Konflux == nil {
@@ -92,21 +102,15 @@ func (p *pageModel) prepareRC() {
 			if retry := retries[job]; rcRetryMatches(retry, run, plan.SHA) {
 				build.Retry = new(p.rcRetry(retry))
 			}
-			delete(retries, job)
-			delete(runs, job)
+			imageJobs[job] = true
 			image := *row.Konflux
 			image.RCBuild = &build
 			p.ReleaseImages.Groups[i].Rows[j].Konflux = &image
 		}
 	}
-	for _, candidate := range group.Candidates {
-		run := runs[candidate.Proposal.Job]
-		if retries[run.Job] == candidate && rcRetryMatches(candidate, run, plan.SHA) {
-			p.RC.OtherRetries = append(p.RC.OtherRetries, p.rcRetry(candidate))
-		}
-	}
+	p.prepareRCValidation(plan, runs, retries, imageJobs)
 	for _, run := range plan.Runs {
-		if run.Status == "unknown" && run.ID == "" && runs[run.Job].Job != "" {
+		if run.Status == "unknown" && run.ID == "" && !imageJobs[run.Job] {
 			p.RC.UnverifiedJobs = append(p.RC.UnverifiedJobs, run)
 		}
 	}
@@ -119,7 +123,7 @@ func rcRetryMatches(candidate *buildRetryCandidate, run release.Run, sha string)
 }
 
 func (p pageModel) rcRetry(candidate *buildRetryCandidate) rcRetryModel {
-	retry := rcRetryModel{Candidate: candidate}
+	retry := rcRetryModel{Candidate: candidate, Label: "Retest Konflux build"}
 	if p.Snapshot.WritesEnabled && candidate.Offer != nil {
 		retry.Actions = new(p.RetryOfferActions(*candidate.Offer))
 	}
