@@ -25,7 +25,7 @@ function makeDetails({ id = "", foldKey = "", open = false } = {}) {
   return emitter({ id, dataset: foldKey ? { foldKey } : {}, open, tagName: "DETAILS" });
 }
 
-function makePage({ sections = [], storage = new Map(), session = "session:1", hash = "", configDraft = false, storageFails = false, activityLog, fetchActivity, livePage, fetchDashboard, parseDashboard } = {}) {
+function makePage({ sections = [], storage = new Map(), session = "session:1", hash = "", configDraft = false, storageFails = false, activityLog, fetchActivity, livePage, fetchDashboard, parseDashboard, clipboard } = {}) {
   const byId = new Map(sections.filter((section) => section.id).map((section) => [section.id, section]));
   if (activityLog) {
     byId.set("activity-log", activityLog);
@@ -70,6 +70,7 @@ function makePage({ sections = [], storage = new Map(), session = "session:1", h
   if (livePage) document.body.dataset = { ...livePage.body.dataset };
   const window = emitter({
     sessionStorage,
+    navigator: { clipboard },
     location: { hash, search: livePage?.body.dataset.activeTab ? `?tab=${livePage.body.dataset.activeTab}` : "", reload() { reloads += 1; } },
     setInterval(callback) { intervals.push(callback); },
     setTimeout(callback, delay) { callback.delay = delay; timeouts.push(callback); return callback; },
@@ -105,6 +106,31 @@ function makePage({ sections = [], storage = new Map(), session = "session:1", h
 function savedState(sections, session = "session") {
   return new Map([[storageKey, JSON.stringify({ session, sections })]]);
 }
+
+test("copies the exact command text and reports clipboard failures", async () => {
+  const command = "cdrox\ngit status\n";
+  const writes = [];
+  const clipboard = { writeText: async (text) => writes.push(text) };
+  const page = makePage({ clipboard });
+  const status = { textContent: "" };
+  const block = { querySelector: (selector) => selector === "pre code" ? { textContent: command } : status };
+  const button = { dataset: { copyText: "" }, closest: () => block };
+  const click = () => page.document.emit("click", {
+    target: { closest: (selector) => selector === "[data-copy-text]" ? button : null },
+  });
+  page.start();
+  click();
+  await new Promise(setImmediate);
+  assert.deepEqual(writes, [command]);
+  assert.equal(status.textContent, "Copied");
+  page.timeouts.shift()();
+  assert.equal(status.textContent, "");
+
+  clipboard.writeText = async () => { throw new Error("clipboard denied"); };
+  click();
+  await new Promise(setImmediate);
+  assert.equal(status.textContent, "Select and copy the text manually.");
+});
 
 test("opens topic panels on a new app run even when the browser tab has saved folds", () => {
   const storage = savedState({ "previous-cycles": false, "release-images": false });

@@ -78,7 +78,13 @@
 {{end}}
 
 {{define "manual-comment"}}
-  <pre><code>{{.Payload}}</code></pre>
-  {{$target := .Target}}
-  {{with commentURL .}}<p><a href="{{.}}" target="_blank" rel="noreferrer">Comment on {{if $target.PR}}PR #{{$target.PR}}{{else}}the commit{{end}} on GitHub (opens in a new tab)</a></p>{{end}}
+  <div class="copyable-text">
+    <pre><code>{{.Payload}}</code></pre>
+    <div class="copy-text-actions">
+      <button type="button" data-copy-text>Copy comment</button>
+      {{$target := .Target}}
+      {{with commentURL .}}<a href="{{.}}" target="_blank" rel="noreferrer">Comment on {{if $target.PR}}PR #{{$target.PR}}{{else}}the commit{{end}} on GitHub (opens in a new tab)</a>{{end}}
+      <span role="status" data-copy-status data-live-preserve></span>
+    </div>
+  </div>
 {{end}}

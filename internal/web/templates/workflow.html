@@ -6,7 +6,13 @@
     {{if .Guidance}}<ol>{{range .Guidance}}<li>{{.}}</li>{{end}}</ol>{{else}}<p class="muted">Waiting for the first observations for this activity.</p>{{end}}
     {{if .Problems}}<details id="{{.Tab}}-readiness-details" class="readiness-details" open><summary>Checks that need attention</summary><ol>{{range .Problems}}<li>{{.Reason}}{{range .Evidence}}{{if .Error}} · {{.Error}}{{end}}{{end}}</li>{{end}}</ol></details>{{end}}
     {{if eq .Tab "component-releases"}}{{if .Snapshot.Assessment.ReleaseGuides}}<h3>Component release instructions</h3><p>Cut a tag on the configured release branch and trigger the component release using its guide. Then select the tag below to follow its builds and images.</p><ol>{{range $component,$url:=.Snapshot.Assessment.ReleaseGuides}}<li><a href="{{url $url}}" target="_blank" rel="noreferrer">{{$component}} release guide</a></li>{{end}}</ol>{{end}}{{end}}
-    {{if and (eq .Tab "acs-prs") .Snapshot.Assessment.Commands}}<h3>Copyable pinning commands</h3><pre><code>{{.Snapshot.Assessment.Commands}}</code></pre>{{end}}
+    {{if and (eq .Tab "acs-prs") .Snapshot.Assessment.Commands}}
+      <h3>Pinning commands</h3>
+      <div class="copyable-text">
+        <pre><code>{{.Snapshot.Assessment.Commands}}</code></pre>
+        <div class="copy-text-actions"><button type="button" data-copy-text>Copy commands</button><span role="status" data-copy-status data-live-preserve></span></div>
+      </div>
+    {{end}}
     </details>
   </section>
   {{end}}

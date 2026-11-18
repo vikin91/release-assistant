@@ -107,6 +107,24 @@ document.addEventListener("DOMContentLoaded", () => {
   revealTab(linkedSection);
   if (linkedSection && !Object.hasOwn(sectionStates, sectionKey(linkedSection))) openSection(linkedSection);
 
+  document.body.dataset.copyEnabled = "true";
+  const copyTimers = new WeakMap();
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest?.("[data-copy-text]");
+    if (button?.dataset?.copyText === undefined) return;
+    const block = button.closest(".copyable-text");
+    const status = block.querySelector("[data-copy-status]");
+    window.clearTimeout(copyTimers.get(status));
+    try {
+      await window.navigator.clipboard.writeText(block.querySelector("pre code").textContent);
+      status.textContent = "Copied";
+    } catch {
+      status.textContent = "Select and copy the text manually.";
+    }
+    window.clearTimeout(copyTimers.get(status));
+    copyTimers.set(status, window.setTimeout(() => { status.textContent = ""; }, 2500));
+  });
+
   const activityLog = document.getElementById("activity-log");
   const activityError = document.getElementById("activity-refresh-error");
   if (activityLog && activityError) {

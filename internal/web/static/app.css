@@ -129,6 +129,10 @@ legend { padding: 0 .35rem; font-weight: 700; }
 .build-retry-note { margin: .3rem 0; }
 .build-retry-evidence { margin-top: .45rem; }
 .build-retry-row form { margin: .35rem 0; }
+.copy-text-actions { display: flex; align-items: baseline; flex-wrap: wrap; gap: .35rem .65rem; margin-bottom: .45rem; }
+[data-copy-text] { display: none; }
+[data-copy-enabled] [data-copy-text] { display: inline-block; }
+[data-copy-status] { font-size: .86rem; }
 .creation-failure-intro { margin-bottom: .5rem; }
 .creation-failure-cluster { margin-top: .75rem; padding: .65rem .8rem; border: 1px solid var(--line); border-radius: .55rem; }
 .creation-failure-cluster h3 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
