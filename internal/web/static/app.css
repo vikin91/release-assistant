@@ -47,7 +47,7 @@ legend { padding: 0 .35rem; font-weight: 700; }
 .control-row, .inline-form { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
 .inline-form { margin: .25rem 0; }
 .grant-form { margin-top: .6rem; }
-.section-summary { font-size: 1.2rem; font-weight: 700; cursor: pointer; }
+.section-summary { font-size: 1.2rem; font-weight: 700; }
 .section-nav { display: flex; gap: 1rem; margin: 1rem 0; }
 .release-pills { display: flex; flex-wrap: wrap; gap: .4rem; margin: .7rem 0 .3rem; font-size: .85rem; }
 .release-pills a { text-decoration: none; }
@@ -173,6 +173,7 @@ summary { cursor: pointer; }
 details[id] > summary {
   display: block;
   position: relative;
+  pointer-events: none;
   min-block-size: 2.75rem;
   padding-block: .5rem;
   padding-inline-end: 4.75rem;
@@ -181,6 +182,8 @@ details[id] > summary {
 details[id] > summary::-webkit-details-marker { display: none; }
 details[id] > summary::after {
   content: "Show" / "";
+  pointer-events: auto;
+  cursor: pointer;
   box-sizing: border-box;
   position: absolute;
   inset-inline-end: 0;
@@ -196,7 +199,8 @@ details[id] > summary::after {
 }
 details[id][open] > summary::after { content: "Hide" / ""; }
 details[id] > summary:hover::after { border-color: var(--accent); }
-details[id] > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+details[id] > summary:focus-visible { outline: none; }
+details[id] > summary:focus-visible::after { outline: 2px solid var(--accent); outline-offset: 3px; }
 table { width: 100%; border-collapse: collapse; margin: .5rem 0 1rem; font-size: .92rem; }
 th, td { padding: .45rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 pre { overflow: auto; margin: .45rem 0; padding: .7rem; border: 1px solid var(--line); border-radius: .35rem; white-space: pre-wrap; overflow-wrap: anywhere; }
