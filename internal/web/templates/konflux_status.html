@@ -23,10 +23,12 @@
       </p>
     {{end}}
     {{range .Reads}}
-      <p><strong>{{.Endpoint}} reads {{if .RetryAt.IsZero}}failed{{else}}paused{{end}}.</strong>
-        Last failure at {{when .LastFailure}} ({{.Reason}}).
-        {{if .Probing}}A recovery check is in progress.{{else if not .RetryAt.IsZero}}Next recovery check eligible at {{when .RetryAt}}.{{end}}
-      </p>
+      <div class="konflux-read-issue">
+        <h3>{{.Endpoint}} reads {{if .RetryAt.IsZero}}failed{{else}}paused{{end}}</h3>
+        <p class="konflux-read-reason">{{.Reason}}</p>
+        <p>Last failure at {{when .LastFailure}}</p>
+        {{if .Probing}}<p>A recovery check is in progress.</p>{{else if not .RetryAt.IsZero}}<p>Next recovery check eligible at {{when .RetryAt}}</p>{{end}}
+      </div>
     {{end}}
   </div>
   {{end}}

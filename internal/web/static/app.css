@@ -269,6 +269,14 @@ a { color: var(--accent); }
   background: light-dark(#142f39, #13232c); color: #f1f8fa;
 }
 .topbar .header-menu > summary.konflux-pill { display: inline-flex; align-items: center; gap: .45rem; padding: .25rem .65rem; border-radius: 1rem; font-size: .86rem; font-weight: 600; }
+.konflux-read-issue {
+  margin: .65rem 0 1rem; padding: .8rem 1rem; border-inline-start: .3rem solid light-dark(#ba3034, #ff8587);
+  border-radius: .35rem; background: light-dark(#fff0ef, #36252a); overflow-wrap: anywhere;
+}
+.konflux-read-issue h3 { margin: 0; font-size: 1.25rem; }
+.konflux-read-issue :is(h3, .konflux-read-reason) { color: light-dark(#922329, #ffa9ab); }
+.konflux-read-issue p { margin: .15rem 0 0; font-size: .88rem; font-variant-numeric: tabular-nums; }
+.konflux-read-issue .konflux-read-reason { margin-bottom: .55rem; font-size: 1rem; }
 .konflux-excerpt { overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
 .konflux-pill::before { content: ""; width: .5rem; height: .5rem; border-radius: 50%; background: currentColor; }
 .konflux-pill.accepted { background: #dcf6e6; color: #165a34; }
