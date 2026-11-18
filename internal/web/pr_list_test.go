@@ -67,7 +67,8 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 		}},
 		Repositories: []release.Repository{repo},
 	}}
-	tabBody := activityPanel(t, newBrowser(t, application).getBody(t), tab)
+	browser := newBrowser(t, application)
+	tabBody := activityPanel(t, browser.getBody(t), tab)
 	body := between(t, tabBody, `id="`+section+`-panel"`, "</section>")
 	if !strings.Contains(body, `name="`+section+`-filter" value="attention"`) {
 		t.Fatal("the PR list needs its own filter group")
@@ -78,9 +79,17 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 	if !strings.Contains(body, "2 awaiting merge · 1 included and closed · 2 undecided · 1 included and merged") {
 		t.Fatal("summary did not reflect the user's PR selection")
 	}
-	if strings.Index(body, "change-2") > strings.Index(body, "change-1") {
-		t.Fatal("closed included PR should appear first in the list")
+	assertPROrder := func(body string) {
+		last := -1
+		for number := 1; number <= 6; number++ {
+			pos := strings.Index(body, fmt.Sprintf(">#%d change-%d</a>", number, number))
+			if pos <= last {
+				t.Fatalf("PR #%d is missing or out of numerical order", number)
+			}
+			last = pos
+		}
 	}
+	assertPROrder(body)
 	for _, tt := range []struct {
 		title, choice, checks string
 		attention             bool
@@ -123,4 +132,8 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 	if len(application.actions) != 0 {
 		t.Fatal("rendering triage changed the release selection")
 	}
+	application.snapshot.Choices.PRs[open.Target] = release.Excluded
+	application.snapshot.Choices.PRs[candidate.Target] = release.Included
+	updated := activityPanel(t, browser.getBody(t), tab)
+	assertPROrder(between(t, updated, `id="`+section+`-panel"`, "</section>"))
 }

@@ -56,7 +56,7 @@ func (p pageModel) PRList() prListModel {
 		triage.Merged += len(repo.MergedPRs)
 		triage.Repos[i].PRs = slices.Clone(repo.PRs)
 		slices.SortStableFunc(triage.Repos[i].PRs, func(a, b prModel) int {
-			return cmp.Compare(prListRank(a), prListRank(b))
+			return cmp.Compare(a.PR.Target.PR, b.PR.Target.PR)
 		})
 		for _, row := range repo.PRs {
 			closed := row.PR.State == "closed"
@@ -85,19 +85,6 @@ func (p pageModel) PRList() prListModel {
 		}
 	}
 	return triage
-}
-
-func prListRank(row prModel) int {
-	switch {
-	case row.Choice == release.Included && row.PR.State == "closed":
-		return 0
-	case row.Choice == release.Included:
-		return 1
-	case row.Choice == "":
-		return 2
-	default:
-		return 3
-	}
 }
 
 func countRequiredChecks(pr release.PR) requiredCheckCounts {
