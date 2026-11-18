@@ -31,6 +31,18 @@ func (s *Session) readRCPlan(ctx context.Context, target release.Target) (releas
 	return plan, err
 }
 
+func (s *Session) revalidateRCPlan() {
+	target := s.repos["acs"].Candidate.Target
+	if _, ok := s.plans[target]; !ok {
+		return
+	}
+	if !s.rcReady() {
+		s.clearRCPlan()
+	} else if !s.rcRetriesReady() {
+		s.dispatcher.ObserveIdentity(dispatch.Identity{Target: target})
+	}
+}
+
 func (s *Session) clearRCPlan() {
 	target := s.repos["acs"].Candidate.Target
 	if _, ok := s.plans[target]; ok {
@@ -53,7 +65,7 @@ func (s *Session) observeRCPlan(target release.Target, plan release.Plan) {
 			return run.Eligible && run.ID == proposal.RunID && run.Job == proposal.Job
 		})
 	})
-	if plan.SHA != "" {
+	if plan.SHA != "" && s.rcRetriesReady() {
 		identity := release.Evidence{At: plan.Evidence.At, URL: plan.Evidence.URL, Known: true}
 		s.dispatcher.ObserveIdentity(dispatch.Identity{
 			Target: target, SHA: plan.SHA, Open: true, Evidence: identity,

@@ -206,7 +206,7 @@ func TestWorkflowPinningAndRCStatuses(t *testing.T) {
 	acs.PinningPR.ReviewRequested = true
 	acs.Pins.Versions["fact"] = "3.25.0"
 	assertTabStatus(t, s, "acs-prs", tabInProgress, "Waiting for a requested review")
-	assertTabStatus(t, s, "acs-rcs", tabPending, "")
+	assertTabStatus(t, s, "acs-rcs", tabNeedsAttention, "Unable to verify image")
 	acs.PinningPR.Merged = true
 	assertTabStatus(t, s, "acs-prs", tabNeedsAttention, "pins still differ")
 }

@@ -175,7 +175,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 	}
 	if a.Kind == "send" {
 		rc := s.repos["acs"].Candidate
-		if a.Target.Tag != "" && a.Target == rc.Target && (!s.rcReady() || s.plans[a.Target].SHA != rc.SHA) {
+		if a.Target.Tag != "" && a.Target == rc.Target && (!s.rcRetriesReady() || s.plans[a.Target].SHA != rc.SHA) {
 			s.mu.Unlock()
 			return fmt.Errorf("release candidate prerequisites or build checks are no longer verified")
 		}
@@ -237,7 +237,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 	case "grant":
 		rc := s.repos["acs"].Candidate
 		isRC := a.Target.Tag != "" && a.Target == rc.Target
-		if (isRC && (!s.rcReady() || s.plans[a.Target].SHA != rc.SHA)) || (!isRC && !s.hasTarget(a.Target)) {
+		if (isRC && (!s.rcRetriesReady() || s.plans[a.Target].SHA != rc.SHA)) || (!isRC && !s.hasTarget(a.Target)) {
 			return fmt.Errorf("unknown target")
 		}
 		err = s.dispatcher.Grant(a.Target, a.SHA, a.Enabled)
@@ -299,7 +299,6 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		delete(s.confirmedSHAs, a.Component)
 		s.tagInitialized[a.Component] = true
 		s.workRevision++
-		s.inventory.ReleaseImages = unverifiedImages(s.inventory.ReleaseImages, "")
 		s.record(release.Target{Repo: source.Repo}, "", "tag-cleared", "", "Preparing a new component tag.", "user", fmt.Sprintf("Preparing a new %s tag. Pull request monitoring continues.", a.Component))
 		select {
 		case s.changed <- struct{}{}:
@@ -324,9 +323,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 	default:
 		return fmt.Errorf("unknown action")
 	}
-	if !s.rcReady() {
-		s.clearRCPlan()
-	}
+	s.revalidateRCPlan()
 	s.drain()
 	return err
 }
@@ -575,9 +572,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		return nil
 	}
 	c := s.config
-	if work.scope == ReadAll {
-		work.releaseImages = work.images && s.rcReady()
-	}
+	earlyComponentImages := work.images && !s.rcReady()
 	initial := discover && !s.initiallyLoaded[source.Name]
 	request := DiscoveryRequest{Source: source, ConfirmedTag: s.choices.Tags[source.Name], PinningPR: c.PinningPR, Version: c.Version, Scope: work.scope}
 	if work.tagInventory {
@@ -601,10 +596,10 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		s.record(release.Target{Repo: source.Repo}, "", "github-start", "", message, "system", message)
 	}
 	s.mu.Unlock()
-	var imageErr error
-	if work.images && !work.releaseImages {
+	var imageErr, componentImageErr error
+	if earlyComponentImages {
 		imageReads.Go(func() {
-			imageErr = s.refreshImagesScoped(ctx, generation, initial, false, work.scope != ReadAll)
+			componentImageErr = s.refreshImagesScoped(ctx, generation, initial, false, work.scope != ReadAll)
 		})
 	}
 	var errs []error
@@ -740,9 +735,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			default:
 			}
 		}
-		if !s.rcReady() {
-			s.clearRCPlan()
-		}
+		s.revalidateRCPlan()
 		if old.Head != r.Head || old.Evidence.Fresh() != r.Evidence.Fresh() {
 			message := ""
 			if !initial && old.Head != r.Head && r.Head != "" {
@@ -772,12 +765,13 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		targets = append(targets, release.Target{Repo: source.Repo, Tag: tag})
 	}
 	rc := r.Candidate
-	if source.Name == "acs" && work.plans && work.releaseImages && s.rcReady() && rc.Target.Valid() {
+	includeRC := source.Name == "acs" && s.rcReady()
+	if work.plans && includeRC {
 		targets = append(targets, rc.Target)
 	}
 	s.mu.Unlock()
-	if work.images && work.releaseImages {
-		imageReads.Go(func() { imageErr = s.refreshImagesScoped(ctx, generation, initial, true, true) })
+	if work.images && (includeRC || !earlyComponentImages) {
+		imageReads.Go(func() { imageErr = s.refreshImagesScoped(ctx, generation, initial, includeRC, true) })
 	}
 	for _, target := range targets {
 		isRC := target == rc.Target
@@ -927,7 +921,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		s.mu.Unlock()
 	}
 	imageReads.Wait()
-	if imageErr != nil {
+	if imageErr = errors.Join(componentImageErr, imageErr); imageErr != nil {
 		errs = append(errs, fmt.Errorf("checking container images for release %s: %w", c.Version, imageErr))
 	}
 

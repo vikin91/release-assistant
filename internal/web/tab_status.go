@@ -307,16 +307,10 @@ func (p pageModel) pinStatus() tabStatus {
 
 func (p pageModel) rcStatus() tabStatus {
 	snapshot := p.Snapshot
-	if snapshot.RCImageWaitReason() != "" {
-		if snapshot.Config.PinningPR == 0 && snapshot.Assessment.Pins.BranchStatus == release.Yes {
-			return tabStatus{State: tabActionNeeded, Reason: "Enter the pinning PR number to start RC verification."}
-		}
-		return tabStatus{State: tabPending}
-	}
 	images := snapshot.Inventory.ReleaseImages
 	candidate := snapshot.Candidate()
 	target := candidate.Target
-	if !target.Valid() {
+	if snapshot.RCImageWaitReason() != "" {
 		if candidate.Evidence.Error != "" {
 			return tabStatus{State: tabNeedsAttention, Reason: "Unable to discover the current RC tag."}
 		}

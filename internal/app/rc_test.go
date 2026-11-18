@@ -44,10 +44,6 @@ func TestRCBuildChecksAndRetryAuthority(t *testing.T) {
 		}
 	}
 	refresh(true)
-	if slices.Contains(planner.calls, target) {
-		t.Fatal("read RC checks before pinning was verified")
-	}
-	refresh(false)
 	if !slices.Equal(planner.calls, []release.Target{target}) {
 		t.Fatalf("expected one check for %s, got %v", target, planner.calls)
 	}
@@ -74,8 +70,8 @@ func TestRCBuildChecksAndRetryAuthority(t *testing.T) {
 		}
 	}
 	apply(t, s, Action{Kind: "clear-tag", Component: "fact"})
-	if slices.ContainsFunc(s.Snapshot().Plans, func(plan release.Plan) bool { return plan.Target == target }) {
-		t.Fatal("RC plan survived loss of a prerequisite")
+	if !slices.ContainsFunc(s.Snapshot().Plans, func(plan release.Plan) bool { return plan.Target == target }) {
+		t.Fatal("clearing a component tag stopped RC monitoring")
 	}
 }
 
@@ -114,61 +110,52 @@ func rcFixture(t *testing.T) (*Session, *fixture, *phaseImages) {
 	return s, f, inspector
 }
 
-func TestReleaseImagesWaitForVerifiedMergeAndMatchingBranchPins(t *testing.T) {
-	for name, change := range map[string]func(*release.Repository){
-		"unmerged":              func(r *release.Repository) { r.PinningPR.Merged = false; r.PinningPR.State = "open" },
-		"wrong base":            func(r *release.Repository) { r.PinningPR.Base = "master" },
-		"wrong PR":              func(r *release.Repository) { r.PinningPR.Target.PR++ },
-		"missing merge SHA":     func(r *release.Repository) { r.PinningPR.MergeSHA = "" },
-		"unknown PR metadata":   func(r *release.Repository) { r.PinningEvidence.Known = false },
-		"unknown PR identity":   func(r *release.Repository) { r.PinningPR.Evidence.Known = false },
-		"unknown pins":          func(r *release.Repository) { r.Pins.Evidence.Known = false },
-		"different branch pins": func(r *release.Repository) { r.Pins.Versions["fact"] = "0.3.76" },
-	} {
-		t.Run(name, func(t *testing.T) {
-			s, f, inspector := rcFixture(t)
-			acs := f.repos["acs"]
-			change(&acs)
-			f.repos["acs"] = acs
-			generation := s.Snapshot().Generation
-			for range 2 {
-				if err := s.refreshPlanned(t.Context(), generation, configuration().ACS(), true); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if inspector.release != 0 || inspector.components == 0 || s.rcReady() {
-				t.Fatalf("premature RC reads: release=%d components=%d ready=%t", inspector.release, inspector.components, s.rcReady())
-			}
-			reason := s.Snapshot().RCImageWaitReason()
-			if reason == "" || (name == "unmerged" && reason != "Waiting for the pinning PR to merge.") {
-				t.Fatalf("missing or incorrect image check prerequisite: %q", reason)
-			}
-		})
+func TestRCMonitoringStartsOnDiscoveryWithoutPinning(t *testing.T) {
+	s, f, inspector := rcFixture(t)
+	c := s.config
+	c.PinningPR = 0
+	apply(t, s, Action{Kind: "configure", Config: c})
+	acs := f.repos["acs"]
+	acs.PinningPR = nil
+	acs.Pins = release.Pins{}
+	f.repos["acs"] = acs
+	rc := acs.Candidate
+	planner := &rcPlanner{plan: release.Plan{Target: rc.Target, SHA: rc.SHA, Evidence: observed()}}
+	s.planner = planner
+	if err := s.refreshPlanned(t.Context(), s.generation, c.ACS(), true); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(planner.calls, rc.Target) || inspector.release != 1 || s.Snapshot().Inventory.Versions["acs"] != rc.Target.Tag {
+		t.Fatalf("first discovery did not monitor %s: plans=%v images=%d", rc.Target, planner.calls, inspector.release)
+	}
+	if err := s.Apply(t.Context(), Action{Generation: s.generation, Kind: "grant", Target: rc.Target, SHA: rc.SHA, Enabled: true}); err == nil {
+		t.Fatal("monitoring granted retry access without verified pins")
 	}
 }
 
-func TestReleasePhaseRevalidatesPinsBeforeInspectingRC(t *testing.T) {
-	s, f, inspector := rcFixture(t)
-	generation := s.Snapshot().Generation
-	if err := s.refreshPlanned(t.Context(), generation, configuration().ACS(), true); err != nil {
-		t.Fatal(err)
-	}
-	if !s.rcReady() || inspector.release != 0 {
-		t.Fatal("merge transition performed RC reads before the new phase")
-	}
-	if err := s.refreshPlanned(t.Context(), generation, configuration().ACS(), false); err != nil {
-		t.Fatal(err)
-	}
-	if inspector.release != 1 {
-		t.Fatalf("expected release image inspection, got %d", inspector.release)
-	}
-	// A gate that was true at scheduling time must not survive failed current metadata.
-	f.fail["acs"] = true
-	if err := s.refreshPlanned(t.Context(), generation, configuration().ACS(), false); err == nil {
-		t.Fatal("expected discovery failure")
-	}
-	if inspector.release != 1 || s.rcReady() {
-		t.Fatal("RC reads used pin metadata from before the failed revalidation")
+func TestRCMonitoringRequiresCurrentTagAndCommit(t *testing.T) {
+	for name, invalidate := range map[string]func(*release.Candidate){
+		"missing tag":    func(rc *release.Candidate) { rc.Target.Tag = "" },
+		"missing commit": func(rc *release.Candidate) { rc.SHA = "" },
+		"stale evidence": func(rc *release.Candidate) { rc.Evidence.Known = false },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, f, inspector := rcFixture(t)
+			if err := s.refreshPlanned(t.Context(), s.generation, s.config.ACS(), true); err != nil {
+				t.Fatal(err)
+			}
+			acs := f.repos["acs"]
+			invalidate(&acs.Candidate)
+			f.repos["acs"] = acs
+			planner := &rcPlanner{}
+			s.planner = planner
+			if err := s.refreshPlanned(t.Context(), s.generation, s.config.ACS(), true); err != nil {
+				t.Fatal(err)
+			}
+			if inspector.release != 1 || len(planner.calls) != 0 || s.Snapshot().RCImageWaitReason() == "" {
+				t.Fatalf("invalid RC triggered monitoring: plans=%v images=%d", planner.calls, inspector.release)
+			}
+		})
 	}
 }
 

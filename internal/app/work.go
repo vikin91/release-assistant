@@ -13,52 +13,52 @@ import (
 )
 
 type sourceWork struct {
-	revision                     uint64
-	scope                        DiscoveryScope
-	plans, images, releaseImages bool
-	tagInventory                 bool
+	revision      uint64
+	scope         DiscoveryScope
+	plans, images bool
+	tagInventory  bool
 }
 
 func (s *Session) rcReady() bool {
-	return rcImageWaitReason(s.config, s.choices, s.repos["acs"]) == ""
+	return rcImageWaitReason(s.repos["acs"].Candidate) == ""
 }
 
-// RCImageWaitReason describes the first prerequisite preventing RC image checks.
+// RCImageWaitReason explains why monitoring cannot yet use the discovered RC.
 func (s Snapshot) RCImageWaitReason() string {
-	for _, repo := range s.Repositories {
-		if repo.Source.Name == "acs" {
-			return rcImageWaitReason(s.Config, s.Choices, repo)
-		}
-	}
-	return rcImageWaitReason(s.Config, s.Choices, release.Repository{})
+	return rcImageWaitReason(s.Candidate())
 }
 
-func rcImageWaitReason(config release.Config, choices release.Choices, acs release.Repository) string {
-	if config.PinningPR == 0 {
-		return "Add the pinning PR number in Release configuration to start verification."
-	}
-	p := acs.PinningPR
+func rcImageWaitReason(rc release.Candidate) string {
 	switch {
-	case p == nil || p.Target != config.PinningTarget() || !p.Evidence.Fresh() || !acs.PinningEvidence.Fresh():
-		return "Waiting to verify the pinning PR."
-	case p.Base != config.Branch:
-		return "The pinning PR targets a different branch."
-	case !p.Merged && p.State == "closed":
-		return "The pinning PR closed without merging."
-	case !p.Merged:
-		return "Waiting for the pinning PR to merge."
-	case p.MergeSHA == "":
-		return "Waiting to verify the pinning PR merge commit."
-	case !acs.Pins.Evidence.Fresh():
-		return "Waiting to verify the component pins on the ACS release branch."
+	case rc.Evidence.Error != "":
+		return "Unable to verify the current RC tag: " + rc.Evidence.Error
+	case !rc.Evidence.Fresh():
+		return "Waiting for GitHub to verify the current RC tag."
+	case rc.Target.Tag == "":
+		return "Waiting for a release candidate tag on the release branch."
+	case !rc.Target.Valid() || rc.SHA == "":
+		return "Waiting for GitHub to verify the RC commit."
+	default:
+		return ""
 	}
-	for _, source := range config.Components {
-		selected := strings.TrimPrefix(choices.Tags[source.Name], "v")
+}
+
+// rcRetriesReady requires verified pinning before allowing RC retry writes.
+func (s *Session) rcRetriesReady() bool {
+	acs := s.repos["acs"]
+	p := acs.PinningPR
+	if !s.rcReady() || s.config.PinningPR == 0 || p == nil || p.Target != s.config.PinningTarget() ||
+		!p.Evidence.Fresh() || !acs.PinningEvidence.Fresh() || p.Base != s.config.Branch ||
+		!p.Merged || p.MergeSHA == "" || !acs.Pins.Evidence.Fresh() {
+		return false
+	}
+	for _, source := range s.config.Components {
+		selected := strings.TrimPrefix(s.choices.Tags[source.Name], "v")
 		if selected == "" || strings.TrimPrefix(acs.Pins.Versions[source.Name], "v") != selected {
-			return "The ACS release branch pins must match the selected component tags."
+			return false
 		}
 	}
-	return ""
+	return true
 }
 
 func (s *Session) work(source release.Source, discover bool) sourceWork {
@@ -76,7 +76,6 @@ func (s *Session) work(source release.Source, discover bool) sourceWork {
 	}
 	return sourceWork{
 		scope: scope, plans: true, images: source.Name == "acs",
-		releaseImages: source.Name == "acs" && s.rcReady(),
 	}
 }
 

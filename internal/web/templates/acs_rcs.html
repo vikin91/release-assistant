@@ -28,9 +28,7 @@
           <p class="muted">Waiting to discover release candidate tags.</p>
         {{end}}
       {{end}}
-      {{$waiting := .Snapshot.RCImageWaitReason}}
-      {{if $waiting}}<p class="muted">{{$waiting}}</p>
-      {{else if .RC.TagURL}}
+      {{if and .RC.TagURL (not .Snapshot.RCImageWaitReason)}}
         {{if and .RC.KonfluxMissing (or .RC.CITotal (eq .RC.MissingAfterBuild .RC.KonfluxMissing))}}
           <div class="rc-summary">
             {{if and .RC.CITotal (eq .RC.CIAvailable .RC.CITotal)}}
