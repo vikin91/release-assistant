@@ -1,8 +1,8 @@
-# ACS release assistant implementation plan
+# Original implementation plan
 
-This plan turns the agreed [behavioral design](/Users/prygiels/code/release-assistant/design.md) into a modular Go application. Implement the milestones in order. Each milestone identifies its deliverable and the evidence required to consider it complete.
-
-The design's behavioral sections are authoritative. Its decision history contains superseded rules. In particular, do not restore application-level retest comment reconciliation or an indefinite wait for a run after posting a comment.
+This document records the planned milestones for the first implementation.
+The [current design](design.md) describes the application today. For setup,
+examples, and validation commands, see the [README](README.md).
 
 ## 1. Scope and working rules
 
