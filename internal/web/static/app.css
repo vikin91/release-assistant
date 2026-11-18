@@ -52,6 +52,8 @@ legend { padding: 0 .35rem; font-weight: 700; }
 .release-pills { display: flex; flex-wrap: wrap; gap: .4rem; margin: .7rem 0 .3rem; font-size: .85rem; }
 .release-pills a { text-decoration: none; }
 .pin-legend { font-size: .78rem; color: var(--muted); margin-bottom: .6rem; }
+.pin-comparison .pin-differs { background: color-mix(in srgb, #df5a62 16%, Canvas); }
+.pin-difference-label { font-size: .8rem; font-weight: 650; }
 .image-results { padding-left: 1.6rem; }
 .image-result { padding: .7rem .2rem; border-top: 1px solid var(--line); }
 .image-result p { margin: .3rem 0; }

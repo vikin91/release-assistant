@@ -2,7 +2,23 @@
   <details class="panel" id="pinning-details" open><summary class="section-summary">ACS pinning details</summary>
     <p>{{.Snapshot.Assessment.Pins.BranchSummary}}</p>
     {{if .Snapshot.Assessment.Pins.BranchProblems}}<ol class="pin-problems">{{range .Snapshot.Assessment.Pins.BranchProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}
-    {{if .ACS}}<ol>{{range $.Snapshot.Config.Components}}<li>{{title .Name}}: selected <code>{{with index $.Snapshot.Choices.Tags .Name}}{{.}}{{else}}Choose tag{{end}}</code>; ACS branch uses <code>{{pinVersion $.ACS.Pins .Name}}</code>{{if $.Snapshot.Config.PinningPR}}; pinning PR version <code>{{pinVersion $.ACS.PinningPins .Name}}</code>{{end}}.</li>{{end}}</ol>{{end}}
+    {{if .ACS}}
+      <table class="pin-comparison" aria-label="Component version comparison">
+        <thead><tr><th scope="col">Component</th><th scope="col">Selected tag</th><th scope="col">On ACS branch</th>{{if .Snapshot.Config.PinningPR}}<th scope="col">In pinning PR</th>{{end}}</tr></thead>
+        <tbody>{{range .Snapshot.Config.Components}}
+          {{$selected := index $.Snapshot.Choices.Tags .Name}}
+          {{$branchDiffers := pinDiffers $.ACS.Pins . $selected}}
+          <tr>
+            <th scope="row">{{title .Name}}</th>
+            <td>{{if $selected}}<code>{{$selected}}</code>{{else}}Choose tag{{end}}</td>
+            <td{{if $branchDiffers}} class="pin-differs"{{end}}><code>{{pinVersion $.ACS.Pins .Name}}</code>{{if $branchDiffers}} <span class="pin-difference-label">Differs</span>{{end}}</td>
+            {{if $.Snapshot.Config.PinningPR}}{{$prDiffers := pinDiffers $.ACS.PinningPins . $selected}}
+              <td{{if $prDiffers}} class="pin-differs"{{end}}><code>{{pinVersion $.ACS.PinningPins .Name}}</code>{{if $prDiffers}} <span class="pin-difference-label">Differs</span>{{end}}</td>
+            {{end}}
+          </tr>
+        {{end}}</tbody>
+      </table>
+    {{end}}
     {{if .Snapshot.Assessment.Pins.PRNumber}}<p><a href="{{url .Snapshot.Assessment.Pins.PRURL}}" target="_blank" rel="noreferrer">Open pinning PR #{{.Snapshot.Assessment.Pins.PRNumber}}</a>: {{.Snapshot.Assessment.Pins.PRSummary}}</p>{{else}}<p>Set a pinning PR number to monitor its checks.</p>{{end}}
     {{if .Snapshot.Assessment.Pins.PRProblems}}<ol class="pin-problems">{{range .Snapshot.Assessment.Pins.PRProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}
     {{if .PinningPR}}{{$pin := .PinningPR.PR}}<article class="pr-card" data-fold-key="pinning-pr:{{$pin.Target.Repo}}#{{$pin.Target.PR}}">

@@ -518,6 +518,14 @@ func pinVersion(pins release.Pins, component string) string {
 	return "Pending"
 }
 
+func pinDiffers(pins release.Pins, source release.Source, selected string) bool {
+	major, minor, _, valid := release.Version(selected)
+	actual := pins.Versions[source.Name]
+	return valid && source.Stream == fmt.Sprintf("%d.%d", major, minor) &&
+		pins.Evidence.Fresh() && pins.Failures[source.Name] == "" && actual != "" &&
+		strings.TrimPrefix(actual, "v") != strings.TrimPrefix(selected, "v")
+}
+
 func pinningImageProblem(pr release.PR, plan release.Plan, branch string) string {
 	switch {
 	case pr.Evidence.Error != "":

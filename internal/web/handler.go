@@ -49,8 +49,8 @@ func New(application Application) (http.Handler, error) {
 		return nil, errors.New("web application is required")
 	}
 	page, err := template.New("index.html").Funcs(template.FuncMap{
-		"pinVersion": pinVersion,
-		"tabPage":    tabPage, "tabTitle": tabTitle, "tabHelp": tabHelp, "tabStep": tabStep,
+		"pinVersion": pinVersion, "pinDiffers": pinDiffers,
+		"tabPage": tabPage, "tabTitle": tabTitle, "tabHelp": tabHelp, "tabStep": tabStep,
 		"truth": truthLabel, "when": formatTime, "url": safeURL,
 		"activity": activityText, "commentURL": commentURL,
 		"slice": func(values ...string) []string { return values },
