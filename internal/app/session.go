@@ -201,20 +201,19 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		case s.changed <- struct{}{}:
 		default:
 		}
-	case "choice":
-		if a.Choice != "" && a.Choice != release.Included && a.Choice != release.Excluded && a.Choice != release.Ignored {
-			return fmt.Errorf("invalid inclusion choice")
-		}
-		if !s.hasTarget(a.Target) {
-			return fmt.Errorf("unknown target")
-		}
-		s.choices.PRs[a.Target] = a.Choice
-		s.dispatcher.Ignore(a.Target, a.Choice == release.Ignored || a.Choice == release.Excluded)
-		if a.Choice == release.Ignored || a.Choice == release.Excluded {
-			delete(s.plans, a.Target)
+	case "choice", "ignore-component-prs":
+		if a.Kind == "choice" {
+			if a.Choice != "" && a.Choice != release.Included && a.Choice != release.Excluded && a.Choice != release.Ignored {
+				return fmt.Errorf("invalid inclusion choice")
+			}
+			if !s.hasTarget(a.Target) {
+				return fmt.Errorf("unknown target")
+			}
+			s.setPRChoice(a.Target, a.SHA, a.Choice)
+		} else if !s.ignoreComponentPRs() {
+			return nil
 		}
 		s.workRevision++
-		s.record(a.Target, a.SHA, "inclusion", "", string(a.Choice), "user")
 		select {
 		case s.changed <- struct{}{}:
 		default:
@@ -328,6 +327,31 @@ func (s *Session) archiveTag(component, repo string) {
 	s.history = append(s.history, cycle)
 	s.dispatcher.Ignore(target, true)
 	delete(s.plans, target)
+}
+
+func (s *Session) setPRChoice(target release.Target, sha string, choice release.Choice) {
+	s.choices.PRs[target] = choice
+	ignored := choice == release.Ignored || choice == release.Excluded
+	s.dispatcher.Ignore(target, ignored)
+	if ignored {
+		delete(s.plans, target)
+	}
+	s.record(target, sha, "inclusion", "", string(choice), "user")
+}
+
+func (s *Session) ignoreComponentPRs() bool {
+	changed := false
+	pinning := s.config.PinningTarget()
+	for _, source := range s.config.Components {
+		for _, pr := range s.repos[source.Name].PRs {
+			if pr.Target.Repo != source.Repo || pr.Target == pinning || !pr.Selectable(s.choices.PRs[pr.Target]) {
+				continue
+			}
+			s.setPRChoice(pr.Target, pr.SHA, release.Ignored)
+			changed = true
+		}
+	}
+	return changed
 }
 
 func (s *Session) hasTarget(t release.Target) bool {
@@ -594,7 +618,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		}
 		for _, p := range old.PRs {
 			if !slices.ContainsFunc(r.PRs, func(v release.PR) bool { return v.Target == p.Target }) {
-				if s.choices.PRs[p.Target] != release.Ignored {
+				if source.Name != "acs" || s.choices.PRs[p.Target] != release.Ignored {
 					p.Evidence.Known = false
 					p.Evidence.Error = "not returned by latest discovery"
 					r.PRs = append(r.PRs, p)

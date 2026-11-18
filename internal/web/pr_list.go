@@ -12,6 +12,7 @@ type (
 		Repos                                    []repoModel
 		Rows                                     map[release.Target]prListRow
 		AwaitingMerge, Closed, Undecided, Merged int
+		Active, Ignored                          int
 	}
 	prListRow struct {
 		Checks      requiredCheckCounts
@@ -59,6 +60,11 @@ func (p pageModel) PRList() prListModel {
 			return cmp.Compare(a.PR.Target.PR, b.PR.Target.PR)
 		})
 		for _, row := range repo.PRs {
+			if row.Choice == release.Ignored {
+				triage.Ignored++
+				continue
+			}
+			triage.Active++
 			closed := row.PR.State == "closed"
 			switch {
 			case row.Choice == release.Included && closed:

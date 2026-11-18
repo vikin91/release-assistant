@@ -188,7 +188,11 @@ button[aria-pressed=true] { border-color: var(--accent); background: color-mix(i
 .pr-list-disclosures details { min-width: 0; margin: 0; }
 .pr-list-disclosures details[open] { flex-basis: 100%; }
 .pr-list-retry > summary { font-weight: 650; }
-.pr-list-filter-empty, .pr-list-filter-help { display: none; margin: .5rem 0 0; }
+.pr-list-filter-empty, .pr-list-filter-help, .pr-list-all-hidden { display: none; margin: .5rem 0 0; }
+.pr-list-ignore-all { font-size: .86rem; }
+.pr-list:has(.pr-list-filters input[value="all"]:checked) .pr-list-all-hidden { display: block; }
+.pr-list:not(:has(.pr-list-filters input[value="ignored"]:checked)) .pr-card[data-release-choice="ignored"] { display: none; }
+.pr-list:has(.pr-list-filters input[value="ignored"]:checked) :is(.pr-card:not([data-release-choice="ignored"]), .pr-repo:not(:has(.pr-card[data-release-choice="ignored"])), .merged-prs, .pr-list-ignore-all) { display: none; }
 .pr-list-filter-help { font-size: .85rem; }
 .pr-list:has(.pr-list-filters input[value="attention"]:checked) .pr-list-filter-help { display: block; }
 .pr-list:has(.pr-list-filters input[value="attention"]:checked) .pr-card:not([data-pr-attention]),
@@ -196,7 +200,8 @@ button[aria-pressed=true] { border-color: var(--accent); background: color-mix(i
 .pr-list:has(.pr-list-filters input[value="undecided"]:checked) .pr-card:not([data-release-choice="undecided"]) { display: none; }
 .pr-list:has(.pr-list-filters input[value="attention"]:checked):not(:has([data-pr-attention])) .pr-list-filter-empty,
 .pr-list:has(.pr-list-filters input[value="included"]:checked):not(:has([data-release-choice="included"])) .pr-list-filter-empty,
-.pr-list:has(.pr-list-filters input[value="undecided"]:checked):not(:has([data-release-choice="undecided"])) .pr-list-filter-empty { display: block; }
+.pr-list:has(.pr-list-filters input[value="undecided"]:checked):not(:has([data-release-choice="undecided"])) .pr-list-filter-empty,
+.pr-list:has(.pr-list-filters input[value="ignored"]:checked):not(:has([data-release-choice="ignored"])) .pr-list-filter-empty { display: block; }
 @media (max-width: 650px) {
   .pr-list .pr-card { grid-template-columns: minmax(0, 1fr); }
   .pr-list .pr-summary { grid-template-columns: minmax(0, 1fr) 7rem; }

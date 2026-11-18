@@ -1,6 +1,7 @@
 {{define "pr-list"}}
   <section class="panel" aria-labelledby="{{.PRSection}}-heading" id="{{.PRSection}}-panel">
     {{$triage := .PRList}}
+    {{$component := eq .Tab "component-prs"}}
     <details id="{{.PRSection}}" class="pr-list" open>
     <summary id="{{.PRSection}}-heading" class="section-summary">{{if eq .Tab "component-prs"}}Component PRs{{else}}ACS release PRs{{end}}
       <span class="pr-list-counts">{{$triage.AwaitingMerge}} awaiting merge{{if $triage.Closed}} · {{$triage.Closed}} included and closed{{end}} · {{$triage.Undecided}} undecided{{if $triage.Merged}} · {{$triage.Merged}} included and merged{{end}}</span>
@@ -12,7 +13,19 @@
       <label><input type="radio" name="{{.PRSection}}-filter" value="attention"> Needs attention</label>
       <label><input type="radio" name="{{.PRSection}}-filter" value="included"> Included</label>
       <label><input type="radio" name="{{.PRSection}}-filter" value="undecided"> Undecided</label>
+      {{if $component}}<label><input type="radio" name="{{.PRSection}}-filter" value="ignored"> Ignored &amp; hidden</label>{{end}}
     </fieldset>
+    {{if $component}}
+      <form method="post" action="/action#{{.PRSection}}" class="control-row pr-list-ignore-all">
+        <input type="hidden" name="tab" value="{{.Tab}}">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
+        <input type="hidden" name="kind" value="ignore-component-prs">
+        <button type="submit"{{if not $triage.Active}} disabled{{end}}>Ignore &amp; hide all</button>
+        <span class="muted">Applies to all listed Component PRs across filters.</span>
+      </form>
+      {{if and (not $triage.Active) $triage.Ignored}}<p class="muted pr-list-all-hidden">Use Ignored &amp; hidden to review the PRs you hid.</p>{{end}}
+    {{end}}
     <p class="pr-list-filter-help muted">Included PRs that closed without merging or have a failed required check.</p>
     <p class="pr-list-filter-empty muted">No PRs match this filter.</p>
     {{range $triage.Repos}}
@@ -37,10 +50,10 @@
               <form method="post" action="/action#{{$.PRSection}}" class="inline-form choice-form" aria-label="PR {{.PR.Target.PR}} inclusion"><input type="hidden" name="tab" value="{{$.Tab}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="choice"><input type="hidden" name="repo" value="{{.PR.Target.Repo}}"><input type="hidden" name="pr" value="{{.PR.Target.PR}}"><input type="hidden" name="sha" value="{{.PR.SHA}}">
                 <button type="submit" name="choice" value="included" aria-pressed="{{if eq .Choice "included"}}true{{else}}false{{end}}">Include</button>
                 <button type="submit" name="choice" value="excluded" aria-pressed="{{if eq .Choice "excluded"}}true{{else}}false{{end}}">Exclude</button>
-                <button type="submit" name="choice" value="ignored">Ignore &amp; hide</button>
+                {{if ne .Choice "ignored"}}<button type="submit" name="choice" value="ignored">Ignore &amp; hide</button>{{end}}
               </form>
             </div>
-            <div class="pr-list-disclosures">
+            {{if ne .Choice "ignored"}}<div class="pr-list-disclosures">
               <form method="post" action="/action#{{$.PRSection}}" class="inline-form grant-form" data-autosubmit><input type="hidden" name="tab" value="{{$.Tab}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="grant"><input type="hidden" name="repo" value="{{.PR.Target.Repo}}"><input type="hidden" name="pr" value="{{.PR.Target.PR}}"><input type="hidden" name="sha" value="{{.PR.SHA}}"><input type="hidden" name="enabled" value="false"><label class="check{{if not .CanGrant}} disabled-control{{end}}" title="Saves immediately"><input type="checkbox" name="enabled" value="true" {{if and .Authority .Authority.Granted}}checked{{end}}{{if not .CanGrant}} disabled{{end}}> Allow retry comments</label><noscript><button type="submit"{{if not .CanGrant}} disabled{{end}}>Apply RW permission</button></noscript>{{if .PR.OptOut}}<span class="error-text">Writes disabled by opt-out label</span>{{end}}</form>
               {{$target := .PR.Target}}
               {{with $row.Retry}}
@@ -50,7 +63,7 @@
                   {{template "retry-plans" .}}
                 </details>
               {{end}}
-            </div>
+            </div>{{end}}
           </article>
         {{else}}<p class="muted">No open PR observations. New PRs continue to appear as discovery refreshes.</p>{{end}}
         {{if .MergedPRs}}<details class="merged-prs" data-fold-key="merged-prs:{{.Repository.Source.Repo}}"><summary>Included PRs merged ({{len .MergedPRs}})</summary><ol>{{range .MergedPRs}}<li><a href="{{url .URL}}" target="_blank" rel="noreferrer">#{{.Target.PR}} {{.Title}}</a>{{if not .Evidence.Fresh}} · <span class="unknown">last observed merged</span>{{end}}</li>{{end}}</ol></details>{{end}}

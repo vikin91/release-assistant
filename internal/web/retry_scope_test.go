@@ -135,8 +135,9 @@ func TestRetryAndCommentSectionsUseExplicitCurrentScope(t *testing.T) {
 	if excludedCard == "" || !strings.Contains(excludedCard, `name="enabled" value="true" checked`) {
 		t.Fatal("excluded PR lost its independent RW checked state when retry panels hide it")
 	}
-	if strings.Contains(body, "Ignored open PR") {
-		t.Fatal("ignored PR should not remain in ordinary PR selection")
+	ignoredCard := prCardContaining(body, "Ignored open PR")
+	if !strings.Contains(ignoredCard, `data-release-choice="ignored"`) || strings.Contains(ignoredCard, `name="kind" value="grant"`) {
+		t.Fatal("ignored PR should be recoverable from the ignored filter without retry permission controls")
 	}
 }
 

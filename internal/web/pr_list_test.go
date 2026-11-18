@@ -2,6 +2,8 @@ package web
 
 import (
 	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -76,6 +78,11 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 	if tab == "acs-prs" && (!strings.Contains(tabBody, "Pinning PR #8") || strings.Contains(body, "change-8")) {
 		t.Fatal("the pinning PR belongs in its separate panel")
 	}
+	hasBulkAction := strings.Contains(body, "Ignore &amp; hide all")
+	hasIgnoredFilter := strings.Contains(body, `-filter" value="ignored"`)
+	if hasBulkAction != (tab == "component-prs") || hasIgnoredFilter != (tab == "component-prs") {
+		t.Fatal("bulk ignore and the ignored filter belong on Component PRs")
+	}
 	if !strings.Contains(body, "2 awaiting merge · 1 included and closed · 2 undecided · 1 included and merged") {
 		t.Fatal("summary did not reflect the user's PR selection")
 	}
@@ -136,4 +143,33 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 	application.snapshot.Choices.PRs[candidate.Target] = release.Included
 	updated := activityPanel(t, browser.getBody(t), tab)
 	assertPROrder(between(t, updated, `id="`+section+`-panel"`, "</section>"))
+}
+
+func TestIgnoreAllComponentPRsSubmitsTheCurrentGeneration(t *testing.T) {
+	config := validACS5Config()
+	source := config.Components[0]
+	application := &fakeApplication{snapshot: app.Snapshot{
+		Config: config, Generation: 12,
+		Repositories: []release.Repository{{Source: source, PRs: []release.PR{{
+			Target: release.Target{Repo: source.Repo, PR: 1}, State: "open",
+		}}}},
+	}}
+	browser := newBrowser(t, application)
+	form := formContaining(t, browser.getBody(t), "Ignore &amp; hide all")
+	values := url.Values{}
+	for _, field := range []string{"tab", "kind", "generation"} {
+		values.Set(field, formInputValue(t, form, field))
+	}
+	if response := browser.post(values); response.Code != http.StatusSeeOther ||
+		response.Header().Get("Location") != "/?tab=component-prs" {
+		t.Fatal("bulk action failed or lost its tab")
+	}
+	if len(application.actions) != 1 || application.actions[0].Kind != "ignore-component-prs" ||
+		application.actions[0].Generation != 12 {
+		t.Fatalf("unexpected bulk action: %+v", application.actions)
+	}
+	values.Set("tab", "acs-prs")
+	if response := browser.post(values); response.Code != http.StatusBadRequest {
+		t.Fatal("bulk ignore was accepted from the ACS list")
+	}
 }

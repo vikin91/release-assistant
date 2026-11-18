@@ -311,6 +311,11 @@ func (t Target) Valid() bool {
 // Fresh requires a successful current observation.
 func (e Evidence) Fresh() bool { return e.Known && e.Error == "" && !e.At.IsZero() }
 
+// Selectable reports whether a PR belongs in the active release selection list.
+func (p PR) Selectable(choice Choice) bool {
+	return !p.Merged && choice != Ignored && (p.State == "open" || p.State == "closed" && choice == Included)
+}
+
 // Result classifies a check without granting retry permission.
 func (c Check) Result() Truth {
 	result := c.Conclusion

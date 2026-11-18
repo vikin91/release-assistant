@@ -335,6 +335,61 @@ func TestIgnoreAndHeadChangePreserveInclusion(t *testing.T) {
 	}
 }
 
+func TestIgnoreAllComponentPRsLeavesOtherTargetsAndKeepsHiddenPRsRestorable(t *testing.T) {
+	s, f := newFixture()
+	config := configuration()
+	apply(t, s, Action{Kind: "configure", Config: config})
+	fact, collector, acs := f.repos["fact"], f.repos["collector"], f.repos["acs"]
+	factPR := release.Target{Repo: fact.Source.Repo, PR: 41}
+	closedPR := release.Target{Repo: fact.Source.Repo, PR: 42}
+	mergedPR := release.Target{Repo: fact.Source.Repo, PR: 43}
+	acrossRepos := release.Target{Repo: collector.Source.Repo, PR: 44}
+	acsPR := release.Target{Repo: acs.Source.Repo, PR: 45}
+	fact.PRs = []release.PR{
+		{Target: factPR, SHA: "fact-head", Title: "Fact change", State: "open", Base: fact.Source.Branch, Evidence: observed()},
+		{Target: closedPR, State: "closed"},
+		{Target: mergedPR, State: "closed", Merged: true},
+	}
+	collector.PRs = []release.PR{{Target: acrossRepos, State: "open"}}
+	acs.PRs = []release.PR{{Target: acsPR, State: "open"}}
+	f.repos["fact"], f.repos["collector"], f.repos["acs"] = fact, collector, acs
+	refreshAll(t, s)
+	for _, target := range []release.Target{factPR, closedPR, mergedPR, acsPR} {
+		apply(t, s, Action{Kind: "choice", Target: target, Choice: release.Included})
+	}
+	apply(t, s, Action{Kind: "grant", Target: factPR, SHA: "fact-head", Enabled: true})
+	s.plans[factPR] = release.Plan{Target: factPR}
+	s.plans[acsPR] = release.Plan{Target: acsPR}
+
+	apply(t, s, Action{Kind: "ignore-component-prs"})
+	snapshot := s.Snapshot()
+	for _, target := range []release.Target{factPR, closedPR, acrossRepos} {
+		if snapshot.Choices.PRs[target] != release.Ignored {
+			t.Errorf("bulk action missed %s", target)
+		}
+	}
+	if snapshot.Choices.PRs[acsPR] != release.Included || snapshot.Choices.PRs[mergedPR] != release.Included ||
+		s.plans[acsPR].Target != acsPR {
+		t.Fatal("bulk action changed another activity or an already merged PR")
+	}
+	if _, found := s.plans[factPR]; found {
+		t.Fatal("ignored PR kept its retry plan")
+	}
+	for _, view := range snapshot.Authority {
+		if view.Target == factPR && (view.Granted || !view.Ignored) {
+			t.Fatal("ignored PR kept retry authorization")
+		}
+	}
+
+	fact.PRs = nil
+	f.repos["fact"] = fact
+	refreshAll(t, s)
+	apply(t, s, Action{Kind: "choice", Target: factPR, Choice: release.Included})
+	if s.Snapshot().Choices.PRs[factPR] != release.Included {
+		t.Fatal("a hidden PR missing from discovery could not be restored")
+	}
+}
+
 type badLog struct{}
 
 func (badLog) Write([]byte) (int, error) { return 0, errors.New("disk full") }

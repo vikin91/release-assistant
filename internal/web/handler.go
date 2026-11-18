@@ -277,6 +277,10 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 		if a.Target.PR < 1 || a.Target.Tag != "" || !release.ValidRepo(a.Target.Repo) {
 			return a, fmt.Errorf("choice target is invalid")
 		}
+	case "ignore-component-prs":
+		if form.Get("tab") != "component-prs" || a.Target != (release.Target{}) {
+			return a, fmt.Errorf("ignore all requires the Component PRs list")
+		}
 	case "grant":
 		if !a.Target.Valid() {
 			return a, fmt.Errorf("grant target is invalid")

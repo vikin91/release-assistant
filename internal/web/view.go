@@ -237,11 +237,8 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 				r.MergedPRs = append(r.MergedPRs, pr)
 			}
 			choice := snapshot.Choices.PRs[pr.Target]
-			closedIncluded := pr.State == "closed" && choice == release.Included
-			if pr.Merged || pr.Target == pinTarget || (pr.State != "open" && !closedIncluded) {
-				continue
-			}
-			if choice == release.Ignored {
+			showIgnored := repo.Source.Name != "acs" && choice == release.Ignored
+			if pr.Target == pinTarget || !pr.Selectable(choice) && !showIgnored {
 				continue
 			}
 			label := string(choice)
@@ -255,7 +252,7 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 			}
 			r.PRs = append(r.PRs, prModel{
 				PR: pr, Choice: choice, ChoiceLabel: label, Authority: authority,
-				CanGrant: snapshot.WritesEnabled && pr.State == "open" && pr.Evidence.Fresh() && pr.SHA != "" &&
+				CanGrant: choice != release.Ignored && snapshot.WritesEnabled && pr.State == "open" && pr.Evidence.Fresh() && pr.SHA != "" &&
 					!pr.OptOut && pr.Base == repo.Source.Branch && pr.Target.Repo == repo.Source.Repo,
 			})
 		}
