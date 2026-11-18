@@ -48,6 +48,8 @@ type (
 		PinningBuildProblems                                     []string
 		History                                                  []historyModel
 		ConfigForm                                               url.Values
+		SavedConfigForm                                          string
+		ConfigRejected                                           bool
 		ConfiguredSources                                        map[string]release.Source
 		ACS4                                                     bool
 	}
@@ -145,6 +147,7 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 		}
 	}
 	setComponentBranches(model.ConfigForm, snapshot.Config)
+	model.SavedConfigForm = model.ConfigForm.Encode()
 	model.Title = "ACS Release Assistant"
 	if snapshot.Config.Version != "" {
 		model.Title = "ACS " + snapshot.Config.Version + " Release Assistant"

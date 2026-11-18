@@ -225,6 +225,7 @@ func (s *server) renderError(w http.ResponseWriter, r *http.Request, cause error
 	page.Tab = validTab(r.PostForm.Get("tab"))
 	if r.PostForm.Get("kind") == "configure" {
 		// Rejected text remains a page-local draft, separate from the active configuration.
+		page.ConfigRejected = true
 		page.ConfigForm = r.PostForm
 		setComponentBranches(page.ConfigForm, page.Snapshot.Config)
 		page.Tab = "settings"

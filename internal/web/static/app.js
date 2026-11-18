@@ -210,6 +210,19 @@ document.addEventListener("DOMContentLoaded", () => {
     stream.addEventListener("input", update);
   });
 
+  const configForm = document.querySelector(".config-grid");
+  const setupState = document.getElementById("setup-state");
+  if (configForm && setupState && document.body.dataset.configured === "true") {
+    const saved = new URLSearchParams(configForm.dataset.savedConfig);
+    const fields = Array.from(configForm.querySelectorAll("input:not([type=hidden]):not([readonly])"));
+    const updateSetupState = () => {
+      setupState.hidden = fields.every(field => field.value === (saved.get(field.name) || ""));
+    };
+    configForm.addEventListener("input", updateSetupState);
+    configForm.addEventListener("change", updateSetupState);
+    updateSetupState();
+  }
+
   const dashboard = document.getElementById("live-dashboard");
   const refreshStatus = document.getElementById("dashboard-refresh-status");
   if (!dashboard || !refreshStatus) return;

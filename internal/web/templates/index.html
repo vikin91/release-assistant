@@ -18,14 +18,16 @@
 </header>
 <div id="live-dashboard" class="workspace">
 <aside class="sidebar">
-  {{if .Configured}}<h2 class="phases-title">Release phases</h2>{{end}}
+  <h2 class="phases-title">Release phases</h2>
   <nav class="workflow-tabs" role="tablist" aria-orientation="vertical" aria-label="Release work">
     {{range $i, $tab := (slice "component-prs" "component-releases" "acs-prs" "acs-rcs" "activity" "settings")}}
-    {{if or $.Configured (eq $tab "settings") (eq $tab "activity")}}
     {{$label := tabTitle $tab}}
     {{if lt $i 4}}{{$label = printf "%s. %s" (index (slice "1" "2" "3" "4") $i) $label}}{{end}}
+    {{if and (not $.Configured) (lt $i 4)}}
+    <span role="tab" aria-disabled="true" aria-selected="false" class="phase-disabled" title="Save the release configuration to unlock this phase.">{{$label}}</span>
+    {{else}}
     {{$status := index $.TabStatuses $tab}}
-    <a id="tab-{{$tab}}" role="tab" href="/?tab={{$tab}}" data-workflow-tab="{{$tab}}" aria-controls="panel-{{$tab}}" aria-selected="{{if eq $.Tab $tab}}true{{else}}false{{end}}" tabindex="{{if eq $.Tab $tab}}0{{else}}-1{{end}}"{{if $status.Label}} aria-label="{{$label}} · {{$status.Label}} · {{$status.Reason}}" title="{{$status.Label}} · {{$status.Reason}}"{{end}}>{{$label}} <span class="tab-status{{with $status.Class}} {{.}}{{end}}" aria-hidden="true">{{$status.Icon}}</span></a>
+    <a id="tab-{{$tab}}" role="tab" href="/?tab={{$tab}}" data-workflow-tab="{{$tab}}" aria-controls="panel-{{$tab}}" aria-selected="{{if eq $.Tab $tab}}true{{else}}false{{end}}" tabindex="{{if eq $.Tab $tab}}0{{else}}-1{{end}}"{{if $status.Label}} aria-label="{{$label}} · {{$status.Label}} · {{$status.Reason}}" title="{{$status.Label}} · {{$status.Reason}}"{{end}}>{{$label}} {{if eq $tab "settings"}}<span id="setup-state" class="setup-state" data-live-preserve{{if and $.Configured (not $.ConfigRejected)}} hidden{{end}}>{{if $.Configured}}Unsaved changes{{else}}Setup required{{end}}</span>{{else}}<span class="tab-status{{with $status.Class}} {{.}}{{end}}" aria-hidden="true">{{$status.Icon}}</span>{{end}}</a>
     {{end}}{{end}}
   </nav>
   <p id="dashboard-refresh-status" class="muted" role="status" data-live-preserve>Waiting for release updates.</p>
@@ -62,7 +64,8 @@
   <h2>Settings</h2>
   <section id="configuration-panel" class="panel" aria-labelledby="setup-heading" data-live-preserve>
     <h3 id="setup-heading">{{if .Configured}}Release configuration{{else}}Configure release{{end}}</h3>
-    <form method="post" action="/action" class="config-grid">
+    {{if not .Configured}}<p>Save a valid release configuration to unlock the four release phases.</p>{{end}}
+    <form method="post" action="/action" class="config-grid" data-saved-config="{{.SavedConfigForm}}">
       <input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="configure">
       <label>ACS version<input name="version" required value="{{.ConfigForm.Get "version"}}" placeholder="5.0.1"></label>
       <label>ACS release branch<input name="branch" required value="{{.ConfigForm.Get "branch"}}" placeholder="release-5.0"></label>
