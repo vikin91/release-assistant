@@ -32,6 +32,7 @@ type (
 		Authority                                                []authorityModel
 		ComponentImages                                          componentImagesModel
 		ReleaseImages                                            componentImagesModel
+		RC                                                       rcModel
 		ACS                                                      *release.Repository
 		PinPRState                                               string
 		PinningPR                                                *prModel
@@ -90,6 +91,7 @@ type (
 	imageModel struct {
 		Check          release.ImageStatus
 		Name, Tag, URL string
+		RCBuild        *rcBuildModel
 	}
 	componentImagesModel struct {
 		Groups                             []componentImageGroup
@@ -156,6 +158,9 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 		model.Error += "Action log: " + snapshot.LogError
 	}
 	retryTargets := make(map[release.Target]bool)
+	if model.Configured && snapshot.RCImageWaitReason() == "" {
+		retryTargets[snapshot.Config.RC0Target()] = true
+	}
 	pinTarget := snapshot.Config.PinningTarget()
 	if pinTarget.PR > 0 && snapshot.Choices.PRs[pinTarget] != release.Ignored {
 		retryTargets[pinTarget] = true

@@ -85,8 +85,8 @@
 {{define "image-table"}}
   {{$acs := eq (index . 0).Component "acs"}}
   <div class="component-image-table-scroll">
-    <table class="component-image-table" aria-labelledby="{{if $acs}}release-images-heading{{else}}component-images-heading{{end}}">
-      <colgroup>{{if not $acs}}<col class="component-image-identity">{{end}}<col class="component-image-identity"><col><col></colgroup>
+    <table class="component-image-table{{if $acs}} rc-image-table{{end}}" aria-labelledby="{{if $acs}}release-images-heading{{else}}component-images-heading{{end}}">
+      <colgroup>{{if not $acs}}<col class="component-image-identity">{{end}}<col class="component-image-identity"><col{{if $acs}} class="rc-ci-column"{{end}}><col></colgroup>
       <thead><tr>{{if not $acs}}<th scope="col">Component</th>{{end}}<th scope="col">Image</th><th scope="col">CI</th><th scope="col">Konflux</th></tr></thead>
       {{range .}}
       <tbody>
@@ -131,5 +131,6 @@
         {{if url .Check.Image.DefinitionURL}}<a href="{{url .Check.Image.DefinitionURL}}" target="_blank" rel="noreferrer">Saved pattern source</a>{{end}}
       </div>
     </details>
+    {{with .RCBuild}}{{template "rc-image-build" .}}{{end}}
   {{else}}<span title="No image result for this variant">—</span>{{end}}</td>
 {{end}}

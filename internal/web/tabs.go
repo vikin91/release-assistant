@@ -31,7 +31,7 @@ func tabStep(tab string) string {
 	case "acs-prs":
 		return "3 · Prepare the ACS branch"
 	case "acs-rcs":
-		return "4 · Inspect release candidate images"
+		return "4 · Verify the release candidate"
 	default:
 		return "1 · Prepare component branches"
 	}
@@ -44,7 +44,7 @@ func tabHelp(tab string) string {
 	case "acs-prs":
 		return "Pin the selected component versions and merge ACS backports and dependency updates. Keep adding PRs after pinning is green or merged."
 	case "acs-rcs":
-		return "Inspect the existing RC.0 image checks. Component and ACS PR monitoring continue while release candidate images build."
+		return "Follow RC.0 builds and verify their published images."
 	default:
 		return "Choose the changes for this patch, help their checks pass, and merge them into the component release branches. No component tags are required here."
 	}
@@ -71,6 +71,8 @@ func tabPage(page pageModel, tab string) pageModel {
 			return target.PR > 0 && target.Repo == acsRepo
 		case "component-prs":
 			return target.PR > 0 && target.Repo != acsRepo
+		case "acs-rcs":
+			return target == page.Snapshot.Config.RC0Target()
 		default:
 			return false
 		}
@@ -108,6 +110,8 @@ func tabPage(page pageModel, tab string) pageModel {
 	}
 	page.Problems = problems
 	switch tab {
+	case "acs-rcs":
+		page.prepareRC()
 	case "component-releases":
 		page.Guidance = page.Snapshot.Assessment.ComponentReleaseRecommendations
 	case "acs-prs":

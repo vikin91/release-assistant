@@ -3,7 +3,6 @@ package web
 import (
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	"release-assistant/internal/release"
@@ -304,9 +303,10 @@ func (p pageModel) rcStatus() tabStatus {
 		return tabStatus{State: tabPending}
 	}
 	images := snapshot.Inventory.ReleaseImages
-	version := strings.TrimPrefix(snapshot.Config.Version, "v") + "-rc.0"
+	target := snapshot.Config.RC0Target()
+	version := target.Tag
 	if len(images) == 0 || snapshot.Inventory.Versions["acs"] != version {
-		return tabStatus{State: tabPending}
+		return p.rcBuildStatus(target)
 	}
 	status := tabStatus{State: tabComplete, Reason: "All expected ACS RC.0 images are available."}
 	started := slices.ContainsFunc(images, func(image release.Image) bool {
@@ -321,6 +321,37 @@ func (p pageModel) rcStatus() tabStatus {
 			item = tabStatus{State: tabInProgress, Reason: "Waiting for the remaining ACS RC.0 images."}
 		}
 		status.add(item.State, item.Reason)
+	}
+	if status.State != tabComplete {
+		build := p.rcBuildStatus(target)
+		status.add(build.State, build.Reason)
+	}
+	return status
+}
+
+func (p pageModel) rcBuildStatus(target release.Target) tabStatus {
+	status := tabStatus{State: tabPending}
+	for _, plan := range p.Plans {
+		if plan.Plan.Target != target {
+			continue
+		}
+		for _, run := range plan.Plan.Runs {
+			if run.ID == "" {
+				continue
+			}
+			check := release.Check{Status: run.Status, Conclusion: run.Outcome}
+			proposed := slices.ContainsFunc(plan.Plan.Proposals, func(proposal release.Proposal) bool {
+				return proposal.Job == run.Job && proposal.RunID == run.ID && proposal.SHA == plan.Plan.SHA
+			})
+			switch {
+			case check.Result() == release.No && proposed:
+				status.add(tabActionNeeded, "A failed RC.0 Konflux build can be retested.")
+			case check.Result() == release.No:
+				status.add(tabNeedsAttention, "An RC.0 Konflux build failed.")
+			case check.Running():
+				status.add(tabInProgress, "RC.0 Konflux builds are running or queued.")
+			}
+		}
 	}
 	return status
 }

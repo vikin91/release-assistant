@@ -6,11 +6,48 @@
       </summary>
       {{$waiting := .Snapshot.RCImageWaitReason}}
       {{if $waiting}}<p class="muted">{{$waiting}}</p>
-      {{else if not .ReleaseImages.Total}}<p class="muted">Waiting for the first RC.0 image check results.</p>{{end}}
+      {{else}}
+        {{if .RC.TagURL}}
+          <div class="control-row rc-links">
+            <a href="{{url .RC.TagURL}}" target="_blank" rel="noreferrer">Open RC.0 tag</a>
+            <a href="{{url .RC.ChecksURL}}" target="_blank" rel="noreferrer">View tag checks</a>
+          </div>
+          {{with .RC.Permission}}{{template "tag-comment-permission" .}}{{end}}
+          {{with .RC.Plan}}
+            {{if .Plan.Message}}<p class="muted">{{.Plan.Message}}</p>{{end}}
+            {{if .Plan.Evidence.Error}}<p class="error-text">{{.Plan.Evidence.Error}}</p>{{end}}
+          {{end}}
+        {{else if .RC.Plan}}
+          <p>Unable to verify the RC.0 tag. If the tag hasn’t been created, open the release workflow.</p>
+          <p><a href="{{url .RC.WorkflowURL}}" target="_blank" rel="noreferrer">Open release workflow</a></p>
+          {{with .RC.Plan.Plan.Evidence.Error}}<p class="error-text">{{.}}</p>{{end}}
+        {{else}}
+          <p class="muted">Waiting to check the RC.0 tag.</p>
+        {{end}}
+        {{if not .ReleaseImages.Total}}<p class="muted">Waiting for the first RC.0 image check results.</p>{{end}}
+      {{end}}
       {{with .ReleaseImages}}
         {{if .Groups}}{{template "image-table" .Groups}}{{end}}
         {{if .Other}}{{template "image-results" .Other}}{{end}}
       {{end}}
+      {{range .RC.OtherRetries}}{{template "rc-retry" .}}{{end}}
     </details>
   </section>
+  {{template "start-failures" .}}
+{{end}}
+
+{{define "rc-image-build"}}
+  <div class="rc-build">
+    <span class="pill component-image-status {{.Class}}">{{.Status}}</span>
+    {{if url .Link}}<a href="{{url .Link}}" target="_blank" rel="noreferrer">{{.LinkLabel}}</a>{{end}}
+  </div>
+  {{with .Retry}}{{template "rc-retry" .}}{{end}}
+{{end}}
+
+{{define "rc-retry"}}
+  <details class="rc-retry" data-fold-key="rc-retry:{{.Candidate.Key}}">
+    <summary>{{if and .Actions .Candidate.Offer.CanApprove}}Retest Konflux build{{else}}Copy retest command{{end}}<span class="component-image-note">{{.Candidate.Proposal.Job}} · {{.Candidate.Status}}</span></summary>
+    {{template "manual-comment" .Candidate.Proposal}}
+    {{with .Actions}}{{template "retry-offer-actions" .}}{{end}}
+  </details>
 {{end}}
