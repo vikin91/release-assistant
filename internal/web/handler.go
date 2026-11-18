@@ -52,8 +52,8 @@ func New(application Application) (http.Handler, error) {
 		"pinVersion": pinVersion,
 		"tabPage":    tabPage, "tabTitle": tabTitle, "tabHelp": tabHelp, "tabStep": tabStep,
 		"truth": truthLabel, "when": formatTime, "url": safeURL,
-		"activity": activityText,
-		"slice":    func(values ...string) []string { return values },
+		"activity": activityText, "commentURL": commentURL,
+		"slice": func(values ...string) []string { return values },
 		"title": func(value string) string {
 			if value == "acs" {
 				return "ACS"

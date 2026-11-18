@@ -80,6 +80,10 @@ func TestRetryAndCommentSectionsUseExplicitCurrentScope(t *testing.T) {
 	b := newBrowser(t, application)
 	body := b.getBody(t)
 	inline := between(t, body, `data-fold-key="pr-retry:acme/fact#21"`, `</details>`)
+	prCommentLink := `href="https://github.com/acme/fact/pull/21#new_comment_field" target="_blank"`
+	if count := strings.Count(inline, prCommentLink); count != 2 {
+		t.Errorf("included PR has %d manual comment links, want one for the proposal and one for the offer", count)
+	}
 	proposals := inline + between(t, body, `<section class="panel" id="component-releases-retry">`, `</section>`)
 	offers := inline + between(t, body, `<section class="panel" id="component-releases-offers">`, `</section>`)
 	for _, section := range []struct {
@@ -92,6 +96,14 @@ func TestRetryAndCommentSectionsUseExplicitCurrentScope(t *testing.T) {
 		for _, includedMarker := range []string{"included-open", "accepted-fact-tag", "accepted-collector-tag"} {
 			if !strings.Contains(section.body, includedMarker) {
 				t.Errorf("%s omitted scoped target marker %q", section.name, includedMarker)
+			}
+		}
+		for _, link := range []string{
+			`href="https://github.com/acme/fact/commit/fact-tag-sha" target="_blank"`,
+			`href="https://github.com/acme/collector/commit/collector-tag-sha" target="_blank"`,
+		} {
+			if !strings.Contains(section.body, link) {
+				t.Errorf("%s omitted manual comment link %s", section.name, link)
 			}
 		}
 		if !strings.Contains(section.body, "partial plan evidence") && section.name == "retry proposals" {

@@ -452,6 +452,21 @@ func (m *componentImagesModel) add(image imageModel, selectedTag string) {
 	}
 }
 
+func commentURL(proposal release.Proposal) string {
+	target := proposal.Target
+	if !target.Valid() {
+		return ""
+	}
+	repoURL := "https://github.com/" + target.Repo
+	if target.PR > 0 {
+		return repoURL + "/pull/" + strconv.Itoa(target.PR) + "#new_comment_field"
+	}
+	if proposal.SHA == "" {
+		return ""
+	}
+	return repoURL + "/commit/" + url.PathEscape(proposal.SHA)
+}
+
 func allTagsSelected(snapshot app.Snapshot) bool {
 	if len(snapshot.Config.Components) == 0 {
 		return false
