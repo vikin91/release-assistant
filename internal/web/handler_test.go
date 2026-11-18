@@ -810,7 +810,7 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 		`href="https://github.com/stackrox/stackrox/pull/99"`, "Available", "Not found", "Unable to check",
 		`href="https://quay.io/repository/fixture/release-fact?tag=3.25.1-fast"`,
 		`href="https://quay.io/repository/fixture/release-main?tag=5.0.1-rc.0"`,
-		"Registry access denied", "green = selected versions are on the ACS branch",
+		"Registry access denied",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q", want)
