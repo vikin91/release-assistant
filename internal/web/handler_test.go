@@ -105,7 +105,7 @@ func TestGETDoesNotMutateAndRendersIndependentPRControls(t *testing.T) {
 	if len(appFake.actions) != 0 {
 		t.Fatalf("GET applied actions: %+v", appFake.actions)
 	}
-	for _, needle := range []string{"Included", "Excluded", "RW allowed", "Ignore &amp; hide", "#12 A PR"} {
+	for _, needle := range []string{"Include</button>", "Exclude</button>", "Allow retry comments", "Ignore &amp; hide", "#12 A PR"} {
 		if !strings.Contains(body, needle) {
 			t.Errorf("page missing %q", needle)
 		}
@@ -289,7 +289,8 @@ func TestIgnoredPRIsHiddenAndConfirmedTagHasIndependentRWControl(t *testing.T) {
 	if strings.Contains(body, "Ignored PR") {
 		t.Fatal("ignored PR remained visible")
 	}
-	if !strings.Contains(body, "value=\"acme/fact\"") || !strings.Contains(body, "value=\"3.25.7\"") || !strings.Contains(body, "RW allowed") {
+	tagRow := tagRowContaining(body, "tag-sha")
+	if !strings.Contains(tagRow, `value="acme/fact"`) || !strings.Contains(tagRow, `value="3.25.7"`) || !strings.Contains(tagRow, "Allow retry comments") {
 		t.Fatal("confirmed tag target is missing independent RW controls")
 	}
 }
@@ -454,7 +455,7 @@ func TestComponentPRSelectionShowsAuthorsAndSummarizesUnverifiedChecks(t *testin
 		t.Fatal("the component PR should show unverified status without exposing the check table")
 	}
 	if !strings.Contains(card, `name="sha" value="exact-pr-head"`) ||
-		!strings.Contains(card, `value="included" aria-pressed="true"`) || !strings.Contains(card, `value="true"  disabled> RW allowed`) {
+		!strings.Contains(card, `value="included" aria-pressed="true"`) || !strings.Contains(card, `value="true"  disabled> Allow retry comments`) {
 		t.Fatal("inclusion must stay selected independently of the unchecked RW permission")
 	}
 }
@@ -898,7 +899,6 @@ func TestFoldControlsHaveUniqueStableIdentities(t *testing.T) {
 		"release-configuration", "activity-details", "previous-cycles",
 		"tag-alternatives:fact:acme/fact", "tag-alternatives:collector:acme/collector",
 		"tag-evidence:fact:acme/fact@3.25.1", "tag-evidence:collector:acme/collector@3.25.1",
-		"pr-actions:acme/fact#1", "pr-actions:acme/fact#2", "pr-actions:acme/collector#1",
 		"repo-evidence:fact:acme/fact", "repo-evidence:collector:acme/collector",
 	} {
 		if !seen[key] {

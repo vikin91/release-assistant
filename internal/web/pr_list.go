@@ -8,12 +8,12 @@ import (
 )
 
 type (
-	componentPRTriage struct {
+	prListModel struct {
 		Repos                                    []repoModel
-		Rows                                     map[release.Target]componentPRRow
+		Rows                                     map[release.Target]prListRow
 		AwaitingMerge, Closed, Undecided, Merged int
 	}
-	componentPRRow struct {
+	prListRow struct {
 		Checks      requiredCheckCounts
 		Attention   bool
 		Retry       *pageModel
@@ -25,37 +25,38 @@ type (
 	}
 )
 
-// ComponentPRTriage groups PRs by component and summarizes current check evidence.
-func (p pageModel) ComponentPRTriage() componentPRTriage {
-	triage := componentPRTriage{Repos: p.Repos}
-	if p.Tab != "component-prs" {
-		return triage
+// PRList groups PRs by repository and summarizes current check evidence.
+func (p pageModel) PRList() prListModel {
+	triage := prListModel{
+		Repos: slices.Clone(p.Repos),
+		Rows:  make(map[release.Target]prListRow),
 	}
-	triage.Repos = slices.Clone(p.Repos)
-	triage.Rows = make(map[release.Target]componentPRRow)
-	retries := make(map[release.Target]*pageModel)
-	retryPage := func(target release.Target) *pageModel {
-		if retries[target] == nil {
-			page := p
-			page.Repos, page.Plans, page.Authority = nil, nil, nil
-			page.RetrySection = p.PRSection
-			retries[target] = &page
+	var retries map[release.Target]*pageModel
+	if p.Tab == "component-prs" {
+		retries = make(map[release.Target]*pageModel)
+		retryPage := func(target release.Target) *pageModel {
+			if retries[target] == nil {
+				page := p
+				page.Repos, page.Plans, page.Authority = nil, nil, nil
+				page.RetrySection = p.PRSection
+				retries[target] = &page
+			}
+			return retries[target]
 		}
-		return retries[target]
-	}
-	for _, plan := range p.Plans {
-		page := retryPage(plan.Plan.Target)
-		page.Plans = append(page.Plans, plan)
-	}
-	for _, authority := range p.Authority {
-		page := retryPage(authority.View.Target)
-		page.Authority = append(page.Authority, authority)
+		for _, plan := range p.Plans {
+			page := retryPage(plan.Plan.Target)
+			page.Plans = append(page.Plans, plan)
+		}
+		for _, authority := range p.Authority {
+			page := retryPage(authority.View.Target)
+			page.Authority = append(page.Authority, authority)
+		}
 	}
 	for i, repo := range triage.Repos {
 		triage.Merged += len(repo.MergedPRs)
 		triage.Repos[i].PRs = slices.Clone(repo.PRs)
 		slices.SortStableFunc(triage.Repos[i].PRs, func(a, b prModel) int {
-			return cmp.Compare(componentPRRank(a), componentPRRank(b))
+			return cmp.Compare(prListRank(a), prListRank(b))
 		})
 		for _, row := range repo.PRs {
 			closed := row.PR.State == "closed"
@@ -68,9 +69,9 @@ func (p pageModel) ComponentPRTriage() componentPRTriage {
 				triage.Undecided++
 			}
 			retry := retries[row.PR.Target]
-			view := componentPRRow{Retry: retry}
+			view := prListRow{Retry: retry}
 			if row.Choice == release.Included {
-				view.Checks = componentPRChecks(row.PR)
+				view.Checks = countRequiredChecks(row.PR)
 				view.Attention = closed || view.Checks.Failed > 0
 			}
 			if retry != nil {
@@ -86,7 +87,7 @@ func (p pageModel) ComponentPRTriage() componentPRTriage {
 	return triage
 }
 
-func componentPRRank(row prModel) int {
+func prListRank(row prModel) int {
 	switch {
 	case row.Choice == release.Included && row.PR.State == "closed":
 		return 0
@@ -99,7 +100,7 @@ func componentPRRank(row prModel) int {
 	}
 }
 
-func componentPRChecks(pr release.PR) requiredCheckCounts {
+func countRequiredChecks(pr release.PR) requiredCheckCounts {
 	if !pr.Evidence.Fresh() || !pr.ChecksEvidence.Fresh() {
 		return requiredCheckCounts{}
 	}

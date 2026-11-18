@@ -69,7 +69,7 @@ func TestWriteModeControls(t *testing.T) {
 			prGrant := grantForm(t, prCard)
 			assertCheckboxDisabled(t, "PR RW grant", prGrant, "enabled", tc.wantDisabled)
 			assertButtonTextDisabled(t, "PR noscript grant", prGrant, "Apply RW permission", tc.wantDisabled)
-			if !strings.Contains(prCard, `value="included" aria-pressed="true"`) || strings.Contains(prCard, `name="choice" value="included" aria-pressed="true" disabled`) || !strings.Contains(prCard, "Excluded") || !strings.Contains(prCard, "Ignore &amp; hide") {
+			if !strings.Contains(prCard, `value="included" aria-pressed="true"`) || strings.Contains(prCard, `name="choice" value="included" aria-pressed="true" disabled`) || !strings.Contains(prCard, "Exclude</button>") || !strings.Contains(prCard, "Ignore &amp; hide") {
 				t.Error("PR inclusion, exclusion, and ignore choices must remain available")
 			}
 

@@ -251,7 +251,7 @@ func TestIncludedClosedPRCanBeExcludedFromItsActivity(t *testing.T) {
 			}
 			var choiceForm string
 			for _, form := range renderedFormRE.FindAllString(card, -1) {
-				if formInputValue(t, form, "kind") == "grant" && !strings.Contains(form, `disabled> RW allowed`) {
+				if formInputValue(t, form, "kind") == "grant" && !strings.Contains(form, `disabled> Allow retry comments`) {
 					t.Fatal("closed PR retained an enabled RW control")
 				}
 				if formInputValue(t, form, "kind") == "choice" {
@@ -297,7 +297,7 @@ func TestPRGrantRequiresCurrentOpenIdentity(t *testing.T) {
 			mutate(&pr)
 			application := &fakeApplication{snapshot: app.Snapshot{Config: config, WritesEnabled: true, Repositories: []release.Repository{{Source: source, PRs: []release.PR{pr}}}}}
 			card := prCardContaining(newBrowser(t, application).getBody(t), pr.Title)
-			if card == "" || !strings.Contains(card, `disabled> RW allowed`) {
+			if card == "" || !strings.Contains(card, `disabled> Allow retry comments`) {
 				t.Fatal("unsafe PR identity has an enabled RW control")
 			}
 		})
