@@ -75,6 +75,16 @@ func (s tabStatus) Class() string {
 	}
 }
 
+// PhaseLegend pairs the sidebar symbols with guidance for the release engineer.
+func (pageModel) PhaseLegend() []tabStatus {
+	return []tabStatus{
+		{tabActionNeeded, "Take the next step."},
+		{tabNeedsAttention, "Investigate a problem."},
+		{tabInProgress, "Work is underway."},
+		{tabComplete, "Phase requirements are met."},
+	}
+}
+
 // add keeps the highest-priority status and its reason.
 func (s *tabStatus) add(state tabState, reason string) {
 	if state > s.State {

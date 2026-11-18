@@ -29,6 +29,14 @@
     {{end}}{{end}}
   </nav>
   <p id="dashboard-refresh-status" class="muted" role="status" data-live-preserve>Waiting for release updates.</p>
+  {{if .Configured}}
+  <section class="phase-legend" aria-labelledby="phase-legend-title">
+    <h2 id="phase-legend-title">Phase icons</h2>
+    <dl>{{range .PhaseLegend}}
+      <div><dt><span class="tab-status {{.Class}}" aria-hidden="true">{{.Icon}}</span> {{.Label}}</dt><dd>{{.Reason}}</dd></div>
+    {{end}}</dl>
+  </section>
+  {{end}}
 </aside>
 <main>
   <div id="form-error" class="notice error" role="alert" data-live-preserve{{if not .Error}} hidden{{end}}>{{.Error}}</div>

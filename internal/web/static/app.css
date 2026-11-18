@@ -306,6 +306,11 @@ a { color: var(--accent); }
 .workflow-tabs a:hover { background: color-mix(in srgb, var(--accent) 7%, var(--panel)); }
 .workflow-tabs a[aria-selected=true] { background: color-mix(in srgb, var(--accent) 13%, var(--panel)); color: var(--accent); font-weight: 700; box-shadow: inset 3px 0 var(--accent); }
 .workflow-tabs #tab-activity { margin-top: auto; border-top: 1px solid var(--line); }
+.phase-legend { margin: 1rem .8rem; border-top: 1px solid var(--line); padding-top: .65rem; font-size: .8rem; }
+.phase-legend h2 { margin: 0 0 .45rem; font-size: inherit; }
+.phase-legend dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); gap: .45rem; margin: 0; }
+.phase-legend dt { font-weight: 600; }
+.phase-legend dd { margin: 0 0 0 1.65em; color: var(--muted); }
 #dashboard-refresh-status { font-size: .78rem; margin: 1rem .8rem; }
 .workspace main { width: 100%; min-width: 0; max-width: 88rem; margin: 0 auto; padding: clamp(1rem, 2.6vw, 2.5rem); }
 .workflow-heading { padding-top: 0; }
