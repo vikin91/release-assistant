@@ -4,19 +4,100 @@ The ACS release assistant is a local browser app for preparing one ACS patch rel
 
 It reads GitHub, Quay, and Konflux to suggest what to do next. You merge PRs, publish tags, and start releases in the upstream tools. The assistant starts in read-only mode. Its only optional write is a Konflux retry comment.
 
-## Get started
+## Quick start
 
-1. Install Go 1.26.0 or later. The `replace` directive in [go.mod](go.mod) points to a local checkout of `github.com/vikin91/konflux-retest`. Use the revision recorded in `go.mod` or a compatible revision. If your checkout is elsewhere, adjust the local path in the directive.
-2. Set up access to the services you need. See [Authentication](#authentication).
-3. From the repository root, start the assistant for an ACS 5.0.1 patch.
+Have the GitHub CLI (`gh`) and OpenShift CLI (`oc`) available in the
+terminal you’ll use to start the assistant. The assistant reads credentials
+at startup. Restart it after changing a token or login.
+
+1. **Set up Go and the local dependency.** Install Go 1.26.0 or later. The
+   `replace` directive in [go.mod](go.mod) points to a local checkout of
+   `github.com/vikin91/konflux-retest`. Use the revision recorded there or a
+   compatible revision. If your checkout is elsewhere, adjust the path in
+   the directive.
+
+2. **Authenticate to GitHub.** If you use the GitHub CLI for credentials,
+   check whether you’re signed in and log in if needed.
 
    ```sh
-   go run ./cmd/release-assistant --version 5.0.1 --branch release-5.0
+   gh auth status --hostname github.com || gh auth login --hostname github.com
    ```
 
-4. Open the [local assistant](http://127.0.0.1:8080). Valid startup configuration starts discovery immediately. Check **Activity and errors** for progress and access problems.
+   If you supply a token through the environment, export it as `GH_TOKEN`
+   or `GITHUB_TOKEN`. The assistant checks `GH_TOKEN` first, then
+   `GITHUB_TOKEN`, then the saved `gh` login. A fine-grained token needs
+   access to the monitored repositories and read access to contents, pull
+   requests, checks, and commit statuses. **Actions: read** adds workflow
+   run and trigger information to RC validation. Reading required checks
+   from branch protection also needs **Administration: read**.
 
-You can also run `go run ./cmd/release-assistant` and fill in **Configure release** in the browser. Enter the ACS patch version and target branch, then each component's repository and major.minor release stream. The form derives the component branch as `release-<stream>`. Use a CLI branch flag for an override. Add a pinning PR number when you have one. Saving valid configuration starts discovery.
+3. **Set Quay credentials for private images.** Load a read-only username
+   and password or robot token into `QUAY_USERNAME` and `QUAY_PASSWORD`,
+   then export both.
+
+   ```sh
+   export QUAY_USERNAME QUAY_PASSWORD
+   ```
+
+   If both are unset or empty, the assistant uses
+   `QUAY_RHACS_ENG_RO_USERNAME` and `QUAY_RHACS_ENG_RO_PASSWORD`.
+   Public images can be checked anonymously.
+
+4. **Log in to Konflux and identify the lookup to allow.** In the OpenShift
+   console for the cluster that runs your builds, choose **Copy login
+   command** and run the provided `oc login` command. Check the active server.
+
+   ```sh
+   oc whoami --show-server
+   ```
+
+   Your account needs read access to the relevant namespace’s PipelineRuns
+   or their Tekton Results records. The assistant uses the token from the
+   active `oc` login for that cluster.
+
+   Find a Konflux check run for a monitored repository and query its GitHub
+   App. Set `CHECK_RUN_ID` to the numeric check-run ID and substitute the
+   repository name if the check is outside `stackrox/fact`.
+
+   ```sh
+   gh api "repos/stackrox/fact/check-runs/${CHECK_RUN_ID:?Set CHECK_RUN_ID}" \
+     --jq '.app | {id, slug, owner: .owner.login}'
+   ```
+
+   Verify the app slug and owner, then set `APP_ID` to the returned numeric
+   `id`. Use the hostname from the API URL printed by `oc`. The namespace
+   is the segment after `/ns/` in the Konflux build URL.
+
+5. **Start the assistant.** From the repository root, run the command for
+   your patch version and target branch. This example uses the
+   `rh-acs-tenant` namespace on the `stone-prd-rh01` cluster. Substitute your
+   API hostname and namespace, and repeat `--allow-konflux-lookup` for each
+   trusted app, host, and namespace combination.
+
+   ```sh
+   go run ./cmd/release-assistant --version 5.0.1 --branch release-5.0 \
+     --allow-konflux-lookup "${APP_ID:?Set APP_ID},api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant"
+   ```
+
+   Open the [local assistant](http://127.0.0.1:8080). Check **Activity and
+   errors** for discovery progress. If you still need the check-run ID, start
+   with the same release flags and omit `--allow-konflux-lookup`. GitHub and
+   Quay reads can proceed. A `lookup denied by caller policy` message names
+   the repository and check-run ID for a lookup that needs approval. Verify
+   the combination and restart with the flag.
+
+To post retry comments from the app, add `--enable-writes` and follow
+[Retry comments](#retry-comments). Your GitHub credential also needs
+permission to comment on the target PR or commit.
+
+## Release configuration
+
+You can also run `go run ./cmd/release-assistant` and fill in **Configure
+release** in the browser. Enter the ACS patch version and target branch,
+then each component’s repository and major.minor release stream. The form
+derives the component branch as `release-<stream>`. Use a CLI branch flag
+for an override. Add a pinning PR number when you have one. Saving valid
+configuration starts discovery.
 
 ### Component defaults
 
@@ -41,34 +122,7 @@ go run ./cmd/release-assistant \
 
 Run `go run ./cmd/release-assistant --help` for repository and branch overrides, `--pinning-pr`, and monitoring and retry settings. Use a different `--port` and distinct targets for each concurrent instance. Each process manages its own permissions and retry limits.
 
-## Authentication
-
-The assistant loads credentials at startup. Restart it after changing a token, environment variable, or login.
-
-| Service | Credential source |
-| --- | --- |
-| GitHub | `GH_TOKEN`, then `GITHUB_TOKEN`, then `gh auth token --hostname github.com`. The first available source wins. Grant **Actions: read** if you want RC validation to show the corresponding workflow runs and trigger information. |
-| Quay | `QUAY_USERNAME` and `QUAY_PASSWORD`. If both are unset or empty, the assistant uses `QUAY_RHACS_ENG_RO_USERNAME` and `QUAY_RHACS_ENG_RO_PASSWORD`. Use read-only credentials for private release images. Public images support anonymous access. |
-| Konflux | The active `oc` login at startup and an explicit `--allow-konflux-lookup` entry for each trusted GitHub App ID, API hostname, and namespace combination. The assistant uses the token only for the hostname reported by `oc`. |
-
-### Allow Konflux lookups
-
-`lookup denied by caller policy` means the GitHub check's app, API host, and namespace did not match an approved combination. Without a verified run, the assistant withholds retries that require that evidence.
-
-1. Look up the GitHub App behind the check. Use the repository and the check-run ID from the warning. For example, this command queries a Fact check. Verify the app slug and owner, then record the numeric `id`.
-
-   ```sh
-   gh api repos/stackrox/fact/check-runs/131115008122 \
-     --jq '.app | {id, slug, owner: .owner.login}'
-   ```
-
-2. Run `oc whoami --show-server` and confirm it matches the API for the check's Konflux cluster. For example, the UI on `konflux-ui.apps.stone-prd-rh01.pg1f.p1.openshiftapps.com` uses the API host `api.stone-prd-rh01.pg1f.p1.openshiftapps.com`. Find the namespace after `/ns/` in the check's build URL.
-3. Set `APP_ID` to the numeric ID from step 1, then restart with your release flags and the trusted combination. Use the API hostname without a scheme or port. Repeat the flag for each combination you approve.
-
-   ```sh
-   go run ./cmd/release-assistant --version 5.0.1 --branch release-5.0 \
-     --allow-konflux-lookup "${APP_ID:?Set APP_ID to the numeric GitHub App ID},api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant"
-   ```
+## Konflux verification
 
 The assistant uses PipelineRun annotations from the cluster API or Tekton Results archive to verify the repository, commit, check-run ID, and PR number or full tag ref. This matters when a branch build and a tag build share a commit. If reads fail, **Konflux status** shows which endpoint failed or paused and when the assistant can check again. A reported pipeline creation failure describes a specific attempt. Use its evidence link to investigate.
 
