@@ -277,7 +277,9 @@ a { color: var(--accent); }
 .konflux-read-issue :is(h3, .konflux-read-reason) { color: light-dark(#922329, #ffa9ab); }
 .konflux-read-issue p { margin: .15rem 0 0; font-size: .88rem; font-variant-numeric: tabular-nums; }
 .konflux-read-issue .konflux-read-reason { margin-bottom: .55rem; font-size: 1rem; }
-.konflux-excerpt { overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+.konflux-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .35rem .85rem; margin: 0 0 .65rem; }
+.konflux-facts dt { font-weight: 650; }
+.konflux-facts dd { margin: 0; overflow-wrap: anywhere; }
 .konflux-pill::before { content: ""; width: .5rem; height: .5rem; border-radius: 50%; background: currentColor; }
 .konflux-pill.accepted { background: #dcf6e6; color: #165a34; }
 .konflux-pill.rejected { background: #ffe1df; color: #902623; }

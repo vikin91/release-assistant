@@ -2,7 +2,12 @@
   {{with .KonfluxAdmission}}
   <details class="header-menu" name="header-menu" data-fold-key="konflux-admission">
     <summary class="konflux-pill {{.Class}}">Konflux · {{.Label}}</summary>
-    <div class="menu-content"><p class="konflux-excerpt">{{.Detail}}</p>
+    <div class="menu-content"><dl class="konflux-facts">
+      <dt>Status</dt><dd>{{.Label}}</dd>
+      <dt>Error</dt><dd>{{if .Detail}}{{.Detail}}{{else}}None reported{{end}}</dd>
+      <dt>Last check</dt><dd>{{if .Last.IsZero}}Awaiting first observation{{else}}{{when .Last}}{{end}}</dd>
+      <dt>Next check</dt><dd>{{if .Next.IsZero}}Awaiting schedule{{else}}{{when .Next}}{{end}}</dd>
+    </dl>
       {{if $.KonfluxStatus}}<a href="/?tab=activity#konflux-status" data-open-section>View Konflux diagnostics</a>
       {{else}}<a href="/?tab=activity#activity-details" data-open-section>View log</a>{{end}}
     </div>

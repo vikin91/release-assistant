@@ -10,7 +10,10 @@ import (
 )
 
 type (
-	konfluxAdmission     struct{ Class, Label, Detail string }
+	konfluxAdmission struct {
+		Class, Label, Detail string
+		Last, Next           time.Time
+	}
 	konfluxClusterStatus struct {
 		Cluster  string
 		Reads    []konflux.ReadIssue
@@ -70,44 +73,63 @@ func planTab(target release.Target, acsRepo string) string {
 
 // KonfluxAdmission describes observed pipeline starts independently of build outcomes.
 func (p pageModel) KonfluxAdmission() konfluxAdmission {
-	for _, cluster := range p.KonfluxStatus {
-		if cluster.Tab != "" {
-			reason := cluster.Rejected.Reason
-			if reason == "" {
-				reason = "The source check reported a pipeline creation failure."
+	var failure konfluxAdmission
+	var started time.Time
+	result := konfluxAdmission{Class: "unverified", Label: "Unknown"}
+	var active konfluxAdmission
+	for _, item := range p.Plans {
+		plan := item.Plan
+		next := p.Snapshot.NextSourceCheck[plan.Target.Repo]
+		for _, f := range plan.StartFailures {
+			if f.Superseded || !f.Evidence.Fresh() || f.Reason == "" || (!started.IsZero() && !f.CheckStartedAt.After(started)) {
+				continue
 			}
-			return konfluxAdmission{"rejected", "Start rejected", reason}
+			started = f.CheckStartedAt
+			failure = konfluxAdmission{"unverified", "Unknown", f.Reason, f.Evidence.At, next}
+			if age := time.Since(started); age >= 0 && age <= 30*time.Minute {
+				failure.Class, failure.Label = "rejected", "Unhealthy"
+			}
 		}
-	}
-	for _, cluster := range p.KonfluxStatus {
-		if len(cluster.Reads) > 0 {
-			issue := cluster.Reads[0]
-			return konfluxAdmission{"unverified", "Admission unverified", issue.Endpoint + " read failed: " + issue.Reason}
-		}
-	}
-	detail := ""
-	for _, plan := range p.Plans {
-		if plan.Plan.Evidence.Error != "" {
-			detail = plan.Plan.Evidence.Error
-		} else if detail == "" {
-			for _, warning := range plan.Plan.Warnings {
-				if strings.HasPrefix(warning, "identity unknown:") {
-					detail = warning
-					break
+		if plan.Evidence.At.After(result.Last) {
+			result.Last, result.Next = plan.Evidence.At, next
+			result.Detail = plan.Evidence.Error
+			if result.Detail == "" {
+				for _, warning := range plan.Warnings {
+					if strings.HasPrefix(warning, "identity unknown:") {
+						result.Detail = warning
+						break
+					}
 				}
 			}
 		}
-		if !plan.Plan.Evidence.Fresh() || time.Since(plan.Plan.Evidence.At) > 30*time.Minute {
+		if !plan.Evidence.Fresh() || time.Since(plan.Evidence.At) > 30*time.Minute {
 			continue
 		}
-		for _, run := range plan.Plan.Runs {
-			if run.ID != "" && run.Status == "in_progress" && run.Outcome == "" {
-				return konfluxAdmission{"accepted", "Pipeline accepted", "A recent check verified a running pipeline."}
+		for _, run := range plan.Runs {
+			if run.ID != "" && run.Status == "in_progress" && run.Outcome == "" && plan.Evidence.At.After(active.Last) {
+				active = konfluxAdmission{"accepted", "Healthy", "", plan.Evidence.At, next}
 			}
 		}
 	}
-	if detail == "" {
-		detail = "No recent observation confirms a running pipeline."
+	if failure.Class == "rejected" {
+		return failure
 	}
-	return konfluxAdmission{"unverified", "Admission unverified", detail}
+	var readIssue *konflux.ReadIssue
+	for _, cluster := range p.KonfluxStatus {
+		for _, issue := range cluster.Reads {
+			if readIssue == nil || issue.LastFailure.After(readIssue.LastFailure) {
+				readIssue = &issue
+			}
+		}
+	}
+	if readIssue != nil {
+		return konfluxAdmission{"unverified", "Unknown", readIssue.Endpoint + " read failed: " + readIssue.Reason, readIssue.LastFailure, readIssue.RetryAt}
+	}
+	if active.Class != "" {
+		return active
+	}
+	if failure.Detail != "" {
+		return failure
+	}
+	return result
 }

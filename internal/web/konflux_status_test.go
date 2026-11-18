@@ -37,7 +37,7 @@ func TestDashboardShowsRecentKonfluxEvidenceAcrossTabs(t *testing.T) {
 	}}
 	body := newBrowser(t, application).getBody(t)
 	header := between(t, body, "<header", "</header>")
-	if !strings.Contains(header, "Konflux · Start rejected</summary>") || !strings.Contains(header, failure.Reason) || !strings.Contains(header, "View Konflux diagnostics") || strings.Contains(header, "View creation failure") || strings.Contains(header, "release-context") {
+	if !strings.Contains(header, "Konflux · Unhealthy</summary>") || !strings.Contains(header, failure.Reason) || !strings.Contains(header, "View Konflux diagnostics") || strings.Contains(header, "View creation failure") || strings.Contains(header, "release-context") {
 		t.Fatalf("unexpected header: %s", header)
 	}
 	banner := between(t, body, `<section id="konflux-status"`, `</section>`)
@@ -77,5 +77,22 @@ func TestKonfluxAdmission(t *testing.T) {
 				t.Errorf("got %q, want %q", got.Class, tc.want)
 			}
 		})
+	}
+}
+
+func TestAdmissionKeepsLastReportedErrorAfterHealthEvidenceExpires(t *testing.T) {
+	now := time.Now()
+	next := now.Add(time.Minute)
+	target := release.Target{Repo: "acme/fact", PR: 1}
+	page := pageModel{
+		Snapshot: app.Snapshot{NextSourceCheck: map[string]time.Time{target.Repo: next}},
+		Plans: []planModel{{Plan: release.Plan{Target: target, StartFailures: []release.StartFailure{{
+			Reason: "An admission policy denied PipelineRun creation.", CheckStartedAt: now.Add(-time.Hour),
+			Evidence: release.Evidence{Known: true, At: now},
+		}}}}},
+	}
+	status := page.KonfluxAdmission()
+	if status.Label != "Unknown" || status.Detail != page.Plans[0].Plan.StartFailures[0].Reason || !status.Last.Equal(now) || !status.Next.Equal(next) {
+		t.Fatalf("unexpected diagnostic: %+v", status)
 	}
 }

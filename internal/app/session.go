@@ -46,6 +46,8 @@ type (
 		LogEntries      []Record
 		// KonfluxReadIssues reports endpoint reachability independently of release readiness.
 		KonfluxReadIssues []konflux.ReadIssue
+		// NextSourceCheck records scheduled monitoring times by repository.
+		NextSourceCheck map[string]time.Time
 		// Loading remains true until every source completes its first refresh attempt.
 		Loading bool
 	}
@@ -69,6 +71,7 @@ type (
 		inventory       release.Inventory
 		confirmedSHAs   map[string]string
 		tagInitialized  map[string]bool
+		nextSourceCheck map[string]time.Time
 		initiallyLoaded map[string]bool
 		workRevision    uint64
 		readErrors      map[string]string
@@ -116,6 +119,7 @@ func (s *Session) reset() {
 	s.plans = map[release.Target]release.Plan{}
 	s.confirmedSHAs = map[string]string{}
 	s.tagInitialized = map[string]bool{}
+	s.nextSourceCheck = map[string]time.Time{}
 	s.initiallyLoaded = map[string]bool{}
 	s.workRevision++
 	s.readErrors = map[string]string{}
@@ -204,6 +208,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		}
 		s.config = a.Config
 		s.config.Components = slices.Clone(a.Config.Components)
+		s.nextSourceCheck = map[string]time.Time{}
 		s.initiallyLoaded = map[string]bool{}
 		s.workRevision++
 		s.errorText = ""
@@ -397,7 +402,7 @@ func (s *Session) Snapshot() Snapshot {
 	x := Snapshot{
 		Config: c, Choices: choices, Error: s.errorText, Generation: s.generation,
 		Interactive: s.dispatcher.IsInteractive(), WritesEnabled: s.dispatcher.WritesEnabled(),
-		Authority: s.dispatcher.Views(),
+		Authority: s.dispatcher.Views(), NextSourceCheck: maps.Clone(s.nextSourceCheck),
 	}
 	if planner, ok := s.planner.(interface{ ReadIssues() []konflux.ReadIssue }); ok {
 		x.KonfluxReadIssues = planner.ReadIssues()
@@ -508,6 +513,11 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 	failures := 0
 	for {
 		previousDelay := delay
+		s.mu.Lock()
+		if generation == s.generation {
+			delete(s.nextSourceCheck, source.Repo)
+		}
+		s.mu.Unlock()
 		err := s.refreshPlanned(ctx, generation, source, !time.Now().Before(discoverAt))
 		if ctx.Err() != nil {
 			return
@@ -530,7 +540,13 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 			}
 			s.mu.Unlock()
 		}
-		timer := time.NewTimer(delay)
+		next := time.Now().Add(delay)
+		s.mu.Lock()
+		if generation == s.generation {
+			s.nextSourceCheck[source.Repo] = next
+		}
+		s.mu.Unlock()
+		timer := time.NewTimer(time.Until(next))
 		select {
 		case <-ctx.Done():
 			timer.Stop()
