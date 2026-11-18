@@ -68,7 +68,7 @@ type (
 		Head   string
 		PRs    []PR
 		Tags   []Tag
-		// TagsPending distinguishes a resumable inventory from a completed or failed read.
+		// TagsPending prevents an incomplete inventory from proving that tags are absent.
 		TagsPending bool
 		Pins        Pins
 		// PreviousPins records component versions at the preceding ACS patch tag.
@@ -163,6 +163,15 @@ type (
 		Reason   string
 		Evidence []Evidence
 	}
+	// BaselineRecord explains what current tag evidence says about the previous ACS pin.
+	BaselineRecord struct {
+		Component, PinFile, PinnedVersion string
+		NewestTag, NewestSHA              string
+		Relation, Reason                  string
+		BranchAhead                       bool
+		OpenPRs                           int
+		Evidence                          []Evidence
+	}
 	// Assessment contains derived readiness and copyable recommendations.
 	Assessment struct {
 		Ready           bool
@@ -172,6 +181,8 @@ type (
 		ComponentPRRecommendations []string
 		// ComponentReleaseRecommendations guides tag selection, builds, and images.
 		ComponentReleaseRecommendations []string
+		// ComponentBaseline compares configured component tags with the preceding patch's pins.
+		ComponentBaseline []BaselineRecord
 		// ACSRecommendations guides ACS PRs, pinning, and preparation for RC.0.
 		ACSRecommendations []string
 		Commands           string

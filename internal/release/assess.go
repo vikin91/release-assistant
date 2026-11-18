@@ -83,9 +83,12 @@ func Assess(in Input) Assessment {
 				chosenVersions[source.Name] = version
 			}
 		}
-		if eligible, ok := highestEligibleTag(source, repo, found); ok {
+		eligible, ok := highestEligibleTag(source, repo, found)
+		if ok {
 			a.ProposedTags[source.Name] = eligible.Name
 		}
+		baseline := compareComponentBaseline(source, repos["acs"].PreviousPins, repo, eligible)
+		a.ComponentBaseline = append(a.ComponentBaseline, baseline)
 		var evidence []Evidence
 		if found {
 			evidence = append(evidence, repo.Evidence)
@@ -96,6 +99,7 @@ func Assess(in Input) Assessment {
 		add("tag "+source.Name, status, reason, evidence...)
 	}
 	addTagRecommendations(&a, in, included, prStates, tagStatuses)
+	componentsAtBaseline := a.addBaselineRecommendations()
 
 	imageVersions := make(map[string]string, len(in.Config.Components))
 	for _, source := range in.Config.Components {
@@ -138,8 +142,8 @@ func Assess(in Input) Assessment {
 
 	assessPinningPR(&a, in, chosenVersions, tagStatuses, imageStatus)
 	for _, repo := range in.Repositories {
-		if repo.PreviousPublished == Yes && repo.Source.Name == "acs" && noOutstandingACSPR(repo) {
-			a.ACSRecommendations = append(a.ACSRecommendations, "The previous ACS patch is published and no remaining PRs were observed; a new patch may be unnecessary. This is tentative advice, not a release gate.")
+		if repo.PreviousPublished == Yes && repo.Source.Name == "acs" && noOutstandingACSPR(repo) && !componentsAtBaseline {
+			a.ACSRecommendations = append(a.ACSRecommendations, "The previous ACS patch is published and no remaining ACS PRs were observed, so a new patch may be unnecessary.")
 		}
 	}
 	a.Ready = len(a.Conditions) > 0

@@ -6,7 +6,7 @@
       {{range .TagRepos}}
         <article class="tag-repo" data-live-key="tag-repo:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}">
           <h3>{{title .Repository.Source.Name}} <span class="muted">{{.Repository.Source.Repo}} · {{.Repository.Source.Branch}} · stream {{.Repository.Source.Stream}}</span></h3>
-          {{if $.ACS}}{{if $.ACS.PreviousPins.Evidence.Fresh}}<p class="muted">Previous ACS patch used <code>{{pinVersion $.ACS.PreviousPins .Repository.Source.Name}}</code>.{{else}}{{if $.ACS.PreviousPins.Evidence.Error}}<p class="muted">Previous ACS patch versions unavailable: {{$.ACS.PreviousPins.Evidence.Error}}</p>{{end}}{{end}}{{end}}
+          {{if .Baseline}}<p class="muted">{{.Baseline}}</p>{{end}}
           {{if .CurrentTag}}
             {{if .SelectedTag}}{{template "component-tag" .SelectedTag}}{{else}}<p class="unknown">Selected {{.CurrentTag}} · current tag observation unavailable; coverage is unknown.</p>{{end}}
             <form method="post" action="/action#tag-selection" class="inline-form"><input type="hidden" name="tab" value="component-releases"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="clear-tag"><input type="hidden" name="component" value="{{.Repository.Source.Name}}"><button type="submit">Prepare a new tag</button><span class="muted">Clear this selection while you prepare another release. Component PR monitoring continues.</span></form>

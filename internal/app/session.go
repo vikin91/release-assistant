@@ -585,6 +585,9 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		}
 		r.Source = source
 		if err != nil {
+			if source.Name != "acs" && (work.tagInventory || work.scope == ReadAll) {
+				r.TagsPending = true
+			}
 			for _, previous := range old.Tags {
 				if !slices.ContainsFunc(r.Tags, func(current release.Tag) bool { return current.Name == previous.Name }) {
 					previous.Evidence.Known = false

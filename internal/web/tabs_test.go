@@ -95,13 +95,15 @@ func TestTagPreparationKeepsExistingCandidatesAndReturnsToActivity(t *testing.T)
 		Config: config, Generation: 19,
 		Choices: release.Choices{Tags: map[string]string{source.Name: "3.25.1"}},
 		Repositories: []release.Repository{
-			{Source: source, Tags: []release.Tag{{Name: "3.25.1", SHA: "selected-sha", Belongs: release.Yes, Evidence: observed}, {Name: "3.25.2", SHA: "next-sha", Belongs: release.Yes, Evidence: observed}}},
+			{Source: source, Head: "next-sha", Evidence: observed, Tags: []release.Tag{{Name: "3.25.1", SHA: "selected-sha", Belongs: release.Yes, Evidence: observed}, {Name: "3.25.2", SHA: "next-sha", Belongs: release.Yes, Evidence: observed}}},
 			{Source: config.ACS(), PreviousPins: release.Pins{Versions: map[string]string{source.Name: "3.25.0"}, Evidence: observed}},
 		},
 	}}
+	snapshot := &application.snapshot
+	snapshot.Assessment = release.Assess(release.Input{Config: config, Choices: snapshot.Choices, Repositories: snapshot.Repositories})
 	browser := newBrowser(t, application)
 	body := activityPanel(t, browser.getBody(t), "component-releases")
-	if !strings.Contains(body, "Previous ACS patch used <code>3.25.0</code>") || !strings.Contains(body, "3.25.2") {
+	if !strings.Contains(body, `<p class="muted">The newest Fact tag 3.25.2 is newer than the previous ACS pin FACT_VERSION 3.25.0.</p>`) {
 		t.Fatal("component release view lost baseline or existing candidate tags")
 	}
 	var form string
@@ -124,6 +126,60 @@ func TestTagPreparationKeepsExistingCandidatesAndReturnsToActivity(t *testing.T)
 	}
 	if len(application.actions) != 1 || application.actions[0].Kind != "clear-tag" || application.actions[0].Component != source.Name {
 		t.Fatalf("tag preparation action = %+v", application.actions)
+	}
+}
+
+func TestBaselineGuidanceInActivityTabs(t *testing.T) {
+	tests := map[string]struct {
+		tag     string
+		pending bool
+		want    string
+	}{
+		"should show PR preparation when all component inventories have no tags": {
+			want: "No component tag newer than FACT_VERSION 3.25.0 was observed on acme/fact/release-3.25.",
+		},
+		"should omit PR preparation when a component has a tag": {
+			tag:  "3.25.1",
+			want: "The newest Fact tag 3.25.1 is newer than the previous ACS pin FACT_VERSION 3.25.0.",
+		},
+		"should omit PR preparation while a component inventory is incomplete": {
+			pending: true,
+			want:    "Fact comparison against FACT_VERSION 3.25.0 needs a complete, current tag inventory.",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			config := validACS5Config()
+			observed := release.Evidence{Known: true, At: time.Now()}
+			repos := []release.Repository{
+				{Source: config.ACS(), PreviousPins: release.Pins{Versions: map[string]string{"fact": "3.25.0", "collector": "3.25.0"}, Evidence: observed}},
+				{Source: config.Components[0], Head: "fact-sha", TagsPending: tt.pending, Evidence: observed},
+				{Source: config.Components[1], Head: "collector-sha", Evidence: observed},
+			}
+			if tt.tag != "" {
+				repos[1].Tags = []release.Tag{{Name: tt.tag, SHA: "fact-sha", Belongs: release.Yes, Evidence: observed}}
+			}
+			application := &fakeApplication{snapshot: app.Snapshot{
+				Config: config, Repositories: repos, Assessment: release.Assess(release.Input{Config: config, Repositories: repos}),
+			}}
+			body := newBrowser(t, application).getBody(t)
+			releases := activityPanel(t, body, "component-releases")
+			if !strings.Contains(releases, `<p class="muted">`+tt.want+`</p>`) {
+				t.Fatalf("missing component comparison %q", tt.want)
+			}
+			prs := activityPanel(t, body, "component-prs")
+			const notice = "Component releases have not been cut for this ACS version yet, so PR preparation is the current step."
+			if tt.tag == "" && !tt.pending {
+				if strings.Count(prs, notice) != 1 || !strings.Contains(prs, `<p class="muted">`+notice+`</p>`) {
+					t.Fatal("expected one muted PR preparation notice")
+				}
+			} else if strings.Contains(prs, notice) {
+				t.Fatal("PR preparation notice appeared with a tag or incomplete evidence")
+			}
+			if strings.Contains(prs, "FACT_VERSION") || strings.Contains(activityPanel(t, body, "acs-prs"), notice) {
+				t.Fatal("baseline guidance appeared outside its component activity")
+			}
+		})
 	}
 }
 

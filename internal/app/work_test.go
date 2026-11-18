@@ -179,7 +179,7 @@ func TestScopedMergeRetainsUnreadSectionsWithoutRefreshingTheirEvidence(t *testi
 	}
 	latest.Head = "changed-head"
 	merged = mergeDiscovery(old, latest, DiscoveryRequest{Scope: ReadPRs})
-	if merged.Tags[0].Evidence.Fresh() || merged.Pins.Evidence.Fresh() {
+	if merged.Tags[0].Evidence.Fresh() || merged.Pins.Evidence.Fresh() || !merged.TagsPending {
 		t.Fatal("branch changes retained stale ancestry or pin evidence")
 	}
 }
@@ -207,6 +207,45 @@ func TestTagInventoryFailurePreservesIndependentPRChecks(t *testing.T) {
 	pr := s.repos["fact"].PRs[0]
 	if !s.repos["fact"].Evidence.Fresh() || !pr.Evidence.Fresh() || pr.ChecksStatus() != release.Yes {
 		t.Fatalf("tag inventory failure invalidated independent PR evidence: %+v", s.repos["fact"])
+	}
+}
+
+type truncatedInventory struct{ *fixture }
+
+func (f truncatedInventory) Discover(ctx context.Context, request DiscoveryRequest) (release.Repository, error) {
+	repo, err := f.fixture.Discover(ctx, request)
+	if err == nil && request.Scope == ReadTags {
+		repo.Evidence.Error = "GitHub pagination limit reached"
+		return repo, errors.New(repo.Evidence.Error)
+	}
+	return repo, err
+}
+
+func TestScopedRefreshPreservesTagInventoryCompleteness(t *testing.T) {
+	s, f := newFixture()
+	apply(t, s, Action{Kind: "configure", Config: configuration()})
+	fact := f.repos["fact"]
+	fact.Tags = nil
+	f.repos["fact"] = fact
+	s.discovery = truncatedInventory{f}
+	if err := s.refreshPlanned(t.Context(), s.generation, fact.Source, true); err == nil {
+		t.Fatal("tag inventory truncation was hidden")
+	}
+	if repo := s.repos["fact"]; !repo.Evidence.Fresh() || !repo.TagsPending {
+		t.Fatalf("expected fresh branch evidence and an incomplete tag inventory: %+v", repo)
+	}
+	if err := s.refreshPlanned(t.Context(), s.generation, fact.Source, false); err != nil {
+		t.Fatal(err)
+	}
+	if !s.repos["fact"].TagsPending {
+		t.Fatal("a checks-only refresh marked the tag inventory complete")
+	}
+	s.discovery = f
+	if err := s.refreshPlanned(t.Context(), s.generation, fact.Source, true); err != nil {
+		t.Fatal(err)
+	}
+	if s.repos["fact"].TagsPending {
+		t.Fatal("a successful tag refresh left the inventory pending")
 	}
 }
 

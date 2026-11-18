@@ -17,6 +17,7 @@ type (
 		Title, CSRF, Error                                       string
 		Tab, PRSection, RetrySection, RetryDetails, OfferSection string
 		Guidance                                                 []string
+		ComponentPRNotice                                        string
 		Configured                                               bool
 		Snapshot                                                 app.Snapshot
 		Repos                                                    []repoModel
@@ -54,6 +55,7 @@ type (
 		CurrentTag  string
 		SelectedTag *tagModel
 		NewerTag    string
+		Baseline    string
 	}
 	prModel struct {
 		PR          release.PR
@@ -200,6 +202,12 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 	}
 	for _, repo := range displayRepositories(snapshot) {
 		r := repoModel{Repository: repo, CurrentTag: snapshot.Choices.Tags[repo.Source.Name]}
+		for _, baseline := range snapshot.Assessment.ComponentBaseline {
+			if baseline.Component == repo.Source.Name {
+				r.Baseline = baseline.Reason
+				break
+			}
+		}
 		for _, pr := range repo.PRs {
 			if pr.Merged && snapshot.Choices.PRs[pr.Target] == release.Included && pr.Target != pinTarget {
 				r.MergedPRs = append(r.MergedPRs, pr)

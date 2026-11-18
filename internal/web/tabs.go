@@ -114,6 +114,12 @@ func tabPage(page pageModel, tab string) pageModel {
 		page.Guidance = page.Snapshot.Assessment.ACSRecommendations
 	default:
 		page.Guidance = page.Snapshot.Assessment.ComponentPRRecommendations
+		if tab == "component-prs" {
+			page.ComponentPRNotice = page.Snapshot.Assessment.ComponentPRPreparation()
+			if last := len(page.Guidance) - 1; last >= 0 && page.Guidance[last] == page.ComponentPRNotice {
+				page.Guidance = page.Guidance[:last]
+			}
+		}
 	}
 	return page
 }

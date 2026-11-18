@@ -2,6 +2,7 @@
   <section class="panel" aria-labelledby="{{.PRSection}}-heading" id="{{.PRSection}}-panel">
     <details id="{{.PRSection}}" open>
     <summary id="{{.PRSection}}-heading" class="section-summary">{{if eq .Tab "component-prs"}}Component PRs{{else}}ACS release PRs{{end}}</summary>
+    {{if .ComponentPRNotice}}<p class="muted">{{.ComponentPRNotice}}</p>{{end}}
     <p class="muted">Include selects a PR for monitoring. Exclude stops detailed monitoring and retries; Ignore also hides it. RW allowed controls permission to post retry comments independently.</p>
     {{range .Repos}}
       <article class="pr-repo" data-live-key="pr-repo:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}">

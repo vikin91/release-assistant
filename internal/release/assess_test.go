@@ -2,6 +2,7 @@ package release
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -374,6 +375,213 @@ func TestAssessActivityGuidance(t *testing.T) {
 				tt.mutate(&in)
 			}
 			tt.check(t, Assess(in))
+		})
+	}
+}
+
+func TestAssessComponentBaseline(t *testing.T) {
+	tests := map[string]struct {
+		pin, tag, head     string
+		mutate             func(*Input)
+		relation, guidance string
+		ahead, openPR      bool
+		allNoTag           bool
+	}{
+		"should find no tag with a complete inventory": {
+			mutate: func(in *Input) {
+				in.Repositories[1].Tags = []Tag{
+					freshTag("0.4.0", "other-stream", Yes),
+					freshTag("0.3.80-rc.1", "prerelease", Yes),
+					freshTag("0.3.81", "other-branch", No),
+				}
+				in.Repositories[2].Tags = nil
+			},
+			relation: "no-tag", guidance: "FACT_VERSION 0.3.79 was observed on stackrox/fact/release-0.3", allNoTag: true,
+		},
+		"should wait for a pending inventory": {
+			mutate:   func(in *Input) { in.Repositories[1].TagsPending = true },
+			relation: "unknown", guidance: "complete, current tag inventory",
+		},
+		"should treat a truncated inventory as unknown": {
+			mutate:   func(in *Input) { in.Repositories[1].Evidence.Error = "GitHub pagination limit reached" },
+			relation: "unknown", guidance: "fresh branch and tag inventory evidence",
+		},
+		"should treat a deferred inventory as unknown": {
+			mutate:   func(in *Input) { in.Repositories[1].Evidence.Error = "GitHub tag inventory deferred" },
+			relation: "unknown", guidance: "fresh branch and tag inventory evidence",
+		},
+		"should treat a rate-limited inventory as unknown": {
+			mutate:   func(in *Input) { in.Repositories[1].Evidence.Error = "GitHub rate limited" },
+			relation: "unknown", guidance: "fresh branch and tag inventory evidence",
+		},
+		"should treat an inventory with stale tags as unknown": {
+			mutate: func(in *Input) {
+				tag := freshTag("0.3.79", "tag-sha", Yes)
+				tag.Evidence.Known = false
+				in.Repositories[1].Tags = []Tag{tag}
+			},
+			relation: "unknown", guidance: "complete, current tag inventory",
+		},
+		"should treat an inventory with an unresolved tag as unknown": {
+			mutate:   func(in *Input) { in.Repositories[1].Tags = []Tag{freshTag("0.3.79", "", Yes)} },
+			relation: "unknown", guidance: "complete, current tag inventory",
+		},
+		"should treat an inventory with unknown ancestry as unknown": {
+			mutate:   func(in *Input) { in.Repositories[1].Tags = []Tag{freshTag("0.3.79", "tag-sha", "")} },
+			relation: "unknown", guidance: "complete, current tag inventory",
+		},
+		"should require an observed branch head": {
+			mutate:   func(in *Input) { in.Repositories[1].Head = "" },
+			relation: "unknown", guidance: "current evidence for branch release-0.3",
+		},
+		"should require fresh branch evidence": {
+			mutate:   func(in *Input) { in.Repositories[1].Evidence.Known = false },
+			relation: "unknown", guidance: "fresh branch and tag inventory evidence",
+		},
+		"should reject a stale previous pin": {
+			mutate:   func(in *Input) { in.Repositories[0].PreviousPins.Evidence.Known = false },
+			relation: "unknown", guidance: "previous ACS pin evidence for FACT_VERSION 0.3.79",
+		},
+		"should reject an errored previous pin": {
+			mutate:   func(in *Input) { in.Repositories[0].PreviousPins.Evidence.Error = "Previous release unavailable" },
+			relation: "unknown", guidance: "previous ACS pin evidence for FACT_VERSION 0.3.79",
+		},
+		"should use semantic ordering with a prefixed pin and plain tag": {
+			pin: "v0.3.9", tag: "0.3.10", relation: "newer", guidance: "newer than the previous ACS pin FACT_VERSION 0.3.9",
+			mutate: func(in *Input) {
+				in.Repositories[1].Tags = append(in.Repositories[1].Tags, freshTag("v0.3.9", "previous", Yes))
+			},
+		},
+		"should recognize a newer prefixed tag and plain pin": {
+			pin: "0.3.78", tag: "v0.3.79", relation: "newer", guidance: "Select it if it contains the changes you want",
+		},
+		"should guide another release when the matching tag is behind the tip": {
+			tag: "v0.3.79", head: "after-tag", relation: "equal", guidance: "then cut and select a new tag", ahead: true,
+		},
+		"should count only open PRs targeting the configured component branch": {
+			tag: "v0.3.79", relation: "equal", guidance: "then cut and select a new tag", openPR: true,
+			mutate: func(in *Input) {
+				fact := &in.Repositories[1]
+				fact.PRs = []PR{
+					{Target: Target{Repo: fact.Source.Repo, PR: 1}, Base: fact.Source.Branch, State: "open", Evidence: freshEvidence()},
+					{Target: Target{Repo: fact.Source.Repo, PR: 2}, Base: "master", State: "open"},
+					{Target: Target{Repo: "stackrox/other", PR: 3}, Base: fact.Source.Branch, State: "open"},
+					{Target: Target{Repo: fact.Source.Repo, PR: 4}, Base: fact.Source.Branch, State: "closed"},
+				}
+			},
+		},
+		"should recognize the previous version at the current branch tip": {
+			pin: "v0.3.79", tag: "0.3.79", relation: "equal", guidance: "may need no new release for this patch",
+		},
+		"should ask for investigation when the newest tag is older than the pin": {
+			pin: "0.3.80", tag: "v0.3.79", relation: "older", guidance: "Investigate the previous pin and tag history",
+		},
+		"should ask for investigation when the pin has no matching tag in the stream": {
+			pin: "0.2.80", tag: "v0.3.79", relation: "untagged-pin", guidance: "Investigate the previous pin and tag history",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			in := readyInput()
+			acs, fact := &in.Repositories[0], &in.Repositories[1]
+			acs.PreviousPins = Pins{
+				Versions: map[string]string{"fact": "0.3.79", "collector": "0.4.12"},
+				Paths:    map[string]string{"fact": "FACT_VERSION"}, Evidence: freshEvidence(),
+			}
+			acs.PreviousPublished = Yes
+			if tt.pin != "" {
+				acs.PreviousPins.Versions["fact"] = tt.pin
+			}
+			fact.Tags = nil
+			if tt.tag != "" {
+				fact.Tags = []Tag{freshTag(tt.tag, fact.Head, Yes)}
+				in.Choices.Tags["fact"] = tt.tag
+			}
+			if tt.head != "" {
+				fact.Head = tt.head
+			}
+			if tt.mutate != nil {
+				tt.mutate(&in)
+			}
+			a := Assess(in)
+			if len(a.ComponentBaseline) != 2 || a.ComponentBaseline[1].Component != "collector" {
+				t.Fatalf("expected Fact and Collector only for ACS 5.0, got %+v", a.ComponentBaseline)
+			}
+			record := a.ComponentBaseline[0]
+			if record.Component != "fact" || record.PinFile != "FACT_VERSION" || record.Relation != tt.relation ||
+				record.PinnedVersion != strings.TrimPrefix(acs.PreviousPins.Versions["fact"], "v") ||
+				record.NewestTag != tt.tag || record.BranchAhead != tt.ahead || record.OpenPRs > 1 || (record.OpenPRs == 1) != tt.openPR {
+				t.Fatalf("unexpected Fact comparison: %+v", record)
+			}
+			if tt.tag != "" && (record.NewestSHA != "fact-head" || !strings.Contains(record.Reason, tt.tag)) {
+				t.Fatalf("missing tag identity in %+v", record)
+			}
+			if !strings.HasSuffix(record.Reason, ".") || len(record.Evidence) < 2 || record.Evidence[0] != acs.PreviousPins.Evidence {
+				t.Fatalf("missing reason or evidence: %+v", record)
+			}
+			guidance := strings.Join(a.ComponentReleaseRecommendations, " ")
+			if !strings.Contains(guidance, tt.guidance) {
+				t.Fatalf("guidance does not contain %q: %s", tt.guidance, guidance)
+			}
+			if (tt.relation == "older" || tt.relation == "untagged-pin") && strings.Contains(guidance, "not been cut") {
+				t.Fatalf("investigative guidance implies tags have not been cut: %s", guidance)
+			}
+			prGuidance := strings.Join(a.ComponentPRRecommendations, " ")
+			if strings.Contains(prGuidance, "PR preparation is the current step") != tt.allNoTag {
+				t.Fatalf("unexpected PR preparation guidance: %s", prGuidance)
+			}
+			acsGuidance := strings.Join(a.ACSRecommendations, " ")
+			allAtTip := tt.relation == "equal" && !tt.ahead && !tt.openPR
+			if strings.Contains(acsGuidance, "new patch may be unnecessary") == allAtTip {
+				t.Fatalf("unexpected previous patch advice: %s", acsGuidance)
+			}
+			acs.PreviousPins = Pins{}
+			withoutBaseline := Assess(in)
+			if a.Ready != withoutBaseline.Ready || !reflect.DeepEqual(a.Conditions, withoutBaseline.Conditions) {
+				t.Fatalf("baseline changed readiness or conditions: ready=%t vs %t", a.Ready, withoutBaseline.Ready)
+			}
+		})
+	}
+}
+
+func TestAssessScannerBaseline(t *testing.T) {
+	for name, pin := range map[string]string{
+		"should assess Scanner for ACS 4.11":                         "4.11.2",
+		"should keep Fact and Collector known without a Scanner pin": "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			in := readyInput()
+			in.Config.Version, in.Config.Branch = "4.11.3", "release-4.11"
+			scanner := Source{Name: "scanner", Repo: "stackrox/scanner", Branch: "release-4.11", Stream: "4.11"}
+			in.Config.Components = append(in.Config.Components, scanner)
+			acs := &in.Repositories[0]
+			acs.Source = in.Config.ACS()
+			acs.PreviousPins = Pins{Versions: map[string]string{"fact": "0.3.78", "collector": "0.4.12"}, Evidence: freshEvidence()}
+			if pin != "" {
+				acs.PreviousPins.Versions["scanner"] = pin
+			} else {
+				acs.PreviousPins.Evidence.Known = false
+				acs.PreviousPins.Evidence.Error = "SCANNER_VERSION: file not found"
+				acs.PreviousPins.Failures = map[string]string{"scanner": "file not found"}
+			}
+			in.Repositories = append(in.Repositories, Repository{Source: scanner, Head: "scanner-head", Evidence: freshEvidence(), Tags: []Tag{freshTag("4.11.3", "scanner-head", Yes)}})
+			a := Assess(in)
+			if len(a.ComponentBaseline) != 3 || a.ComponentBaseline[0].Relation != "newer" || a.ComponentBaseline[1].Relation != "equal" {
+				t.Fatalf("unexpected ACS 4.11 comparison: %+v", a.ComponentBaseline)
+			}
+			want := "newer"
+			if pin == "" {
+				want = "unknown"
+			}
+			record := a.ComponentBaseline[2]
+			if record.Component != "scanner" || record.Relation != want || record.PinnedVersion != pin || record.NewestTag != "4.11.3" || !strings.Contains(record.Reason, "SCANNER_VERSION") {
+				t.Fatalf("unexpected Scanner comparison: %+v", record)
+			}
+			in.Repositories[0].PreviousPins = Pins{}
+			withoutBaseline := Assess(in)
+			if a.Ready != withoutBaseline.Ready || !reflect.DeepEqual(a.Conditions, withoutBaseline.Conditions) {
+				t.Fatalf("Scanner baseline changed readiness or conditions: ready=%t vs %t", a.Ready, withoutBaseline.Ready)
+			}
 		})
 	}
 }

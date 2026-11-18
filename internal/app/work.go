@@ -88,7 +88,8 @@ func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) re
 			}
 		}
 	}
-	if latest.TagsPending || !request.Reads(ReadTags) || (request.Scope != ReadAll && request.ConfirmedTag != "") {
+	readsTagInventory := request.Reads(ReadTags) && (request.Scope == ReadAll || request.ConfirmedTag == "")
+	if latest.TagsPending || !readsTagInventory {
 		tags := slices.Clone(old.Tags)
 		if latest.Head != old.Head {
 			for i := range tags {
@@ -104,6 +105,9 @@ func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) re
 			}
 		}
 		latest.Tags = tags
+	}
+	if !readsTagInventory && latest.Source.Name != "acs" {
+		latest.TagsPending = latest.TagsPending || old.TagsPending || old.Head != latest.Head
 	}
 	if !request.Reads(ReadChecks) {
 		for i := range latest.PRs {
