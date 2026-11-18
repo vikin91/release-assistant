@@ -64,3 +64,41 @@ func planTab(target release.Target, acsRepo string) string {
 		return "component-releases"
 	}
 }
+
+// BuildSummary describes the verified build evidence for one target.
+func (p planModel) BuildSummary() string {
+	result, running := p.Plan.BuildStatus()
+	switch {
+	case result == release.No:
+		return "Build failed"
+	case running:
+		return "Build running"
+	case result == release.Yes:
+		return "Build passed"
+	default:
+		return "Unverified"
+	}
+}
+
+// KonfluxLabel surfaces the most urgent observation across monitored targets.
+func (p pageModel) KonfluxLabel() string {
+	if len(p.KonfluxStatus) > 0 {
+		return "Needs attention"
+	}
+	if len(p.Plans) == 0 {
+		return "Awaiting evidence"
+	}
+	label := "Builds passed"
+	for _, item := range p.Plans {
+		result, running := item.Plan.BuildStatus()
+		switch {
+		case result == release.No:
+			return "Build failed"
+		case running:
+			label = "Build running"
+		case result != release.Yes && label != "Build running":
+			label = "Unverified"
+		}
+	}
+	return label
+}

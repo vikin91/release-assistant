@@ -1,6 +1,10 @@
 {{define "konflux-status"}}
-<section id="konflux-status" class="notice warning" aria-label="Konflux status" aria-live="polite"{{if not .}} hidden{{end}}>
-  {{range .}}
+<details data-fold-key="konflux-menu" name="header-menu" class="header-menu"><summary>Konflux · {{.KonfluxLabel}}</summary>
+<section id="konflux-status" class="menu-content" aria-label="Konflux status">
+  {{range .Plans}}
+  <p><a href="/?tab={{planTab .Plan.Target $.Snapshot.Config.ACS.Repo}}">{{.Plan.Target.String}}</a> · {{.BuildSummary}}</p>
+  {{else}}<p>No build observations yet.</p>{{end}}
+  {{range .KonfluxStatus}}
   <div data-live-key="konflux-status:{{.Cluster}}">
     <strong>Konflux · {{if .Cluster}}<code>{{.Cluster}}</code>{{else}}Cluster unknown{{end}}</strong>
     {{if .Tab}}
@@ -16,7 +20,7 @@
     {{end}}
   </div>
   {{end}}
-</section>
+</section></details>
 {{end}}
 
 {{define "last-verified-builds"}}

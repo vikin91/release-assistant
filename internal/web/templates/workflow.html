@@ -1,6 +1,9 @@
 {{define "workflow-tab"}}
   <div class="workflow-heading"><p class="eyebrow">{{tabStep .Tab}}</p><h2>{{tabTitle .Tab}}</h2><p>{{tabHelp .Tab}}</p></div>
   {{with index .TabStatuses .Tab}}{{if .Label}}<p class="workflow-status"><strong>{{.Label}}</strong> · {{.Reason}}</p>{{end}}{{end}}
+  {{if eq .Tab "component-prs"}}{{template "pr-list" .}}{{end}}
+  {{if eq .Tab "component-releases"}}{{template "component-releases" .}}{{end}}
+  {{if eq .Tab "acs-prs"}}{{template "acs-pinning" .}}{{template "pr-list" .}}{{end}}
   {{if and (ne .Tab "acs-rcs") (or (ne .Tab "component-releases") .Guidance)}}
   <section id="{{.Tab}}-next-steps-panel" class="panel" aria-label="Next actions">
     <details id="{{.Tab}}-next-steps" open><summary class="section-summary">Recommended next steps</summary>
@@ -16,8 +19,5 @@
     </details>
   </section>
   {{end}}
-  {{if eq .Tab "component-prs"}}{{template "pr-list" .}}{{end}}
-  {{if eq .Tab "component-releases"}}{{template "component-releases" .}}{{end}}
-  {{if eq .Tab "acs-prs"}}{{template "acs-pinning" .}}{{template "pr-list" .}}{{end}}
   {{if eq .Tab "acs-rcs"}}{{template "acs-rcs" .}}{{else}}{{template "start-failures" .}}{{template "retries" .}}{{end}}
 {{end}}

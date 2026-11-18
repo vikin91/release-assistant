@@ -50,7 +50,7 @@ func New(application Application) (http.Handler, error) {
 	}
 	page, err := template.New("index.html").Funcs(template.FuncMap{
 		"pinVersion": pinVersion, "pinDiffers": pinDiffers,
-		"tabPage": tabPage, "tabTitle": tabTitle, "tabHelp": tabHelp, "tabStep": tabStep,
+		"planTab": planTab, "tabPage": tabPage, "tabTitle": tabTitle, "tabHelp": tabHelp, "tabStep": tabStep,
 		"truth": truthLabel, "when": formatTime, "url": safeURL,
 		"activity": activityText, "commentURL": commentURL,
 		"slice": func(values ...string) []string { return values },
@@ -148,6 +148,9 @@ func (s *server) get(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{Name: csrfName(r.Host), Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 3600})
 	page := makePage(s.app.Snapshot(), token, "")
 	page.Tab = validTab(r.URL.Query().Get("tab"))
+	if !page.Configured && page.Tab != "activity" {
+		page.Tab = "settings"
+	}
 	if err := s.template.Execute(w, page); err != nil {
 		http.Error(w, "page rendering failed", http.StatusInternalServerError)
 	}
@@ -225,6 +228,7 @@ func (s *server) renderError(w http.ResponseWriter, r *http.Request, cause error
 		page.ConfigForm = r.PostForm
 		setComponentBranches(page.ConfigForm, page.Snapshot.Config)
 		page.ConfigDraft = true
+		page.Tab = "settings"
 		page.ACS4 = strings.HasPrefix(r.PostForm.Get("version"), "4.")
 	}
 	_ = s.template.Execute(w, page)

@@ -38,15 +38,15 @@ document.addEventListener("DOMContentLoaded", () => {
   };
   document.addEventListener("keydown", (event) => {
     const link = event.target.closest("[data-workflow-tab]");
-    if (!link || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    if (!link || !["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     const links = tabLinks();
     const index = links.indexOf(link);
-    const next = event.key === "Home" ? 0 : event.key === "End" ? links.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + links.length) % links.length;
+    const next = event.key === "Home" ? 0 : event.key === "End" ? links.length - 1 : (index + (["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : -1) + links.length) % links.length;
     event.preventDefault();
     activateTab(links[next].dataset.workflowTab, "pushState");
     links[next].focus();
   });
-  window.addEventListener("popstate", () => activateTab(new URLSearchParams(window.location.search).get("tab") || "component-prs"));
+  window.addEventListener("popstate", () => activateTab(new URLSearchParams(window.location.search).get("tab") || (document.body.dataset.configured === "false" ? "settings" : "component-prs")));
   activateTab(activeTab);
 
   const configDraft = document.querySelector("[data-config-draft]") !== null;

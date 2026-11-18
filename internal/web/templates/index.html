@@ -9,14 +9,54 @@
 </head>
 <body data-configured="{{.Configured}}" data-active-tab="{{.Tab}}" data-session="{{.CSRF}}:{{.Snapshot.Generation}}" data-loading="{{and .Configured .Snapshot.Loading}}">
 <header class="topbar">
-  <div><p class="eyebrow">Release preparation</p><h1>{{.Title}}</h1></div>
-  <span class="pill {{if .Snapshot.Assessment.Ready}}good{{else}}unknown{{end}}">{{if .Snapshot.Assessment.Ready}}Release prerequisites met{{else}}Preparing release{{end}}</span>
+  <div class="release-identity"><h1>{{if .Configured}}ACS {{.Snapshot.Config.Version}}{{else}}{{.Title}}{{end}}</h1>{{if .Configured}}<code>{{.Snapshot.Config.Branch}}</code>{{end}}</div>
+  {{if .Configured}}
+  <details data-fold-key="release-context" name="header-menu" class="header-menu"><summary>{{if .Snapshot.Assessment.Ready}}Release prerequisites met{{else}}Preparing release{{end}}</summary><div class="menu-content">
+  <div class="release-pills" aria-label="Selected release versions">
+    {{range .Snapshot.Config.Components}}<span class="pill selected">{{title .Name}}: {{with index $.Snapshot.Choices.Tags .Name}}{{.}}{{else}}not selected{{end}}</span>{{end}}
+    {{$branchPending := and .Snapshot.Assessment.Pins.PROpen (eq (truth .Snapshot.Assessment.Pins.BranchStatus) "no")}}
+    <a class="pill {{if $branchPending}}unknown{{else}}{{truth .Snapshot.Assessment.Pins.BranchStatus}}{{end}}" href="/?tab=acs-prs#pinning-details" data-open-section title="{{if $branchPending}}Release-branch pins will be verified after the pinning PR merges.{{else}}{{.Snapshot.Assessment.Pins.BranchReason}}{{end}}">ACS pins: {{if $branchPending}}pending PR merge{{else}}{{if eq (truth .Snapshot.Assessment.Pins.BranchStatus) "yes"}}match selected tags{{else}}{{if eq (truth .Snapshot.Assessment.Pins.BranchStatus) "no"}}versions differ{{else}}unable to check{{end}}{{end}}{{end}}</a>
+    {{if .Snapshot.Assessment.Pins.PRNumber}}<a class="pill {{truth .Snapshot.Assessment.Pins.PRStatus}}" href="{{url .Snapshot.Assessment.Pins.PRURL}}" target="_blank" rel="noreferrer" title="{{.Snapshot.Assessment.Pins.PRReason}}">Pin PR #{{.Snapshot.Assessment.Pins.PRNumber}}: {{.PinPRState}}</a>{{else}}<span class="pill muted">Pin PR: not supplied</span>{{end}}
+  </div>
+  <p class="pin-legend">Pin colours: <span class="yes">green = selected versions are on the ACS branch</span>; <span class="unknown">yellow = waiting or unable to check</span>; <span class="no">red = a verified mismatch or PR problem</span>.</p>
+  </div></details>
+  {{end}}
+  {{template "konflux-status" .}}
 </header>
-<main id="live-dashboard">
+<div id="live-dashboard" class="workspace">
+<aside class="sidebar">
+  <nav class="workflow-tabs" role="tablist" aria-orientation="vertical" aria-label="Release work">
+    {{range $tab := (slice "component-prs" "component-releases" "acs-prs" "acs-rcs" "activity" "settings")}}
+    {{if or $.Configured (eq $tab "settings") (eq $tab "activity")}}
+    {{$status := index $.TabStatuses $tab}}
+    <a id="tab-{{$tab}}" role="tab" href="/?tab={{$tab}}" data-workflow-tab="{{$tab}}" aria-controls="panel-{{$tab}}" aria-selected="{{if eq $.Tab $tab}}true{{else}}false{{end}}" tabindex="{{if eq $.Tab $tab}}0{{else}}-1{{end}}"{{if $status.Label}} aria-label="{{tabTitle $tab}} · {{$status.Label}} · {{$status.Reason}}" title="{{$status.Label}} · {{$status.Reason}}"{{end}}>{{tabTitle $tab}} <span class="tab-status{{with $status.Class}} {{.}}{{end}}" aria-hidden="true">{{$status.Icon}}</span></a>
+    {{end}}{{end}}
+  </nav>
   <p id="dashboard-refresh-status" class="muted" role="status" data-live-preserve>Waiting for release updates.</p>
+</aside>
+<main>
   <div id="form-error" class="notice error" role="alert" data-live-preserve{{if not .Error}} hidden{{end}}>{{.Error}}</div>
-  {{template "konflux-status" .KonfluxStatus}}
   {{if and .Configured .Snapshot.Loading}}<p id="release-loading" class="notice" role="status">Loading release data… Results appear as each repository finishes.</p>{{end}}
+  {{if .Configured}}
+  {{range $tab := (slice "component-prs" "component-releases" "acs-prs" "acs-rcs")}}
+  <section id="panel-{{$tab}}" class="workflow-panel" role="tabpanel" aria-labelledby="tab-{{$tab}}" data-workflow-panel="{{$tab}}" tabindex="0"{{if ne $.Tab $tab}} hidden{{end}}>
+    {{template "workflow-tab" (tabPage $ $tab)}}
+  </section>
+  {{end}}
+  {{end}}
+  <section id="panel-activity" class="workflow-panel" role="tabpanel" aria-labelledby="tab-activity" data-workflow-panel="activity" tabindex="0"{{if ne .Tab "activity"}} hidden{{end}}>
+  <section class="panel" id="activity-console" data-live-preserve>
+    <details id="activity-details" open>
+      <summary class="section-summary">Activity and errors</summary>
+      <p class="muted">Monitoring continues when you switch tabs. The latest 200 events refresh every two seconds.</p>
+      <pre id="activity-log" role="log" aria-label="Activity and errors" aria-live="off" tabindex="0">{{activity .Snapshot}}</pre>
+      <button type="button" id="activity-jump-latest" hidden>Jump to latest</button>
+      <p id="activity-refresh-error" class="error-text" role="status" hidden></p>
+    </details>
+  </section>
+  </section>
+  <section id="panel-settings" class="workflow-panel" role="tabpanel" aria-labelledby="tab-settings" data-workflow-panel="settings" tabindex="0"{{if ne .Tab "settings"}} hidden{{end}}>
+  <h2>Settings</h2>
   <section id="configuration-panel" class="panel" aria-labelledby="setup-heading" data-live-preserve>
     <details id="release-configuration" open>
       <summary id="setup-heading">{{if .Configured}}Release configuration{{else}}Configure release{{end}}</summary>
@@ -47,39 +87,13 @@
 
   {{if .Configured}}
   {{if not .Snapshot.WritesEnabled}}<p class="notice read-only-notice" role="status">Read-only mode. Restart with <code>-enable-writes</code> to allow retry comments.</p>{{end}}
-  <div class="release-pills" aria-label="Selected release versions">
-    {{range .Snapshot.Config.Components}}<span class="pill selected">{{title .Name}}: {{with index $.Snapshot.Choices.Tags .Name}}{{.}}{{else}}not selected{{end}}</span>{{end}}
-    {{$branchPending := and .Snapshot.Assessment.Pins.PROpen (eq (truth .Snapshot.Assessment.Pins.BranchStatus) "no")}}
-    <a class="pill {{if $branchPending}}unknown{{else}}{{truth .Snapshot.Assessment.Pins.BranchStatus}}{{end}}" href="/?tab=acs-prs#pinning-details" data-open-section title="{{if $branchPending}}Release-branch pins will be verified after the pinning PR merges.{{else}}{{.Snapshot.Assessment.Pins.BranchReason}}{{end}}">ACS pins: {{if $branchPending}}pending PR merge{{else}}{{if eq (truth .Snapshot.Assessment.Pins.BranchStatus) "yes"}}match selected tags{{else}}{{if eq (truth .Snapshot.Assessment.Pins.BranchStatus) "no"}}versions differ{{else}}unable to check{{end}}{{end}}{{end}}</a>
-    {{if .Snapshot.Assessment.Pins.PRNumber}}<a class="pill {{truth .Snapshot.Assessment.Pins.PRStatus}}" href="{{url .Snapshot.Assessment.Pins.PRURL}}" target="_blank" rel="noreferrer" title="{{.Snapshot.Assessment.Pins.PRReason}}">Pin PR #{{.Snapshot.Assessment.Pins.PRNumber}}: {{.PinPRState}}</a>{{else}}<span class="pill muted">Pin PR: not supplied</span>{{end}}
-  </div>
-  <p class="pin-legend">Pin colours: <span class="yes">green = selected versions are on the ACS branch</span>; <span class="unknown">yellow = waiting or unable to check</span>; <span class="no">red = a verified mismatch or PR problem</span>.</p>
   <details id="retry-settings" class="retry-settings" open><summary>Retry comment settings
     <span class="pill summary-detail">{{if not .Snapshot.WritesEnabled}}Read-only{{else if .Snapshot.Interactive}}Confirm each comment{{else}}Automatic for permitted targets{{end}}</span>
   </summary><form method="post" action="/action"><input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Snapshot.Generation}}"><input type="hidden" name="kind" value="interactive"><input type="hidden" name="enabled" value="false"><label class="check{{if not .Snapshot.WritesEnabled}} disabled-control{{end}}"><input type="checkbox" name="enabled" value="true" {{if .Snapshot.Interactive}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}> Confirm each comment</label><button type="submit"{{if not .Snapshot.WritesEnabled}} disabled{{end}}>Save mode</button></form><p class="muted">This setting applies to all tabs. Automatic retries require permission for each PR or tag.</p></details>
-  <nav class="workflow-tabs" role="tablist" aria-label="Release work">
-    {{range $tab := (slice "component-prs" "component-releases" "acs-prs" "acs-rcs")}}
-    {{$status := index $.TabStatuses $tab}}
-    <a id="tab-{{$tab}}" role="tab" href="/?tab={{$tab}}" data-workflow-tab="{{$tab}}" aria-controls="panel-{{$tab}}" aria-selected="{{if eq $.Tab $tab}}true{{else}}false{{end}}" tabindex="{{if eq $.Tab $tab}}0{{else}}-1{{end}}"{{if $status.Label}} aria-label="{{tabTitle $tab}} · {{$status.Label}} · {{$status.Reason}}" title="{{$status.Label}} · {{$status.Reason}}"{{end}}>{{tabTitle $tab}} <span class="tab-status{{with $status.Class}} {{.}}{{end}}" aria-hidden="true">{{$status.Icon}}</span></a>
-    {{end}}
-  </nav>
-  <p class="workflow-help muted">Each tab stays available throughout the release. Monitoring continues when you switch tabs.</p>
-  {{range $tab := (slice "component-prs" "component-releases" "acs-prs" "acs-rcs")}}
-  <section id="panel-{{$tab}}" class="workflow-panel" role="tabpanel" aria-labelledby="tab-{{$tab}}" data-workflow-panel="{{$tab}}" tabindex="0"{{if ne $.Tab $tab}} hidden{{end}}>
-    {{template "workflow-tab" (tabPage $ $tab)}}
-  </section>
   {{end}}
-  {{end}}
-  <section class="panel" id="activity-console" data-live-preserve>
-    <details id="activity-details" open>
-      <summary class="section-summary">Activity and errors</summary>
-      <p class="muted">Latest 200 events from this process. Updates every two seconds without reloading your forms.</p>
-      <pre id="activity-log" role="log" aria-label="Activity and errors" aria-live="off" tabindex="0">{{activity .Snapshot}}</pre>
-      <button type="button" id="activity-jump-latest" hidden>Jump to latest</button>
-      <p id="activity-refresh-error" class="error-text" role="status" hidden></p>
-    </details>
   </section>
 </main>
+</div>
 <script src="/static/app.js" defer></script>
 </body>
 </html>
