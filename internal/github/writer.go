@@ -46,7 +46,7 @@ func (w *Writer) Write(ctx context.Context, proposal release.Proposal) (dispatch
 	if err != nil {
 		return dispatch.Delivery{Status: "uncertain"}, fmt.Errorf("GitHub comment delivery uncertain")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if resp.StatusCode >= 500 {
 			return dispatch.Delivery{Status: "uncertain"}, fmt.Errorf("GitHub comment delivery uncertain (HTTP %d)", resp.StatusCode)

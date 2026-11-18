@@ -64,7 +64,7 @@ func (c *registryClient) present(ctx context.Context, reference string) (release
 	}
 	if response.StatusCode == http.StatusUnauthorized {
 		challenge := response.Header.Get("WWW-Authenticate")
-		response.Body.Close()
+		_ = response.Body.Close()
 		token, err := c.registryToken(ctx, challenge, repository)
 		if err != nil {
 			return "", err
@@ -74,7 +74,7 @@ func (c *registryClient) present(ctx context.Context, reference string) (release
 			return "", err
 		}
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	data, err := readBody(response.Body)
 	if err != nil {
@@ -220,7 +220,7 @@ func (c *registryClient) registryToken(ctx context.Context, challenge, repositor
 	if err != nil {
 		return "", err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("quay token endpoint returned HTTP %d; image availability is unknown", response.StatusCode)
 	}

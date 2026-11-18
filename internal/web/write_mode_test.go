@@ -53,7 +53,7 @@ func TestWriteModeControls(t *testing.T) {
 
 			b := newBrowser(t, application)
 			w := httptest.NewRecorder()
-			r := httptest.NewRequest("GET", "http://127.0.0.1:8080/", nil)
+			r := httptest.NewRequestWithContext(t.Context(), "GET", "http://127.0.0.1:8080/", nil)
 			r.Host = "127.0.0.1:8080"
 			b.handler.ServeHTTP(w, r)
 			if w.Code != 200 {

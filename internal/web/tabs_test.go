@@ -37,7 +37,7 @@ func TestActivityTabsWorkWithoutComponentTags(t *testing.T) {
 	browser := newBrowser(t, application)
 	for _, tab := range []string{"component-prs", "component-releases", "acs-prs", "acs-rcs"} {
 		response := httptest.NewRecorder()
-		browser.handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/?tab="+tab, nil))
+		browser.handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/?tab="+tab, nil))
 		body := response.Body.String()
 		if response.Code != http.StatusOK || !strings.Contains(body, `data-active-tab="`+tab+`"`) {
 			t.Fatalf("tab %s is inaccessible without tags: %d", tab, response.Code)

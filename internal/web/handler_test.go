@@ -33,6 +33,7 @@ func (f *fakeApplication) Apply(_ context.Context, action app.Action) error {
 }
 
 type browser struct {
+	t            *testing.T
 	handler      http.Handler
 	csrf, cookie string
 }
@@ -60,7 +61,7 @@ func newBrowser(t *testing.T, application *fakeApplication) browser {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/", nil)
 	r.Host = "127.0.0.1:8080"
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
@@ -78,12 +79,12 @@ func newBrowser(t *testing.T, application *fakeApplication) browser {
 	}
 	part := strings.SplitN(w.Body.String(), `name="csrf" value="`, 2)[1]
 	csrf := strings.SplitN(part, "\"", 2)[0]
-	return browser{handler: handler, csrf: csrf, cookie: cookies[0].Name + "=" + cookies[0].Value}
+	return browser{t: t, handler: handler, csrf: csrf, cookie: cookies[0].Name + "=" + cookies[0].Value}
 }
 
 func (b browser) post(values url.Values) *httptest.ResponseRecorder {
 	values.Set("csrf", b.csrf)
-	r := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8080/action", strings.NewReader(values.Encode()))
+	r := httptest.NewRequestWithContext(b.t.Context(), http.MethodPost, "http://127.0.0.1:8080/action", strings.NewReader(values.Encode()))
 	r.Host = "127.0.0.1:8080"
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r.Header.Set("Origin", "http://127.0.0.1:8080")
@@ -97,7 +98,7 @@ func TestGETDoesNotMutateAndRendersIndependentPRControls(t *testing.T) {
 	target := release.Target{Repo: "acme/rox", PR: 12}
 	appFake := &fakeApplication{snapshot: app.Snapshot{Config: validACS5Config(), Generation: 8, Repositories: []release.Repository{{Source: release.Source{Name: "acs", Repo: "acme/rox", Branch: "release"}, PRs: []release.PR{{Target: target, SHA: "head-1", Title: "A PR", State: "open", Base: "release", Evidence: release.Evidence{Known: true, At: time.Now()}}}}}}}
 	b := newBrowser(t, appFake)
-	r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/?kind=interactive", nil)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/?kind=interactive", nil)
 	r.Host = "127.0.0.1:8080"
 	w := httptest.NewRecorder()
 	b.handler.ServeHTTP(w, r)
@@ -175,7 +176,7 @@ func TestCrossSiteHostOriginAndCSRFRequestsAreRejected(t *testing.T) {
 	b := newBrowser(t, appFake)
 	request := func(host, origin, csrf string) *httptest.ResponseRecorder {
 		form := url.Values{"kind": {"interactive"}, "enabled": {"true"}, "generation": {"0"}, "csrf": {csrf}}
-		r := httptest.NewRequest(http.MethodPost, "http://"+host+"/action", strings.NewReader(form.Encode()))
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+host+"/action", strings.NewReader(form.Encode()))
 		r.Host = host
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		r.Header.Set("Origin", origin)
@@ -203,7 +204,7 @@ func TestOpaqueOriginRequiresSameOriginFetchMetadataAndCSRF(t *testing.T) {
 	b := newBrowser(t, appFake)
 	request := func(origin, site string) *httptest.ResponseRecorder {
 		form := url.Values{"kind": {"interactive"}, "enabled": {"true"}, "generation": {"0"}, "csrf": {b.csrf}}
-		r := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8080/action", strings.NewReader(form.Encode()))
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://127.0.0.1:8080/action", strings.NewReader(form.Encode()))
 		r.Host = "127.0.0.1:8080"
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		r.Header.Set("Cookie", b.cookie)
@@ -248,7 +249,7 @@ func TestPageEscapesExternalTextAndShowsUnknownEvidenceAndExactOffer(t *testing.
 	}}
 	b := newBrowser(t, appFake)
 	body := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/", nil)
 	r.Host = "127.0.0.1:8080"
 	b.handler.ServeHTTP(body, r)
 	text := body.Body.String()
@@ -281,7 +282,7 @@ func TestIgnoredPRIsHiddenAndConfirmedTagHasIndependentRWControl(t *testing.T) {
 		Authority: []dispatch.View{{Target: prTarget, SHA: "ignored-sha", Ignored: true}, {Target: tagTarget, SHA: "tag-sha", Granted: true}},
 	}}
 	b := newBrowser(t, appFake)
-	r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/", nil)
 	r.Host = "127.0.0.1:8080"
 	w := httptest.NewRecorder()
 	b.handler.ServeHTTP(w, r)
@@ -359,7 +360,7 @@ func TestRecommendedTagConfirmationIsSeparateFromPRSelection(t *testing.T) {
 	}}
 	b := newBrowser(t, application)
 	w := httptest.NewRecorder()
-	b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+	b.handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/", nil))
 	body := w.Body.String()
 	tags := between(t, body, `<details id="tag-selection" open>`, `<section class="panel" id="component-images-panel">`)
 	prs := between(t, body, `<section class="panel" aria-labelledby="pr-selection-heading"`, `</section>`)
@@ -415,7 +416,7 @@ func TestTagSelectionDoesNotAutoFoldAfterConfirmationAndWithholdsUnknownTags(t *
 					Tags: []release.Tag{{Name: "3.25.9", SHA: "tag-sha", Belongs: release.Yes, Evidence: evidence}}}},
 			}})
 			w := httptest.NewRecorder()
-			b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+			b.handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/", nil))
 			body := w.Body.String()
 			if !strings.Contains(body, `<details id="tag-selection" open>`) {
 				t.Fatal("tag confirmation must not choose a new fold state")
@@ -439,7 +440,7 @@ func TestComponentPRSelectionShowsAuthorsAndSummarizesUnverifiedChecks(t *testin
 		}}},
 	}})
 	w := httptest.NewRecorder()
-	b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+	b.handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/", nil))
 	body := w.Body.String()
 	for _, want := range []string{"@octocat", "Author unknown", "&lt;img src=x onerror=alert(1)&gt;", "PR identity unknown or stale", "no-release-assistant opt-out"} {
 		if !strings.Contains(body, want) {
@@ -482,7 +483,7 @@ func TestPRViewHidesMergedAndClosedPRsWithoutDiscardingCoverageEvidence(t *testi
 			}}
 			b := newBrowser(t, application)
 			w := httptest.NewRecorder()
-			b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+			b.handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/", nil))
 			body := w.Body.String()
 			if !strings.Contains(body, "Open change") || strings.Count(body, `<article class="pr-card"`) != 1 {
 				t.Fatal("PR selection must show exactly the open, unmerged PR")
@@ -504,7 +505,7 @@ func TestPRViewHidesMergedAndClosedPRsWithoutDiscardingCoverageEvidence(t *testi
 			application.snapshot.Repositories[0].PRs[0].State = "merged"
 			application.snapshot.Repositories[0].PRs[0].Merged = true
 			afterMerge := httptest.NewRecorder()
-			b.handler.ServeHTTP(afterMerge, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+			b.handler.ServeHTTP(afterMerge, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/", nil))
 			if strings.Contains(afterMerge.Body.String(), `<article class="pr-card"`) ||
 				!strings.Contains(afterMerge.Body.String(), "No open PR observations.") {
 				t.Fatal("an observed merge must remove the open PR row on refresh")
@@ -517,7 +518,7 @@ func TestFormBodyLimit(t *testing.T) {
 	appFake := &fakeApplication{}
 	b := newBrowser(t, appFake)
 	large := "csrf=" + url.QueryEscape(b.csrf) + "&x=" + strings.Repeat("x", maxFormBytes+1)
-	r := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8080/action", strings.NewReader(large))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://127.0.0.1:8080/action", strings.NewReader(large))
 	r.Host = "127.0.0.1:8080"
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r.Header.Set("Origin", "http://127.0.0.1:8080")
@@ -533,7 +534,7 @@ func TestFormBodyLimit(t *testing.T) {
 func TestIncompleteInitialConfigKeepsSetupOpenAndVersionInTitle(t *testing.T) {
 	appFake := &fakeApplication{snapshot: app.Snapshot{Config: release.Config{Version: "5.0.1"}}}
 	b := newBrowser(t, appFake)
-	r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/", nil)
 	r.Host = "127.0.0.1:8080"
 	w := httptest.NewRecorder()
 	b.handler.ServeHTTP(w, r)
@@ -553,7 +554,7 @@ func TestParallelPortsUseDistinctCSRFCookies(t *testing.T) {
 	}
 	names := map[string]bool{}
 	for _, host := range []string{"127.0.0.1:8080", "127.0.0.1:8081"} {
-		r := httptest.NewRequest(http.MethodGet, "http://"+host+"/", nil)
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+host+"/", nil)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
 		cookies := w.Result().Cookies()
@@ -624,7 +625,7 @@ func TestConfigurationErrorsPreserveSubmittedInputs(t *testing.T) {
 func TestPinningPRFieldExplainsAndConstrainsNumberInput(t *testing.T) {
 	b := newBrowser(t, &fakeApplication{})
 	w := httptest.NewRecorder()
-	b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+	b.handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/", nil))
 	body := w.Body.String()
 	for _, want := range []string{"Pinning PR number (optional)", `pattern="[0-9]+"`, `placeholder="12345"`} {
 		if !strings.Contains(body, want) {
@@ -648,7 +649,7 @@ func TestVersionDefaultsPrefillStreamsBranchesAndScannerRepository(t *testing.T)
 			config := prefilledConfig(tc.version)
 			b := newBrowser(t, &fakeApplication{snapshot: app.Snapshot{Config: config}})
 			w := httptest.NewRecorder()
-			b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+			b.handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/", nil))
 			body := w.Body.String()
 			for component, stream := range tc.streams {
 				if got := inputValue(t, body, component+"_stream"); got != stream {
@@ -682,7 +683,7 @@ func TestBrowserVersionDoesNotReapplyCLIPrefills(t *testing.T) {
 	config.Version = "5.1.0" // A later browser edit must not re-run the prefill table.
 	b := newBrowser(t, &fakeApplication{snapshot: app.Snapshot{Config: config}})
 	w := httptest.NewRecorder()
-	b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+	b.handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/", nil))
 	body := w.Body.String()
 	if got := inputValue(t, body, "fact_stream"); got != "0.2" {
 		t.Errorf("fact stream = %q, want the CLI prefill 0.2", got)
@@ -706,7 +707,7 @@ func TestConfigureDerivesBranchesAndPreservesUnchangedCLIOverrides(t *testing.T)
 			application := &fakeApplication{snapshot: app.Snapshot{Config: config}}
 			b := newBrowser(t, application)
 			w := httptest.NewRecorder()
-			b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
+			b.handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/", nil))
 			if inputValue(t, w.Body.String(), "fact_stream") != "3.25" || inputValue(t, w.Body.String(), "fact_branch") != "test-release" {
 				t.Fatal("saved configuration was overwritten by defaults")
 			}
@@ -871,13 +872,13 @@ func TestActivityConsoleEscapesErrorsAndReadEndpointDoesNotMutate(t *testing.T) 
 	if !strings.Contains(body, `id="activity-console"`) || !strings.Contains(body, html.EscapeString(message)) || strings.Contains(body, "not-for-console") || strings.Contains(body, "<script>alert(1)</script>") {
 		t.Fatal("console omitted or failed to escape diagnostic text")
 	}
-	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/activity", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/activity", nil)
 	response := httptest.NewRecorder()
 	b.handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "text/plain; charset=utf-8" || response.Header().Get("Cache-Control") != "no-store" || !strings.Contains(response.Body.String(), message) || len(application.actions) != 0 {
 		t.Fatalf("activity read returned an unsafe response or mutated state: %d %s", response.Code, response.Body.String())
 	}
-	request = httptest.NewRequest(http.MethodGet, "http://evil.example/activity", nil)
+	request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://evil.example/activity", nil)
 	response = httptest.NewRecorder()
 	b.handler.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {

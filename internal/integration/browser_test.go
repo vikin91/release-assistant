@@ -262,7 +262,7 @@ func TestBrowserFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:18088")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:18088")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,9 @@ func TestBrowserFixture(t *testing.T) {
 		}
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		fmt.Fprintf(w, `<!doctype html><title>Fixture controls</title><h1>Fixture observations, step %d</h1><p>Fake comments sent: %d. No external services are called.</p><p>Steps: 0 open PR; 1 merged with newer tag; 2 images present; 3 pinning merged and actual pins updated; 4 ACS PR merged and later component PR.</p><a href="/">Open assistant</a><form method="post"><button name="action" value="advance">Advance fixture observations</button><button name="action" value="github-fail">Simulate GitHub failure</button><button name="action" value="github-recover">Restore GitHub</button><button name="action" value="pin-auth">Simulate pin PR authentication failure</button><button name="action" value="pin-file">Simulate missing pin version file</button><button name="action" value="pin-recover">Restore pin PR</button><button name="action" value="finish">Finish browser validation</button></form>`, f.step, f.writes)
+		if _, err := fmt.Fprintf(w, `<!doctype html><title>Fixture controls</title><h1>Fixture observations, step %d</h1><p>Fake comments sent: %d. No external services are called.</p><p>Steps: 0 open PR; 1 merged with newer tag; 2 images present; 3 pinning merged and actual pins updated; 4 ACS PR merged and later component PR.</p><a href="/">Open assistant</a><form method="post"><button name="action" value="advance">Advance fixture observations</button><button name="action" value="github-fail">Simulate GitHub failure</button><button name="action" value="github-recover">Restore GitHub</button><button name="action" value="pin-auth">Simulate pin PR authentication failure</button><button name="action" value="pin-file">Simulate missing pin version file</button><button name="action" value="pin-recover">Restore pin PR</button><button name="action" value="finish">Finish browser validation</button></form>`, f.step, f.writes); err != nil {
+			t.Errorf("write browser fixture controls: %v", err)
+		}
 	})
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {

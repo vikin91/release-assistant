@@ -10,26 +10,33 @@ import (
 	"release-assistant/internal/release"
 )
 
+func writeCheckFixture(t *testing.T, w http.ResponseWriter, body string) {
+	t.Helper()
+	if _, err := fmt.Fprint(w, body); err != nil {
+		t.Errorf("write check fixture: %v", err)
+	}
+}
+
 func TestReadRCChecksJoinsWorkflowTriggersAndKeepsLatestAttempts(t *testing.T) {
 	target := release.Target{Repo: "stackrox/stackrox", Tag: "5.0.1-rc.0"}
 	server := newFakeServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch strings.TrimPrefix(r.URL.Path, "/repos/"+target.Repo) {
 		case "/commits/refs/tags/5.0.1-rc.0":
-			fmt.Fprint(w, `{"sha":"candidate-sha"}`)
+			writeCheckFixture(t, w, `{"sha":"candidate-sha"}`)
 		case "/commits/candidate-sha/check-runs":
-			fmt.Fprint(w, `{"total_count":4,"check_runs":[
+			writeCheckFixture(t, w, `{"total_count":4,"check_runs":[
 				{"id":1,"name":"Upgrade","status":"completed","conclusion":"failure","app":{"slug":"github-actions"},"check_suite":{"id":101}},
 				{"id":2,"name":"Upgrade","status":"completed","conclusion":"success","app":{"slug":"github-actions"},"check_suite":{"id":102}},
 				{"id":3,"name":"Upgrade","status":"completed","conclusion":"cancelled","html_url":"https://github.com/stackrox/stackrox/actions/runs/303/job/3","app":{"slug":"github-actions"},"check_suite":{"id":103}},
 				{"id":4,"name":"Red Hat Konflux / acs-conforma-prod / main","status":"in_progress","app":{"slug":"red-hat-konflux"}}
 			]}`)
 		case "/commits/candidate-sha/statuses":
-			fmt.Fprint(w, `[{"context":"external CI","state":"failure"},{"context":"external CI","state":"pending"}]`)
+			writeCheckFixture(t, w, `[{"context":"external CI","state":"failure"},{"context":"external CI","state":"pending"}]`)
 		case "/actions/runs":
 			if r.URL.Query().Get("head_sha") != "candidate-sha" {
 				t.Errorf("workflow lookup was not scoped to the candidate SHA: %s", r.URL)
 			}
-			fmt.Fprint(w, `{"total_count":4,"workflow_runs":[
+			writeCheckFixture(t, w, `{"total_count":4,"workflow_runs":[
 				{"id":301,"check_suite_id":101,"workflow_id":200,"head_sha":"candidate-sha","event":"push","head_branch":"5.0.1-rc.0"},
 				{"id":302,"check_suite_id":102,"workflow_id":200,"head_sha":"candidate-sha","event":"push","head_branch":"5.0.1-rc.0"},
 				{"id":303,"name":"ACS upgrade","check_suite_id":103,"workflow_id":200,"head_sha":"candidate-sha","event":"push","head_branch":"release-5.0"},
@@ -64,11 +71,11 @@ func TestReadRCChecksPreservesPartialEvidenceOnActionsFailure(t *testing.T) {
 	server := newFakeServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.Contains(r.URL.Path, "/refs/tags/"):
-			fmt.Fprint(w, `{"sha":"candidate-sha"}`)
+			writeCheckFixture(t, w, `{"sha":"candidate-sha"}`)
 		case strings.HasSuffix(r.URL.Path, "/check-runs"):
-			fmt.Fprint(w, `{"total_count":1,"check_runs":[{"id":1,"name":"Upgrade","status":"completed","conclusion":"failure","app":{"slug":"github-actions"},"check_suite":{"id":101}}]}`)
+			writeCheckFixture(t, w, `{"total_count":1,"check_runs":[{"id":1,"name":"Upgrade","status":"completed","conclusion":"failure","app":{"slug":"github-actions"},"check_suite":{"id":101}}]}`)
 		case strings.HasSuffix(r.URL.Path, "/statuses"):
-			fmt.Fprint(w, "[]")
+			writeCheckFixture(t, w, "[]")
 		case strings.HasSuffix(r.URL.Path, "/actions/runs"):
 			w.WriteHeader(http.StatusForbidden)
 		default:
@@ -89,9 +96,9 @@ func TestPRCheckResultsStayCurrentWhenRequiredSettingsAreUnavailable(t *testing.
 	server := newFakeServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/check-runs"):
-			fmt.Fprint(w, `{"total_count":1,"check_runs":[{"id":1,"name":"GitHub Actions tests","status":"completed","conclusion":"failure","app":{"slug":"github-actions"}}]}`)
+			writeCheckFixture(t, w, `{"total_count":1,"check_runs":[{"id":1,"name":"GitHub Actions tests","status":"completed","conclusion":"failure","app":{"slug":"github-actions"}}]}`)
 		case strings.HasSuffix(r.URL.Path, "/statuses"):
-			fmt.Fprint(w, `[{"context":"external CI","state":"failure"}]`)
+			writeCheckFixture(t, w, `[{"context":"external CI","state":"failure"}]`)
 		case strings.HasSuffix(r.URL.Path, "/required_status_checks"):
 			w.WriteHeader(http.StatusForbidden)
 		default:

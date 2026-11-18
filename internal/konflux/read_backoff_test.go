@@ -56,9 +56,8 @@ func TestReadBackoffScopesFailuresAndProbes(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
 		_, err = io.ReadAll(resp.Body)
-		return err
+		return errors.Join(err, resp.Body.Close())
 	}
 	first := WithReadCycle(t.Context())
 	for range 2 {
