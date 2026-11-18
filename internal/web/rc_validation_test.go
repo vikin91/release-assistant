@@ -59,6 +59,11 @@ func TestRCValidationShowsExceptionsAndReusesExactTagRetest(t *testing.T) {
 				t.Fatal("the image summary should appear above validation when the images are available")
 			}
 			validation := between(t, panel, `id="rc-validation"`, "</section>")
+			table := between(t, validation, `<table class="rc-validation-checks"`, "</table>")
+			if strings.Count(table, `<tr data-live-key="rc-validation:`) != 5 ||
+				strings.Count(table, `<th scope="row">`) != 5 {
+				t.Fatal("each visible check should have one accessible table row")
+			}
 			for _, want := range []string{
 				"All checks on GitHub", "candidate-sha", "ACS upgrade", "Canceled", "Running",
 				"gke-qa-e2e-tests-konflux", "push · release-5.0", "acs-conforma-prod-like", "acs-conforma-prod /",

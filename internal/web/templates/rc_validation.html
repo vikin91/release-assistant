@@ -15,27 +15,32 @@
         {{else if not $.RC.ValidationRows}}<p class="muted">No failed, canceled, or running validation checks in the current results.</p>{{end}}
       {{end}}
       {{if .RC.ValidationRows}}
-        <ol class="rc-validation-checks">
-          {{range .RC.ValidationRows}}
-            <li data-live-key="rc-validation:{{.Key}}">
-              <div class="control-row">
-                <strong>{{.Name}}</strong>
-                <span class="pill component-image-status {{.Class}}">{{.Status}}</span>
-              </div>
-              <p class="muted">{{.Source}} · {{.Trigger}}</p>
-              <div class="control-row">
-                <a href="{{url .URL}}" target="_blank" rel="noreferrer">View check</a>
-                {{if eq .Class "no"}}
-                  {{if url .WorkflowURL}}<a href="{{url .WorkflowURL}}" target="_blank" rel="noreferrer">Rerun in GitHub Actions</a>
-                  {{else if eq .Source "GitHub Actions"}}<span class="muted">Open the workflow run to rerun this check</span>
-                  {{else if eq .Source "Conforma"}}<span class="muted">Review policy results</span>
-                  {{else if not .Retry}}<span class="muted">Check the provider for retry options</span>{{end}}
-                {{end}}
-              </div>
-              {{with .Retry}}{{template "rc-retry" .}}{{end}}
-            </li>
-          {{end}}
-        </ol>
+        <div class="component-image-table-scroll" role="region" aria-label="RC validation checks" tabindex="0">
+          <table class="rc-validation-checks" aria-labelledby="rc-validation-heading">
+            <thead><tr><th scope="col">Check</th><th scope="col">Status</th><th scope="col">Source and trigger</th><th scope="col">Actions</th></tr></thead>
+            <tbody>
+              {{range .RC.ValidationRows}}
+                <tr data-live-key="rc-validation:{{.Key}}">
+                  <th scope="row">{{.Name}}</th>
+                  <td><span class="pill component-image-status {{.Class}}">{{.Status}}</span></td>
+                  <td class="muted">{{.Source}} · {{.Trigger}}</td>
+                  <td>
+                    <div class="rc-row-links">
+                      <a href="{{url .URL}}" target="_blank" rel="noreferrer">View check</a>
+                      {{if eq .Class "no"}}
+                        {{if url .WorkflowURL}}<a href="{{url .WorkflowURL}}" target="_blank" rel="noreferrer">Rerun in GitHub Actions</a>
+                        {{else if eq .Source "GitHub Actions"}}<span class="muted">Open the workflow run to rerun this check</span>
+                        {{else if eq .Source "Conforma"}}<span class="muted">Review policy results</span>
+                        {{else if not .Retry}}<span class="muted">Check the provider for retry options</span>{{end}}
+                      {{end}}
+                    </div>
+                    {{with .Retry}}{{template "rc-retry" .}}{{end}}
+                  </td>
+                </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
       {{end}}
     {{else if and .RC.Plan .RC.Plan.Plan.Evidence.Error}}
       <p class="muted"><span class="pill">Unavailable</span> The RC.0 tag could not be verified.</p>
