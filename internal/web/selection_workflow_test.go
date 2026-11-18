@@ -162,7 +162,7 @@ func TestPRChoiceControlsSubmitOneExplicitDecisionAndKeepGrantSeparate(t *testin
 	if len(buttons) != 3 {
 		t.Fatalf("choice form has %d decision buttons, want 3", len(buttons))
 	}
-	wantButtons := map[string]string{"included": "Included", "excluded": "Excluded", "ignored": "Ignore &amp; hide"}
+	wantButtons := map[string]string{"included": "Include", "excluded": "Exclude", "ignored": "Ignore &amp; hide"}
 	for value, label := range wantButtons {
 		if !strings.Contains(choiceForm, `name="choice" value="`+value+`"`) || !strings.Contains(choiceForm, ">"+label+"</button>") {
 			t.Errorf("choice form lacks %q decision labeled %q", value, html.UnescapeString(label))

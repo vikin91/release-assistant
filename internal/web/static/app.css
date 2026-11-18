@@ -149,14 +149,13 @@ button[aria-pressed=true] { border-color: var(--accent); background: color-mix(i
 .component-pr-filters label:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent), Canvas 84%); }
 .component-pr-filters input { margin: 0; accent-color: var(--accent); }
 .component-pr-list .pr-repo { border: 0; }
-.component-pr-list .pr-card { margin: 0; padding: .55rem .35rem; border: 0; border-top: 1px solid var(--line); border-radius: 0; }
-.component-pr-list .pr-summary { display: grid; grid-template-columns: minmax(0, 2.75fr) minmax(0, 1.15fr) minmax(0, 1.35fr) 4.75rem; align-items: start; gap: .45rem .8rem; }
+.component-pr-list .pr-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .35rem .8rem; margin: 0; padding: .55rem .35rem; border: 0; border-top: 1px solid var(--line); border-radius: 0; }
+.component-pr-list .pr-summary { display: grid; grid-template-columns: minmax(0, 1fr) 8rem; align-items: start; gap: .15rem .8rem; }
+.component-pr-list .pr-card .control-row { margin-top: 0; align-self: start; }
 .component-pr-note { display: block; font-size: .8rem; }
-.component-pr-check { justify-self: start; color: CanvasText; }
-.component-pr-check.yes { border-color: #35a56a; }
-.component-pr-check.no { font-weight: 700; border-color: #df5a62; background: color-mix(in srgb, #df5a62 16%, Canvas); }
-.component-pr-check.unknown { border-color: #d99b22; }
-.component-pr-disclosures { display: flex; align-items: start; flex-wrap: wrap; gap: .25rem .8rem; margin-top: .2rem; font-size: .86rem; }
+.component-pr-checks { grid-column: 1 / -1; display: flex; flex-wrap: wrap; column-gap: .4rem; font-size: .86rem; }
+.component-pr-checks > span { white-space: nowrap; }
+.component-pr-disclosures { grid-column: 1 / -1; display: flex; align-items: start; flex-wrap: wrap; gap: .25rem .8rem; font-size: .86rem; }
 .component-pr-disclosures details { min-width: 0; margin: 0; }
 .component-pr-disclosures details[open] { flex-basis: 100%; }
 .component-pr-retry > summary { font-weight: 650; }
@@ -170,8 +169,8 @@ button[aria-pressed=true] { border-color: var(--accent); background: color-mix(i
 .component-pr-list:has(#prs-included:checked):not(:has([data-release-choice="included"])) .component-pr-filter-empty,
 .component-pr-list:has(#prs-undecided:checked):not(:has([data-release-choice="undecided"])) .component-pr-filter-empty { display: block; }
 @media (max-width: 650px) {
-  .component-pr-list .pr-summary { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 4.25rem; }
-  .component-pr-list .pr-title { grid-column: 1 / -1; }
+  .component-pr-list .pr-card { grid-template-columns: minmax(0, 1fr); }
+  .component-pr-list .pr-summary { grid-template-columns: minmax(0, 1fr) 7rem; }
 }
 summary { cursor: pointer; }
 details[id] > summary {

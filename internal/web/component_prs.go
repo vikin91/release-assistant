@@ -2,7 +2,6 @@ package web
 
 import (
 	"cmp"
-	"fmt"
 	"slices"
 
 	"release-assistant/internal/release"
@@ -15,11 +14,14 @@ type (
 		AwaitingMerge, Closed, Undecided, Merged int
 	}
 	componentPRRow struct {
-		CheckSummary string
-		CheckStatus  release.Truth
-		Attention    bool
-		Retry        *pageModel
-		HasProposal  bool
+		Checks      requiredCheckCounts
+		Attention   bool
+		Retry       *pageModel
+		HasProposal bool
+	}
+	requiredCheckCounts struct {
+		Verified                            bool
+		Failed, Running, Passed, Unverified int
 	}
 )
 
@@ -56,7 +58,6 @@ func (p pageModel) ComponentPRTriage() componentPRTriage {
 			return cmp.Compare(componentPRRank(a), componentPRRank(b))
 		})
 		for _, row := range repo.PRs {
-			summary, status := componentPRChecks(row.PR)
 			closed := row.PR.State == "closed"
 			switch {
 			case row.Choice == release.Included && closed:
@@ -67,11 +68,10 @@ func (p pageModel) ComponentPRTriage() componentPRTriage {
 				triage.Undecided++
 			}
 			retry := retries[row.PR.Target]
-			view := componentPRRow{
-				CheckSummary: summary,
-				CheckStatus:  status,
-				Attention:    row.Choice == release.Included && (closed || status == release.No),
-				Retry:        retry,
+			view := componentPRRow{Retry: retry}
+			if row.Choice == release.Included {
+				view.Checks = componentPRChecks(row.PR)
+				view.Attention = closed || view.Checks.Failed > 0
 			}
 			if retry != nil {
 				view.HasProposal = slices.ContainsFunc(retry.Plans, func(plan planModel) bool {
@@ -99,46 +99,32 @@ func componentPRRank(row prModel) int {
 	}
 }
 
-func componentPRChecks(pr release.PR) (string, release.Truth) {
+func componentPRChecks(pr release.PR) requiredCheckCounts {
 	if !pr.Evidence.Fresh() || !pr.ChecksEvidence.Fresh() {
-		return "Checks unverified", ""
+		return requiredCheckCounts{}
 	}
-	var failed, running int
-	var required, unknown bool
+	counts := requiredCheckCounts{Verified: true}
 	for _, check := range pr.Checks {
-		if check.Required == "" {
-			unknown = true
-		}
 		if check.Required != release.Yes {
+			if check.Required != release.No {
+				counts.Unverified++
+			}
 			continue
 		}
-		required = true
 		result := check.Result()
 		switch {
 		case result == release.No:
-			failed++
+			counts.Failed++
 		case result == release.Yes:
+			counts.Passed++
 		case check.Status == "pending" || check.Status == "queued" || check.Status == "in_progress" ||
 			check.Status == "requested" || check.Status == "waiting":
-			running++
+			counts.Running++
 		default:
-			unknown = true
+			counts.Unverified++
 		}
 	}
-	switch {
-	case failed == 1:
-		return "1 required check failed", release.No
-	case failed > 1:
-		return fmt.Sprintf("%d required checks failed", failed), release.No
-	case unknown:
-		return "Checks unverified", ""
-	case running > 0:
-		return "Required checks pending", ""
-	case required:
-		return "Required checks passed", release.Yes
-	default:
-		return "No required checks reported", ""
-	}
+	return counts
 }
 
 // DetachedPRRetries keeps observations visible when the corresponding PR row is unavailable.

@@ -426,7 +426,7 @@ func TestTagSelectionDoesNotAutoFoldAfterConfirmationAndWithholdsUnknownTags(t *
 	}
 }
 
-func TestPRSelectionShowsAuthorsAndPreservesEvidenceInCollapsedDetails(t *testing.T) {
+func TestComponentPRSelectionShowsAuthorsAndSummarizesUnverifiedChecks(t *testing.T) {
 	target := release.Target{Repo: "acme/fact", PR: 1}
 	b := newBrowser(t, &fakeApplication{snapshot: app.Snapshot{
 		Config:  validACS5Config(),
@@ -449,11 +449,12 @@ func TestPRSelectionShowsAuthorsAndPreservesEvidenceInCollapsedDetails(t *testin
 		t.Fatal("author was rendered as markup")
 	}
 	card := regexp.MustCompile(`(?s)<article class="pr-card"[^>]*>.*?</article>`).FindString(body)
-	controls, details, ok := strings.Cut(card, `<details class="pr-details"`)
-	if !ok || !strings.Contains(details, "exact-pr-head") || !strings.Contains(details, "unit-tests") || !strings.Contains(details, "failure") {
-		t.Fatal("collapsed PR details must retain identity and check evidence")
+	if strings.Contains(card, "Evidence and checks") || strings.Contains(card, "unit-tests") ||
+		!strings.Contains(card, "Required checks:") || !strings.Contains(card, "Unverified") {
+		t.Fatal("the component PR should show unverified status without exposing the check table")
 	}
-	if !strings.Contains(controls, `value="included" aria-pressed="true"`) || !strings.Contains(controls, `value="true"  disabled> RW allowed`) {
+	if !strings.Contains(card, `name="sha" value="exact-pr-head"`) ||
+		!strings.Contains(card, `value="included" aria-pressed="true"`) || !strings.Contains(card, `value="true"  disabled> RW allowed`) {
 		t.Fatal("inclusion must stay selected independently of the unchecked RW permission")
 	}
 }
@@ -897,7 +898,7 @@ func TestFoldControlsHaveUniqueStableIdentities(t *testing.T) {
 		"release-configuration", "activity-details", "previous-cycles",
 		"tag-alternatives:fact:acme/fact", "tag-alternatives:collector:acme/collector",
 		"tag-evidence:fact:acme/fact@3.25.1", "tag-evidence:collector:acme/collector@3.25.1",
-		"pr-evidence:acme/fact#1", "pr-evidence:acme/fact#2", "pr-evidence:acme/collector#1",
+		"pr-actions:acme/fact#1", "pr-actions:acme/fact#2", "pr-actions:acme/collector#1",
 		"repo-evidence:fact:acme/fact", "repo-evidence:collector:acme/collector",
 	} {
 		if !seen[key] {
