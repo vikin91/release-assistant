@@ -27,7 +27,7 @@ type (
 		Problems                                                 []release.Condition
 		Plans                                                    []planModel
 		Authority                                                []authorityModel
-		ComponentImages                                          []imageModel
+		ComponentImages                                          componentImagesModel
 		ReleaseImages                                            []imageModel
 		ACS                                                      *release.Repository
 		PinPRState                                               string
@@ -85,6 +85,19 @@ type (
 	imageModel struct {
 		Check          release.ImageStatus
 		Name, Tag, URL string
+	}
+	componentImagesModel struct {
+		Groups                             []componentImageGroup
+		Other                              []imageModel
+		Total, Available, Missing, Unknown int
+	}
+	componentImageGroup struct {
+		Component, SelectedTag string
+		Rows                   []componentImageRow
+	}
+	componentImageRow struct {
+		Name        string
+		CI, Konflux *imageModel
 	}
 	pinningImageModel struct {
 		Job, URL string
@@ -330,7 +343,7 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 		if check.Image.Component == "acs" {
 			model.ReleaseImages = append(model.ReleaseImages, row)
 		} else {
-			model.ComponentImages = append(model.ComponentImages, row)
+			model.ComponentImages.add(row, snapshot.Choices.Tags[check.Image.Component])
 		}
 	}
 	for _, plan := range snapshot.Plans {
@@ -383,6 +396,50 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 		model.History = append(model.History, historyModel{Cycle: cycle})
 	}
 	return model
+}
+
+func (m *componentImagesModel) add(image imageModel, selectedTag string) {
+	m.Total++
+	switch image.Check.Status {
+	case release.Yes:
+		m.Available++
+	case release.No:
+		m.Missing++
+	default:
+		m.Unknown++
+	}
+
+	component := image.Check.Image.Component
+	family := image.Check.Image.Family
+	if family != "ci" && family != "konflux" {
+		m.Other = append(m.Other, image)
+		return
+	}
+	groupIndex := slices.IndexFunc(m.Groups, func(group componentImageGroup) bool {
+		return group.Component == component
+	})
+	if groupIndex < 0 {
+		groupIndex = len(m.Groups)
+		m.Groups = append(m.Groups, componentImageGroup{Component: component, SelectedTag: selectedTag})
+	}
+	group := &m.Groups[groupIndex]
+	name := image.Name
+	if family == "konflux" && image.Check.Image.Name == "" {
+		name = strings.TrimPrefix(name, "release-")
+	}
+	rowIndex := slices.IndexFunc(group.Rows, func(row componentImageRow) bool {
+		return row.Name == name && ((family == "ci" && row.CI == nil) || (family == "konflux" && row.Konflux == nil))
+	})
+	if rowIndex < 0 {
+		rowIndex = len(group.Rows)
+		group.Rows = append(group.Rows, componentImageRow{Name: name})
+	}
+	row := &group.Rows[rowIndex]
+	if family == "ci" {
+		row.CI = &image
+	} else {
+		row.Konflux = &image
+	}
 }
 
 func allTagsSelected(snapshot app.Snapshot) bool {
