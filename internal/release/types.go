@@ -143,8 +143,17 @@ type (
 	Run struct {
 		Job, ID, Status, Outcome, URL string
 		Eligible                      bool
+		// CheckID can identify a GitHub check even when its PipelineRun identity is unknown.
+		CheckID int64
+		// LastVerified is display-only evidence for the same check.
+		LastVerified BuildObservation
 		// Image records an observed build output, separately from retry eligibility.
 		Image Image
+	}
+	// BuildObservation preserves the time and result of an earlier verified read.
+	BuildObservation struct {
+		Status, Outcome string
+		At              time.Time
 	}
 	// StartFailure records a check's creation failure on the inspected commit.
 	// It does not establish that the check belongs to the requested PR or tag.

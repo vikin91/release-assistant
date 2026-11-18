@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"release-assistant/internal/release"
@@ -31,6 +32,7 @@ type (
 	// Adapter calls only the dependency's public read-only entrypoints.
 	Adapter struct {
 		config retry.Config
+		reads  *readBackoff
 		pr     func(context.Context, retry.Config, string, int) (retry.Result, error)
 		tag    func(context.Context, retry.Config, string, string) (retry.Result, error)
 	}
@@ -42,17 +44,38 @@ func (e *observationError) Unwrap() error { return e.cause }
 
 // New constructs the retry boundary.
 func New(c Config) *Adapter {
+	client := http.Client{Timeout: 30 * time.Second}
+	if c.HTTPClient != nil {
+		client = *c.HTTPClient
+	}
+	base := client.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	reads := &readBackoff{base: base, now: time.Now, endpoints: make(map[string]*endpointBackoff)}
+	client.Transport = reads
 	return &Adapter{
 		config: retry.Config{
 			VerifyRunIdentity: true, GitHubToken: c.GitHubToken, QuayUsername: c.QuayUsername, QuayPassword: c.QuayPassword,
-			HTTPClient: c.HTTPClient, KonfluxToken: c.KonfluxToken, AllowKonfluxLookup: c.AllowKonfluxLookup,
+			HTTPClient: &client, KonfluxToken: c.KonfluxToken, AllowKonfluxLookup: c.AllowKonfluxLookup,
 		},
-		pr: retry.CheckPR, tag: retry.CheckTag,
+		reads: reads,
+		pr:    retry.CheckPR, tag: retry.CheckTag,
 	}
+}
+
+// ReadIssues copies current endpoint diagnostics for the dashboard.
+func (a *Adapter) ReadIssues() []ReadIssue {
+	return a.reads.issues()
 }
 
 // Plan preserves partial results. Missing stable run evidence prevents automatic dispatch.
 func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, error) {
+	if ctx.Value(readCycleKey{}) == nil {
+		ctx = WithReadCycle(ctx)
+	}
+	var deferred atomic.Bool
+	ctx = context.WithValue(ctx, deferredReadKey{}, &deferred)
 	var r retry.Result
 	var err error
 	if t.PR > 0 {
@@ -66,6 +89,9 @@ func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, err
 	}
 	if err != nil {
 		p.Evidence.Error = observationProblem(err.Error(), a.config)
+		if deferred.Load() {
+			p.Evidence.Error += "\nSome Konflux reads were deferred by endpoint backoff."
+		}
 		err = &observationError{message: p.Evidence.Error, cause: err}
 	}
 	for _, run := range r.Runs {
@@ -73,7 +99,7 @@ func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, err
 		if run.IdentityKnown && run.ID > 0 {
 			id = strconv.FormatInt(run.ID, 10)
 		}
-		p.Runs = append(p.Runs, release.Run{Job: run.Job, ID: id, Status: run.Status, Outcome: run.Conclusion, URL: run.URL, Eligible: run.Eligible, Image: imageOutput(run, p.Evidence.At)})
+		p.Runs = append(p.Runs, release.Run{Job: run.Job, ID: id, CheckID: run.ID, Status: run.Status, Outcome: run.Conclusion, URL: run.URL, Eligible: run.Eligible, Image: imageOutput(run, p.Evidence.At)})
 	}
 	for _, failure := range r.StartFailures {
 		evidence := release.Evidence{At: p.Evidence.At}

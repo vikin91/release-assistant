@@ -1,0 +1,26 @@
+{{define "konflux-status"}}
+<section id="konflux-status" class="notice warning" aria-label="Konflux status" aria-live="polite"{{if not .}} hidden{{end}}>
+  {{range .}}
+  <div data-live-key="konflux-status:{{.Cluster}}">
+    <strong>Konflux · {{if .Cluster}}<code>{{.Cluster}}</code>{{else}}Cluster unknown{{end}}</strong>
+    {{if .Tab}}
+      <p>Pipeline start rejected by an admission policy. GitHub check started at {{when .Rejected.CheckStartedAt}}.
+        <a href="/?tab={{.Tab}}#{{.Tab}}-start-failures" data-open-section>View creation failure</a>
+      </p>
+    {{end}}
+    {{range .Reads}}
+      <p><strong>{{.Endpoint}} reads {{if .RetryAt.IsZero}}failed{{else}}paused{{end}}.</strong>
+        Last failure at {{when .LastFailure}} ({{.Reason}}).
+        {{if .Probing}}A recovery check is in progress.{{else if not .RetryAt.IsZero}}Next recovery check eligible at {{when .RetryAt}}.{{end}}
+      </p>
+    {{end}}
+  </div>
+  {{end}}
+</section>
+{{end}}
+
+{{define "last-verified-builds"}}
+  {{range .}}{{if not .LastVerified.At.IsZero}}
+    <p class="muted"><code>{{.Job}}</code> last verified at {{when .LastVerified.At}} · {{.LastVerified.Status}}{{with .LastVerified.Outcome}} · {{.}}{{end}}. Current build status is unverified.</p>
+  {{end}}{{end}}
+{{end}}

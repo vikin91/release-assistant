@@ -15,6 +15,7 @@
 <main id="live-dashboard">
   <p id="dashboard-refresh-status" class="muted" role="status" data-live-preserve>Waiting for release updates.</p>
   <div id="form-error" class="notice error" role="alert" data-live-preserve{{if not .Error}} hidden{{end}}>{{.Error}}</div>
+  {{template "konflux-status" .KonfluxStatus}}
   {{if and .Configured .Snapshot.Loading}}<p id="release-loading" class="notice" role="status">Loading release data… Results appear as each repository finishes.</p>{{end}}
   <section id="configuration-panel" class="panel" aria-labelledby="setup-heading" data-live-preserve>
     <details id="release-configuration" open>

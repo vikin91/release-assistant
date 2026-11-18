@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"release-assistant/internal/dispatch"
+	"release-assistant/internal/konflux"
 	"release-assistant/internal/release"
 )
 
@@ -43,6 +44,8 @@ type (
 		Generation      uint64
 		History         []Cycle
 		LogEntries      []Record
+		// KonfluxReadIssues reports endpoint reachability independently of release readiness.
+		KonfluxReadIssues []konflux.ReadIssue
 		// Loading remains true until every source completes its first refresh attempt.
 		Loading bool
 	}
@@ -394,6 +397,9 @@ func (s *Session) Snapshot() Snapshot {
 		Interactive: s.dispatcher.IsInteractive(), WritesEnabled: s.dispatcher.WritesEnabled(),
 		Authority: s.dispatcher.Views(),
 	}
+	if planner, ok := s.planner.(interface{ ReadIssues() []konflux.ReadIssue }); ok {
+		x.KonfluxReadIssues = planner.ReadIssues()
+	}
 	if c.Validate() == nil {
 		for _, source := range append([]release.Source{c.ACS()}, c.Components...) {
 			if !s.initiallyLoaded[source.Name] {
@@ -538,6 +544,7 @@ func (s *Session) Refresh(ctx context.Context, generation uint64, source release
 
 func (s *Session) refresh(ctx context.Context, generation uint64, source release.Source, discover bool, work sourceWork) error {
 	ctx, cancel := context.WithTimeout(ctx, s.options.Timeout)
+	ctx = konflux.WithReadCycle(ctx)
 	var imageReads sync.WaitGroup
 	defer func() {
 		cancel()
@@ -838,6 +845,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		}
 		if plan.SHA == expected && expected != "" {
 			oldPlan := s.plans[target]
+			retainVerifiedBuilds(oldPlan, &plan)
 			if err != nil && len(plan.StartFailures) == 0 && oldPlan.SHA == plan.SHA {
 				plan.StartFailures = staleStartFailures(oldPlan.StartFailures, message)
 				markSupersededStartFailures(&plan)

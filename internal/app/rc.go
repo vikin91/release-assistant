@@ -41,6 +41,8 @@ func (s *Session) clearRCPlan() {
 
 func (s *Session) observeRCPlan(target release.Target, plan release.Plan) {
 	plan.Target = target
+	previous := s.plans[target]
+	retainVerifiedBuilds(previous, &plan)
 	// A tag check can return partial evidence. Only a verified run can offer a retry.
 	plan.Proposals = slices.DeleteFunc(slices.Clone(plan.Proposals), func(proposal release.Proposal) bool {
 		if plan.SHA == "" || proposal.RunID == "" || proposal.Target != target || proposal.SHA != plan.SHA {
@@ -58,7 +60,7 @@ func (s *Session) observeRCPlan(target release.Target, plan release.Plan) {
 	} else if s.plans[target].SHA != "" {
 		s.dispatcher.ObserveIdentity(dispatch.Identity{Target: target})
 	}
-	s.recordStartFailures(s.plans[target], plan)
+	s.recordStartFailures(previous, plan)
 	s.plans[target] = plan
 	s.dispatcher.ObservePlan(plan)
 }

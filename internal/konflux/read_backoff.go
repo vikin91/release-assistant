@@ -1,0 +1,237 @@
+package konflux
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+)
+
+const (
+	readTimeout  = 8 * time.Second
+	probeTimeout = 3 * time.Second
+	firstPause   = time.Minute
+	maxPause     = 5 * time.Minute
+	issueWindow  = 10 * time.Minute
+)
+
+type (
+	// ReadIssue summarizes endpoint reachability from real Konflux requests.
+	ReadIssue struct {
+		Cluster, Endpoint, Reason string
+		LastFailure, RetryAt      time.Time
+		Probing                   bool
+	}
+	readCycleKey struct{}
+	readCycle    struct {
+		id       uint64
+		deadline time.Time
+	}
+	deferredReadKey struct{}
+	readBackoff     struct {
+		base      http.RoundTripper
+		now       func() time.Time
+		mu        sync.Mutex
+		endpoints map[string]*endpointBackoff
+	}
+	endpointBackoff struct {
+		ReadIssue
+		lastCycle uint64
+		epoch     uint64
+		pause     time.Duration
+	}
+	readBody struct {
+		io.ReadCloser
+		finish func(error)
+	}
+)
+
+var readCycleID atomic.Uint64
+
+// WithReadCycle lets every lookup in one refresh contribute at most one failure per endpoint.
+func WithReadCycle(ctx context.Context) context.Context {
+	deadline, _ := ctx.Deadline()
+	return context.WithValue(ctx, readCycleKey{}, readCycle{id: readCycleID.Add(1), deadline: deadline})
+}
+
+func (t *readBackoff) issues() []ReadIssue {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var issues []ReadIssue
+	for _, state := range t.endpoints {
+		if !state.LastFailure.IsZero() && (state.pause > 0 || t.now().Sub(state.LastFailure) < issueWindow) {
+			issues = append(issues, state.ReadIssue)
+		}
+	}
+	slices.SortFunc(issues, func(a, b ReadIssue) int {
+		if a.Cluster != b.Cluster {
+			return strings.Compare(a.Cluster, b.Cluster)
+		}
+		return strings.Compare(a.Endpoint, b.Endpoint)
+	})
+	return issues
+}
+
+func (t *readBackoff) RoundTrip(req *http.Request) (*http.Response, error) {
+	cluster, endpoint := readEndpoint(req)
+	if cluster == "" {
+		return t.base.RoundTrip(req)
+	}
+	ctx := req.Context()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	cycle, ok := ctx.Value(readCycleKey{}).(readCycle)
+	if !ok {
+		return t.base.RoundTrip(req)
+	}
+	deadline, hasDeadline := ctx.Deadline()
+	enoughTime := !hasDeadline || time.Until(deadline) >= probeTimeout
+	host := req.URL.Hostname()
+	now := t.now()
+	t.mu.Lock()
+	state := t.endpoints[host]
+	if state == nil {
+		state = &endpointBackoff{ReadIssue: ReadIssue{Cluster: cluster, Endpoint: endpoint}}
+		t.endpoints[host] = state
+	}
+	probe := state.pause > 0
+	if probe && (state.Probing || now.Before(state.RetryAt) || !enoughTime) {
+		t.mu.Unlock()
+		if deferred, ok := ctx.Value(deferredReadKey{}).(*atomic.Bool); ok {
+			deferred.Store(true)
+		}
+		return nil, errors.New("read deferred by endpoint backoff")
+	}
+	epoch := state.epoch
+	state.Probing = probe
+	t.mu.Unlock()
+
+	timeout := readTimeout
+	if probe {
+		timeout = probeTimeout
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, timeout)
+	var status int
+	var once sync.Once
+	complete := func(err error) {
+		once.Do(func() {
+			defer cancel()
+			now := t.now()
+			callerExpired := !cycle.deadline.IsZero() && !time.Now().Before(cycle.deadline)
+			switch {
+			case status >= 500 || status == http.StatusTooManyRequests:
+				t.observe(state, cycle.id, epoch, now, fmt.Sprintf("HTTP %d", status), false)
+			case err == nil:
+				t.observe(state, cycle.id, epoch, now, "", true)
+			case !enoughTime || callerExpired || errors.Is(ctx.Err(), context.Canceled):
+				t.observe(state, cycle.id, epoch, now, "", false)
+			default:
+				reason := ""
+				if networkErr, ok := errors.AsType[net.Error](err); ok {
+					reason = "network request failed"
+					if networkErr.Timeout() {
+						reason = "request timed out"
+					}
+				} else if errors.Is(err, io.ErrUnexpectedEOF) {
+					reason = "response ended early"
+				}
+				t.observe(state, cycle.id, epoch, now, reason, false)
+			}
+		})
+	}
+	resp, err := t.base.RoundTrip(req.WithContext(requestCtx))
+	if err != nil {
+		complete(err)
+		return resp, err
+	}
+	status = resp.StatusCode
+	if status < 200 || status >= 300 {
+		complete(nil)
+		return resp, nil
+	}
+	resp.Body = &readBody{ReadCloser: resp.Body, finish: complete}
+	return resp, nil
+}
+
+func (t *readBackoff) observe(state *endpointBackoff, cycle, epoch uint64, now time.Time, reason string, responded bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if state.epoch != epoch {
+		return
+	}
+	state.Probing = false
+	if responded {
+		if state.pause > 0 {
+			state.epoch++
+		}
+		state.LastFailure, state.RetryAt = time.Time{}, time.Time{}
+		state.Reason, state.pause = "", 0
+		return
+	}
+	if reason == "" {
+		if state.pause > 0 {
+			state.RetryAt = now.Add(state.pause)
+		}
+		return
+	}
+	if state.pause > 0 {
+		state.pause = min(state.pause*2, maxPause)
+	} else {
+		if cycle == state.lastCycle {
+			return
+		}
+		if !state.LastFailure.IsZero() && now.Sub(state.LastFailure) < issueWindow {
+			state.pause = firstPause
+			state.epoch++
+		}
+	}
+	state.lastCycle, state.LastFailure, state.Reason = cycle, now, reason
+	if state.pause > 0 {
+		state.RetryAt = now.Add(state.pause)
+	}
+}
+
+func (b *readBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if errors.Is(err, io.EOF) {
+		b.finish(nil)
+	} else if err != nil {
+		b.finish(err)
+	}
+	return n, err
+}
+
+func (b *readBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.finish(err)
+	return err
+}
+
+func readEndpoint(req *http.Request) (cluster, endpoint string) {
+	if req.Method != http.MethodGet || req.URL.Scheme != "https" || req.URL.Port() != "" {
+		return "", ""
+	}
+	host := req.URL.Hostname()
+	if !strings.HasSuffix(host, ".openshiftapps.com") {
+		return "", ""
+	}
+	switch {
+	case strings.HasPrefix(req.URL.Path, "/apis/tekton.dev/"):
+		if cluster, ok := strings.CutPrefix(host, "api."); ok {
+			return cluster, "PipelineRun API"
+		}
+	case strings.HasPrefix(req.URL.Path, "/apis/results.tekton.dev/"):
+		if cluster, ok := strings.CutPrefix(host, "tekton-results-tekton-results.apps."); ok {
+			return cluster, "Tekton Results"
+		}
+	}
+	return "", ""
+}

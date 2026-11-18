@@ -40,6 +40,7 @@
   {{$plan := .Plan.Plan}}
   <p>SHA <code>{{$plan.SHA}}</code> · observed at {{when $plan.Evidence.At}} · {{if $plan.Evidence.Known}}known{{else}}unknown{{end}}</p>{{if $plan.Evidence.Error}}<p class="error-text">{{$plan.Evidence.Error}}</p>{{end}}
       {{if and $plan.Runs (not .Plan.Pinning)}}<h4>Observed runs</h4><table><thead><tr><th>Job</th><th>Run</th><th>Status</th><th>Outcome</th><th>Retry eligible</th></tr></thead><tbody>{{range $plan.Runs}}<tr><td>{{.Job}}</td><td>{{if url .URL}}<a href="{{url .URL}}">{{.ID}}</a>{{else}}{{.ID}}{{end}}</td><td>{{.Status}}</td><td>{{.Outcome}}</td><td>{{if .Eligible}}yes{{else}}no or unknown{{end}}</td></tr>{{end}}</tbody></table>{{end}}
+      {{template "last-verified-builds" $plan.Runs}}
       {{if $plan.Warnings}}<h4>Warnings</h4><ol>{{range $plan.Warnings}}<li>{{.}}</li>{{end}}</ol>{{end}}
       {{if $plan.Advisories}}<h4>Conforma advisories</h4><p class="muted" id="review-help-{{$plan.Target}}">Mark as reviewed records that you have read an advisory for this session and adds an action-log entry. It does not change check results, retry eligibility, write permissions, or release readiness. Reviews reset on restart.</p>{{range $plan.Advisories}}<div class="advisory">
         <p>{{.Message}}</p>

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"release-assistant/internal/app"
 	"release-assistant/internal/dispatch"
@@ -26,6 +27,7 @@ type (
 		TagCounts                                                tagSelectionCounts
 		Problems                                                 []release.Condition
 		Plans                                                    []planModel
+		KonfluxStatus                                            []konfluxClusterStatus
 		StartFailureClusters                                     []startFailureCluster
 		EarlierStartFailureClusters                              []startFailureCluster
 		PinningStartFailures                                     bool
@@ -434,6 +436,7 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 	if model.Configured {
 		model.TabStatuses = model.workflowStatuses()
 	}
+	model.KonfluxStatus = model.konfluxStatus(time.Now())
 	return model
 }
 

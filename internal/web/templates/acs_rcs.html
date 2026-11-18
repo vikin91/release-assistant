@@ -46,6 +46,7 @@
         {{if .Other}}{{template "image-results" .Other}}{{end}}
       {{end}}
       {{with .RC.Plan}}
+        {{template "last-verified-builds" .Plan.Runs}}
         {{if or .Plan.Evidence.Error .Plan.Warnings}}
           <details class="rc-diagnostics" data-fold-key="rc-build-diagnostics">
             <summary>{{with $.RC.UnverifiedJobs}}{{len .}} {{if $.ReleaseImages.Total}}additional {{end}}{{if eq (len .) 1}}job{{else}}jobs{{end}} could not be verified{{else}}Build check diagnostics{{end}}</summary>
