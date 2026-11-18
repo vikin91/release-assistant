@@ -3,7 +3,7 @@
     <p class="eyebrow">{{tabStep .Tab}}</p><h2>{{tabTitle .Tab}}</h2>
     {{if eq .Tab "component-prs"}}
       <p><strong>Components</strong> · {{range $i, $source := .Snapshot.Config.Components}}{{if $i}}, {{end}}{{title $source.Name}} (<code>{{$source.Branch}}</code>){{end}}</p>
-      <p>Review open pull requests targeting these component branches for ACS {{.Snapshot.Config.Version}} (<code>{{.Snapshot.Config.Branch}}</code>). Include a PR in this release, leave it undecided, exclude it from the release, or hide it from your view. Follow the checks here and merge each included PR in GitHub.</p>
+      <p>For each component listed above, review the pull requests open against its release branch. Choose which PRs to include in that component’s release. You can leave a PR undecided, exclude it, or hide it from this view. Follow the checks here and merge each included PR in GitHub.</p>
     {{else}}<p>{{tabHelp .Tab}}</p>{{end}}
   </div>
   {{with index .TabStatuses .Tab}}{{if .Label}}<p class="workflow-status"><strong>{{.Label}}</strong> · {{.Reason}}</p>{{end}}{{end}}
