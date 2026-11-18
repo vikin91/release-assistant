@@ -789,7 +789,7 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 			Status: status, Required: component != "acs",
 		}
 	}
-	rows := []release.ImageStatus{image("fact", "fact", "ci", "quay.io/fixture/fact:3.25.1", release.Yes), image("collector", "collector", "konflux", "quay.io/fixture/collector:3.25.4-fast", release.No), image("main", "acs", "ci", "quay.io/fixture/main:5.0.1-rc.0", release.No), image("scanner-v4", "acs", "konflux", "quay.io/fixture/scanner-v4:5.0.1-rc.0-fast", "")}
+	rows := []release.ImageStatus{image("fact", "fact", "ci", "quay.io/fixture/fact:3.25.1", release.Yes), image("collector", "collector", "konflux", "quay.io/fixture/collector:3.25.4-fast", release.No), image("main", "acs", "ci", "quay.io/fixture/main:5.0.1-rc.0", release.No), image("scanner-v4", "acs", "konflux", "quay.io/fixture/release-scanner-v4:5.0.1-rc.0", "")}
 	rows[3].Image.Evidence.Known = false
 	rows[3].Image.Evidence.Error = "Registry access denied"
 	rows[3].Reason = "The registry request could not complete."
@@ -801,14 +801,14 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 	collectorCI.Image.Evidence.Known = false
 	collectorCI.Image.Evidence.Error = "Registry timed out"
 	rows = append(rows, factKonflux, collectorCI)
-	rows = append(rows, image("main", "acs", "konflux", "quay.io/fixture/release-main:5.0.1-rc.0-fast", release.Yes))
+	rows = append(rows, image("main", "acs", "konflux", "quay.io/fixture/release-main:5.0.1-rc.0", release.Yes))
 	application := &fakeApplication{snapshot: app.Snapshot{Config: validACS5Config(), Choices: release.Choices{Tags: map[string]string{"fact": "3.25.1", "collector": "3.25.4"}}, Assessment: release.Assessment{Images: rows, Pins: release.PinSummary{BranchStatus: release.Yes, PRNumber: 99, PRURL: "https://github.com/stackrox/stackrox/pull/99"}, Conditions: []release.Condition{{Name: "configuration", Status: release.Yes, Reason: "Release configuration is valid"}}}, Repositories: []release.Repository{{Source: release.Source{Name: "acs"}, PinningPR: &release.PR{Target: release.Target{Repo: "stackrox/stackrox", PR: 99}, State: "open", Evidence: observed}}}}}
 	body := newBrowser(t, application).getBody(t)
 	for _, want := range []string{
 		"Fact: 3.25.1", "Collector: 3.25.4", "ACS pins: match selected tags", "Pin PR #99: Open",
 		`href="https://github.com/stackrox/stackrox/pull/99"`, "Available", "Not found", "Unable to check",
 		`href="https://quay.io/repository/fixture/release-fact?tag=3.25.1-fast"`,
-		`href="https://quay.io/repository/fixture/release-main?tag=5.0.1-rc.0-fast"`,
+		`href="https://quay.io/repository/fixture/release-main?tag=5.0.1-rc.0"`,
 		"Registry access denied", "green = selected versions are on the ACS branch",
 	} {
 		if !strings.Contains(body, want) {

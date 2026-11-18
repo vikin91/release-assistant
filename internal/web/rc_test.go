@@ -91,16 +91,22 @@ func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 	for i := range s.Inventory.ReleaseImages {
 		image := &s.Inventory.ReleaseImages[i]
 		if image.Family != "konflux" {
+			image.Reference = "quay.io/rhacs-eng/" + image.Name + ":" + target.Tag
 			continue
 		}
 		image.Present = release.No
-		image.Reference = "quay.io/rhacs-eng/release-" + image.Name + ":" + target.Tag + "-fast"
-		image.Evidence.URL = "https://quay.io/repository/rhacs-eng/release-" + image.Name + "?tag=" + target.Tag + "-fast"
+		image.Reference = "quay.io/rhacs-eng/release-" + image.Name + ":" + target.Tag
+		image.Evidence.URL = "https://quay.io/repository/rhacs-eng/release-" + image.Name + "?tag=" + target.Tag
 		plan.Runs = append(plan.Runs, release.Run{
 			Job: image.Name + "-on-push", ID: image.Name, Status: "completed", Outcome: "success",
 			URL: "https://konflux.example.com/" + image.Name,
 		})
 	}
+	s.Inventory.ReleaseImages = append(s.Inventory.ReleaseImages, release.Image{
+		Component: "acs", Family: "ci", Name: "main",
+		Reference: "quay.io/stackrox-io/main:" + target.Tag,
+		Evidence:  s.Inventory.Evidence, Present: release.Yes,
+	})
 	s.Plans = []release.Plan{plan}
 	assessWorkflow(&s)
 
@@ -115,10 +121,15 @@ func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 			t.Errorf("missing %q in main image row", want)
 		}
 	}
-	if !strings.Contains(panel, "All 3 CI images are available.") ||
+	if !strings.Contains(panel, "All 4 CI images are available.") ||
 		!strings.Contains(panel, "The corresponding Konflux builds succeeded, but their expected tags are missing in Quay.") ||
 		strings.Contains(panel, plan.Message) {
 		t.Error("missing focused image publication summary")
+	}
+	if strings.Count(table, "<code>main</code></th>") != 1 ||
+		!strings.Contains(main, "component-image:acs:ci:main:rhacs-eng") ||
+		!strings.Contains(main, "component-image:acs:ci:main:stackrox-io") {
+		t.Error("the main image row should group both CI namespaces and their independent details")
 	}
 	diagnostics := between(t, panel, `<details class="rc-diagnostics" data-fold-key="rc-build-diagnostics">`, "</details>")
 	for _, want := range []string{"1 additional job could not be verified", "A Konflux lookup timed out", "Open check in Konflux", message} {
@@ -136,6 +147,19 @@ func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 	if !strings.Contains(main, "Build unverified") || !strings.Contains(main, "View unverified check") ||
 		strings.Contains(panel, "The corresponding Konflux builds succeeded") {
 		t.Error("an unverified image build must be identified in its row")
+	}
+
+	s.Inventory.ReleaseImages = append(s.Inventory.ReleaseImages, release.Image{
+		Component: "acs", Family: "konflux", Name: "fact", BuildJob: "retag-fact",
+		Reference: "quay.io/rhacs-eng/release-fact:" + target.Tag,
+		Evidence:  s.Inventory.Evidence, Present: release.No,
+	})
+	assessWorkflow(&s)
+	panel = render()
+	fact := between(t, panel, "<code>fact</code></th>", "</tr>")
+	if !strings.Contains(fact, "Build unverified") || !strings.Contains(fact, "https://konflux.example.com/retag-fact") ||
+		strings.Contains(panel, "additional job could not be verified") {
+		t.Error("the retag check should appear beside its configured RC image")
 	}
 }
 

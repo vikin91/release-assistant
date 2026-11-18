@@ -89,9 +89,9 @@ type (
 		Status release.Truth
 	}
 	imageModel struct {
-		Check          release.ImageStatus
-		Name, Tag, URL string
-		RCBuild        *rcBuildModel
+		Check                     release.ImageStatus
+		Name, Tag, URL, Namespace string
+		RCBuild                   *rcBuildModel
 	}
 	componentImagesModel struct {
 		Groups                             []componentImageGroup
@@ -103,8 +103,9 @@ type (
 		Rows                   []componentImageRow
 	}
 	componentImageRow struct {
-		Name        string
-		CI, Konflux *imageModel
+		Name    string
+		CI      []imageModel
+		Konflux *imageModel
 	}
 	pinningImageModel struct {
 		Job, URL string
@@ -349,8 +350,13 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 		row := imageModel{Check: check, Name: check.Image.Name}
 		if index := strings.LastIndexByte(check.Image.Reference, ':'); index >= 0 {
 			row.Tag = check.Image.Reference[index+1:]
+			repository := check.Image.Reference[:index]
+			if check.Image.Component == "acs" && check.Image.Family == "ci" {
+				if path, ok := strings.CutPrefix(repository, "quay.io/"); ok {
+					row.Namespace, _, _ = strings.Cut(path, "/")
+				}
+			}
 			if row.Name == "" {
-				repository := check.Image.Reference[:index]
 				row.Name = repository[strings.LastIndexByte(repository, '/')+1:]
 			}
 			link, err := url.Parse(check.Image.Evidence.URL)
@@ -460,7 +466,8 @@ func (m *componentImagesModel) add(image imageModel, selectedTag string) {
 		name = strings.TrimPrefix(name, "release-")
 	}
 	rowIndex := slices.IndexFunc(group.Rows, func(row componentImageRow) bool {
-		return row.Name == name && ((family == "ci" && row.CI == nil) || (family == "konflux" && row.Konflux == nil))
+		return row.Name == name && ((family == "ci" && (component == "acs" || len(row.CI) == 0)) ||
+			(family == "konflux" && row.Konflux == nil))
 	})
 	if rowIndex < 0 {
 		rowIndex = len(group.Rows)
@@ -468,7 +475,7 @@ func (m *componentImagesModel) add(image imageModel, selectedTag string) {
 	}
 	row := &group.Rows[rowIndex]
 	if family == "ci" {
-		row.CI = &image
+		row.CI = append(row.CI, image)
 	} else {
 		row.Konflux = &image
 	}

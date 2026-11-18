@@ -99,10 +99,10 @@
           </th>{{end}}
           <th scope="row">{{if .Name}}<code>{{.Name}}</code>{{else}}Unspecified{{end}}</th>
           {{if $acs}}
-            {{template "rc-image-cell" .CI}}
+            {{template "rc-ci-cell" .CI}}
             {{template "rc-image-cell" .Konflux}}
           {{else}}
-            {{template "component-image-cell" .CI}}
+            {{if .CI}}{{template "component-image-cell" (index .CI 0)}}{{else}}{{template "component-image-cell" .CI}}{{end}}
             {{template "component-image-cell" .Konflux}}
           {{end}}
         </tr>

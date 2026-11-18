@@ -76,6 +76,8 @@ legend { padding: 0 .35rem; font-weight: 700; }
 .component-image-evidence p { margin: 0 0 .3rem; }
 .rc-summary, .rc-links { margin-block: .55rem; }
 .rc-row-status, .rc-row-links { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .55rem; }
+.rc-ci-variants { display: grid; gap: .5rem; }
+.rc-ci-namespace { font-size: .82rem; }
 .rc-row-links, .rc-image-evidence { margin-top: .35rem; font-size: .86rem; overflow-wrap: anywhere; }
 .rc-image-evidence p { margin: .25rem 0 0; }
 .rc-diagnostics { margin-top: .85rem; font-size: .86rem; overflow-wrap: anywhere; }

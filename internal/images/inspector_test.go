@@ -39,11 +39,11 @@ func TestInspectUsesSavedComponentPatternsForSupportedStreams(t *testing.T) {
 			if tt.name != "5.0" {
 				tags["scanner"] = tt.scannerTag
 			}
-			inventory, err := inspector.Inspect(t.Context(), config, tags)
+			inventory, err := inspector.InspectComponents(t.Context(), config, tags)
 			if err != nil {
 				t.Fatalf("Inspect() error = %v", err)
 			}
-			wantRequests := tt.wantCount + len(inventory.ReleaseImages)
+			wantRequests := tt.wantCount
 			if inventory.ReleaseVersion != tt.version || len(inventory.Images) != tt.wantCount || requests != wantRequests {
 				t.Fatalf("release=%s images=%d requests=%d, want release=%s images=%d requests=%d", inventory.ReleaseVersion, len(inventory.Images), requests, tt.version, tt.wantCount, wantRequests)
 			}
@@ -83,8 +83,9 @@ func TestInspectValidatesTagsBeforeRegistryAccess(t *testing.T) {
 			}), "", "")
 			inventory, err := inspector.Inspect(t.Context(), configFor(tt.version), map[string]string{"fact": tt.tag, "collector": "0.4.20", "scanner": "4.10.1"})
 			wantError := tt.tag != ""
-			if (err != nil) != wantError || requests != 20 {
-				t.Fatalf("Inspect() err=%v requests=%d, want error=%t and twenty independently resolvable component/RC.0 requests", err, requests, wantError)
+			wantRequests := 10 + len(inventory.ReleaseImages)
+			if (err != nil) != wantError || requests != wantRequests {
+				t.Fatalf("Inspect() error=%v requests=%d, want error=%t and %d requests", err, requests, wantError, wantRequests)
 			}
 			if len(inventory.Images) != 12 {
 				t.Fatalf("got %d rows, want all 12 expected image rows", len(inventory.Images))

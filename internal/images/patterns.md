@@ -19,11 +19,19 @@ include Scanner V2.
 
 ## ACS RC.0 images
 
-For normalized ACS version `V`, the RC.0 tag is `V-rc.0`. ACS 4.x includes
-`main`, `roxctl`, `central-db`, `scanner-v4`, and `scanner-v4-db`. ACS 5.x
-includes `main`, `roxctl`, and `scanner-v4`. CI images use the same repository
-pattern as component CI images. Konflux images use the `release-` repository
-prefix and append `-fast` after the RC.0 tag.
+For normalized ACS version `V`, the RC.0 checker uses the release tag `V-rc.0`.
+CI checks `main`, `central-db`, `roxctl`, `scanner-v4`, `scanner-v4-db`,
+`stackrox-operator`, `collector`, and `fact` in both `quay.io/rhacs-eng`
+and `quay.io/stackrox-io`. ACS 4.x also checks the four Scanner V2 variants
+in both namespaces. In `rhacs-eng`, the CI bundle and index use
+`stackrox-operator-bundle:vV-rc.0` and `stackrox-operator-index:vV-rc.0`.
+
+Konflux checks `release-main`, `release-central-db`, `release-operator`,
+`release-roxctl`, `release-scanner-v4`, `release-scanner-v4-db`,
+`release-collector`, and `release-fact`, all tagged `V-rc.0`. ACS 4.x also
+checks the four Scanner V2 retags with that release tag. The bundle uses
+`release-operator-bundle:vV-rc.0`. The separate catalog build uses
+`stackrox-operator-index:vV-rc.0-fast` outside the release snapshot.
 
 ## Pinning PR build images
 

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cmp"
 	"net/url"
 	"strings"
 
@@ -35,9 +36,9 @@ func (p *pageModel) prepareRC() {
 	p.RC.WorkflowURL = repoURL + "/actions/workflows/start-release.yml"
 	for _, group := range p.ReleaseImages.Groups {
 		for _, row := range group.Rows {
-			if row.CI != nil {
+			for _, image := range row.CI {
 				p.RC.CITotal++
-				if row.CI.Check.Status == release.Yes {
+				if image.Check.Status == release.Yes {
 					p.RC.CIAvailable++
 				}
 			}
@@ -82,7 +83,7 @@ func (p *pageModel) prepareRC() {
 			if row.Konflux == nil {
 				continue
 			}
-			job := row.Name + "-on-push"
+			job := cmp.Or(row.Konflux.Check.Image.BuildJob, row.Name+"-on-push")
 			run := runs[job]
 			build := rcBuild(run, p.RC.ChecksURL)
 			if row.Konflux.Check.Status == release.No && build.Class == "yes" {

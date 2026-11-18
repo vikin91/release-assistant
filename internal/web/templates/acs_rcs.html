@@ -62,10 +62,20 @@
   {{template "start-failures" .}}
 {{end}}
 
+{{define "rc-ci-cell"}}
+  <td>{{if .}}<div class="rc-ci-variants">{{range .}}<div>{{template "rc-image-result" .}}</div>{{end}}</div>
+    {{else}}<span title="No image configured for this family">—</span>{{end}}</td>
+{{end}}
+
 {{define "rc-image-cell"}}
-  <td>{{if .}}
+  <td>{{if .}}{{template "rc-image-result" .}}
+    {{else}}<span title="No image configured for this family">—</span>{{end}}</td>
+{{end}}
+
+{{define "rc-image-result"}}
     {{$missing := eq (truth .Check.Status) "no"}}
     <div class="rc-row-status">
+      {{if .Namespace}}<span class="rc-ci-namespace">{{.Namespace}}</span>{{end}}
       {{with .RCBuild}}<span class="pill component-image-status {{.Class}}">{{.Status}}</span>{{end}}
       <span class="pill component-image-status {{truth .Check.Status}}">{{if $missing}}Tag missing{{else}}{{template "image-status-label" .}}{{end}}</span>
     </div>
@@ -75,14 +85,13 @@
         {{if and $missing .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer">Open expected Quay tag</a>{{end}}
       </div>
     {{end}}
-    <details class="rc-image-evidence" data-fold-key="component-image:acs:{{.Check.Image.Family}}:{{.Name}}">
+    <details class="rc-image-evidence" data-fold-key="component-image:acs:{{.Check.Image.Family}}:{{.Name}}{{if .Namespace}}:{{.Namespace}}{{end}}">
       <summary>Details</summary>
       {{template "image-evidence" .}}
       {{if and $missing (not .Check.Image.PublishingSince.IsZero)}}<p>First seen missing {{when .Check.Image.PublishingSince}}</p>{{end}}
       {{with .RCBuild}}{{with .Output}}<p>Reported build output <code>{{.}}</code></p>{{end}}{{end}}
     </details>
     {{with .RCBuild}}{{with .Retry}}{{template "rc-retry" .}}{{end}}{{end}}
-  {{else}}<span title="No image result for this variant">—</span>{{end}}</td>
 {{end}}
 
 {{define "rc-retry"}}

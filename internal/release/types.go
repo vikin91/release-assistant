@@ -85,8 +85,10 @@ type (
 	Image struct {
 		Component, Family, Reference string
 		Name                         string
-		Present                      Truth
-		Evidence                     Evidence
+		// BuildJob names the Konflux job that produces this release image.
+		BuildJob string
+		Present  Truth
+		Evidence Evidence
 		// PublishingSince starts when publication is underway and this image is still missing.
 		PublishingSince time.Time
 	}
