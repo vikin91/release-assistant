@@ -26,7 +26,7 @@
       </form>
       {{if and (not $triage.Active) $triage.Ignored}}<p class="muted pr-list-all-hidden">Use Ignored &amp; hidden to review the PRs you hid.</p>{{end}}
     {{end}}
-    <p class="pr-list-filter-help muted">Included PRs that closed without merging or have a failed required check.</p>
+    <p class="pr-list-filter-help muted">Included PRs that closed without merging or have a failed check.</p>
     <p class="pr-list-filter-empty muted">No PRs match this filter.</p>
     {{range $triage.Repos}}
       <article class="pr-repo" data-live-key="pr-repo:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}">
@@ -83,12 +83,15 @@
 
 {{define "pr-list-checks"}}
   <div class="pr-list-checks">
-    <strong>Required checks:</strong>
-    {{if .Verified}}
-      <span><span aria-hidden="true">❌</span> {{.Failed}} failed,</span>
-      <span title="Includes queued and pending checks"><span aria-hidden="true">⚠️</span> {{.Running}} running,</span>
-      <span><span aria-hidden="true">✅</span> {{.Passed}} passed</span>
-      {{if .Unverified}}<span>· <span aria-hidden="true">⚠️</span> {{.Unverified}} unverified</span>{{end}}
-    {{else}}<span><span aria-hidden="true">⚠️</span> Unverified</span>{{end}}
+    {{if not .Available}}<span>Checks unavailable{{if .Problem}} · {{.Problem}}{{end}}</span>
+    {{else}}
+      {{if .Failed}}<span><span aria-hidden="true">❌</span> {{if .Partial}}At least {{end}}{{.Failed}} {{if eq .Failed 1}}check{{else}}checks{{end}} failed{{if .RequiredKnown}}, including {{.RequiredFailed}} required{{end}}</span>
+      {{else if .Running}}<span>{{.Running}} {{if eq .Running 1}}check{{else}}checks{{end}} running</span>
+      {{else if not .Partial}}<span>No failed checks</span>{{end}}
+      {{if not .RequiredKnown}}<span>{{if or .Failed .Running (not .Partial)}}· couldn’t{{else}}Couldn’t{{end}} verify which checks are required</span>{{end}}
+      {{if .Partial}}<span title="{{.Problem}}">{{if or .Failed .Running (not .RequiredKnown)}}· some{{else}}Some{{end}} check results unavailable</span>{{end}}
+    {{end}}
+    {{if .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer">View checks</a>{{end}}
+    {{if .RetryURL}}<a href="{{.RetryURL}}" data-open-section>Review retry</a>{{end}}
   </div>
 {{end}}

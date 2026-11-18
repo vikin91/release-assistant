@@ -40,8 +40,8 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 		release.Check{Required: release.Yes, Status: "in_progress"},
 		release.Check{Required: release.Yes, Status: "queued"},
 		release.Check{Required: release.Yes, Conclusion: "success"},
-		release.Check{Required: release.No, Conclusion: "failure"},
-		release.Check{Conclusion: "failure"},
+		release.Check{Name: "GitHub Actions tests", Required: release.No, Conclusion: "failure"},
+		release.Check{Name: "Konflux tests", Required: release.No, Conclusion: "failure"},
 	)
 	closed := pr(2, "closed", "success")
 	candidate := pr(3, "open", "failure")
@@ -101,10 +101,10 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 		title, choice, checks string
 		attention             bool
 	}{
-		{"change-1", "included", "1 failed,", true},
+		{"change-1", "included", "3 checks failed, including 1 required", true},
 		{"change-2", "included", "Closed without merging", true},
 		{"change-3", "undecided", "", false},
-		{"change-4", "included", "Unverified", false},
+		{"change-4", "included", "Checks unavailable · read timed out", false},
 		{"change-5", "undecided", "", false},
 		{"change-6", "excluded", "", false},
 	} {
@@ -113,7 +113,7 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 			!strings.Contains(card, tt.checks) || strings.Contains(card, "data-pr-attention") != tt.attention {
 			t.Errorf("PR %q has the wrong selection, status, or filter category", tt.title)
 		}
-		if strings.Contains(card, "Required checks:") != (tt.choice == "included") {
+		if strings.Contains(card, "View checks") != (tt.choice == "included") {
 			t.Errorf("PR %q shows a check summary for the wrong release choice", tt.title)
 		}
 		controls, _, _ := strings.Cut(card, "<details")
@@ -131,10 +131,13 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 		}
 	}
 	mixed := prCardContaining(body, "change-1")
-	for _, want := range []string{"❌", "1 failed,", "⚠️", "2 running,", "✅", "1 passed", "1 unverified"} {
+	for _, want := range []string{"❌", "3 checks failed, including 1 required", "/pull/1/checks"} {
 		if !strings.Contains(mixed, want) {
 			t.Errorf("mixed check summary missing %q", want)
 		}
+	}
+	if strings.Contains(mixed, "GitHub Actions tests") || strings.Contains(mixed, "Konflux tests") {
+		t.Error("the PR row should summarize failures without listing individual checks")
 	}
 	if len(application.actions) != 0 {
 		t.Fatal("rendering triage changed the release selection")
@@ -171,5 +174,39 @@ func TestIgnoreAllComponentPRsSubmitsTheCurrentGeneration(t *testing.T) {
 	values.Set("tab", "acs-prs")
 	if response := browser.post(values); response.Code != http.StatusBadRequest {
 		t.Fatal("bulk ignore was accepted from the ACS list")
+	}
+}
+
+func TestACSPRRowShowsObservedFailuresWithoutRequiredSettings(t *testing.T) {
+	s := workflowStatusSnapshot()
+	source := s.Config.ACS()
+	target := release.Target{Repo: source.Repo, PR: 24102}
+	fresh := s.Inventory.Evidence
+	pr := release.PR{
+		Target: target, Title: "Update V6 vulnerability bundles", State: "open", Base: source.Branch, SHA: "head",
+		Evidence: fresh, CheckResultsEvidence: fresh,
+		ChecksEvidence: release.Evidence{Known: true, At: fresh.At, Error: "Required-check settings: Access denied."},
+		Checks: []release.Check{
+			{Name: "GitHub Actions tests", Conclusion: "failure"},
+			{Name: "Konflux startup check", Conclusion: "startup_failure"},
+		},
+	}
+	s.Repositories[len(s.Repositories)-1].PRs = []release.PR{pr}
+	s.Choices.PRs[target] = release.Included
+	s.Plans = []release.Plan{{Target: target, Proposals: []release.Proposal{{
+		Target: target, Job: "checks", SHA: pr.SHA, RunID: "12", Payload: "/konflux-retest checks",
+	}}}}
+	body := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-prs")
+	card := prCardContaining(body, pr.Title)
+	for _, want := range []string{
+		"❌", "2 checks failed", "· couldn’t verify which checks are required", "View checks", "/pull/24102/checks",
+		"data-pr-attention", "Review retry", "#acs-pr-retries-24102",
+	} {
+		if !strings.Contains(card, want) {
+			t.Errorf("missing %q in PR card", want)
+		}
+	}
+	if !strings.Contains(body, `id="acs-pr-retries-24102"`) {
+		t.Fatal("retry link must point to the matching PR")
 	}
 }

@@ -198,7 +198,6 @@ button[aria-pressed=true] { border-color: var(--accent); background: color-mix(i
 .pr-list .pr-card .control-row { margin-top: 0; align-self: start; }
 .pr-list-note { display: block; font-size: .8rem; }
 .pr-list-checks { grid-column: 1 / -1; display: flex; flex-wrap: wrap; column-gap: .4rem; font-size: .86rem; }
-.pr-list-checks > span { white-space: nowrap; }
 .pr-list-disclosures { grid-column: 1 / -1; display: flex; align-items: start; flex-wrap: wrap; gap: .25rem .8rem; font-size: .86rem; }
 .pr-list-disclosures details { min-width: 0; margin: 0; }
 .pr-list-disclosures details[open] { flex-basis: 100%; }

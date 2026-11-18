@@ -821,6 +821,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 				p := *repo.PinningPR
 				p.SHA, p.Evidence = plan.SHA, identity.Evidence
 				p.ChecksEvidence.Known = false
+				p.CheckResultsEvidence.Known = false
 				repo.PinningPR = &p
 			}
 			s.repos[source.Name] = repo

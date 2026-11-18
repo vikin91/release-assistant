@@ -451,7 +451,7 @@ func TestComponentPRSelectionShowsAuthorsAndSummarizesUnverifiedChecks(t *testin
 	}
 	card := regexp.MustCompile(`(?s)<article class="pr-card"[^>]*>.*?</article>`).FindString(body)
 	if strings.Contains(card, "Evidence and checks") || strings.Contains(card, "unit-tests") ||
-		!strings.Contains(card, "Required checks:") || !strings.Contains(card, "Unverified") {
+		!strings.Contains(card, "View checks") || !strings.Contains(card, "Checks unavailable") {
 		t.Fatal("the component PR should show unverified status without exposing the check table")
 	}
 	if !strings.Contains(card, `name="sha" value="exact-pr-head"`) ||

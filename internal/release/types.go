@@ -42,6 +42,8 @@ type (
 		Evidence                                       Evidence
 		Checks                                         []Check
 		ChecksEvidence                                 Evidence
+		// CheckResultsEvidence describes check runs and commit statuses independently of branch protection.
+		CheckResultsEvidence Evidence
 	}
 	// Check is display evidence, never application-level retry eligibility.
 	Check struct {

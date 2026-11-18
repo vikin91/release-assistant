@@ -3,7 +3,7 @@
     <details id="{{.RetryDetails}}" open>
       <summary class="section-summary">Build retries</summary>
       {{range .BuildRetries}}
-        <article class="build-retry-target" data-live-key="build-retries:{{.Target}}">
+        <article class="build-retry-target" {{if .Target.PR}}id="acs-pr-retries-{{.Target.PR}}" {{end}}data-live-key="build-retries:{{.Target}}">
           <h3>{{.Target}}{{if eq .Target $.Snapshot.Config.PinningTarget}} <span class="pill">Pinning PR</span>{{end}}</h3>
           {{with .Authority}}{{if .Message}}<p class="build-retry-note">{{.Message}}</p>{{end}}{{end}}
           {{range .Candidates}}

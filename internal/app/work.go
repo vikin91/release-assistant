@@ -140,6 +140,7 @@ func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) re
 	if !request.Reads(ReadChecks) {
 		for i := range latest.PRs {
 			latest.PRs[i].ChecksEvidence.Known = false
+			latest.PRs[i].CheckResultsEvidence.Known = false
 		}
 	}
 	if !request.Reads(ReadPRs) {
@@ -156,6 +157,7 @@ func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) re
 			if request.Reads(ReadTargets) && slices.Contains(request.Tracked, prs[i].Target) && !slices.ContainsFunc(latest.PRs, func(p release.PR) bool { return p.Target == prs[i].Target }) {
 				prs[i].Evidence.Known = false
 				prs[i].ChecksEvidence.Known = false
+				prs[i].CheckResultsEvidence.Known = false
 			}
 		}
 		latest.PRs = prs

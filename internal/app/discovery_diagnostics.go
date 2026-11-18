@@ -29,6 +29,7 @@ func retainDiscoveryFailure(previous, latest release.Repository, cause error) re
 		retained.PRs[i].Evidence.Known = false
 		retained.PRs[i].Evidence.Error = evidence.Error
 		retained.PRs[i].ChecksEvidence.Known = false
+		retained.PRs[i].CheckResultsEvidence.Known = false
 	}
 	for i := range retained.Tags {
 		retained.Tags[i].Evidence.Known = false
@@ -43,6 +44,7 @@ func retainDiscoveryFailure(previous, latest release.Repository, cause error) re
 		pr := *retained.PinningPR
 		pr.Evidence, pr.ChecksEvidence = retained.PinningEvidence, retained.PinningEvidence
 		pr.Evidence.Known, pr.ChecksEvidence.Known = false, false
+		pr.CheckResultsEvidence.Known = false
 		retained.PinningPR = &pr
 	}
 	if latest.PinningPR != nil {

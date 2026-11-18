@@ -274,6 +274,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 					if existing := findPR(result.PRs, p.Target.PR); existing != nil && existing.SHA == p.SHA && !existing.ChecksEvidence.At.IsZero() {
 						p.Checks = existing.Checks
 						p.ChecksEvidence = existing.ChecksEvidence
+						p.CheckResultsEvidence = existing.CheckResultsEvidence
 					} else {
 						c.readChecks(ctx, source, &p)
 					}
@@ -515,21 +516,25 @@ func (c *Client) readChecks(ctx context.Context, src release.Source, p *release.
 	p.ChecksEvidence = release.Evidence{At: time.Now(), URL: p.URL, Known: true}
 	base := repoPath(src.Repo)
 	var problems []string
-	runs, err := c.readCommitCheckRuns(ctx, src.Repo, p.SHA)
+	runs, runsErr := c.readCommitCheckRuns(ctx, src.Repo, p.SHA)
 	for _, run := range runs {
 		p.Checks = append(p.Checks, run.check())
 	}
-	if err != nil {
-		problems = append(problems, "Check runs: "+requestProblem(err))
+	if runsErr != nil {
+		problems = append(problems, "Check runs: "+requestProblem(runsErr))
 	}
-	statuses, err := c.readCommitStatuses(ctx, src.Repo, p.SHA)
+	statuses, statusesErr := c.readCommitStatuses(ctx, src.Repo, p.SHA)
 	for _, status := range statuses {
 		if !slices.ContainsFunc(p.Checks, func(check release.Check) bool { return check.Name == status.Context }) {
 			p.Checks = append(p.Checks, release.Check{Name: status.Context, Status: status.State, URL: status.URL})
 		}
 	}
-	if err != nil {
-		problems = append(problems, "Commit statuses: "+requestProblem(err))
+	if statusesErr != nil {
+		problems = append(problems, "Commit statuses: "+requestProblem(statusesErr))
+	}
+	p.CheckResultsEvidence = release.Evidence{
+		At: p.ChecksEvidence.At, URL: p.URL, Error: strings.Join(problems, " "),
+		Known: runsErr == nil || statusesErr == nil || len(p.Checks) > 0,
 	}
 	var required branchProtectionResponse
 	if err := c.get(ctx, base+"/branches/"+segment(src.Branch)+"/protection/required_status_checks", &required); err != nil {

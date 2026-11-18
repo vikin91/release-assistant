@@ -83,3 +83,31 @@ func TestReadRCChecksPreservesPartialEvidenceOnActionsFailure(t *testing.T) {
 		t.Fatalf("partial checks were lost or mislabeled: %+v", result)
 	}
 }
+
+func TestPRCheckResultsStayCurrentWhenRequiredSettingsAreUnavailable(t *testing.T) {
+	server := newFakeServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/check-runs"):
+			fmt.Fprint(w, `{"total_count":1,"check_runs":[{"id":1,"name":"GitHub Actions tests","status":"completed","conclusion":"failure","app":{"slug":"github-actions"}}]}`)
+		case strings.HasSuffix(r.URL.Path, "/statuses"):
+			fmt.Fprint(w, `[{"context":"external CI","state":"failure"}]`)
+		case strings.HasSuffix(r.URL.Path, "/required_status_checks"):
+			w.WriteHeader(http.StatusForbidden)
+		default:
+			t.Errorf("unexpected request %s", r.URL)
+			http.NotFound(w, r)
+		}
+	}))
+	c := New(server.URL, "", server.Client())
+	pr := release.PR{SHA: "head"}
+	c.readChecks(t.Context(), release.Source{Repo: "stackrox/stackrox", Branch: "release-5.0"}, &pr)
+	if !pr.CheckResultsEvidence.Fresh() || pr.ChecksEvidence.Fresh() ||
+		!strings.Contains(pr.ChecksEvidence.Error, "Required-check settings") || len(pr.Checks) != 2 {
+		t.Fatalf("check availability or required settings were mislabeled: %+v", pr)
+	}
+	for _, check := range pr.Checks {
+		if check.Result() != release.No || check.Required != "" {
+			t.Errorf("failed check was hidden or classified without branch settings: %+v", check)
+		}
+	}
+}
