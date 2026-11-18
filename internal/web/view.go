@@ -336,6 +336,9 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 			model.PinPRState = "Closed"
 		}
 	}
+	if snapshot.Assessment.Pins.PROpen && snapshot.Assessment.Pins.PRStatus == release.No {
+		model.PinPRState = "Needs update"
+	}
 	for _, check := range snapshot.Assessment.Images {
 		row := imageModel{Check: check, Name: check.Image.Name}
 		if index := strings.LastIndexByte(check.Image.Reference, ':'); index >= 0 {

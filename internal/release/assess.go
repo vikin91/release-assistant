@@ -140,7 +140,7 @@ func Assess(in Input) Assessment {
 	if missingTags {
 		a.ACSRecommendations = append(a.ACSRecommendations, "Select component tags in Component releases when ready to prepare pinning. ACS PR work can continue while you prepare component releases.")
 	}
-	if a.Pins.BranchStatus == No {
+	if a.Pins.BranchStatus == No && !a.Pins.PROpen {
 		a.ACSRecommendations = append(a.ACSRecommendations, "Review ACS release branch pins: "+strings.TrimSuffix(a.Pins.BranchReason, ".")+".")
 	} else if a.Pins.BranchStatus == "" && (!missingTags || repos["acs"].Pins.Evidence.Error != "") {
 		a.ACSRecommendations = append(a.ACSRecommendations, "Review ACS release branch pin discovery: "+strings.TrimSuffix(a.Pins.BranchReason, ".")+".")
@@ -737,6 +737,7 @@ func assessPinSummary(in Input, repos map[string]Repository, versions map[string
 		summary.PRReason = strings.Join(summary.PRProblems, "; ")
 		return summary
 	}
+	summary.PROpen = true
 	if !acs.PinningPins.Evidence.Fresh() {
 		summary.PRSummary = "Pending: reading proposed component version files"
 		if acs.PinningPins.Evidence.Error != "" {
@@ -754,8 +755,14 @@ func assessPinSummary(in Input, repos map[string]Repository, versions map[string
 	proposedStatus := comparePins(acs.PinningPins.Versions, comparisonVersions, in.Config.Components)
 	if proposedStatus == No {
 		summary.PRStatus = No
-		summary.PRSummary = "Open pinning PR proposes versions that differ from selected versions."
-		summary.PRReason = summary.PRSummary
+		summary.PRSummary = "Pinning PR versions differ from selected component versions."
+		for _, source := range in.Config.Components {
+			actual, selected := acs.PinningPins.Versions[source.Name], comparisonVersions[source.Name]
+			if actual != "" && selected != "" && actual != selected {
+				summary.PRProblems = append(summary.PRProblems, fmt.Sprintf("The pinning PR sets %s to %s; your selected %s version is %s.", pinFile(acs.PinningPins, source.Name), actual, componentTitle(source.Name), selected))
+			}
+		}
+		summary.PRReason = strings.Join(summary.PRProblems, " ")
 		return summary
 	}
 	if proposedStatus == "" {
@@ -767,7 +774,7 @@ func assessPinSummary(in Input, repos map[string]Repository, versions map[string
 		summary.PRReason = strings.Join(summary.PRProblems, "; ")
 		return summary
 	}
-	summary.PRSummary = "Pending merge"
+	summary.PRSummary = "The pinning PR sets all selected component versions; wait for it to merge."
 	summary.PRReason = summary.PRSummary
 	return summary
 }
@@ -909,16 +916,12 @@ func assessPinningPR(a *Assessment, in Input, versions map[string]string, tagSta
 		a.ACSRecommendations = append(a.ACSRecommendations, prProblem)
 		return
 	}
-	if acs.Pins.Evidence.Fresh() && pinsMatch(acs.Pins.Versions, versions, in.Config.Components) {
-		return
-	}
-	if strings.EqualFold(pr.State, "open") {
-		if !pr.Evidence.Fresh() || !acs.PinningPins.Evidence.Fresh() {
-			a.ACSRecommendations = append(a.ACSRecommendations, prProblem)
+	if strings.EqualFold(pr.State, "open") && !pr.Merged {
+		a.ACSRecommendations = append(a.ACSRecommendations, prProblem)
+		if !a.Pins.PROpen || !acs.PinningPins.Evidence.Fresh() {
 			return
 		}
 		if pinsMatch(acs.PinningPins.Versions, versions, in.Config.Components) {
-			a.ACSRecommendations = append(a.ACSRecommendations, "The open pinning PR already proposes the confirmed component versions; wait for it to merge. Actual release branch pins remain the readiness condition.")
 			return
 		}
 		if imageStatus == Yes && pinningReady(in, versions, tagStatuses) {
@@ -930,6 +933,9 @@ func assessPinningPR(a *Assessment, in Input, versions map[string]string, tagSta
 				a.Commands = commands
 			}
 		}
+		return
+	}
+	if acs.Pins.Evidence.Fresh() && pinsMatch(acs.Pins.Versions, versions, in.Config.Components) {
 		return
 	}
 	if (pr.Merged || strings.EqualFold(pr.State, "closed")) && pr.Evidence.Fresh() && imageStatus == Yes && pinningReady(in, versions, tagStatuses) {

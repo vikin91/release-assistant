@@ -679,14 +679,14 @@ func TestAssessPinSummarySeparatesActualPinsFromPRProposal(t *testing.T) {
 				in.Repositories[0].PinningPR = &PR{Target: Target{Repo: "stackrox/stackrox", PR: 99}, Base: in.Config.Branch, State: "open", Evidence: freshEvidence()}
 				in.Repositories[0].PinningPins = Pins{Versions: map[string]string{"fact": "0.3.79", "collector": "0.4.12"}, Evidence: freshEvidence()}
 			},
-			wantBranch: Yes, wantPR: "", wantBranchText: "match selected versions", wantPRText: "Pending merge",
+			wantBranch: Yes, wantPR: "", wantBranchText: "match selected versions", wantPRText: "wait for it to merge",
 		},
 		"matching branch and wrong proposal": {
 			mutate: func(in *Input) {
 				in.Repositories[0].PinningPR = &PR{Target: Target{Repo: "stackrox/stackrox", PR: 99}, Base: in.Config.Branch, State: "open", Evidence: freshEvidence()}
 				in.Repositories[0].PinningPins = Pins{Versions: map[string]string{"fact": "0.3.78", "collector": "0.4.12"}, Evidence: freshEvidence()}
 			},
-			wantBranch: Yes, wantPR: No, wantBranchText: "match selected versions", wantPRText: "differ from selected",
+			wantBranch: Yes, wantPR: No, wantBranchText: "match selected versions", wantPRText: "The pinning PR sets FACT_VERSION to 0.3.78; your selected Fact version is 0.3.79.",
 		},
 		"mismatched actual branch names versions": {
 			mutate:     func(in *Input) { in.Repositories[0].Pins.Versions["fact"] = "0.3.78" },

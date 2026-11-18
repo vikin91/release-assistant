@@ -1,13 +1,19 @@
 {{define "acs-pinning"}}
   <details class="panel" id="pinning-details" open><summary class="section-summary">ACS pinning details</summary>
-    <p>{{.Snapshot.Assessment.Pins.BranchSummary}}</p>
-    {{if .Snapshot.Assessment.Pins.BranchProblems}}<ol class="pin-problems">{{range .Snapshot.Assessment.Pins.BranchProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}
+    {{if .Snapshot.Assessment.Pins.PRNumber}}<p><a href="{{url .Snapshot.Assessment.Pins.PRURL}}" target="_blank" rel="noreferrer">Open pinning PR #{{.Snapshot.Assessment.Pins.PRNumber}}</a>: {{.Snapshot.Assessment.Pins.PRSummary}}</p>{{else}}<p>Set a pinning PR number to monitor its checks.</p>{{end}}
+    {{if .Snapshot.Assessment.Pins.PRProblems}}<ol class="pin-problems">{{range .Snapshot.Assessment.Pins.PRProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}
+    {{if and .Snapshot.Assessment.Pins.PROpen (eq (truth .Snapshot.Assessment.Pins.BranchStatus) "no")}}
+      <p class="muted">The pinning PR has not merged. Release-branch pins will be verified after merge.</p>
+    {{else}}
+      <p>{{.Snapshot.Assessment.Pins.BranchSummary}}</p>
+      {{if .Snapshot.Assessment.Pins.BranchProblems}}<ol class="pin-problems">{{range .Snapshot.Assessment.Pins.BranchProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}
+    {{end}}
     {{if .ACS}}
       <table class="pin-comparison" aria-label="Component version comparison">
         <thead><tr><th scope="col">Component</th><th scope="col">Selected tag</th><th scope="col">On ACS branch</th>{{if .Snapshot.Config.PinningPR}}<th scope="col">In pinning PR</th>{{end}}</tr></thead>
         <tbody>{{range .Snapshot.Config.Components}}
           {{$selected := index $.Snapshot.Choices.Tags .Name}}
-          {{$branchDiffers := pinDiffers $.ACS.Pins . $selected}}
+          {{$branchDiffers := and (not $.Snapshot.Assessment.Pins.PROpen) (pinDiffers $.ACS.Pins . $selected)}}
           <tr>
             <th scope="row">{{title .Name}}</th>
             <td>{{if $selected}}<code>{{$selected}}</code>{{else}}Choose tag{{end}}</td>
@@ -19,8 +25,6 @@
         {{end}}</tbody>
       </table>
     {{end}}
-    {{if .Snapshot.Assessment.Pins.PRNumber}}<p><a href="{{url .Snapshot.Assessment.Pins.PRURL}}" target="_blank" rel="noreferrer">Open pinning PR #{{.Snapshot.Assessment.Pins.PRNumber}}</a>: {{.Snapshot.Assessment.Pins.PRSummary}}</p>{{else}}<p>Set a pinning PR number to monitor its checks.</p>{{end}}
-    {{if .Snapshot.Assessment.Pins.PRProblems}}<ol class="pin-problems">{{range .Snapshot.Assessment.Pins.PRProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}
     {{if .PinningPR}}{{$pin := .PinningPR.PR}}<article class="pr-card" data-fold-key="pinning-pr:{{$pin.Target.Repo}}#{{$pin.Target.PR}}">
       <h3><a href="{{url $pin.URL}}" target="_blank" rel="noreferrer">Pinning PR #{{$pin.Target.PR}}{{if $pin.Title}} · {{$pin.Title}}{{end}}</a></h3>
       {{if .PinningStartFailures}}<p><a href="/?tab=acs-prs#acs-prs-start-failures" data-open-section>View reported build creation failures</a>.</p>{{end}}

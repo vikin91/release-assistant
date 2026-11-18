@@ -105,7 +105,9 @@ type (
 		PRNumber                   int
 		PRURL, PRSummary, PRReason string
 		PRStatus                   Truth
-		// PRProblems lists specific missing inputs or failed PR requests.
+		// PROpen identifies a verified open PR targeting the configured ACS branch.
+		PROpen bool
+		// PRProblems lists version mismatches, missing inputs, or failed PR requests.
 		PRProblems []string
 	}
 	// Inventory binds image observations to the ACS release and confirmed component versions.
