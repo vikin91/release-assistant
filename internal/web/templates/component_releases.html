@@ -98,8 +98,13 @@
             <span class="component-image-tag">{{if $group.SelectedTag}}<code>{{$group.SelectedTag}}</code>{{else}}No tag selected{{end}}</span>
           </th>{{end}}
           <th scope="row">{{if .Name}}<code>{{.Name}}</code>{{else}}Unspecified{{end}}</th>
-          {{template "component-image-cell" .CI}}
-          {{template "component-image-cell" .Konflux}}
+          {{if $acs}}
+            {{template "rc-image-cell" .CI}}
+            {{template "rc-image-cell" .Konflux}}
+          {{else}}
+            {{template "component-image-cell" .CI}}
+            {{template "component-image-cell" .Konflux}}
+          {{end}}
         </tr>
         {{end}}
       </tbody>
@@ -112,11 +117,19 @@
   <td>{{if .}}
     <details class="component-image-check" data-fold-key="component-image:{{.Check.Image.Component}}:{{.Check.Image.Family}}:{{.Name}}">
       <summary>
-        <span class="pill component-image-status {{truth .Check.Status}}">{{if eq (truth .Check.Status) "yes"}}Available{{else if eq (truth .Check.Status) "no"}}Not found{{else}}Unable to check{{end}}</span>
+        <span class="pill component-image-status {{truth .Check.Status}}">{{template "image-status-label" .}}</span>
         {{if not .Check.Status}}
           <span class="component-image-note">{{if and .Check.Required (not .Check.SelectedTag)}}No tag selected{{else if and (not .Check.Image.Evidence.Fresh) .Check.Image.Present}}Last result unverified{{else if and .Check.Image.Reference .Check.Image.Evidence.Error}}Registry check failed{{else}}{{.Check.Reason}}{{end}}</span>
         {{end}}
       </summary>
+      {{template "image-evidence" .}}
+    </details>
+  {{else}}<span title="No image result for this variant">—</span>{{end}}</td>
+{{end}}
+
+{{define "image-status-label"}}{{if eq (truth .Check.Status) "yes"}}Available{{else if eq (truth .Check.Status) "no"}}Not found{{else}}Unable to check{{end}}{{end}}
+
+{{define "image-evidence"}}
       <div class="component-image-evidence">
         {{if .Check.Image.Reference}}
           <p>{{if .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer"><code>{{.Check.Image.Reference}}</code></a>{{else}}<code>{{.Check.Image.Reference}}</code>{{end}}</p>
@@ -129,7 +142,4 @@
           <p>Last confirmed {{if eq .Check.Image.Present "yes"}}available{{else}}not found{{end}} at {{when .Check.Image.Evidence.At}}. Current availability is unverified.</p>
         {{end}}
       </div>
-    </details>
-    {{with .RCBuild}}{{template "rc-image-build" .}}{{end}}
-  {{else}}<span title="No image result for this variant">—</span>{{end}}</td>
 {{end}}

@@ -2,11 +2,25 @@
   <section class="panel" id="release-images-panel">
     <details id="release-images" open>
       <summary id="release-images-heading" class="section-summary">ACS {{.Snapshot.Config.Version}} RC.0 images
-        {{template "image-counts" .ReleaseImages}}
+        {{if .RC.KonfluxMissing}}
+          <span class="component-image-counts">{{.RC.KonfluxMissing}} Konflux {{if eq .RC.KonfluxMissing 1}}image{{else}}images{{end}} missing</span>
+        {{else}}{{template "image-counts" .ReleaseImages}}{{end}}
       </summary>
       {{$waiting := .Snapshot.RCImageWaitReason}}
       {{if $waiting}}<p class="muted">{{$waiting}}</p>
       {{else}}
+        {{if and .RC.KonfluxMissing (or .RC.CITotal (eq .RC.MissingAfterBuild .RC.KonfluxMissing))}}
+          <div class="rc-summary">
+            {{if and .RC.CITotal (eq .RC.CIAvailable .RC.CITotal)}}
+              <span>All {{.RC.CITotal}} CI {{if eq .RC.CITotal 1}}image is{{else}}images are{{end}} available.</span>
+            {{else if .RC.CITotal}}
+              <span>{{.RC.CIAvailable}} of {{.RC.CITotal}} CI images available.</span>
+            {{end}}
+            {{if eq .RC.MissingAfterBuild .RC.KonfluxMissing}}
+              <span>{{if eq .RC.KonfluxMissing 1}}The corresponding Konflux build succeeded, but its expected tag is missing in Quay.{{else}}The corresponding Konflux builds succeeded, but their expected tags are missing in Quay.{{end}}</span>
+            {{end}}
+          </div>
+        {{end}}
         {{if .RC.TagURL}}
           <div class="control-row rc-links">
             <a href="{{url .RC.TagURL}}" target="_blank" rel="noreferrer">Open RC.0 tag</a>
@@ -14,13 +28,14 @@
           </div>
           {{with .RC.Permission}}{{template "tag-comment-permission" .}}{{end}}
           {{with .RC.Plan}}
-            {{if .Plan.Message}}<p class="muted">{{.Plan.Message}}</p>{{end}}
-            {{if .Plan.Evidence.Error}}<p class="error-text">{{.Plan.Evidence.Error}}</p>{{end}}
+            {{if not .Plan.Runs}}
+              {{if .Plan.Evidence.Error}}<p class="muted">Unable to load Konflux build checks.</p>
+              {{else if and .Plan.Message (ne .Plan.Action "None")}}<p class="muted">{{.Plan.Message}}</p>{{end}}
+            {{end}}
           {{end}}
         {{else if .RC.Plan}}
           <p>Unable to verify the RC.0 tag. If the tag hasn’t been created, open the release workflow.</p>
           <p><a href="{{url .RC.WorkflowURL}}" target="_blank" rel="noreferrer">Open release workflow</a></p>
-          {{with .RC.Plan.Plan.Evidence.Error}}<p class="error-text">{{.}}</p>{{end}}
         {{else}}
           <p class="muted">Waiting to check the RC.0 tag.</p>
         {{end}}
@@ -31,17 +46,43 @@
         {{if .Other}}{{template "image-results" .Other}}{{end}}
       {{end}}
       {{range .RC.OtherRetries}}{{template "rc-retry" .}}{{end}}
+      {{with .RC.Plan}}
+        {{if or .Plan.Evidence.Error .Plan.Warnings}}
+          <details class="rc-diagnostics" data-fold-key="rc-build-diagnostics">
+            <summary>{{with $.RC.UnverifiedJobs}}{{len .}} {{if $.ReleaseImages.Total}}additional {{end}}{{if eq (len .) 1}}job{{else}}jobs{{end}} could not be verified{{else}}Build check diagnostics{{end}}</summary>
+            {{if $.RC.LookupTimedOut}}<p class="muted">A Konflux lookup timed out while verifying build checks.</p>{{end}}
+            {{with $.RC.UnverifiedJobs}}<ol>{{range .}}<li><code>{{.Job}}</code>{{if url .URL}} · <a href="{{url .URL}}" target="_blank" rel="noreferrer">Open check in Konflux</a>{{end}}</li>{{end}}</ol>{{end}}
+            {{if .Plan.Evidence.Error}}<pre>{{.Plan.Evidence.Error}}</pre>
+            {{else}}<ol>{{range .Plan.Warnings}}<li>{{.}}</li>{{end}}</ol>{{end}}
+          </details>
+        {{end}}
+      {{end}}
     </details>
   </section>
   {{template "start-failures" .}}
 {{end}}
 
-{{define "rc-image-build"}}
-  <div class="rc-build">
-    <span class="pill component-image-status {{.Class}}">{{.Status}}</span>
-    {{if url .Link}}<a href="{{url .Link}}" target="_blank" rel="noreferrer">{{.LinkLabel}}</a>{{end}}
-  </div>
-  {{with .Retry}}{{template "rc-retry" .}}{{end}}
+{{define "rc-image-cell"}}
+  <td>{{if .}}
+    {{$missing := eq (truth .Check.Status) "no"}}
+    <div class="rc-row-status">
+      {{with .RCBuild}}<span class="pill component-image-status {{.Class}}">{{.Status}}</span>{{end}}
+      <span class="pill component-image-status {{truth .Check.Status}}">{{if $missing}}Tag missing{{else}}{{template "image-status-label" .}}{{end}}</span>
+    </div>
+    {{if or .RCBuild (and $missing .URL)}}
+      <div class="rc-row-links">
+        {{with .RCBuild}}{{if url .Link}}<a href="{{url .Link}}" target="_blank" rel="noreferrer">{{.LinkLabel}}</a>{{end}}{{end}}
+        {{if and $missing .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer">Open expected Quay tag</a>{{end}}
+      </div>
+    {{end}}
+    <details class="rc-image-evidence" data-fold-key="component-image:acs:{{.Check.Image.Family}}:{{.Name}}">
+      <summary>Details</summary>
+      {{template "image-evidence" .}}
+      {{if and $missing (not .Check.Image.PublishingSince.IsZero)}}<p>First seen missing {{when .Check.Image.PublishingSince}}</p>{{end}}
+      {{with .RCBuild}}{{with .Output}}<p>Reported build output <code>{{.}}</code></p>{{end}}{{end}}
+    </details>
+    {{with .RCBuild}}{{with .Retry}}{{template "rc-retry" .}}{{end}}{{end}}
+  {{else}}<span title="No image result for this variant">—</span>{{end}}</td>
 {{end}}
 
 {{define "rc-retry"}}

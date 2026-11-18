@@ -74,8 +74,13 @@ legend { padding: 0 .35rem; font-weight: 700; }
 .component-image-status.unknown { border-color: #d99b22; background: color-mix(in srgb, #d99b22 16%, Canvas); }
 .component-image-evidence { margin-top: .35rem; font-size: .86rem; overflow-wrap: anywhere; }
 .component-image-evidence p { margin: 0 0 .3rem; }
-.rc-links, .rc-build { gap: .35rem .8rem; margin-block: .55rem; }
-.rc-build { display: flex; flex-wrap: wrap; align-items: baseline; font-size: .86rem; }
+.rc-summary, .rc-links { margin-block: .55rem; }
+.rc-row-status, .rc-row-links { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .55rem; }
+.rc-row-links, .rc-image-evidence { margin-top: .35rem; font-size: .86rem; overflow-wrap: anywhere; }
+.rc-image-evidence p { margin: .25rem 0 0; }
+.rc-diagnostics { margin-top: .85rem; font-size: .86rem; overflow-wrap: anywhere; }
+.rc-diagnostics p, .rc-diagnostics ol { margin: .35rem 0; }
+.rc-diagnostics pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .rc-retry { margin-top: .45rem; }
 .rc-retry summary { color: var(--accent); font-weight: 650; overflow-wrap: anywhere; }
 .rc-retry pre { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -94,7 +99,7 @@ legend { padding: 0 .35rem; font-weight: 700; }
   .component-image-status { justify-self: start; padding-inline: .3rem; }
   .rc-image-table { min-width: 0; }
   .rc-ci-column { width: 27%; }
-  .rc-retry, .rc-build { overflow-wrap: anywhere; }
+  .rc-retry { overflow-wrap: anywhere; }
 }
 .readiness-details { margin-bottom: .65rem; }
 #activity-log { max-height: 18rem; overflow: auto; font-size: .8rem; }

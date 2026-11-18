@@ -2,19 +2,25 @@ package web
 
 import (
 	"net/url"
+	"strings"
 
 	"release-assistant/internal/release"
 )
 
 type (
 	rcModel struct {
-		TagURL, ChecksURL, WorkflowURL string
-		Plan                           *planModel
-		Permission                     *tagModel
-		OtherRetries                   []rcRetryModel
+		TagURL, ChecksURL, WorkflowURL    string
+		Plan                              *planModel
+		Permission                        *tagModel
+		OtherRetries                      []rcRetryModel
+		UnverifiedJobs                    []release.Run
+		LookupTimedOut                    bool
+		CIAvailable, CITotal              int
+		KonfluxMissing, MissingAfterBuild int
 	}
 	rcBuildModel struct {
 		Status, Class, Link, LinkLabel string
+		Output                         string
 		Retry                          *rcRetryModel
 	}
 	rcRetryModel struct {
@@ -27,6 +33,19 @@ func (p *pageModel) prepareRC() {
 	target := p.Snapshot.Config.RC0Target()
 	repoURL := "https://github.com/" + target.Repo
 	p.RC.WorkflowURL = repoURL + "/actions/workflows/start-release.yml"
+	for _, group := range p.ReleaseImages.Groups {
+		for _, row := range group.Rows {
+			if row.CI != nil {
+				p.RC.CITotal++
+				if row.CI.Check.Status == release.Yes {
+					p.RC.CIAvailable++
+				}
+			}
+			if row.Konflux != nil && row.Konflux.Check.Status == release.No {
+				p.RC.KonfluxMissing++
+			}
+		}
+	}
 	groups := p.BuildRetries()
 	if len(groups) == 0 || groups[0].Plan == nil {
 		return
@@ -34,6 +53,8 @@ func (p *pageModel) prepareRC() {
 	group := groups[0]
 	p.RC.Plan = group.Plan
 	plan := group.Plan.Plan
+	p.RC.LookupTimedOut = strings.Contains(plan.Evidence.Error, "PipelineRun identity") &&
+		strings.Contains(plan.Evidence.Error, "context deadline exceeded")
 	if plan.SHA == "" {
 		return
 	}
@@ -64,10 +85,14 @@ func (p *pageModel) prepareRC() {
 			job := row.Name + "-on-push"
 			run := runs[job]
 			build := rcBuild(run, p.RC.ChecksURL)
-			if retry := retries[job]; retry != nil && retry.Proposal.SHA == plan.SHA && retry.Proposal.RunID == run.ID && run.Eligible {
+			if row.Konflux.Check.Status == release.No && build.Class == "yes" {
+				p.RC.MissingAfterBuild++
+			}
+			if retry := retries[job]; rcRetryMatches(retry, run, plan.SHA) {
 				build.Retry = new(p.rcRetry(retry))
 			}
 			delete(retries, job)
+			delete(runs, job)
 			image := *row.Konflux
 			image.RCBuild = &build
 			p.ReleaseImages.Groups[i].Rows[j].Konflux = &image
@@ -75,11 +100,21 @@ func (p *pageModel) prepareRC() {
 	}
 	for _, candidate := range group.Candidates {
 		run := runs[candidate.Proposal.Job]
-		if retries[run.Job] == candidate && candidate.Proposal.SHA == plan.SHA &&
-			run.ID != "" && candidate.Proposal.RunID == run.ID && run.Eligible {
+		if retries[run.Job] == candidate && rcRetryMatches(candidate, run, plan.SHA) {
 			p.RC.OtherRetries = append(p.RC.OtherRetries, p.rcRetry(candidate))
 		}
 	}
+	for _, run := range plan.Runs {
+		if run.Status == "unknown" && run.ID == "" && runs[run.Job].Job != "" {
+			p.RC.UnverifiedJobs = append(p.RC.UnverifiedJobs, run)
+		}
+	}
+}
+
+func rcRetryMatches(candidate *buildRetryCandidate, run release.Run, sha string) bool {
+	check := release.Check{Status: run.Status, Conclusion: run.Outcome}
+	return candidate != nil && run.ID != "" && run.Eligible && check.Result() == release.No &&
+		candidate.Proposal.SHA == sha && candidate.Proposal.RunID == run.ID
 }
 
 func (p pageModel) rcRetry(candidate *buildRetryCandidate) rcRetryModel {
@@ -93,6 +128,12 @@ func (p pageModel) rcRetry(candidate *buildRetryCandidate) rcRetryModel {
 func rcBuild(run release.Run, checksURL string) rcBuildModel {
 	build := rcBuildModel{Status: "No verified build", Class: "unknown", Link: checksURL, LinkLabel: "View tag checks"}
 	if run.ID == "" {
+		if run.Status == "unknown" {
+			build.Status = "Build unverified"
+			if run.URL != "" {
+				build.Link, build.LinkLabel = run.URL, "View unverified check"
+			}
+		}
 		return build
 	}
 	check := release.Check{Status: run.Status, Conclusion: run.Outcome}
@@ -107,10 +148,13 @@ func rcBuild(run release.Run, checksURL string) rcBuildModel {
 		if run.Status == "in_progress" {
 			build.Status = "Build running"
 		}
-	case run.Outcome == "success":
+	case run.Status == "completed" && run.Outcome == "success":
 		build.Status, build.Class = "Build succeeded", "yes"
 		if run.URL != "" {
-			build.LinkLabel = "View build output"
+			build.LinkLabel = "Check build output"
+		}
+		if run.Image.Evidence.Fresh() {
+			build.Output = run.Image.Reference
 		}
 	default:
 		build.Status = "Build status unknown"
