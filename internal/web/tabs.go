@@ -43,8 +43,6 @@ func tabStep(tab string) string {
 
 func tabHelp(tab string) string {
 	switch tab {
-	case "component-releases":
-		return "Cut component tags, trigger their releases, and follow builds and images. You can select a newer tag whenever more changes are ready."
 	case "acs-prs":
 		return "Pin the selected component versions and merge ACS backports and dependency updates. Keep adding PRs after pinning is green or merged."
 	case "acs-rcs":
