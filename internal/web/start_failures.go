@@ -3,6 +3,7 @@ package web
 import (
 	"crypto/sha256"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -15,16 +16,20 @@ type (
 		Failures []startFailureModel
 	}
 	startFailureModel struct {
-		Key, Repo, Category string
-		Failure             release.StartFailure
-		Commits             []string
-		Targets             []release.Target
+		Key, Repo, Category, Namespace string
+		Failure                        release.StartFailure
+		Commits                        []string
+		Targets                        []release.Target
 	}
 	startFailureKey struct {
 		cluster, repo string
 		checkID       int64
 		fallback      string
 	}
+)
+
+var pipelineRunNamespaceRE = regexp.MustCompile(
+	`\bcreating pipelinerun [a-z0-9][a-z0-9.-]* in namespace ([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?) has failed\b`,
 )
 
 // groupStartFailures deduplicates check evidence across the activity's monitored targets.
@@ -70,6 +75,9 @@ func groupStartFailures(plans []planModel, tab string) (reported, earlier []star
 		currentGroup := startFailureCluster{Name: cluster}
 		earlierGroup := startFailureCluster{Name: cluster}
 		for i := range failures {
+			if match := pipelineRunNamespaceRE.FindStringSubmatch(failures[i].Failure.Reason); match != nil {
+				failures[i].Namespace = match[1]
+			}
 			slices.Sort(failures[i].Commits)
 			slices.SortFunc(failures[i].Targets, func(a, b release.Target) int { return strings.Compare(a.String(), b.String()) })
 			if failures[i].Failure.Superseded {

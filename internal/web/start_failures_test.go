@@ -17,7 +17,7 @@ func TestCreationFailuresShowTypedCommitEvidenceWithoutGrantingRetries(t *testin
 	readAt := time.Date(2026, time.November, 18, 9, 15, 0, 0, time.UTC)
 	failure := release.StartFailure{
 		CheckID: 731, Job: "fact-build", Cluster: "konflux.example", Category: "admission_policy",
-		Reason:   `admission webhook denied <script>alert("x")</script>`,
+		Reason:   `creating pipelinerun fact-build- in namespace test-tenant has failed: admission webhook denied <script>alert("x")</script>`,
 		Evidence: release.Evidence{Known: true, At: readAt, URL: "https://github.com/acme/fact/commit/fetched-sha/checks?check_run_id=731"},
 	}
 	application := &fakeApplication{snapshot: app.Snapshot{
@@ -30,13 +30,20 @@ func TestCreationFailuresShowTypedCommitEvidenceWithoutGrantingRetries(t *testin
 	section := between(t, panel, `<section class="panel" id="component-prs-start-failures-panel">`, `</section>`)
 	for _, want := range []string{
 		"Reported build creation failures", "konflux.example", "1 reported check", "fact-build", "Admission policy rejection",
-		"denied &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", "Source check #731", `href="https://github.com/acme/fact/commit/fetched-sha/checks?check_run_id=731"`,
-		"Source commit: <code>fetched-sha</code>", "Check evidence read at " + formatTime(readAt),
-		"This is the observation time, not the creation attempt time", "PR/tag association is unverified", "Current cluster availability is unknown",
+		"denied &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", "Open source check #731 on GitHub", `href="https://github.com/acme/fact/commit/fetched-sha/checks?check_run_id=731"`,
+		"Source commit: <code>fetched-sha</code>", "<dt>Check read at</dt>", formatTime(readAt),
+		"The creation attempt time is unknown", "PR/tag association is unverified", "Current cluster availability is unknown",
 	} {
 		if !strings.Contains(section, want) {
 			t.Errorf("creation evidence missing %q: %s", want, section)
 		}
+	}
+	summary, technical, found := strings.Cut(section, "<summary>Technical details</summary>")
+	if !found || !strings.Contains(summary, "<dt>Namespace in error</dt><dd><code>test-tenant</code></dd>") ||
+		!strings.Contains(summary, "<dt>Repository</dt><dd><code>acme/fact</code></dd>") ||
+		!strings.Contains(summary, "Open source check #731 on GitHub") || strings.Contains(summary, "admission webhook denied") ||
+		!strings.Contains(technical, "admission webhook denied") {
+		t.Fatal("the summary should expose failure context and the source link while the raw error stays in technical details")
 	}
 	for _, unwanted := range []string{"<script>alert", "Retained evidence", "Recovered", "Cluster is healthy", "Cluster is down", `name="kind"`, "/konflux-retest"} {
 		if strings.Contains(section, unwanted) {
@@ -151,12 +158,13 @@ func TestRetainedCreationFailuresKeepUncertaintyAndSafeSources(t *testing.T) {
 		}}}},
 	}}
 	panel := activityPanel(t, newBrowser(t, application).getBody(t), "component-prs")
-	for _, want := range []string{"Cluster not reported", "Job not reported", "Retained evidence; current read unavailable", "Last retained check evidence read at " + formatTime(readAt), "previous-commit", "refresh failed &lt;tag&gt;"} {
+	for _, want := range []string{"Cluster not reported", "Job not reported", "Retained evidence · current read unavailable", "<dt>Last retained check read at</dt>", formatTime(readAt), "previous-commit", "refresh failed &lt;tag&gt;"} {
 		if !strings.Contains(panel, want) {
 			t.Errorf("retained diagnostic missing %q", want)
 		}
 	}
-	if strings.Contains(panel, `href="javascript:`) || strings.Contains(panel, "Cluster is healthy") || strings.Contains(panel, "Recovered") {
+	if strings.Contains(panel, `href="javascript:`) || strings.Contains(panel, "Cluster is healthy") || strings.Contains(panel, "Recovered") ||
+		strings.Contains(panel, "Namespace in error") {
 		t.Fatal("retained diagnostic supplied an unsafe source or an invented recovery")
 	}
 }
@@ -179,7 +187,8 @@ func TestOnlyExplicitSupersessionMovesCreationFailuresToEarlierAttempts(t *testi
 		t.Fatal("verified supersession did not separate earlier-attempt evidence")
 	}
 	body := newBrowser(t, application).getBody(t)
-	if !strings.Contains(body, "Earlier creation attempts") || !strings.Contains(body, "admission-policy-marker") || !strings.Contains(body, "Current cluster availability remains unknown") {
+	if !strings.Contains(body, "Earlier creation attempts") || !strings.Contains(body, "Newer verified run observed") ||
+		!strings.Contains(body, "admission-policy-marker") || !strings.Contains(body, "Current cluster availability is unknown") {
 		t.Fatal("superseded facts were lost or presented as cluster recovery")
 	}
 	if !reflect.DeepEqual(application.snapshot.Plans[0].Runs, []release.Run{{Job: "build", Status: "completed", Outcome: "success"}}) {

@@ -127,6 +127,23 @@ legend { padding: 0 .35rem; font-weight: 700; }
 .build-retry-note { margin: .3rem 0; }
 .build-retry-evidence { margin-top: .45rem; }
 .build-retry-row form { margin: .35rem 0; }
+.creation-failure-intro { margin-bottom: .5rem; }
+.creation-failure-cluster { margin-top: .75rem; padding: .65rem .8rem; border: 1px solid var(--line); border-radius: .55rem; }
+.creation-failure-cluster h3 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.creation-failure-cluster h3 .summary-detail { display: inline-block; }
+.creation-failures { margin: .45rem 0 0; padding-inline-start: 1.6rem; }
+.creation-failure { padding: .55rem 0; border-top: 1px solid var(--line); }
+.creation-failure-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: .25rem .55rem; margin-bottom: .35rem; }
+.creation-failure-title h4 { margin: 0; overflow-wrap: anywhere; }
+.creation-failure p { margin: 0 0 .4rem; }
+.creation-failure-facts { display: grid; grid-template-columns: 10rem minmax(0, 1fr); gap: .22rem .6rem; margin: .45rem 0; font-size: .88rem; }
+.creation-failure-facts dt { font-weight: 600; }
+.creation-failure-facts dd { margin: 0; }
+.creation-failure-facts dd .muted { display: block; }
+.creation-failure-source, .creation-failure > details { font-size: .88rem; }
+@media (max-width: 550px) {
+  .creation-failure-facts { grid-template-columns: minmax(6rem, 2fr) minmax(0, 3fr); }
+}
 @media (max-width: 650px) {
   .component-tag-columns { display: none; }
   .component-tag-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; }

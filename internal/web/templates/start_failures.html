@@ -3,35 +3,63 @@
 <section class="panel" id="{{.Tab}}-start-failures-panel">
   <details id="{{.Tab}}-start-failures" open>
     <summary class="section-summary">Reported build creation failures</summary>
-    <p class="muted">These checks report failed PipelineRun creation attempts on the fetched commits. Their association with the monitored PR or tag is unverified, and a newer attempt may have superseded a report.</p>
-    <p class="muted">Current cluster availability is unknown. No live availability probe is performed. Reading an old check again does not establish a new failure.</p>
-    {{if .StartFailureClusters}}{{template "start-failure-clusters" .StartFailureClusters}}{{else}}<p>No unsuperseded creation failures are reported for these monitored targets. Current cluster availability remains unknown.</p>{{end}}
-    {{if .EarlierStartFailureClusters}}<details id="{{.Tab}}-earlier-start-failures" open><summary>Earlier creation attempts</summary><p class="muted">A newer verified run supersedes each of these reports. This does not establish current cluster availability.</p>{{template "start-failure-clusters" .EarlierStartFailureClusters}}</details>{{end}}
+    <p class="creation-failure-intro">GitHub checks reported failed attempts to create Tekton PipelineRuns. Current cluster availability is unknown.</p>
+    {{if .StartFailureClusters}}
+      <p class="creation-failure-intro">Open the source check and look for a newer run. If the failure recurs, the cluster name and check link give the Konflux team a starting point.</p>
+      {{template "start-failure-clusters" .StartFailureClusters}}
+    {{else}}
+      <p class="creation-failure-intro muted">All reports below have a newer verified run.</p>
+    {{end}}
+    {{if .EarlierStartFailureClusters}}
+      <details id="{{.Tab}}-earlier-start-failures" open>
+        <summary>Earlier creation attempts</summary>
+        {{template "start-failure-clusters" .EarlierStartFailureClusters}}
+      </details>
+    {{end}}
   </details>
 </section>
 {{end}}
 {{end}}
 
 {{define "start-failure-clusters"}}
-    {{range .}}
+  {{range .}}
     <article class="creation-failure-cluster" data-live-key="creation-failures:{{.Name}}">
-      <h3>{{if .Name}}{{.Name}}{{else}}Cluster not reported{{end}} <span class="summary-detail">{{len .Failures}} reported check{{if ne (len .Failures) 1}}s{{end}}</span></h3>
+      <h3>
+        {{if .Name}}Cluster <code>{{.Name}}</code>{{else}}Cluster not reported{{end}}
+        <span class="summary-detail">{{len .Failures}} reported check{{if ne (len .Failures) 1}}s{{end}}</span>
+      </h3>
       <ol class="creation-failures">
         {{range .Failures}}
-        <li data-live-key="start-failure:{{.Key}}">
-          <p><strong>{{if .Failure.Job}}{{.Failure.Job}}{{else}}Job not reported{{end}}</strong> · {{.Category}}{{if .Failure.Superseded}} · <span class="muted">Earlier attempt; a newer verified run was observed</span>{{end}}{{if not .Failure.Evidence.Fresh}} · <span class="unknown">Retained evidence; current read unavailable</span>{{end}}</p>
-          {{if .Failure.Reason}}<pre>{{.Failure.Reason}}</pre>{{else}}<p class="muted">No failure reason was reported.</p>{{end}}
-          <details data-fold-key="start-failure:{{.Key}}" open>
-            <summary>Source check and commit evidence</summary>
-            <p>{{if url .Failure.Evidence.URL}}<a href="{{url .Failure.Evidence.URL}}" target="_blank" rel="noreferrer">Source check{{if gt .Failure.CheckID 0}} #{{.Failure.CheckID}}{{end}}</a>{{else}}Source check{{if gt .Failure.CheckID 0}} #{{.Failure.CheckID}}{{else}} not reported{{end}}{{end}} · {{.Repo}}</p>
-            <p>Source commit{{if ne (len .Commits) 1}}s{{end}}: {{range $i,$commit:=.Commits}}{{if $i}}, {{end}}<code>{{$commit}}</code>{{else}}unknown{{end}}</p>
-            <p>{{if .Failure.Evidence.Fresh}}Check evidence read at{{else}}Last retained check evidence read at{{end}} {{when .Failure.Evidence.At}}. This is the observation time, not the creation attempt time.</p>
-            <p>Fetched while monitoring {{range $i,$target:=.Targets}}{{if $i}}, {{end}}<code>{{$target}}</code>{{end}}. PR/tag association is unverified.</p>
-            {{if .Failure.Evidence.Error}}<p class="error-text">{{.Failure.Evidence.Error}}</p>{{end}}
-          </details>
-        </li>
+          <li class="creation-failure" data-live-key="start-failure:{{.Key}}">
+            <div class="creation-failure-title">
+              <h4>{{if .Failure.Job}}Job <code>{{.Failure.Job}}</code>{{else}}Job not reported{{end}}</h4>
+              <span class="pill">{{.Category}}</span>
+              {{if .Failure.Superseded}}<span class="muted">Newer verified run observed</span>{{end}}
+              {{if not .Failure.Evidence.Fresh}}<span class="unknown">Retained evidence · current read unavailable</span>{{end}}
+            </div>
+            {{if eq .Failure.Category "admission_policy"}}<p>Tekton stopped this attempt before the build could run.</p>{{end}}
+            <p class="creation-failure-source">{{if url .Failure.Evidence.URL}}
+              <a href="{{url .Failure.Evidence.URL}}" target="_blank" rel="noreferrer">Open source check{{if gt .Failure.CheckID 0}} #{{.Failure.CheckID}}{{end}} on GitHub</a>
+            {{else if gt .Failure.CheckID 0}}Source check #{{.Failure.CheckID}} · link unavailable
+            {{else}}Source check link unavailable{{end}}</p>
+            <dl class="creation-failure-facts">
+              <dt>Repository</dt><dd><code>{{.Repo}}</code></dd>
+              {{if .Namespace}}<dt>Namespace in error</dt><dd><code>{{.Namespace}}</code></dd>{{end}}
+              <dt>Fetched while monitoring</dt>
+              <dd>{{range $i,$target:=.Targets}}{{if $i}}, {{end}}<code>{{$target}}</code>{{end}} <span class="muted">PR/tag association is unverified</span></dd>
+              <dt>{{if .Failure.Evidence.Fresh}}Check read at{{else}}Last retained check read at{{end}}</dt>
+              <dd>{{when .Failure.Evidence.At}}</dd>
+            </dl>
+            <details data-fold-key="start-failure:{{.Key}}">
+              <summary>Technical details</summary>
+              {{if .Failure.Reason}}<pre>{{.Failure.Reason}}</pre>{{else}}<p class="muted">No failure reason was reported.</p>{{end}}
+              <p>Source commit{{if ne (len .Commits) 1}}s{{end}}: {{range $i,$commit:=.Commits}}{{if $i}}, {{end}}<code>{{$commit}}</code>{{else}}unknown{{end}}</p>
+              <p class="muted">The check read time records when this report was fetched. The creation attempt time is unknown.</p>
+              {{if .Failure.Evidence.Error}}<p class="error-text">{{.Failure.Evidence.Error}}</p>{{end}}
+            </details>
+          </li>
         {{end}}
       </ol>
     </article>
-    {{end}}
+  {{end}}
 {{end}}
