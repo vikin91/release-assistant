@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"release-assistant/internal/konflux"
 	"release-assistant/internal/release"
 )
 
@@ -39,6 +40,19 @@ type (
 
 // NewLog writes audit records to w and retains recent activity for the UI.
 func NewLog(w io.Writer) *Log { return &Log{output: w} }
+
+// KonfluxReadPauseChanged records endpoint transitions shared by all release targets.
+func (l *Log) KonfluxReadPauseChanged(issue konflux.ReadIssue) {
+	endpoint := issue.Endpoint + " on " + issue.Cluster
+	r := Record{At: time.Now(), Decision: "konflux-reads-resumed", Origin: "system"}
+	r.Result = fmt.Sprintf("Konflux %s reads resumed.", endpoint)
+	if !issue.RetryAt.IsZero() {
+		r.Decision = "konflux-reads-paused"
+		r.Result = fmt.Sprintf("Konflux %s reads paused (%s). Next recovery probe eligible at %s.",
+			endpoint, issue.Reason, issue.RetryAt.Format(time.RFC3339))
+	}
+	l.Append(r)
+}
 
 // Append records a decision; failures remain visible until a successful write.
 func (l *Log) Append(r Record) {
@@ -277,7 +291,8 @@ func recordLevel(r Record) string {
 		}
 	case strings.HasSuffix(r.Decision, "-error"), r.Decision == "delivery" && r.Result == "failed":
 		return "Error"
-	case r.Decision == "start-failures", r.Decision == "retry-wait", r.Decision == "tag-invalidated", r.Decision == "revoked", r.Decision == "withheld", r.Decision == "delivery" && r.Result == "uncertain":
+	case r.Decision == "github-checks-attention", r.Decision == "konflux-reads-paused",
+		r.Decision == "start-failures", r.Decision == "retry-wait", r.Decision == "tag-invalidated", r.Decision == "revoked", r.Decision == "withheld", r.Decision == "delivery" && r.Result == "uncertain":
 		return "Warn"
 	case r.Decision == "observation", r.Decision == "checks":
 		return "Debug"

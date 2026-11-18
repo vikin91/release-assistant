@@ -79,13 +79,14 @@ func run() error {
 	credentials := loadCredentials(ctx)
 	client := &http.Client{Transport: githubread.New(nil), Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	gh := github.New("", credentials.github, client)
+	log := app.NewLog(os.Stdout)
 	planner := konflux.New(konflux.Config{
 		GitHubToken: credentials.github, QuayUsername: credentials.quayUser, QuayPassword: credentials.quayPassword,
 		HTTPClient: client, KonfluxToken: credentials.clusterToken, AllowKonfluxLookup: allowedLookups.allows,
+		OnReadPauseChange: log.KonfluxReadPauseChanged,
 	})
 	inspector := images.New(client, credentials.quayUser, credentials.quayPassword)
 	dispatcher := dispatch.New(gh, planner, github.NewWriter(gh), limits)
-	log := app.NewLog(os.Stdout)
 	session := app.New(gh, planner, inspector, dispatcher, log, options)
 
 	handler, err := web.New(session)

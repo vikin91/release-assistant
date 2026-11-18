@@ -22,9 +22,13 @@ func TestReadBackoffScopesFailuresAndProbes(t *testing.T) {
 	probeStarted := make(chan struct{})
 	probeRelease := make(chan struct{})
 	calls := 0
+	var transitions []ReadIssue
 	transport := &readBackoff{
 		now:       func() time.Time { return now },
 		endpoints: make(map[string]*endpointBackoff),
+		onPauseChange: func(issue ReadIssue) {
+			transitions = append(transitions, issue)
+		},
 		base: roundTrip(func(req *http.Request) (*http.Response, error) {
 			if req.URL.String() == liveRead {
 				calls++
@@ -108,6 +112,9 @@ func TestReadBackoffScopesFailuresAndProbes(t *testing.T) {
 	}
 	if err := read(WithReadCycle(t.Context()), liveRead); err != nil || calls != 6 {
 		t.Fatalf("normal requests should resume: %v calls=%d", err, calls)
+	}
+	if len(transitions) != 2 || !transitions[0].RetryAt.Equal(now.Add(-2*firstPause)) || !transitions[1].RetryAt.IsZero() {
+		t.Fatalf("wanted one pause with the first probe time and one recovery, got %+v", transitions)
 	}
 }
 

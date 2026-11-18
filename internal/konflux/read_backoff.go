@@ -36,10 +36,11 @@ type (
 	}
 	deferredReadKey struct{}
 	readBackoff     struct {
-		base      http.RoundTripper
-		now       func() time.Time
-		mu        sync.Mutex
-		endpoints map[string]*endpointBackoff
+		base          http.RoundTripper
+		now           func() time.Time
+		mu            sync.Mutex
+		endpoints     map[string]*endpointBackoff
+		onPauseChange func(ReadIssue)
 	}
 	endpointBackoff struct {
 		ReadIssue
@@ -163,7 +164,15 @@ func (t *readBackoff) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func (t *readBackoff) observe(state *endpointBackoff, cycle, epoch uint64, now time.Time, reason string, responded bool) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
+	wasPaused := state.pause > 0
+	defer func() {
+		changed := wasPaused != (state.pause > 0)
+		issue := state.ReadIssue
+		t.mu.Unlock()
+		if changed && t.onPauseChange != nil {
+			t.onPauseChange(issue)
+		}
+	}()
 	if state.epoch != epoch {
 		return
 	}

@@ -574,6 +574,9 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	if initial {
 		message := fmt.Sprintf("Checking %s on %s.", discoverySubject(request), consoleBranch(source))
 		s.record(release.Target{Repo: source.Repo}, "", "github-start", "", "Reading GitHub branch "+source.Branch+", PRs, and tags.", "system", message)
+	} else if discover && work.scope&ReadPRs != 0 {
+		message := fmt.Sprintf("Checking GitHub for pull request updates on %s.", consoleBranch(source))
+		s.record(release.Target{Repo: source.Repo}, "", "github-start", "", message, "system", message)
 	}
 	s.mu.Unlock()
 	var imageErr error
@@ -651,6 +654,13 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		}
 		s.repos[source.Name] = r
 		for _, p := range r.PRs {
+			if request.Reads(ReadChecks) && p.State == "open" && s.choices.PRs[p.Target] == release.Included {
+				var before checkActivity
+				if index := slices.IndexFunc(old.PRs, func(previous release.PR) bool { return previous.Target == p.Target }); index >= 0 {
+					before = prCheckActivity(old.PRs[index])
+				}
+				s.recordCheckChange(p.Target, p.SHA, before, prCheckActivity(p))
+			}
 			if plan, exists := s.plans[p.Target]; exists && (!p.Evidence.Fresh() || p.SHA != plan.SHA) {
 				plan.StartFailures = staleStartFailures(plan.StartFailures, "Current PR identity does not confirm the commit for these earlier check observations.")
 				s.plans[p.Target] = plan

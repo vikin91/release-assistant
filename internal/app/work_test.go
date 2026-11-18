@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"slices"
 	"strings"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"release-assistant/internal/release"
 )
@@ -58,6 +60,33 @@ func TestPRDiscoveryLogDoesNotClaimTagsWereRead(t *testing.T) {
 	if !strings.Contains(output.String(), want) || strings.Contains(output.String(), "release tags") {
 		t.Fatalf("discovery log misrepresents the request: %s", output.String())
 	}
+}
+
+func TestMonitorLogsScheduledPRDiscovery(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, _ := newFixture()
+		s.config = configuration()
+		s.log = NewLog(io.Discard)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		go s.monitor(ctx, s.generation, s.config.Components[0])
+		synctest.Wait()
+		startup := s.log.Recent()
+
+		time.Sleep(s.options.Discovery - s.options.Poll)
+		synctest.Wait()
+		if got := s.log.Recent(); !slices.Equal(got, startup) {
+			t.Fatalf("unchanged active polls produced activity: %+v", got)
+		}
+
+		time.Sleep(s.options.Poll)
+		synctest.Wait()
+		progress := s.log.Recent()[len(startup):]
+		want := "Checking GitHub for pull request updates on fact/release-0.3."
+		if len(progress) != 1 || progress[0].Level() != "Info" || progress[0].Message() != want {
+			t.Fatalf("expected one discovery progress entry with %q, got %+v", want, progress)
+		}
+	})
 }
 
 type workServices struct {
