@@ -13,22 +13,14 @@ active login to that cluster is enough. GitHub and Quay can run without it.
 oc login https://api.stone-prd-rh01.pg1f.p1.openshiftapps.com --token='YOUR_OPENSHIFT_TOKEN'
 ```
 
-Get the App ID from a Konflux check run. Replace `CHECK_RUN_ID` with the
-numeric check-run ID and use the repository that owns the check.
+From the repository root, replace the credential placeholders and start
+the assistant. This example uses App ID `296509` for `rh-acs-tenant`.
 
 ```sh
-GH_TOKEN='YOUR_GITHUB_TOKEN' gh api 'repos/stackrox/fact/check-runs/CHECK_RUN_ID' \
-  --jq '.app | {id, slug, owner: .owner.login}'
-```
-
-Verify the app slug and owner. From the repository root, run the launch
-command with the returned numeric `id` in place of `APP_ID` and the API
-hostname and namespace for your builds.
-
-```sh
+export APP_ID=296509
 GH_TOKEN='YOUR_GITHUB_TOKEN' QUAY_USERNAME='YOUR_QUAY_USERNAME' QUAY_PASSWORD='YOUR_QUAY_PASSWORD' \
   go run ./cmd/release-assistant --version 5.0.1 --branch release-5.0 \
-    --allow-konflux-lookup 'APP_ID,api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant'
+    --allow-konflux-lookup "${APP_ID},api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant"
 ```
 
 Open the [local assistant](http://127.0.0.1:8080). [Setup details](#setup-details)
@@ -86,6 +78,17 @@ at startup. Restart it after changing a token or login.
 
    Use the hostname from the API URL printed by `oc`. The namespace is the
    segment after `/ns/` in the Konflux build URL.
+
+   Get the App ID from GitHub. Replace `CHECK_RUN_ID` with the numeric ID of
+   a Konflux check run and use the repository that owns the check.
+
+   ```sh
+   gh api 'repos/stackrox/fact/check-runs/CHECK_RUN_ID' \
+     --jq '.app | {id, slug, owner: .owner.login}'
+   ```
+
+   Verify the app slug and owner, then set `APP_ID` to the returned numeric
+   `id` in the launch example.
 
    Repeat `--allow-konflux-lookup` for each trusted app, host, and namespace
    combination. If you still need a check-run ID, start without the flag.
