@@ -40,7 +40,7 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 	b := newBrowser(t, application)
 	body := b.getBody(t)
 
-	tagDetails := between(t, body, `<details id="tag-selection" open>`, `<section class="panel" id="component-images-panel">`)
+	tagDetails := between(t, body, `<div id="tag-selection">`, `<section class="panel" id="component-images-panel">`)
 	for _, want := range []string{
 		"Component tags", "2 of 2 selected · 1 coverage issue · 1 unverified",
 		"<code>3.25.1</code>", "<code>3.25.4</code>", "Missing an included merge", "Coverage unverified",
@@ -49,7 +49,7 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 			t.Errorf("tag selection missing %q", want)
 		}
 	}
-	if !strings.Contains(body, `<details id="tag-selection" open>`) {
+	if !strings.Contains(body, `<div id="tag-selection">`) {
 		t.Fatal("selected tag status must not automatically fold the section")
 	}
 	for _, forbidden := range []string{"Confirm fact 3.25.1", "Confirm collector 3.25.4"} {
@@ -57,7 +57,7 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 			t.Errorf("current selection offers redundant confirmation %q", forbidden)
 		}
 	}
-	if !strings.Contains(tagDetails, "Change tag") || !strings.Contains(tagDetails, "Switch to fact 3.25.2") ||
+	if !strings.Contains(tagDetails, `<table class="tag-options"`) || !strings.Contains(tagDetails, "Switch to fact 3.25.2") ||
 		!strings.Contains(tagDetails, "Review 3.25.2") || application.snapshot.Choices.Tags["fact"] != "3.25.1" {
 		t.Fatal("tag alternatives should be available through an explicit switch action")
 	}

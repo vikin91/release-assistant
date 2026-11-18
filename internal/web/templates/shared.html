@@ -1,19 +1,19 @@
 {{define "component-tag-option"}}
-<div class="component-tag-option" data-live-key="tag:{{.Component}}:{{.Repo}}@{{.Tag.Name}}:{{.Tag.SHA}}">
-  <div class="component-tag-option-heading">
-    <strong><code>{{.Tag.Name}}</code></strong>
-    {{if .Proposed}}<span class="pill">Recommended candidate</span>{{end}}
+<tr data-live-key="tag:{{.Component}}:{{.Repo}}@{{.Tag.Name}}:{{.Tag.SHA}}">
+  <th scope="row"><code>{{.Tag.Name}}</code></th>
+  <td>
+    {{if .Proposed}}<strong>Recommended candidate</strong>{{end}}
     {{if not .Tag.Evidence.Fresh}}<span class="unknown">Evidence unverified</span>
     {{else if eq (truth .Tag.Belongs) "no"}}<span class="no">Outside configured branch</span>
-    {{else if eq (truth .Tag.Belongs) "yes"}}
+    {{else if ne (truth .Tag.Belongs) "yes"}}<span class="unknown">Branch membership unverified</span>{{end}}
+    <details class="tag-evidence" data-fold-key="tag-evidence:{{.Component}}:{{.Repo}}@{{.Tag.Name}}">
+      <summary>Evidence</summary>{{template "tag-observation" .}}
+    </details>
+  </td>
+  <td>{{if and .Tag.Evidence.Fresh (eq (truth .Tag.Belongs) "yes")}}
       <form method="post" action="/action#tag-selection" class="inline-form"><input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Generation}}"><input type="hidden" name="kind" value="tag"><input type="hidden" name="component" value="{{.Component}}"><input type="hidden" name="tag" value="{{.Tag.Name}}"><input type="hidden" name="sha" value="{{.Tag.SHA}}"><button type="submit">{{if .Switch}}Switch to{{else}}Confirm{{end}} {{.Component}} {{.Tag.Name}}</button></form>
-    {{else}}<span class="unknown">Branch membership unverified</span>{{end}}
-  </div>
-  <details class="tag-evidence" data-fold-key="tag-evidence:{{.Component}}:{{.Repo}}@{{.Tag.Name}}">
-    <summary>Evidence</summary>
-    {{template "tag-observation" .}}
-  </details>
-</div>
+    {{else}}Unavailable{{end}}</td>
+</tr>
 {{end}}
 
 {{define "tag-observation"}}

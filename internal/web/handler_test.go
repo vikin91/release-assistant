@@ -362,7 +362,7 @@ func TestRecommendedTagConfirmationIsSeparateFromPRSelection(t *testing.T) {
 	w := httptest.NewRecorder()
 	b.handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/", nil))
 	body := w.Body.String()
-	tags := between(t, body, `<details id="tag-selection" open>`, `<section class="panel" id="component-images-panel">`)
+	tags := between(t, body, `<div id="tag-selection">`, `<section class="panel" id="component-images-panel">`)
 	prs := between(t, body, `<section class="panel" aria-labelledby="pr-selection-heading"`, `</section>`)
 	if strings.Contains(tags, "A selectable change") || !strings.Contains(prs, "A selectable change") {
 		t.Fatal("component PRs and tags must have separate activity views")
@@ -373,8 +373,8 @@ func TestRecommendedTagConfirmationIsSeparateFromPRSelection(t *testing.T) {
 	if strings.Contains(tags, "5.0.1") {
 		t.Fatal("ACS release tags must not be offered as component tags")
 	}
-	if strings.Index(tags, "Confirm fact 3.25.9") > strings.Index(tags, `<details class="other-tags"`) {
-		t.Fatal("recommended tag was buried in the collapsed alternatives")
+	if strings.Contains(tags, `<details class="other-tags"`) || strings.Contains(tags, `<details class="component-tag-chooser"`) {
+		t.Fatal("tag options must be visible without expanding a chooser")
 	}
 	form := ""
 	for _, candidate := range regexp.MustCompile(`(?s)<form\b[^>]*>.*?</form>`).FindAllString(tags, -1) {
@@ -418,7 +418,7 @@ func TestTagSelectionDoesNotAutoFoldAfterConfirmationAndWithholdsUnknownTags(t *
 			w := httptest.NewRecorder()
 			b.handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/", nil))
 			body := w.Body.String()
-			if !strings.Contains(body, `<details id="tag-selection" open>`) {
+			if !strings.Contains(body, `<div id="tag-selection">`) {
 				t.Fatal("tag confirmation must not choose a new fold state")
 			}
 			if strings.Contains(body, "Confirm fact 3.25.9") || !strings.Contains(body, "Unknown or stale") {
@@ -931,7 +931,6 @@ func TestFoldControlsHaveUniqueStableIdentities(t *testing.T) {
 	}
 	for _, key := range []string{
 		"previous-cycles",
-		"tag-alternatives:fact:acme/fact", "tag-alternatives:collector:acme/collector",
 		"tag-evidence:fact:acme/fact@3.25.1", "tag-evidence:collector:acme/collector@3.25.1",
 		"repo-evidence:fact:acme/fact", "repo-evidence:collector:acme/collector",
 	} {

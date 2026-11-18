@@ -1,17 +1,21 @@
 {{define "component-releases"}}
   <section class="panel" aria-labelledby="tag-selection-heading" id="tag-selection-panel">
-    <details id="tag-selection" open>
-      <summary id="tag-selection-heading" class="section-summary">Component tags
+    <div id="tag-selection">
+      <h2 id="tag-selection-heading" class="section-summary">Component tags
         {{with .TagCounts}}{{if .Total}}<span class="component-tag-counts">{{.Selected}} of {{.Total}} selected{{if .Issues}} · {{.Issues}} coverage issue{{if ne .Issues 1}}s{{end}}{{end}}{{if .Unverified}} · {{.Unverified}} unverified{{end}}</span>{{end}}{{end}}
-      </summary>
-      {{if .TagRepos}}<div class="component-tag-columns" aria-hidden="true"><span>Component</span><span>Selected tag</span><span>Coverage</span></div>{{end}}
+      </h2>
       {{range .TagRepos}}
         {{$source := .Repository.Source}}
         <article class="component-tag-row" data-live-key="tag-repo:{{$source.Name}}:{{$source.Repo}}">
-          <h3>{{title $source.Name}}</h3>
-          <div class="component-tag-version">{{if .CurrentTag}}<code>{{.CurrentTag}}</code>{{else}}<span class="muted">No tag selected</span>{{end}}</div>
-          <div class="component-tag-coverage">
+          <h3>{{title $source.Name}} · <code>{{$source.Branch}}</code></h3>
+          {{if not .CurrentTag}}<p class="tag-prompt">Choose a release tag for {{title $source.Name}}.</p>{{end}}
+          {{if or .CurrentTag .Tags .OtherTags}}
+          <table class="tag-options" aria-label="{{title $source.Name}} release tags">
+            <thead><tr><th scope="col">Tag</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
+            <tbody>
             {{if .CurrentTag}}
+            <tr><th scope="row"><code>{{.CurrentTag}}</code></th>
+            <td class="component-tag-coverage"><strong>Selected</strong>
               <span class="pill {{truth .Coverage.Status}}">
                 {{- if eq (truth .Coverage.Status) "yes"}}Covers included changes
                 {{- else if eq (truth .Coverage.Status) "no"}}
@@ -20,25 +24,19 @@
                   {{- else}}Tag needs review{{end}}
                 {{- else}}Coverage unverified{{end -}}
               </span>
-            {{end}}
-          </div>
-          {{if or .CurrentTag .Tags .OtherTags}}
-            <details class="component-tag-chooser" data-fold-key="tag-alternatives:{{$source.Name}}:{{$source.Repo}}">
-              <summary>{{if .NewerTag}}Review {{.NewerTag}}{{else if .CurrentTag}}Change tag{{else}}Select tag{{end}}</summary>
-              {{range .Tags}}{{template "component-tag-option" .}}{{end}}
-              {{if .OtherTags}}
-                {{if .Tags}}<details class="other-tags" data-fold-key="other-tag-observations:{{$source.Name}}:{{$source.Repo}}"><summary>Other observed tags ({{len .OtherTags}})</summary>{{end}}
-                {{range .OtherTags}}{{template "component-tag-option" .}}{{end}}
-                {{if .Tags}}</details>{{end}}
-              {{else if not .Tags}}<p class="muted">No alternative tags observed.</p>{{end}}
-              {{if .CurrentTag}}
+            </td><td>
                 <form method="post" action="/action#tag-selection" class="inline-form clear-tag-form">
                   <input type="hidden" name="tab" value="component-releases"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="clear-tag"><input type="hidden" name="component" value="{{$source.Name}}">
                   <button type="submit">Clear selection</button>
                 </form>
-              {{end}}
-            </details>
-          {{else}}<p class="component-tag-unavailable muted">No tags observed yet</p>{{end}}
+            </td></tr>
+            {{end}}
+            {{range .Tags}}{{template "component-tag-option" .}}{{end}}
+            {{range .OtherTags}}{{template "component-tag-option" .}}{{end}}
+            </tbody>
+          </table>
+          {{else}}<p class="muted">No tags observed yet.</p>{{end}}
+          {{if .NewerTag}}<p class="tag-prompt">Review {{.NewerTag}} for a newer release.</p>{{end}}
           <details class="tag-evidence component-tag-details" data-fold-key="{{if .CurrentTag}}tag-evidence:{{$source.Name}}:{{$source.Repo}}@{{.CurrentTag}}{{else}}tag-repo-details:{{$source.Name}}:{{$source.Repo}}{{end}}">
             <summary>Details</summary>
             <p>{{$source.Repo}} · <code>{{$source.Branch}}</code> · stream {{$source.Stream}}</p>
@@ -54,7 +52,7 @@
         </article>
       {{else}}<p class="muted">No component tag observations yet.</p>{{end}}
       {{if .TagRepos}}<p class="component-tag-images-link"><a href="/?tab=component-releases#component-images" data-open-section>View component images</a></p>{{end}}
-    </details>
+    </div>
   </section>
   <section class="panel" id="component-images-panel">
     <details id="component-images" open>
