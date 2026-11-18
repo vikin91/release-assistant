@@ -13,7 +13,7 @@
   {{template "konflux-status" .}}
   <details data-fold-key="write-mode" name="header-menu" class="header-menu">
     <summary>Write mode · {{if not .Snapshot.WritesEnabled}}Read-only{{else if .Snapshot.Interactive}}Interactive{{else}}Automatic{{end}}</summary>
-    <div class="menu-content"><p>{{if not .Snapshot.WritesEnabled}}The assistant cannot post comments to GitHub.{{else if .Snapshot.Interactive}}You must confirm each eligible retry comment before the assistant posts it to a permitted PR or tag.{{else}}The assistant automatically posts eligible retry comments to GitHub for permitted PRs and tags.{{end}}</p></div>
+    <div class="menu-content"><p>{{if not .Snapshot.WritesEnabled}}Restart with <code>--enable-writes</code> to allow GitHub retry comments for permitted targets.{{else if .Snapshot.Interactive}}You must confirm each eligible retry comment before the assistant posts it to a permitted PR or tag.{{else}}The assistant automatically posts eligible retry comments to GitHub for permitted PRs and tags.{{end}}</p></div>
   </details>
 </header>
 <div id="live-dashboard" class="workspace">
@@ -81,7 +81,6 @@
   </section>
 
   {{if .Configured}}
-  {{if not .Snapshot.WritesEnabled}}<p class="notice read-only-notice" role="status">Read-only mode. Restart with <code>-enable-writes</code> to allow retry comments.</p>{{end}}
   <details id="retry-settings" class="retry-settings" open><summary>Retry comment settings
     <span class="pill summary-detail">{{if not .Snapshot.WritesEnabled}}Read-only{{else if .Snapshot.Interactive}}Confirm each comment{{else}}Automatic for permitted targets{{end}}</span>
   </summary><form method="post" action="/action"><input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Snapshot.Generation}}"><input type="hidden" name="kind" value="interactive"><input type="hidden" name="enabled" value="false"><label class="check{{if not .Snapshot.WritesEnabled}} disabled-control{{end}}"><input type="checkbox" name="enabled" value="true" {{if .Snapshot.Interactive}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}> Confirm each comment</label><button type="submit"{{if not .Snapshot.WritesEnabled}} disabled{{end}}>Save mode</button></form><p class="muted">This setting applies to all tabs. Automatic retries require permission for each PR or tag.</p></details>

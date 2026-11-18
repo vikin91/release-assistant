@@ -23,7 +23,6 @@ h4 { margin: 1rem 0 .5rem; }
 .notice { padding: .75rem 1rem; border-radius: .45rem; }
 .notice.error { border: 1px solid #df5a62; }
 .notice.warning { border: 1px solid #d99b22; }
-.read-only-notice { margin: .8rem 0; border: 1px solid var(--line); background: var(--panel); }
 .condition.yes { border-left: 4px solid #35a56a; }
 .condition.no { border-left: 4px solid #df5a62; }
 .condition.unknown { border-left: 4px solid #d99b22; }

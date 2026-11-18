@@ -65,8 +65,8 @@ func TestWriteModeControls(t *testing.T) {
 			if !strings.Contains(header, "<summary>Write mode · "+tc.wantHeader+"</summary>") {
 				t.Errorf("header must display write mode %q", tc.wantHeader)
 			}
-			if got := strings.Contains(body, "Read-only mode. Restart with"); got != tc.wantReadOnly {
-				t.Errorf("read-only notice present=%t, want %t", got, tc.wantReadOnly)
+			if got := strings.Contains(header, "<code>--enable-writes</code>"); got != tc.wantReadOnly {
+				t.Errorf("header restart hint present=%t, want %t", got, tc.wantReadOnly)
 			}
 			modeSummary := between(t, body, `id="retry-settings"`, "</summary>")
 			if !strings.Contains(modeSummary, `class="pill summary-detail">`+tc.wantMode+"</span>") {
