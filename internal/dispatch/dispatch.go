@@ -261,7 +261,7 @@ func (d *Dispatcher) offer(s *targetState, p release.Proposal) Offer {
 	case s.inFlight:
 		o.Reason = "comment dispatch in progress"
 	case o.Rejected:
-		o.Reason = "rejected for this run; reconsider to restore"
+		o.Reason = "rejected for this run; allow retry again to restore"
 	}
 	until := s.last.Add(d.options.Gap)
 	if s.last.IsZero() {
