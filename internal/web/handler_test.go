@@ -361,7 +361,7 @@ func TestRecommendedTagConfirmationIsSeparateFromPRSelection(t *testing.T) {
 	b.handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/", nil))
 	body := w.Body.String()
 	tags := between(t, body, `<details id="tag-selection" open>`, `<section class="panel" id="component-images-panel">`)
-	prs := between(t, body, `<section class="panel" aria-labelledby="pr-selection-heading"`, `<section class="panel" id="retry-proposals">`)
+	prs := between(t, body, `<section class="panel" aria-labelledby="pr-selection-heading"`, `</section>`)
 	if strings.Contains(tags, "A selectable change") || !strings.Contains(prs, "A selectable change") {
 		t.Fatal("component PRs and tags must have separate activity views")
 	}
@@ -829,7 +829,7 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 			t.Errorf("missing stale component evidence %q", want)
 		}
 	}
-	for _, control := range []string{`<details id="component-images" open>`, `<details id="release-images" open>`, `<details id="component-prs-next-steps" open>`, `<details id="retry-details" open>`, `<details id="comment-offers-details" open>`} {
+	for _, control := range []string{`<details id="component-images" open>`, `<details id="release-images" open>`, `<details id="component-prs-next-steps" open>`, `<details id="acs-prs-retry-details" open>`, `<details id="acs-prs-offers-details" open>`} {
 		if !strings.Contains(body, control) {
 			t.Errorf("missing section fold control %s", control)
 		}

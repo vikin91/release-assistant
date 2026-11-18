@@ -33,7 +33,7 @@ label { display: flex; flex-direction: column; gap: .3rem; font-weight: 600; }
 label.check { display: inline-flex; flex-direction: row; align-items: center; gap: .45rem; }
 label.disabled-control, button:disabled, input:disabled { color: var(--muted); cursor: not-allowed; }
 input, button { font: inherit; }
-input:not([type=checkbox]):not([type=hidden]) { width: 100%; min-height: 2.5rem; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: .35rem; background: Canvas; color: CanvasText; }
+input:not([type=checkbox]):not([type=radio]):not([type=hidden]) { width: 100%; min-height: 2.5rem; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: .35rem; background: Canvas; color: CanvasText; }
 .config-grid input[readonly] { color: var(--muted); background: var(--panel); cursor: default; }
 input[type=checkbox] { width: 1.05rem; height: 1.05rem; accent-color: var(--accent); }
 button { min-height: 2.35rem; padding: .35rem .75rem; border: 1px solid var(--line); border-radius: .4rem; background: color-mix(in srgb, var(--accent), Canvas 82%); color: CanvasText; cursor: pointer; }
@@ -111,6 +111,37 @@ button[aria-pressed=true] { border-color: var(--accent); background: color-mix(i
 .pr-card .check { font-size: .86rem; }
 .pr-details { margin-top: .2rem; }
 .pr-details p { margin: .35rem 0; }
+.component-pr-counts { display: inline-block; margin-left: .5rem; font-size: .9rem; font-weight: 600; }
+.component-pr-filters { display: flex; flex-wrap: wrap; gap: .35rem; padding: 0; border: 0; margin: .6rem 0 0; }
+.component-pr-filters legend { padding: 0; font-size: .82rem; }
+.component-pr-filters label { flex-direction: row; align-items: center; gap: .35rem; padding: .25rem .6rem; border: 1px solid var(--line); border-radius: 99px; font-size: .85rem; white-space: nowrap; cursor: pointer; }
+.component-pr-filters label:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent), Canvas 84%); }
+.component-pr-filters input { margin: 0; accent-color: var(--accent); }
+.component-pr-list .pr-repo { border: 0; }
+.component-pr-list .pr-card { margin: 0; padding: .55rem .35rem; border: 0; border-top: 1px solid var(--line); border-radius: 0; }
+.component-pr-list .pr-summary { display: grid; grid-template-columns: minmax(0, 2.75fr) minmax(0, 1.15fr) minmax(0, 1.35fr) 4.75rem; align-items: start; gap: .45rem .8rem; }
+.component-pr-note { display: block; font-size: .8rem; }
+.component-pr-check { justify-self: start; color: CanvasText; }
+.component-pr-check.yes { border-color: #35a56a; }
+.component-pr-check.no { font-weight: 700; border-color: #df5a62; background: color-mix(in srgb, #df5a62 16%, Canvas); }
+.component-pr-check.unknown { border-color: #d99b22; }
+.component-pr-disclosures { display: flex; align-items: start; flex-wrap: wrap; gap: .25rem .8rem; margin-top: .2rem; font-size: .86rem; }
+.component-pr-disclosures details { min-width: 0; margin: 0; }
+.component-pr-disclosures details[open] { flex-basis: 100%; }
+.component-pr-retry > summary { font-weight: 650; }
+.component-pr-filter-empty, .component-pr-filter-help { display: none; margin: .5rem 0 0; }
+.component-pr-filter-help { font-size: .85rem; }
+.component-pr-list:has(#prs-attention:checked) .component-pr-filter-help { display: block; }
+.component-pr-list:has(#prs-attention:checked) .pr-card:not([data-pr-attention]),
+.component-pr-list:has(#prs-included:checked) .pr-card:not([data-release-choice="included"]),
+.component-pr-list:has(#prs-undecided:checked) .pr-card:not([data-release-choice="undecided"]) { display: none; }
+.component-pr-list:has(#prs-attention:checked):not(:has([data-pr-attention])) .component-pr-filter-empty,
+.component-pr-list:has(#prs-included:checked):not(:has([data-release-choice="included"])) .component-pr-filter-empty,
+.component-pr-list:has(#prs-undecided:checked):not(:has([data-release-choice="undecided"])) .component-pr-filter-empty { display: block; }
+@media (max-width: 650px) {
+  .component-pr-list .pr-summary { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 4.25rem; }
+  .component-pr-list .pr-title { grid-column: 1 / -1; }
+}
 summary { cursor: pointer; }
 table { width: 100%; border-collapse: collapse; margin: .5rem 0 1rem; font-size: .92rem; }
 th, td { padding: .45rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }

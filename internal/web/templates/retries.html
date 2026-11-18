@@ -1,7 +1,24 @@
 {{define "retries"}}
+  {{with .DetachedPRRetries}}
+  {{if or (ne .Tab "component-prs") .Plans}}
   <section class="panel" id="{{.RetrySection}}"><details id="{{.RetryDetails}}" open><summary class="section-summary">Retry proposals</summary><p class="eyebrow">Konflux observations</p>
     <p class="muted">{{if eq .Tab "component-releases"}}Retry observations for the selected component tags.{{else}}{{if eq .Tab "acs-prs"}}Retry observations for included ACS PRs and the configured pinning PR.{{else}}Retry observations for included component PRs.{{end}}{{end}}</p>
-    {{range .Plans}}{{$plan := .Plan}}<article class="plan-card" data-live-key="plan:{{.Plan.Target}}"><div class="section-heading"><h3>{{.Plan.Target}} {{if .Plan.Target.PR}}<span class="pill">{{if .Pinning}}Pinning PR{{else}}Included PR{{end}}</span>{{else}}<span class="pill">Selected tag</span>{{end}}</h3><span>{{.Plan.Action}}</span></div><p>{{.Plan.Message}}</p><p>SHA <code>{{.Plan.SHA}}</code> · observed at {{when .Plan.Evidence.At}} · {{if .Plan.Evidence.Known}}known{{else}}unknown{{end}}</p>{{if .Plan.Evidence.Error}}<p class="error-text">{{.Plan.Evidence.Error}}</p>{{end}}
+    {{if .Plans}}{{template "retry-plans" .}}{{else}}<p class="muted">No retry observations yet. {{if eq .Tab "component-releases"}}Select a component tag to monitor its builds.{{else}}{{if eq .Tab "acs-prs"}}Include an ACS PR or supply a pinning PR number to monitor its builds.{{else}}Include a component PR to monitor its builds.{{end}}{{end}}</p>{{end}}
+    </details>
+  </section>
+  {{end}}
+
+  {{if or (ne .Tab "component-prs") .Authority}}
+  <section class="panel" id="{{.OfferSection}}"><details id="{{.OfferSection}}-details" open><summary class="section-summary">Exact comment offers</summary><p class="eyebrow">Write authority</p>
+    {{if .Authority}}{{template "retry-offers" .}}{{else}}<p class="muted">No comment offers for selected tags or included PRs.</p>{{end}}
+    </details>
+  </section>
+  {{end}}
+  {{end}}
+{{end}}
+
+{{define "retry-plans"}}
+    {{range .Plans}}{{$plan := .Plan}}<div class="plan-card" data-live-key="plan:{{.Plan.Target}}"><div class="section-heading"><h3>{{.Plan.Target}} {{if .Plan.Target.PR}}<span class="pill">{{if .Pinning}}Pinning PR{{else}}Included PR{{end}}</span>{{else}}<span class="pill">Selected tag</span>{{end}}</h3><span>{{.Plan.Action}}</span></div><p>{{.Plan.Message}}</p><p>SHA <code>{{.Plan.SHA}}</code> · observed at {{when .Plan.Evidence.At}} · {{if .Plan.Evidence.Known}}known{{else}}unknown{{end}}</p>{{if .Plan.Evidence.Error}}<p class="error-text">{{.Plan.Evidence.Error}}</p>{{end}}
       {{if and .Plan.Runs (not .Pinning)}}<h4>Observed runs</h4><table><thead><tr><th>Job</th><th>Run</th><th>Status</th><th>Outcome</th><th>Retry eligible</th></tr></thead><tbody>{{range .Plan.Runs}}<tr><td>{{.Job}}</td><td>{{if url .URL}}<a href="{{url .URL}}">{{.ID}}</a>{{else}}{{.ID}}{{end}}</td><td>{{.Status}}</td><td>{{.Outcome}}</td><td>{{if .Eligible}}yes{{else}}no or unknown{{end}}</td></tr>{{end}}</tbody></table>{{end}}
       {{if .Plan.Warnings}}<h4>Warnings</h4><ol>{{range .Plan.Warnings}}<li>{{.}}</li>{{end}}</ol>{{end}}
       {{if .Plan.Advisories}}<h4>Conforma advisories</h4><p class="muted" id="review-help-{{$plan.Target}}">Mark as reviewed records that you have read an advisory for this session and adds an action-log entry. It does not change check results, retry eligibility, write permissions, or release readiness. Reviews reset on restart.</p>{{range .Plan.Advisories}}<div class="advisory">
@@ -10,18 +27,15 @@
         {{if index $.Snapshot.Choices.Acknowledged .ID}}<p class="review-status"><span class="pill selected">Reviewed for this session</span></p>{{end}}
         <form method="post" action="/action#{{$.RetrySection}}" class="inline-form"><input type="hidden" name="tab" value="{{$.Tab}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="acknowledge"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="repo" value="{{$plan.Target.Repo}}"><input type="hidden" name="pr" value="{{if $plan.Target.PR}}{{$plan.Target.PR}}{{end}}"><input type="hidden" name="tag" value="{{$plan.Target.Tag}}"><input type="hidden" name="sha" value="{{$plan.SHA}}"><input type="hidden" name="enabled" value="{{if index $.Snapshot.Choices.Acknowledged .ID}}false{{else}}true{{end}}"><button type="submit" aria-describedby="review-help-{{$plan.Target}}">{{if index $.Snapshot.Choices.Acknowledged .ID}}Mark as unreviewed{{else}}Mark as reviewed{{end}}</button></form>
       </div>{{end}}{{end}}
-      {{if .Plan.Proposals}}<h4>Copyable comments</h4>{{range .Plan.Proposals}}<article class="proposal"><p>{{.Target}} · SHA <code>{{.SHA}}</code> · {{.Job}} · run {{.RunID}}</p><pre><code>{{.Payload}}</code></pre></article>{{end}}{{end}}
-    </article>{{else}}<p class="muted">No retry observations yet. {{if eq .Tab "component-releases"}}Select a component tag to monitor its builds.{{else}}{{if eq .Tab "acs-prs"}}Include an ACS PR or supply a pinning PR number to monitor its builds.{{else}}Include a component PR to monitor its builds.{{end}}{{end}}</p>{{end}}
-    </details>
-  </section>
+      {{if .Plan.Proposals}}<h4>Copyable comments</h4>{{range .Plan.Proposals}}<div class="proposal"><p>{{.Target}} · SHA <code>{{.SHA}}</code> · {{.Job}} · run {{.RunID}}</p><pre><code>{{.Payload}}</code></pre></div>{{end}}{{end}}
+    </div>{{end}}
+{{end}}
 
-  <section class="panel" id="{{.OfferSection}}"><details id="{{.OfferSection}}-details" open><summary class="section-summary">Exact comment offers</summary><p class="eyebrow">Write authority</p>
-    {{range .Authority}}<article class="offer-card" data-live-key="authority:{{.View.Target}}"><h3>{{.View.Target}} <span class="muted">SHA {{.View.SHA}}</span></h3><p>RW {{if .View.Granted}}allowed{{else}}not allowed{{end}} · {{if .View.Ignored}}ignored{{else}}monitored{{end}}{{if .View.OptOut}} · no-release-assistant disables writes{{end}}</p>{{if .View.Message}}<p>{{.View.Message}}</p>{{end}}{{if .View.Warnings}}<ol>{{range .View.Warnings}}<li class="warning">{{.}}</li>{{end}}</ol>{{end}}
+{{define "retry-offers"}}
+    {{range .Authority}}<div class="offer-card" data-live-key="authority:{{.View.Target}}"><h3>{{.View.Target}} <span class="muted">SHA {{.View.SHA}}</span></h3><p>RW {{if .View.Granted}}allowed{{else}}not allowed{{end}} · {{if .View.Ignored}}ignored{{else}}monitored{{end}}{{if .View.OptOut}} · no-release-assistant disables writes{{end}}</p>{{if .View.Message}}<p>{{.View.Message}}</p>{{end}}{{if .View.Warnings}}<ol>{{range .View.Warnings}}<li class="warning">{{.}}</li>{{end}}</ol>{{end}}
       {{range .View.Offers}}<div class="offer" data-live-key="offer:{{.ID}}"><p>Offer {{.ID}} · {{.Proposal.Target}} · SHA {{.Proposal.SHA}} · {{.Proposal.Job}} · run {{.Proposal.RunID}} · failures {{.Failures}}{{if .Rejected}} · rejected{{end}}</p><p>{{if .Reason}}{{.Reason}}{{else}}Ready for exact confirmation{{end}}{{if not .WaitingUntil.IsZero}} · wait until {{when .WaitingUntil}}{{end}}</p><pre><code>{{.Proposal.Payload}}</code></pre>
         {{if .CanApprove}}<form method="post" action="/action"><input type="hidden" name="tab" value="{{$.Tab}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="send"><input type="hidden" name="repo" value="{{.Proposal.Target.Repo}}"><input type="hidden" name="pr" value="{{if .Proposal.Target.PR}}{{.Proposal.Target.PR}}{{end}}"><input type="hidden" name="tag" value="{{.Proposal.Target.Tag}}"><input type="hidden" name="sha" value="{{.Proposal.SHA}}"><input type="hidden" name="id" value="{{.ID}}"><label class="check{{if not $.Snapshot.WritesEnabled}} disabled-control{{end}}"><input type="checkbox" name="confirm" value="yes" required{{if not $.Snapshot.WritesEnabled}} disabled{{end}}> I confirm this exact comment</label><button type="submit"{{if not $.Snapshot.WritesEnabled}} disabled{{end}}>Send one comment</button></form>{{end}}
         {{if .Rejected}}<form method="post" action="/action" class="inline-form"><input type="hidden" name="tab" value="{{$.Tab}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="reject"><input type="hidden" name="repo" value="{{.Proposal.Target.Repo}}"><input type="hidden" name="pr" value="{{if .Proposal.Target.PR}}{{.Proposal.Target.PR}}{{end}}"><input type="hidden" name="tag" value="{{.Proposal.Target.Tag}}"><input type="hidden" name="sha" value="{{.Proposal.SHA}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="enabled" value="false"><button type="submit">Reconsider this run</button></form>{{else}}<form method="post" action="/action" class="inline-form"><input type="hidden" name="tab" value="{{$.Tab}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="reject"><input type="hidden" name="repo" value="{{.Proposal.Target.Repo}}"><input type="hidden" name="pr" value="{{if .Proposal.Target.PR}}{{.Proposal.Target.PR}}{{end}}"><input type="hidden" name="tag" value="{{.Proposal.Target.Tag}}"><input type="hidden" name="sha" value="{{.Proposal.SHA}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="enabled" value="true"><button type="submit">Reject this run</button></form>{{end}}
       </div>{{else}}<p class="muted">No current offers.</p>{{end}}
-    </article>{{else}}<p class="muted">No comment offers for selected tags or included PRs.</p>{{end}}
-    </details>
-  </section>
+    </div>{{end}}
 {{end}}

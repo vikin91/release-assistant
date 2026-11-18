@@ -79,8 +79,9 @@ func TestRetryAndCommentSectionsUseExplicitCurrentScope(t *testing.T) {
 	}}
 	b := newBrowser(t, application)
 	body := b.getBody(t)
-	proposals := between(t, body, `<section class="panel" id="retry-proposals">`, `</section>`) + between(t, body, `<section class="panel" id="component-releases-retry">`, `</section>`)
-	offers := between(t, body, `<section class="panel" id="comment-offers">`, `</section>`) + between(t, body, `<section class="panel" id="component-releases-offers">`, `</section>`)
+	inline := between(t, body, `data-fold-key="pr-retry:acme/fact#21"`, `</details>`)
+	proposals := inline + between(t, body, `<section class="panel" id="component-releases-retry">`, `</section>`)
+	offers := inline + between(t, body, `<section class="panel" id="component-releases-offers">`, `</section>`)
 	for _, section := range []struct {
 		name string
 		body string
@@ -135,12 +136,12 @@ func TestRetryAndCommentSectionsUseExplicitCurrentScope(t *testing.T) {
 func TestRetryProposalsDoNotRequireSelectionConfirmation(t *testing.T) {
 	application := &fakeApplication{snapshot: app.Snapshot{Config: validACS5Config(), Generation: 12}}
 	body := newBrowser(t, application).getBody(t)
-	proposals := between(t, body, `<section class="panel" id="retry-proposals">`, `</section>`)
+	prs := activityPanel(t, body, "component-prs")
 	if strings.Contains(body, "Finish PR selection") || strings.Contains(body, "finish-selection") {
 		t.Fatal("activity tabs retained the global selection gate")
 	}
-	if !strings.Contains(proposals, "No retry observations yet") {
-		t.Fatal("empty retry proposals lost their activity-specific explanation")
+	if !strings.Contains(prs, "No open PR observations") || strings.Contains(prs, "Review retry") {
+		t.Fatal("empty component PR view displayed a retry action")
 	}
 }
 

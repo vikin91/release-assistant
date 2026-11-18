@@ -1,30 +1,71 @@
 {{define "pr-list"}}
   <section class="panel" aria-labelledby="{{.PRSection}}-heading" id="{{.PRSection}}-panel">
-    <details id="{{.PRSection}}" open>
-    <summary id="{{.PRSection}}-heading" class="section-summary">{{if eq .Tab "component-prs"}}Component PRs{{else}}ACS release PRs{{end}}</summary>
+    {{$component := eq .Tab "component-prs"}}
+    {{$triage := .ComponentPRTriage}}
+    <details id="{{.PRSection}}"{{if $component}} class="component-pr-list"{{end}} open>
+    <summary id="{{.PRSection}}-heading" class="section-summary">{{if $component}}Component PRs
+      <span class="component-pr-counts">{{$triage.AwaitingMerge}} awaiting merge{{if $triage.Closed}} · {{$triage.Closed}} included and closed{{end}} · {{$triage.Undecided}} undecided{{if $triage.Merged}} · {{$triage.Merged}} included and merged{{end}}</span>
+      {{else}}ACS release PRs{{end}}</summary>
     {{if .ComponentPRNotice}}<p class="muted">{{.ComponentPRNotice}}</p>{{end}}
-    <p class="muted">Include selects a PR for monitoring. Exclude stops detailed monitoring and retries; Ignore also hides it. RW allowed controls permission to post retry comments independently.</p>
-    {{range .Repos}}
+    {{if $component}}
+      <fieldset class="component-pr-filters" data-live-preserve>
+        <legend>Filter open and selected PRs</legend>
+        <label><input type="radio" name="component-pr-filter" id="prs-all" checked> All</label>
+        <label><input type="radio" name="component-pr-filter" id="prs-attention"> Needs attention</label>
+        <label><input type="radio" name="component-pr-filter" id="prs-included"> Included</label>
+        <label><input type="radio" name="component-pr-filter" id="prs-undecided"> Undecided</label>
+      </fieldset>
+      <p class="component-pr-filter-help muted">Included PRs that closed without merging or have a failed required check.</p>
+      <p class="component-pr-filter-empty muted">No PRs match this filter.</p>
+    {{else}}<p class="muted">Include selects a PR for monitoring. Exclude stops detailed monitoring and retries; Ignore also hides it. RW allowed controls permission to post retry comments independently.</p>{{end}}
+    {{range $triage.Repos}}
       <article class="pr-repo" data-live-key="pr-repo:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}">
         <h3>{{title .Repository.Source.Name}} <span class="muted">{{.Repository.Source.Repo}} · {{.Repository.Source.Branch}}</span></h3>
         {{range .PRs}}
-          <article class="pr-card" data-live-key="pr:{{.PR.Target}}">
+          {{$row := index $triage.Rows .PR.Target}}
+          {{$choiceForm := printf "component-pr-choice-%s-%d" .PR.Target.Repo .PR.Target.PR}}
+          <article class="pr-card" data-live-key="pr:{{.PR.Target}}"{{if $component}} data-release-choice="{{.ChoiceLabel}}"{{if $row.Attention}} data-pr-attention{{end}}{{end}}>
             <div class="pr-summary">
-              <div class="pr-title"><a href="{{url .PR.URL}}" target="_blank" rel="noreferrer">#{{.PR.Target.PR}} {{.PR.Title}}</a> <span class="pill">{{.ChoiceLabel}}</span></div>
-              <div class="pr-meta"><span>{{if .PR.Author}}@{{.PR.Author}}{{else}}Author unknown{{end}}</span> · <span>{{if .PR.Merged}}merged{{else}}{{.PR.State}}{{end}}</span>{{if not .PR.Evidence.Fresh}} · <span class="unknown">PR identity unknown or stale</span>{{end}}{{if .PR.OptOut}} · <strong class="error-text">no-release-assistant opt-out</strong>{{end}}</div>
+              <div class="pr-title"><a href="{{url .PR.URL}}" target="_blank" rel="noreferrer">#{{.PR.Target.PR}} {{.PR.Title}}</a>{{if not $component}} <span class="pill">{{.ChoiceLabel}}</span>{{end}}
+              {{if $component}}<div class="pr-meta">{{template "pr-identity-summary" .PR}}</div>{{end}}</div>
+              {{if $component}}
+                <div class="component-pr-choice">
+                  <span class="pill">{{title .ChoiceLabel}}</span>
+                  {{if eq .PR.State "closed"}}<span class="component-pr-note">{{if .PR.Evidence.Fresh}}Closed without merging{{else}}Last observed closed without merging{{end}}</span>
+                  {{else if eq .Choice "included"}}<span class="component-pr-note">Awaiting merge</span>{{end}}
+                </div>
+                <span class="component-pr-check pill {{truth $row.CheckStatus}}">{{$row.CheckSummary}}</span>
+                <div class="component-pr-quick-action">
+                  {{if not .Choice}}<button type="submit" form="{{$choiceForm}}" name="choice" value="included">Include</button>
+                  {{else if eq .PR.State "closed"}}<button type="submit" form="{{$choiceForm}}" name="choice" value="excluded">Exclude</button>{{end}}
+                </div>
+              {{else}}<div class="pr-meta">{{template "pr-identity-summary" .PR}}</div>{{end}}
             </div>
-            {{if and (eq .PR.State "closed") (not .PR.Merged)}}<p class="notice warning">Closed without merging. Reopen this PR on GitHub or exclude it from this patch.</p>{{end}}
+            {{if $component}}<div class="component-pr-disclosures">
+            {{$target := .PR.Target}}
+            {{with $row.Retry}}
+              <details class="component-pr-retry" data-fold-key="pr-retry:{{$target}}">
+                <summary>{{if $row.HasProposal}}Review retry{{else}}Build and retry details{{end}}</summary>
+                {{template "retry-offers" .}}
+                {{template "retry-plans" .}}
+              </details>
+            {{end}}
+            {{end}}
+            {{if $component}}<details class="component-pr-manage" data-fold-key="pr-actions:{{.PR.Target}}"><summary>PR actions</summary>{{end}}
+            {{if and (eq .PR.State "closed") (not .PR.Merged)}}<p class="notice warning">{{if not $component}}Closed without merging. {{end}}Reopen this PR on GitHub or exclude it from this patch.</p>{{end}}
             <div class="control-row">
-              <form method="post" action="/action#{{$.PRSection}}" class="inline-form choice-form" aria-label="PR {{.PR.Target.PR}} inclusion"><input type="hidden" name="tab" value="{{$.Tab}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="choice"><input type="hidden" name="repo" value="{{.PR.Target.Repo}}"><input type="hidden" name="pr" value="{{.PR.Target.PR}}"><input type="hidden" name="sha" value="{{.PR.SHA}}">
+              <form method="post" action="/action#{{$.PRSection}}" class="inline-form choice-form"{{if $component}} id="{{$choiceForm}}"{{end}} aria-label="PR {{.PR.Target.PR}} inclusion"><input type="hidden" name="tab" value="{{$.Tab}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="choice"><input type="hidden" name="repo" value="{{.PR.Target.Repo}}"><input type="hidden" name="pr" value="{{.PR.Target.PR}}"><input type="hidden" name="sha" value="{{.PR.SHA}}">
                 <button type="submit" name="choice" value="included" aria-pressed="{{if eq .Choice "included"}}true{{else}}false{{end}}">Included</button>
                 <button type="submit" name="choice" value="excluded" aria-pressed="{{if eq .Choice "excluded"}}true{{else}}false{{end}}">Excluded</button>
                 <button type="submit" name="choice" value="ignored">Ignore &amp; hide</button>
               </form>
               <form method="post" action="/action#{{$.PRSection}}" class="inline-form grant-form" data-autosubmit><input type="hidden" name="tab" value="{{$.Tab}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="grant"><input type="hidden" name="repo" value="{{.PR.Target.Repo}}"><input type="hidden" name="pr" value="{{.PR.Target.PR}}"><input type="hidden" name="sha" value="{{.PR.SHA}}"><input type="hidden" name="enabled" value="false"><label class="check{{if not .CanGrant}} disabled-control{{end}}" title="Saves immediately"><input type="checkbox" name="enabled" value="true" {{if and .Authority .Authority.Granted}}checked{{end}}{{if not .CanGrant}} disabled{{end}}> RW allowed</label><noscript><button type="submit"{{if not .CanGrant}} disabled{{end}}>Apply RW permission</button></noscript>{{if .PR.OptOut}}<span class="error-text">Writes disabled by opt-out label</span>{{end}}</form>
             </div>
+            {{if $component}}</details>{{end}}
             <details class="pr-details" data-fold-key="pr-evidence:{{.PR.Target.Repo}}#{{.PR.Target.PR}}"><summary>Evidence and checks</summary>
               <p>Head <code>{{.PR.SHA}}</code> · base {{.PR.Base}}{{if .PR.MergeSHA}} · merge <code>{{.PR.MergeSHA}}</code>{{end}}</p>
               <div class="evidence"><span>{{if .PR.Evidence.Known}}PR identity observed{{else}}PR identity unknown{{end}} at {{when .PR.Evidence.At}}</span>{{if .PR.Evidence.Error}}<span class="error-text">{{.PR.Evidence.Error}}</span>{{end}}</div><p class="evidence">{{if .PR.ChecksEvidence.Fresh}}Checks observed at {{when .PR.ChecksEvidence.At}}{{else}}Check and required-status evidence is unknown or stale at {{when .PR.ChecksEvidence.At}}{{end}}{{if .PR.ChecksEvidence.Error}} · {{.PR.ChecksEvidence.Error}}{{end}}</p>{{if .PR.Checks}}<table><thead><tr><th>Check</th><th>Status</th><th>Conclusion</th><th>Required</th></tr></thead><tbody>{{range .PR.Checks}}<tr><td>{{if url .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td><td>{{.Status}}</td><td>{{.Conclusion}}</td><td>{{truth .Required}}</td></tr>{{end}}</tbody></table>{{else}}<p class="muted">No check rows were returned.</p>{{end}}</details>
+            {{if $component}}</div>{{end}}
           </article>
         {{else}}<p class="muted">No open PR observations. New PRs continue to appear as discovery refreshes.</p>{{end}}
         {{if .MergedPRs}}<details class="merged-prs" data-fold-key="merged-prs:{{.Repository.Source.Repo}}"><summary>Included PRs merged ({{len .MergedPRs}})</summary><ol>{{range .MergedPRs}}<li><a href="{{url .URL}}" target="_blank" rel="noreferrer">#{{.Target.PR}} {{.Title}}</a>{{if not .Evidence.Fresh}} · <span class="unknown">last observed merged</span>{{end}}</li>{{end}}</ol></details>{{end}}
@@ -36,4 +77,8 @@
     {{else}}<p class="muted">No repository observations yet.</p>{{end}}
     </details>
   </section>
+{{end}}
+
+{{define "pr-identity-summary"}}
+  <span>{{if .Author}}@{{.Author}}{{else}}Author unknown{{end}}</span> · <span>{{if .Merged}}merged{{else}}{{.State}}{{end}}</span>{{if not .Evidence.Fresh}} · <span class="unknown">PR identity unknown or stale</span>{{end}}{{if .OptOut}} · <strong class="error-text">no-release-assistant opt-out</strong>{{end}}
 {{end}}
