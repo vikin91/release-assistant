@@ -73,8 +73,8 @@ func TestWriteModeControls(t *testing.T) {
 				t.Error("PR inclusion, exclusion, and ignore choices must remain available")
 			}
 
-			tagCard := regexpTagCard(t, body, "tag-sha")
-			tagGrant := grantForm(t, tagCard)
+			tagRow := tagRowContaining(body, "tag-sha")
+			tagGrant := grantForm(t, tagRow)
 			assertCheckboxDisabled(t, "tag RW grant", tagGrant, "enabled", tc.wantDisabled)
 			assertButtonTextDisabled(t, "tag noscript grant", tagGrant, "Apply RW permission", tc.wantDisabled)
 			if !strings.Contains(body, "Switch to fact 3.25.8") {
@@ -150,15 +150,4 @@ func assertButtonTextDisabled(t *testing.T, name, form, label string, want bool)
 	if got := strings.Contains(button, " disabled"); got != want {
 		t.Errorf("%s disabled=%t, want %t: %s", name, got, want, button)
 	}
-}
-
-func regexpTagCard(t *testing.T, body, marker string) string {
-	t.Helper()
-	for _, card := range strings.Split(body, `<article class="tag-card`) {
-		if strings.Contains(card, marker) {
-			return `<article class="tag-card` + card
-		}
-	}
-	t.Fatalf("tag card containing %q missing", marker)
-	return ""
 }

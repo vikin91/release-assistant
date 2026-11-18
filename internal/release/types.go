@@ -168,12 +168,15 @@ type (
 		Repositories []Repository
 		Inventory    Inventory
 	}
+	// TagCoverageIssue identifies why a tag cannot cover the selected PRs.
+	TagCoverageIssue string
 	// Condition explains one readiness predicate and its evidence.
 	Condition struct {
 		Name     string
 		Status   Truth
 		Reason   string
 		Evidence []Evidence
+		TagIssue TagCoverageIssue
 	}
 	// BaselineRecord explains what current tag evidence says about the previous ACS pin.
 	BaselineRecord struct {
@@ -217,6 +220,10 @@ const (
 	Excluded Choice = "excluded"
 	// Ignored stops detailed reads and all writes.
 	Ignored Choice = "ignored"
+	// TagPRUnmerged means a selected PR has no recorded merge into the component branch.
+	TagPRUnmerged TagCoverageIssue = "pr-unmerged"
+	// TagMissingMerge means the tag omits a known merge of a selected PR.
+	TagMissingMerge TagCoverageIssue = "missing-merge"
 )
 
 var (

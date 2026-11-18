@@ -18,17 +18,21 @@ var pinValueRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
 // Assess derives release readiness and next steps from the supplied observations.
 func Assess(in Input) Assessment {
 	a := Assessment{ProposedTags: make(map[string]string), ReleaseGuides: make(map[string]string)}
-	add := func(name string, status Truth, reason string, evidence ...Evidence) {
-		if status != "" && len(evidence) > 0 {
-			for _, e := range evidence {
-				if !e.Fresh() {
-					status = ""
-					reason += "; current evidence is not fresh"
+	addCondition := func(condition Condition) {
+		if condition.Status != "" {
+			for _, evidence := range condition.Evidence {
+				if !evidence.Fresh() {
+					condition.Status = ""
+					condition.Reason += "; current evidence is not fresh"
 					break
 				}
 			}
 		}
-		a.Conditions = append(a.Conditions, Condition{Name: name, Status: status, Reason: reason, Evidence: nonNilEvidence(evidence)})
+		condition.Evidence = nonNilEvidence(condition.Evidence)
+		a.Conditions = append(a.Conditions, condition)
+	}
+	add := func(name string, status Truth, reason string, evidence ...Evidence) {
+		addCondition(Condition{Name: name, Status: status, Reason: reason, Evidence: evidence})
 	}
 
 	configErr := in.Config.Validate()
@@ -76,8 +80,8 @@ func Assess(in Input) Assessment {
 	for _, source := range in.Config.Components {
 		repo, found := repos[source.Name]
 		confirmed := in.Choices.Tags[source.Name]
-		status, reason, tag, tagFound := assessComponentTag(source, repo, found, included, prStates, confirmed)
-		tagStatuses[source.Name] = status
+		coverage, tag, tagFound := assessComponentTag(source, repo, found, included, prStates, confirmed)
+		tagStatuses[source.Name] = coverage.Status
 		if tagFound {
 			if version, ok := tagVersion(source, tag.Name); ok {
 				chosenVersions[source.Name] = version
@@ -96,7 +100,9 @@ func Assess(in Input) Assessment {
 		if tagFound {
 			evidence = append(evidence, tag.Evidence)
 		}
-		add("tag "+source.Name, status, reason, evidence...)
+		coverage.Name = "tag " + source.Name
+		coverage.Evidence = evidence
+		addCondition(coverage)
 	}
 	addTagRecommendations(&a, in, included, prStates, tagStatuses)
 	componentsAtBaseline := a.addBaselineRecommendations()
@@ -264,35 +270,34 @@ func assessIncludedPR(config Config, target Target, pr PR, repo Repository, foun
 	return "", "Included PR merge state is unknown"
 }
 
-func assessComponentTag(source Source, repo Repository, found bool, included []Target, prStates map[Target]Truth, confirmed string) (Truth, string, Tag, bool) {
+func assessComponentTag(source Source, repo Repository, found bool, included []Target, prStates map[Target]Truth, confirmed string) (Condition, Tag, bool) {
 	if confirmed == "" {
-		return "", "No component tag is selected for this release yet. Component PRs can be prepared and merged before selecting a tag", Tag{}, false
+		return Condition{Reason: "No component tag is selected for this release yet. Component PRs can be prepared and merged before selecting a tag"}, Tag{}, false
 	}
 	if !found || !repo.Evidence.Fresh() || repo.Head == "" {
-		return "", "Component branch head or discovery evidence is not fresh", Tag{}, false
+		return Condition{Reason: "Component branch head or discovery evidence is not fresh"}, Tag{}, false
 	}
 	tag, ok := findTag(repo.Tags, confirmed)
 	if !ok {
-		return "", "Confirmed tag was not found in current discovery", Tag{}, false
+		return Condition{Reason: "Confirmed tag was not found in current discovery"}, Tag{}, false
 	}
-	status, reason := tagSuitability(source, repo, tag, included, prStates)
-	return status, "Confirmed tag " + confirmed + ": " + reason, tag, true
+	coverage := tagSuitability(source, repo, tag, included, prStates)
+	coverage.Reason = "Confirmed tag " + confirmed + ": " + coverage.Reason
+	return coverage, tag, true
 }
 
-func tagSuitability(source Source, repo Repository, tag Tag, included []Target, prStates map[Target]Truth) (Truth, string) {
-	version, ok := tagVersion(source, tag.Name)
-	if !ok {
-		return No, "tag is not a final semantic version in the configured stream"
+func tagSuitability(source Source, repo Repository, tag Tag, included []Target, prStates map[Target]Truth) Condition {
+	if _, ok := tagVersion(source, tag.Name); !ok {
+		return Condition{Status: No, Reason: "tag is not a final semantic version in the configured stream"}
 	}
-	_ = version
 	if !repo.Evidence.Fresh() || !tag.Evidence.Fresh() || repo.Head == "" || tag.SHA == "" {
-		return "", "branch head, tag identity, or tag evidence is not fresh"
+		return Condition{Reason: "branch head, tag identity, or tag evidence is not fresh"}
 	}
 	if tag.Belongs == No {
-		return No, "tag is not an ancestor of the configured component branch"
+		return Condition{Status: No, Reason: "tag is not an ancestor of the configured component branch"}
 	}
 	if tag.Belongs != Yes {
-		return "", "branch ancestry for this tag is unknown"
+		return Condition{Reason: "branch ancestry for this tag is unknown"}
 	}
 	for _, target := range included {
 		if target.Repo != source.Repo || target.PR == 0 {
@@ -300,26 +305,26 @@ func tagSuitability(source Source, repo Repository, tag Tag, included []Target, 
 		}
 		switch prStates[target] {
 		case No:
-			return No, "an included PR is still open or otherwise not merged"
+			return Condition{Status: No, Reason: "an included PR is still open or otherwise not merged", TagIssue: TagPRUnmerged}
 		case "":
-			return "", "included PR merge state is unknown"
+			return Condition{Reason: "included PR merge state is unknown"}
 		}
 		pr, _, found := findPR(map[string]Repository{source.Name: repo}, []Source{source}, target)
 		if !found || pr.MergeSHA == "" {
-			return "", "included PR merge commit is unknown"
+			return Condition{Reason: "included PR merge commit is unknown"}
 		}
 		if tag.Contains == nil {
-			return "", "tag containment observations are missing"
+			return Condition{Reason: "tag containment observations are missing"}
 		}
 		switch tag.Contains[pr.MergeSHA] {
 		case Yes:
 		case No:
-			return No, "tag does not contain included PR merge " + pr.MergeSHA
+			return Condition{Status: No, Reason: "tag does not contain included PR merge " + pr.MergeSHA, TagIssue: TagMissingMerge}
 		default:
-			return "", "tag containment for included PR merge is unknown"
+			return Condition{Reason: "tag containment for included PR merge is unknown"}
 		}
 	}
-	return Yes, "tag belongs to the configured branch and covers every included merged PR"
+	return Condition{Status: Yes, Reason: "tag belongs to the configured branch and covers every included merged PR"}
 }
 
 func highestEligibleTag(source Source, repo Repository, found bool) (Tag, bool) {
@@ -946,7 +951,7 @@ func addTagRecommendations(a *Assessment, in Input, included []Target, prStates 
 		if proposed != "" {
 			if repo, ok := findRepository(in.Repositories, source.Name); ok {
 				if tag, ok := findTag(repo.Tags, proposed); ok {
-					proposalStatus, _ = tagSuitability(source, repo, tag, included, prStates)
+					proposalStatus = tagSuitability(source, repo, tag, included, prStates).Status
 				}
 			}
 		}

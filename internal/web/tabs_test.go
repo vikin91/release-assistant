@@ -108,7 +108,7 @@ func TestTagPreparationKeepsExistingCandidatesAndReturnsToActivity(t *testing.T)
 	}
 	var form string
 	for _, candidate := range renderedFormRE.FindAllString(body, -1) {
-		if strings.Contains(candidate, "Prepare a new tag") {
+		if strings.Contains(candidate, "Clear selection") {
 			form = candidate
 			break
 		}

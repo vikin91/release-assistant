@@ -25,11 +25,11 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 			PRs:  map[release.Target]release.Choice{{Repo: "acme/fact", PR: 11}: release.Included},
 		},
 		Assessment: release.Assessment{ProposedTags: map[string]string{"fact": "3.25.2"}, Conditions: []release.Condition{{
-			Name: "tag fact", Reason: "Current tag coverage is unknown",
+			Name: "tag fact", Status: release.No, Reason: "Current tag does not contain merge-1", TagIssue: release.TagMissingMerge,
 		}}},
 		Repositories: []release.Repository{
 			{Source: release.Source{Name: "fact", Repo: "acme/fact", Branch: "release-3.25", Stream: "3.25"}, Tags: []release.Tag{
-				{Name: "3.25.1", SHA: "fact-current-sha", Belongs: release.Yes, Contains: map[string]release.Truth{"merge-1": ""}, Evidence: observed},
+				{Name: "3.25.1", SHA: "fact-current-sha", Belongs: release.Yes, Contains: map[string]release.Truth{"merge-1": release.No}, Evidence: observed},
 				{Name: "3.25.2", SHA: "fact-next-sha", Belongs: release.Yes, Evidence: observed},
 			}, PRs: []release.PR{{Target: release.Target{Repo: "acme/fact", PR: 11}, SHA: "pr-head", MergeSHA: "merge-1", Merged: true}}},
 			{Source: release.Source{Name: "collector", Repo: "acme/collector", Branch: "release-3.25", Stream: "3.25"}, Tags: []release.Tag{
@@ -41,7 +41,10 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 	body := b.getBody(t)
 
 	tagDetails := between(t, body, `<details id="tag-selection" open>`, `<section class="panel" id="component-images-panel">`)
-	for _, want := range []string{"Component tags selected", "Fact 3.25.1", "Collector 3.25.4", "Selected"} {
+	for _, want := range []string{
+		"Component tags", "2 of 2 selected · 1 coverage issue · 1 unverified",
+		"<code>3.25.1</code>", "<code>3.25.4</code>", "Missing an included merge", "Coverage unverified",
+	} {
 		if !strings.Contains(tagDetails, want) {
 			t.Errorf("tag selection missing %q", want)
 		}
@@ -54,8 +57,8 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 			t.Errorf("current selection offers redundant confirmation %q", forbidden)
 		}
 	}
-	if !strings.Contains(tagDetails, "Change tag…") || !strings.Contains(tagDetails, "Switch to fact 3.25.2") ||
-		!strings.Contains(tagDetails, "Newer tag available:") || application.snapshot.Choices.Tags["fact"] != "3.25.1" {
+	if !strings.Contains(tagDetails, "Change tag") || !strings.Contains(tagDetails, "Switch to fact 3.25.2") ||
+		!strings.Contains(tagDetails, "Review 3.25.2") || application.snapshot.Choices.Tags["fact"] != "3.25.1" {
 		t.Fatal("tag alternatives should be available through an explicit switch action")
 	}
 	var switchForm string
@@ -85,15 +88,16 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 	if switchAction.Kind != "tag" || switchAction.Generation != 23 || switchAction.Component != "fact" || switchAction.Tag != "3.25.2" || switchAction.SHA != "fact-next-sha" {
 		t.Fatalf("switch action=%+v", switchAction)
 	}
-	current := regexp.MustCompile(`(?s)<article class="tag-card[^\"]*"[^>]*>.*?fact-current-sha.*?</article>`).FindString(tagDetails)
+	current := tagRowContaining(tagDetails, "fact-current-sha")
 	if current == "" {
-		t.Fatal("selected fact tag card missing")
+		t.Fatal("selected Fact tag row missing")
 	}
-	if !strings.Contains(current, `<details class="tag-evidence"`) || !strings.Contains(current, "merge-1") {
+	details := between(t, current, `data-fold-key="tag-evidence:fact:acme/fact@3.25.1"`, "</details>")
+	if !strings.Contains(details, "merge-1") || !strings.Contains(details, "fact-current-sha") {
 		t.Fatal("current tag SHA and merge coverage should be inside collapsed evidence")
 	}
 	var tagGrantForm string
-	for _, form := range renderedFormRE.FindAllString(current, -1) {
+	for _, form := range renderedFormRE.FindAllString(details, -1) {
 		if formInputValue(t, form, "kind") == "grant" {
 			tagGrantForm = form
 			break
@@ -246,6 +250,15 @@ func prCardContaining(body, title string) string {
 	for _, card := range regexp.MustCompile(`(?s)<article class="pr-card"[^>]*>.*?</article>`).FindAllString(body, -1) {
 		if strings.Contains(card, title) {
 			return card
+		}
+	}
+	return ""
+}
+
+func tagRowContaining(body, marker string) string {
+	for _, row := range regexp.MustCompile(`(?s)<article class="component-tag-row"[^>]*>.*?</article>`).FindAllString(body, -1) {
+		if strings.Contains(row, marker) {
+			return row
 		}
 	}
 	return ""

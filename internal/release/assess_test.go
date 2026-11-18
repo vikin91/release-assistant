@@ -13,6 +13,7 @@ func TestAssessTagScenarios(t *testing.T) {
 		mutate       func(*Input)
 		wantStatus   Truth
 		wantReason   string
+		wantIssue    TagCoverageIssue
 		wantProposed string
 	}{
 		"tag at branch tip is suitable without selected PRs": {
@@ -45,6 +46,7 @@ func TestAssessTagScenarios(t *testing.T) {
 			},
 			wantStatus:   No,
 			wantReason:   "does not contain included PR merge",
+			wantIssue:    TagMissingMerge,
 			wantProposed: "v0.3.100",
 		},
 		"ACS PRs are selected against the configured ACS branch": {
@@ -73,6 +75,7 @@ func TestAssessTagScenarios(t *testing.T) {
 			},
 			wantStatus: No,
 			wantReason: "still open",
+			wantIssue:  TagPRUnmerged,
 		},
 		"same stream tag outside branch is ineligible": {
 			mutate:     func(in *Input) { in.Repositories[1].Tags[0].Belongs = No },
@@ -110,6 +113,9 @@ func TestAssessTagScenarios(t *testing.T) {
 			}
 			if !strings.Contains(condition.Reason, tt.wantReason) {
 				t.Fatalf("tag reason %q does not contain %q", condition.Reason, tt.wantReason)
+			}
+			if condition.TagIssue != tt.wantIssue {
+				t.Errorf("tag coverage issue = %q, want %q", condition.TagIssue, tt.wantIssue)
 			}
 			if tt.wantProposed != "" && a.ProposedTags["fact"] != tt.wantProposed {
 				t.Fatalf("proposed tag = %q, want %q", a.ProposedTags["fact"], tt.wantProposed)

@@ -22,8 +22,7 @@ type (
 		Snapshot                                                 app.Snapshot
 		Repos                                                    []repoModel
 		TagRepos                                                 []repoModel
-		TagsSelected                                             bool
-		TagUpdates                                               bool
+		TagCounts                                                tagSelectionCounts
 		Problems                                                 []release.Condition
 		Plans                                                    []planModel
 		StartFailureClusters                                     []startFailureCluster
@@ -59,6 +58,7 @@ type (
 		SelectedTag *tagModel
 		NewerTag    string
 		Baseline    string
+		Coverage    release.Condition
 	}
 	prModel struct {
 		PR          release.PR
@@ -68,18 +68,19 @@ type (
 		Authority   *dispatch.View
 	}
 	tagModel struct {
-		Tag               release.Tag
-		Current, Proposed bool
-		Authority         *dispatch.View
-		Component, Repo   string
-		Tab               string
-		CSRF              string
-		Generation        uint64
-		Switch            bool
-		WritesEnabled     bool
-		CoverageStatus    release.Truth
-		CoverageReason    string
-		MergeCoverage     []mergeCoverageModel
+		Tag             release.Tag
+		Proposed        bool
+		Authority       *dispatch.View
+		Component, Repo string
+		Tab             string
+		CSRF            string
+		Generation      uint64
+		Switch          bool
+		WritesEnabled   bool
+		MergeCoverage   []mergeCoverageModel
+	}
+	tagSelectionCounts struct {
+		Total, Selected, Issues, Unverified int
 	}
 	mergeCoverageModel struct {
 		SHA    string
@@ -125,7 +126,6 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 		},
 	}
 	model.Configured = snapshot.Config.Validate() == nil
-	model.TagsSelected = allTagsSelected(snapshot)
 	major, _, _, ok := release.Version(snapshot.Config.Version)
 	model.ACS4 = ok && major == 4
 	if snapshot.Config.PinningPR != 0 {
@@ -218,6 +218,14 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 	}
 	for _, repo := range displayRepositories(snapshot) {
 		r := repoModel{Repository: repo, CurrentTag: snapshot.Choices.Tags[repo.Source.Name]}
+		if r.CurrentTag != "" {
+			for _, condition := range snapshot.Assessment.Conditions {
+				if condition.Name == "tag "+repo.Source.Name {
+					r.Coverage = condition
+					break
+				}
+			}
+		}
 		for _, baseline := range snapshot.Assessment.ComponentBaseline {
 			if baseline.Component == repo.Source.Name {
 				r.Baseline = baseline.Reason
@@ -258,36 +266,27 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 				authority = &copy
 			}
 			t := tagModel{
-				Tag: tag, Current: tag.Name == r.CurrentTag,
+				Tag:      tag,
 				Proposed: snapshot.Assessment.ProposedTags[repo.Source.Name] == tag.Name, Authority: authority,
 				Component: repo.Source.Name, Repo: repo.Source.Repo, CSRF: csrf, Generation: snapshot.Generation, Tab: "component-releases",
-				WritesEnabled:  snapshot.WritesEnabled,
-				Switch:         r.CurrentTag != "" && tag.Name != r.CurrentTag,
-				CoverageReason: "Tag coverage observations are unavailable.",
+				WritesEnabled: snapshot.WritesEnabled,
+				Switch:        r.CurrentTag != "" && tag.Name != r.CurrentTag,
 			}
 			for _, pr := range repo.PRs {
 				if snapshot.Choices.PRs[pr.Target] == release.Included && pr.Merged && pr.MergeSHA != "" {
 					t.MergeCoverage = append(t.MergeCoverage, mergeCoverageModel{SHA: pr.MergeSHA, Status: tag.Contains[pr.MergeSHA]})
 				}
 			}
-			if t.Current {
-				for _, condition := range snapshot.Assessment.Conditions {
-					if condition.Name == "tag "+repo.Source.Name {
-						t.CoverageStatus, t.CoverageReason = condition.Status, condition.Reason
-						break
-					}
-				}
+			if tag.Name == r.CurrentTag {
 				r.SelectedTag = &t
+				continue
 			}
 			if t.Proposed && newerTag(t.Tag.Name, r.CurrentTag) {
 				r.NewerTag = t.Tag.Name
-				model.TagUpdates = true
 			}
 			switch {
 			case t.Proposed:
 				r.Tags = slices.Insert(r.Tags, 0, t)
-			case t.Current:
-				r.Tags = append(r.Tags, t)
 			default:
 				r.OtherTags = append(r.OtherTags, t)
 			}
@@ -306,6 +305,16 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 		model.Repos = append(model.Repos, r)
 		if repo.Source.Name != "acs" {
 			model.TagRepos = append(model.TagRepos, r)
+			model.TagCounts.Total++
+			if r.CurrentTag != "" {
+				model.TagCounts.Selected++
+				switch r.Coverage.Status {
+				case release.No:
+					model.TagCounts.Issues++
+				case "":
+					model.TagCounts.Unverified++
+				}
+			}
 		}
 	}
 	for _, condition := range snapshot.Assessment.Conditions {
@@ -465,18 +474,6 @@ func commentURL(proposal release.Proposal) string {
 		return ""
 	}
 	return repoURL + "/commit/" + url.PathEscape(proposal.SHA)
-}
-
-func allTagsSelected(snapshot app.Snapshot) bool {
-	if len(snapshot.Config.Components) == 0 {
-		return false
-	}
-	for _, source := range snapshot.Config.Components {
-		if snapshot.Choices.Tags[source.Name] == "" {
-			return false
-		}
-	}
-	return true
 }
 
 func newerTag(candidate, current string) bool {

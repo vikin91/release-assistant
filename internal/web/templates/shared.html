@@ -1,20 +1,29 @@
-{{define "component-tag"}}
-<article class="tag-card{{if .Current}} selected-tag{{else}}{{if .Proposed}} proposed-tag{{end}}{{end}}" data-live-key="tag:{{.Component}}:{{.Repo}}@{{.Tag.Name}}:{{.Tag.SHA}}">
-  <div class="section-heading">
-    <div><strong>{{.Tag.Name}}</strong>{{if .Current}} <span class="pill selected">Selected</span>{{else}}{{if .Proposed}} <span class="pill">recommended</span>{{end}}{{end}}</div>
-    {{if and (not .Current) .Tag.Evidence.Fresh (eq (truth .Tag.Belongs) "yes")}}
+{{define "component-tag-option"}}
+<div class="component-tag-option" data-live-key="tag:{{.Component}}:{{.Repo}}@{{.Tag.Name}}:{{.Tag.SHA}}">
+  <div class="component-tag-option-heading">
+    <strong><code>{{.Tag.Name}}</code></strong>
+    {{if .Proposed}}<span class="pill">Recommended candidate</span>{{end}}
+    {{if not .Tag.Evidence.Fresh}}<span class="unknown">Evidence unverified</span>
+    {{else if eq (truth .Tag.Belongs) "no"}}<span class="no">Outside configured branch</span>
+    {{else if eq (truth .Tag.Belongs) "yes"}}
       <form method="post" action="/action#tag-selection" class="inline-form"><input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Generation}}"><input type="hidden" name="kind" value="tag"><input type="hidden" name="component" value="{{.Component}}"><input type="hidden" name="tag" value="{{.Tag.Name}}"><input type="hidden" name="sha" value="{{.Tag.SHA}}"><button type="submit">{{if .Switch}}Switch to{{else}}Confirm{{end}} {{.Component}} {{.Tag.Name}}</button></form>
-    {{end}}
+    {{else}}<span class="unknown">Branch membership unverified</span>{{end}}
   </div>
-  {{if .Current}}<p class="coverage-summary {{truth .CoverageStatus}}">{{if eq (truth .CoverageStatus) "yes"}}Covers the selected changes.{{else}}{{if eq (truth .CoverageStatus) "no"}}Does not yet cover the selected scope.{{else}}Coverage unknown.{{end}}{{end}} <a href="/?tab=component-releases#component-images" data-open-section>Review build and image readiness</a>.</p>{{else}}<p class="muted">Branch membership: {{truth .Tag.Belongs}}. Review the evidence before selecting this tag.</p>{{end}}
-  <details class="tag-evidence" data-fold-key="tag-evidence:{{.Component}}:{{.Repo}}@{{.Tag.Name}}"><summary>Evidence</summary>
-    <p>SHA <code>{{.Tag.SHA}}</code> · branch membership {{truth .Tag.Belongs}}</p>
-    <div class="evidence"><span>{{if .Tag.Evidence.Fresh}}Observed{{else}}Unknown or stale{{end}} at {{when .Tag.Evidence.At}}</span>{{if .Tag.Evidence.Error}}<span class="error-text">{{.Tag.Evidence.Error}}</span>{{end}}{{if url .Tag.Evidence.URL}}<a href="{{url .Tag.Evidence.URL}}" target="_blank" rel="noreferrer">Tag source</a>{{end}}</div>
-    {{if .Current}}<p>{{.CoverageReason}}</p>{{end}}
-    {{if .MergeCoverage}}<p>Included merge coverage: {{range .MergeCoverage}}<code>{{.SHA}}</code> {{truth .Status}} · {{end}}</p>{{end}}
+  <details class="tag-evidence" data-fold-key="tag-evidence:{{.Component}}:{{.Repo}}@{{.Tag.Name}}">
+    <summary>Evidence</summary>
+    {{template "tag-observation" .}}
   </details>
-  {{if .Current}}<form method="post" action="/action#tag-selection" class="inline-form grant-form" data-autosubmit><input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Generation}}"><input type="hidden" name="kind" value="grant"><input type="hidden" name="repo" value="{{.Repo}}"><input type="hidden" name="tag" value="{{.Tag.Name}}"><input type="hidden" name="sha" value="{{.Tag.SHA}}"><input type="hidden" name="enabled" value="false"><label class="check{{if or (not .WritesEnabled) (and .Authority .Authority.OptOut)}} disabled-control{{end}}" title="Saves immediately"><input type="checkbox" name="enabled" value="true" {{if and .Authority .Authority.Granted}}checked{{end}}{{if or (not .WritesEnabled) (and .Authority .Authority.OptOut)}} disabled{{end}}> RW allowed</label><noscript><button type="submit"{{if or (not .WritesEnabled) (and .Authority .Authority.OptOut)}} disabled{{end}}>Apply RW permission</button></noscript>{{if and .Authority .Authority.OptOut}}<span class="error-text">Writes disabled by opt-out label</span>{{end}}</form>{{end}}
-</article>
+</div>
+{{end}}
+
+{{define "tag-observation"}}
+  <p>SHA <code>{{.Tag.SHA}}</code> · branch membership {{truth .Tag.Belongs}}</p>
+  <p class="evidence"><span>{{if .Tag.Evidence.Fresh}}Observed{{else}}Unknown or stale{{end}} at {{when .Tag.Evidence.At}}</span>{{if .Tag.Evidence.Error}}<span class="error-text">{{.Tag.Evidence.Error}}</span>{{end}}{{if url .Tag.Evidence.URL}}<a href="{{url .Tag.Evidence.URL}}" target="_blank" rel="noreferrer">Tag source</a>{{end}}</p>
+  {{if .MergeCoverage}}<ol class="tag-merge-coverage" aria-label="Included merge coverage">{{range .MergeCoverage}}<li><code>{{.SHA}}</code> · {{if eq (truth .Status) "yes"}}covered{{else if eq (truth .Status) "no"}}missing{{else}}unverified{{end}}</li>{{end}}</ol>{{end}}
+{{end}}
+
+{{define "tag-comment-permission"}}
+<form method="post" action="/action#tag-selection" class="inline-form grant-form" data-autosubmit><input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Generation}}"><input type="hidden" name="kind" value="grant"><input type="hidden" name="repo" value="{{.Repo}}"><input type="hidden" name="tag" value="{{.Tag.Name}}"><input type="hidden" name="sha" value="{{.Tag.SHA}}"><input type="hidden" name="enabled" value="false"><label class="check{{if or (not .WritesEnabled) (and .Authority .Authority.OptOut)}} disabled-control{{end}}" title="Saves immediately"><input type="checkbox" name="enabled" value="true" {{if and .Authority .Authority.Granted}}checked{{end}}{{if or (not .WritesEnabled) (and .Authority .Authority.OptOut)}} disabled{{end}}> Allow retry comments</label><noscript><button type="submit"{{if or (not .WritesEnabled) (and .Authority .Authority.OptOut)}} disabled{{end}}>Apply RW permission</button></noscript>{{if and .Authority .Authority.OptOut}}<span class="error-text">Writes disabled by opt-out label</span>{{end}}</form>
 {{end}}
 
 {{define "image-results"}}
