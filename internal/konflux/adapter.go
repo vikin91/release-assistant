@@ -91,6 +91,7 @@ func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, err
 		p.StartFailures = append(p.StartFailures, release.StartFailure{
 			CheckID: failure.CheckID, Job: failure.Job, Cluster: failure.Cluster,
 			Category: string(failure.Category), Reason: observationProblem(failure.Reason, a.config),
+			ExternalID: observationProblem(failure.ExternalID, a.config), CheckStartedAt: failure.CheckStartedAt,
 			Superseded: superseded, Evidence: evidence,
 		})
 	}

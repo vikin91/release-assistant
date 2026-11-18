@@ -15,10 +15,10 @@ type (
 		Failures []startFailureModel
 	}
 	startFailureModel struct {
-		Key, Repo, Category string
-		Failure             release.StartFailure
-		Commits             []string
-		Targets             []release.Target
+		Key, Repo, Category, RawCheckURL string
+		Failure                          release.StartFailure
+		Commits                          []string
+		Targets                          []release.Target
 	}
 	startFailureKey struct {
 		cluster, repo string
@@ -43,9 +43,13 @@ func groupStartFailures(plans []planModel, tab string) (reported, earlier []star
 			if !exists {
 				index = len(rows)
 				positions[key] = index
+				rawCheckURL := ""
+				if failure.CheckID > 0 && release.ValidRepo(key.repo) {
+					rawCheckURL = fmt.Sprintf("https://api.github.com/repos/%s/check-runs/%d", key.repo, failure.CheckID)
+				}
 				rows = append(rows, startFailureModel{
 					Key: fmt.Sprintf("%s:%s:%d:%x", tab, key.repo, key.checkID, sha256.Sum256([]byte(cluster+"\x00"+key.fallback))), Repo: key.repo,
-					Failure: failure, Category: startFailureCategory(failure.Category),
+					Failure: failure, Category: startFailureCategory(failure.Category), RawCheckURL: rawCheckURL,
 				})
 			}
 			row := &rows[index]

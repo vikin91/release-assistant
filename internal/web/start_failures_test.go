@@ -15,8 +15,10 @@ func TestCreationFailuresShowTypedCommitEvidenceWithoutGrantingRetries(t *testin
 	source := config.Components[0]
 	target := release.Target{Repo: source.Repo, PR: 41}
 	readAt := time.Date(2026, time.November, 18, 9, 15, 0, 0, time.UTC)
+	startedAt := readAt.Add(-time.Minute)
 	failure := release.StartFailure{
 		CheckID: 731, Job: "fact-build", Cluster: "konflux.example", Category: "admission_policy",
+		ExternalID: "fact-build-<check>", CheckStartedAt: startedAt,
 		Reason:   `creating pipelinerun fact-build- in namespace test-tenant has failed: admission webhook denied <script>alert("x")</script>`,
 		Evidence: release.Evidence{Known: true, At: readAt, URL: "https://github.com/acme/fact/commit/fetched-sha/checks?check_run_id=731"},
 	}
@@ -32,7 +34,10 @@ func TestCreationFailuresShowTypedCommitEvidenceWithoutGrantingRetries(t *testin
 		"Reported build creation failures", "konflux.example", "1 reported check", "fact-build", "Admission policy rejection",
 		"denied &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", "Open source check #731 on GitHub", `href="https://github.com/acme/fact/commit/fetched-sha/checks?check_run_id=731"`,
 		"Source commit: <code>fetched-sha</code>", "<dt>Check read at</dt>", formatTime(readAt),
-		"The creation attempt time is unknown", "PR/tag association is unverified", "Current cluster availability is unknown",
+		"<dt>GitHub check started</dt>", formatTime(startedAt),
+		"GitHub check external ID: <code>fact-build-&lt;check&gt;</code>",
+		`href="https://api.github.com/repos/acme/fact/check-runs/731"`, "Open raw GitHub check JSON",
+		"PR/tag association is unverified", "Current cluster availability is unknown",
 	} {
 		if !strings.Contains(section, want) {
 			t.Errorf("creation evidence missing %q: %s", want, section)

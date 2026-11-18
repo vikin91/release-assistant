@@ -134,6 +134,9 @@ type (
 	StartFailure struct {
 		CheckID                        int64
 		Job, Cluster, Category, Reason string
+		// ExternalID and CheckStartedAt are diagnostic metadata from GitHub.
+		ExternalID     string
+		CheckStartedAt time.Time
 		// Superseded identifies an attempt followed by a newer verified same-job check
 		// for this plan target. It does not establish cluster recovery.
 		Superseded bool

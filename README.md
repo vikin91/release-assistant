@@ -4,7 +4,7 @@ A local browser application for preparing one ACS 4.x or 5.x patch release, from
 
 ## Run
 
-Use Go 1.26.0 or later. The local `replace` uses the checkout at `/Users/prygiels/code/konflux-retest`. Use revision `38540d9` or a compatible later revision that supports `AllowKonfluxLookup`. The assistant imports the library directly. It neither invokes its CLI nor imports its internal packages.
+Use Go 1.26.0 or later. The local `replace` uses the checkout at `/Users/prygiels/code/konflux-retest`. Use the revision recorded in `go.mod` or a compatible later revision. The assistant imports the library directly. It neither invokes its CLI nor imports its internal packages.
 
 ```sh
 cd /Users/prygiels/code/release-assistant

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"release-assistant/internal/release"
 
@@ -72,6 +73,7 @@ func TestPublicAdapterPreservesCreationFailuresAndConformaAdvisories(t *testing.
 	} {
 		t.Run(name, func(t *testing.T) {
 			var paths []string
+			startedAt := time.Date(2026, time.November, 18, 9, 43, 15, 0, time.UTC)
 			transport := roundTrip(func(req *http.Request) (*http.Response, error) {
 				if req.Method != http.MethodGet || req.URL.Host != "api.github.com" {
 					t.Fatalf("creation failure or developer advisory triggered unrelated read: %s %s", req.Method, req.URL)
@@ -85,7 +87,14 @@ func TestPublicAdapterPreservesCreationFailuresAndConformaAdvisories(t *testing.
 					value = map[string]string{"sha": "commit"}
 				case strings.HasSuffix(req.URL.Path, "/check-runs"):
 					value = map[string]any{"check_runs": []any{
-						map[string]any{"id": 42, "name": "Red Hat Konflux / fact-on-push", "status": "completed", "conclusion": "failure", "details_url": "https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelineruns", "output": map[string]string{"title": "pipelinerun start failure", "text": "ValidatingAdmissionPolicy denied request; token=private-token password=private-quay"}},
+						map[string]any{
+							"id": 42, "name": "Red Hat Konflux / fact-on-push", "status": "completed", "conclusion": "failure",
+							"details_url": "https://konflux-ui.apps.example.openshiftapps.com/",
+							"external_id": "fact-on-push-private-token", "started_at": startedAt,
+							"output": map[string]string{
+								"title": "pipelinerun start failure", "text": "ValidatingAdmissionPolicy denied request; token=private-token password=private-quay",
+							},
+						},
 						map[string]any{"id": 43, "name": "Red Hat Konflux / operator-on-push", "status": "completed", "conclusion": "startup_failure", "details_url": "https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelineruns", "output": map[string]string{"title": "pipelinerun start failure", "text": "PipelineRun quota exceeded"}},
 						map[string]any{"id": 44, "name": "Red Hat Konflux / acs-conforma-dev-4-10 / fact-4-10", "status": "completed", "conclusion": "failure", "details_url": "https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelinerun/conforma-dev"},
 					}}
@@ -105,6 +114,9 @@ func TestPublicAdapterPreservesCreationFailuresAndConformaAdvisories(t *testing.
 			}
 			if !slices.EqualFunc(plan.StartFailures, []release.StartFailure{{CheckID: 42, Category: "admission_policy"}, {CheckID: 43, Category: "other"}}, func(a, b release.StartFailure) bool { return a.CheckID == b.CheckID && a.Category == b.Category }) {
 				t.Fatalf("typed failure categories were lost: %+v", plan.StartFailures)
+			}
+			if failure := plan.StartFailures[0]; failure.ExternalID != "fact-on-push-[redacted]" || !failure.CheckStartedAt.Equal(startedAt) {
+				t.Fatalf("GitHub check metadata was lost or not redacted: %+v", failure)
 			}
 			for _, run := range plan.Runs {
 				if run.ID != "" || run.Eligible {

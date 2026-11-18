@@ -46,6 +46,7 @@
               <dt>Repository</dt><dd><code>{{.Repo}}</code></dd>
               <dt>Fetched while monitoring</dt>
               <dd>{{range $i,$target:=.Targets}}{{if $i}}, {{end}}<code>{{$target}}</code>{{end}} <span class="muted">PR/tag association is unverified</span></dd>
+              {{if not .Failure.CheckStartedAt.IsZero}}<dt>GitHub check started</dt><dd>{{when .Failure.CheckStartedAt}}</dd>{{end}}
               <dt>{{if .Failure.Evidence.Fresh}}Check read at{{else}}Last retained check read at{{end}}</dt>
               <dd>{{when .Failure.Evidence.At}}</dd>
             </dl>
@@ -53,7 +54,9 @@
               <summary>Technical details</summary>
               {{if .Failure.Reason}}<pre>{{.Failure.Reason}}</pre>{{else}}<p class="muted">No failure reason was reported.</p>{{end}}
               <p>Source commit{{if ne (len .Commits) 1}}s{{end}}: {{range $i,$commit:=.Commits}}{{if $i}}, {{end}}<code>{{$commit}}</code>{{else}}unknown{{end}}</p>
-              <p class="muted">The check read time records when this report was fetched. The creation attempt time is unknown.</p>
+              {{if .Failure.ExternalID}}<p>GitHub check external ID: <code>{{.Failure.ExternalID}}</code></p>{{end}}
+              {{if url .RawCheckURL}}<p><a href="{{url .RawCheckURL}}" target="_blank" rel="noreferrer">Open raw GitHub check JSON</a></p>{{end}}
+              {{if .Failure.CheckStartedAt.IsZero}}<p class="muted">GitHub did not report when the check started.</p>{{end}}
               {{if .Failure.Evidence.Error}}<p class="error-text">{{.Failure.Evidence.Error}}</p>{{end}}
             </details>
           </li>

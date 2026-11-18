@@ -2,7 +2,7 @@ module release-assistant
 
 go 1.26.0
 
-require github.com/vikin91/konflux-retest v0.1.1-0.20261118102942-38540d981acb
+require github.com/vikin91/konflux-retest v0.1.1-0.20261118111837-2b6fc775d938
 
 require (
 	github.com/distribution/reference v0.6.0 // indirect
