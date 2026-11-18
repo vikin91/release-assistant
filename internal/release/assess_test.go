@@ -387,11 +387,11 @@ func TestAssessActivityGuidance(t *testing.T) {
 
 func TestAssessComponentBaseline(t *testing.T) {
 	tests := map[string]struct {
-		pin, tag, head     string
-		mutate             func(*Input)
-		relation, guidance string
-		ahead, openPR      bool
-		allNoTag           bool
+		pin, tag, head   string
+		mutate           func(*Input)
+		relation, reason string
+		ahead, openPR    bool
+		allNoTag         bool
 	}{
 		"should find no tag with a complete inventory": {
 			mutate: func(in *Input) {
@@ -402,23 +402,23 @@ func TestAssessComponentBaseline(t *testing.T) {
 				}
 				in.Repositories[2].Tags = nil
 			},
-			relation: "no-tag", guidance: "FACT_VERSION 0.3.79 was observed on stackrox/fact/release-0.3", allNoTag: true,
+			relation: "no-tag", reason: "FACT_VERSION 0.3.79 was observed on stackrox/fact/release-0.3", allNoTag: true,
 		},
 		"should wait for a pending inventory": {
 			mutate:   func(in *Input) { in.Repositories[1].TagsPending = true },
-			relation: "unknown", guidance: "complete, current tag inventory",
+			relation: "unknown", reason: "complete, current tag inventory",
 		},
 		"should treat a truncated inventory as unknown": {
 			mutate:   func(in *Input) { in.Repositories[1].Evidence.Error = "GitHub pagination limit reached" },
-			relation: "unknown", guidance: "fresh branch and tag inventory evidence",
+			relation: "unknown", reason: "fresh branch and tag inventory evidence",
 		},
 		"should treat a deferred inventory as unknown": {
 			mutate:   func(in *Input) { in.Repositories[1].Evidence.Error = "GitHub tag inventory deferred" },
-			relation: "unknown", guidance: "fresh branch and tag inventory evidence",
+			relation: "unknown", reason: "fresh branch and tag inventory evidence",
 		},
 		"should treat a rate-limited inventory as unknown": {
 			mutate:   func(in *Input) { in.Repositories[1].Evidence.Error = "GitHub rate limited" },
-			relation: "unknown", guidance: "fresh branch and tag inventory evidence",
+			relation: "unknown", reason: "fresh branch and tag inventory evidence",
 		},
 		"should treat an inventory with stale tags as unknown": {
 			mutate: func(in *Input) {
@@ -426,46 +426,46 @@ func TestAssessComponentBaseline(t *testing.T) {
 				tag.Evidence.Known = false
 				in.Repositories[1].Tags = []Tag{tag}
 			},
-			relation: "unknown", guidance: "complete, current tag inventory",
+			relation: "unknown", reason: "complete, current tag inventory",
 		},
 		"should treat an inventory with an unresolved tag as unknown": {
 			mutate:   func(in *Input) { in.Repositories[1].Tags = []Tag{freshTag("0.3.79", "", Yes)} },
-			relation: "unknown", guidance: "complete, current tag inventory",
+			relation: "unknown", reason: "complete, current tag inventory",
 		},
 		"should treat an inventory with unknown ancestry as unknown": {
 			mutate:   func(in *Input) { in.Repositories[1].Tags = []Tag{freshTag("0.3.79", "tag-sha", "")} },
-			relation: "unknown", guidance: "complete, current tag inventory",
+			relation: "unknown", reason: "complete, current tag inventory",
 		},
 		"should require an observed branch head": {
 			mutate:   func(in *Input) { in.Repositories[1].Head = "" },
-			relation: "unknown", guidance: "current evidence for branch release-0.3",
+			relation: "unknown", reason: "current evidence for branch release-0.3",
 		},
 		"should require fresh branch evidence": {
 			mutate:   func(in *Input) { in.Repositories[1].Evidence.Known = false },
-			relation: "unknown", guidance: "fresh branch and tag inventory evidence",
+			relation: "unknown", reason: "fresh branch and tag inventory evidence",
 		},
 		"should reject a stale previous pin": {
 			mutate:   func(in *Input) { in.Repositories[0].PreviousPins.Evidence.Known = false },
-			relation: "unknown", guidance: "previous ACS pin evidence for FACT_VERSION 0.3.79",
+			relation: "unknown", reason: "previous ACS pin evidence for FACT_VERSION 0.3.79",
 		},
 		"should reject an errored previous pin": {
 			mutate:   func(in *Input) { in.Repositories[0].PreviousPins.Evidence.Error = "Previous release unavailable" },
-			relation: "unknown", guidance: "previous ACS pin evidence for FACT_VERSION 0.3.79",
+			relation: "unknown", reason: "previous ACS pin evidence for FACT_VERSION 0.3.79",
 		},
 		"should use semantic ordering with a prefixed pin and plain tag": {
-			pin: "v0.3.9", tag: "0.3.10", relation: "newer", guidance: "newer than the previous ACS pin FACT_VERSION 0.3.9",
+			pin: "v0.3.9", tag: "0.3.10", relation: "newer", reason: "newer than the previous ACS pin FACT_VERSION 0.3.9",
 			mutate: func(in *Input) {
 				in.Repositories[1].Tags = append(in.Repositories[1].Tags, freshTag("v0.3.9", "previous", Yes))
 			},
 		},
 		"should recognize a newer prefixed tag and plain pin": {
-			pin: "0.3.78", tag: "v0.3.79", relation: "newer", guidance: "Select it if it contains the changes you want",
+			pin: "0.3.78", tag: "v0.3.79", relation: "newer", reason: "newer than the previous ACS pin FACT_VERSION 0.3.78",
 		},
-		"should guide another release when the matching tag is behind the tip": {
-			tag: "v0.3.79", head: "after-tag", relation: "equal", guidance: "then cut and select a new tag", ahead: true,
+		"should identify a matching tag behind the tip": {
+			tag: "v0.3.79", head: "after-tag", relation: "equal", reason: "has advanced or has open PRs", ahead: true,
 		},
 		"should count only open PRs targeting the configured component branch": {
-			tag: "v0.3.79", relation: "equal", guidance: "then cut and select a new tag", openPR: true,
+			tag: "v0.3.79", relation: "equal", reason: "has advanced or has open PRs", openPR: true,
 			mutate: func(in *Input) {
 				fact := &in.Repositories[1]
 				fact.PRs = []PR{
@@ -477,13 +477,13 @@ func TestAssessComponentBaseline(t *testing.T) {
 			},
 		},
 		"should recognize the previous version at the current branch tip": {
-			pin: "v0.3.79", tag: "0.3.79", relation: "equal", guidance: "may need no new release for this patch",
+			pin: "v0.3.79", tag: "0.3.79", relation: "equal", reason: "is at the branch tip",
 		},
-		"should ask for investigation when the newest tag is older than the pin": {
-			pin: "0.3.80", tag: "v0.3.79", relation: "older", guidance: "Investigate the previous pin and tag history",
+		"should identify a newest tag older than the pin": {
+			pin: "0.3.80", tag: "v0.3.79", relation: "older", reason: "older than the previous ACS pin",
 		},
-		"should ask for investigation when the pin has no matching tag in the stream": {
-			pin: "0.2.80", tag: "v0.3.79", relation: "untagged-pin", guidance: "Investigate the previous pin and tag history",
+		"should identify a pin outside the configured stream": {
+			pin: "0.2.80", tag: "v0.3.79", relation: "untagged-pin", reason: "has no matching eligible Fact tag",
 		},
 	}
 	for name, tt := range tests {
@@ -525,12 +525,8 @@ func TestAssessComponentBaseline(t *testing.T) {
 			if !strings.HasSuffix(record.Reason, ".") || len(record.Evidence) < 2 || record.Evidence[0] != acs.PreviousPins.Evidence {
 				t.Fatalf("missing reason or evidence: %+v", record)
 			}
-			guidance := strings.Join(a.ComponentReleaseRecommendations, " ")
-			if !strings.Contains(guidance, tt.guidance) {
-				t.Fatalf("guidance does not contain %q: %s", tt.guidance, guidance)
-			}
-			if (tt.relation == "older" || tt.relation == "untagged-pin") && strings.Contains(guidance, "not been cut") {
-				t.Fatalf("investigative guidance implies tags have not been cut: %s", guidance)
+			if !strings.Contains(record.Reason, tt.reason) {
+				t.Fatalf("reason does not contain %q: %s", tt.reason, record.Reason)
 			}
 			prGuidance := strings.Join(a.ComponentPRRecommendations, " ")
 			if strings.Contains(prGuidance, "PR preparation is the current step") != tt.allNoTag {

@@ -27,16 +27,13 @@ func (a Assessment) ComponentPRPreparation() string {
 	return "Component releases have not been cut for this ACS version yet, so PR preparation is the current step."
 }
 
-func (a *Assessment) addBaselineRecommendations() (allAtBaseline bool) {
-	allAtBaseline = len(a.ComponentBaseline) > 0
+func (a Assessment) componentsAtBaseline() bool {
 	for _, record := range a.ComponentBaseline {
-		a.ComponentReleaseRecommendations = append(a.ComponentReleaseRecommendations, baselineRecommendation(record))
-		allAtBaseline = allAtBaseline && record.Relation == baselineEqual && !record.BranchAhead && record.OpenPRs == 0
+		if record.Relation != baselineEqual || record.BranchAhead || record.OpenPRs > 0 {
+			return false
+		}
 	}
-	if guidance := a.ComponentPRPreparation(); guidance != "" {
-		a.ComponentPRRecommendations = append(a.ComponentPRRecommendations, guidance)
-	}
-	return allAtBaseline
+	return len(a.ComponentBaseline) > 0
 }
 
 func compareComponentBaseline(source Source, previous Pins, repo Repository, newest Tag) BaselineRecord {
@@ -111,23 +108,5 @@ func compareBaselineVersions(source Source, record BaselineRecord) (string, stri
 		return baselineEqual, fmt.Sprintf("%s matches the previous ACS pin %s, but %s has advanced or has open PRs", tag, pin, source.Branch)
 	default:
 		return baselineEqual, fmt.Sprintf("%s matches the previous ACS pin %s and is at the branch tip", tag, pin)
-	}
-}
-
-func baselineRecommendation(record BaselineRecord) string {
-	switch record.Relation {
-	case baselineNoTag:
-		return record.Reason + fmt.Sprintf(" If the %s release has not been cut, merge the PRs you want first, then cut and select a tag.", record.Component)
-	case baselineNewer:
-		return record.Reason + " Select it if it contains the changes you want, or prepare another release."
-	case baselineEqual:
-		if record.BranchAhead || record.OpenPRs > 0 {
-			return record.Reason + " Include the changes you want, then cut and select a new tag."
-		}
-		return record.Reason + " This component may need no new release for this patch."
-	case baselineOlder, baselineUntaggedPin:
-		return record.Reason + " Investigate the previous pin and tag history before selecting a tag."
-	default:
-		return record.Reason
 	}
 }

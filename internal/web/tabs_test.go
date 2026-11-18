@@ -183,6 +183,73 @@ func TestBaselineGuidanceInActivityTabs(t *testing.T) {
 	}
 }
 
+func TestComponentReleaseNextStepsFollowTagSelections(t *testing.T) {
+	tests := map[string]struct {
+		collectorTag      string
+		collectorAncestor release.Truth
+		wantGuidance      string
+	}{
+		"should hide next steps when selections and images are verified": {
+			collectorTag: "3.25.5", collectorAncestor: release.Yes,
+		},
+		"should prompt for the missing selection": {
+			collectorAncestor: release.Yes, wantGuidance: "Existing collector tag 3.25.5 covers the selected merged changes.",
+		},
+		"should explain why a selected tag is unsuitable": {
+			collectorTag: "3.25.5", collectorAncestor: release.No,
+			wantGuidance: "tag is not an ancestor of the configured component branch",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			config := validACS5Config()
+			observed := release.Evidence{Known: true, At: time.Now()}
+			choices := release.Choices{Tags: map[string]string{"fact": "3.25.7", "collector": tt.collectorTag}}
+			repos := []release.Repository{
+				{Source: config.ACS(), PreviousPins: release.Pins{Versions: map[string]string{"fact": "3.25.2", "collector": "3.25.2"}, Evidence: observed}},
+				{Source: config.Components[0], Head: "fact-later", Evidence: observed, Tags: []release.Tag{
+					{Name: "3.25.7", SHA: "fact-selected", Belongs: release.Yes, Evidence: observed},
+					{Name: "3.25.8", SHA: "fact-later", Belongs: release.Yes, Evidence: observed},
+				}},
+				{Source: config.Components[1], Head: "collector-head", Evidence: observed, Tags: []release.Tag{
+					{Name: "3.25.5", SHA: "collector-tag", Belongs: tt.collectorAncestor, Evidence: observed},
+				}},
+			}
+			inventory := release.Inventory{ReleaseVersion: config.Version, Versions: choices.Tags, Evidence: observed}
+			for _, source := range config.Components {
+				for _, family := range []string{"ci", "konflux"} {
+					inventory.Images = append(inventory.Images, release.Image{
+						Component: source.Name, Family: family, Reference: "quay.io/acme/" + source.Name + "-" + family,
+						Present: release.Yes, Evidence: observed,
+					})
+				}
+			}
+			application := &fakeApplication{snapshot: app.Snapshot{
+				Config: config, Choices: choices, Repositories: repos,
+				Assessment: release.Assess(release.Input{Config: config, Choices: choices, Repositories: repos, Inventory: inventory}),
+			}}
+			body := activityPanel(t, newBrowser(t, application).getBody(t), "component-releases")
+			const panel = `id="component-releases-next-steps-panel"`
+			if tt.wantGuidance == "" {
+				if strings.Contains(body, panel) {
+					t.Fatal("next steps appeared with verified selections and images")
+				}
+			} else {
+				guidance := between(t, body, panel, "</section>")
+				if !strings.Contains(guidance, tt.wantGuidance) || strings.Contains(guidance, "3.25.8") ||
+					strings.Contains(guidance, "previous ACS pin") {
+					t.Errorf("unexpected next steps: %s", guidance)
+				}
+			}
+			for _, want := range []string{"Review 3.25.8", "previous ACS pin FACT_VERSION 3.25.2", "Fact release guide"} {
+				if !strings.Contains(body, want) {
+					t.Errorf("component tag view missing %q", want)
+				}
+			}
+		})
+	}
+}
+
 func TestActivityDestinationIsValidated(t *testing.T) {
 	browser := newBrowser(t, &fakeApplication{})
 	response := browser.post(url.Values{"kind": {"interactive"}, "generation": {"0"}, "tab": {"https://untrusted.example"}})

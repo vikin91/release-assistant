@@ -43,6 +43,7 @@
             <summary>Details</summary>
             <p>{{$source.Repo}} · <code>{{$source.Branch}}</code> · stream {{$source.Stream}}</p>
             {{if .Baseline}}<p class="muted">{{.Baseline}}</p>{{end}}
+            {{with index $.Snapshot.Assessment.ReleaseGuides $source.Name}}<p><a href="{{url .}}" target="_blank" rel="noreferrer">{{title $source.Name}} release guide</a></p>{{end}}
             {{if .Repository.Evidence.Error}}<p class="error-text">{{.Repository.Evidence.Error}}</p>{{end}}
             {{if .Coverage.Reason}}<p>{{.Coverage.Reason}}</p>{{end}}
             {{with .SelectedTag}}

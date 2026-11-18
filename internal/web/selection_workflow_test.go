@@ -112,7 +112,7 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 	if !strings.Contains(body, "Fact: 3.25.1") || !strings.Contains(body, "unknown") || strings.Contains(body, "Ready for ACS RC.0") {
 		t.Fatal("unknown selected-tag coverage must not be reported as ready")
 	}
-	if strings.Contains(between(t, body, `id="component-releases-next-steps"`, `</details>`), "Choose component tags") {
+	if strings.Contains(activityPanel(t, body, "component-releases"), "Choose component tags") {
 		t.Fatal("recommendations should not repeat the completed tag-selection task")
 	}
 	nav := regexp.MustCompile(`(?s)<nav\b[^>]*aria-label="Release work"[^>]*>.*?</nav>`).FindString(body)
