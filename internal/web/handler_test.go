@@ -913,6 +913,10 @@ func TestFoldControlsHaveUniqueStableIdentities(t *testing.T) {
 		snapshot.Repositories = append(snapshot.Repositories, repo)
 	}
 	body := newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t)
+	if !strings.Contains(body, `href="https://github.com/acme/collector/tree/refs/tags/3.25.1"`) ||
+		strings.Contains(body, `data-fold-key="tag-evidence:collector:acme/collector@3.25.1"`) {
+		t.Fatal("candidate tag should link directly to GitHub without an evidence disclosure")
+	}
 	seen := map[string]bool{}
 	identity := regexp.MustCompile(`(?:id|data-fold-key)="([^"]+)"`)
 	for _, section := range regexp.MustCompile(`<details\b[^>]*>`).FindAllString(body, -1) {
@@ -931,7 +935,7 @@ func TestFoldControlsHaveUniqueStableIdentities(t *testing.T) {
 	}
 	for _, key := range []string{
 		"previous-cycles",
-		"tag-evidence:fact:acme/fact@3.25.1", "tag-evidence:collector:acme/collector@3.25.1",
+		"tag-evidence:fact:acme/fact@3.25.1",
 		"repo-evidence:fact:acme/fact", "repo-evidence:collector:acme/collector",
 	} {
 		if !seen[key] {

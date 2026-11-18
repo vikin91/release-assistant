@@ -116,7 +116,6 @@ legend { padding: 0 .35rem; font-weight: 700; }
 .tag-switch > summary { width: fit-content; color: var(--accent); text-decoration: underline; cursor: pointer; }
 .tag-options { margin: .3rem 0; font-size: .86rem; }
 .tag-options :is(th, td) { padding: .2rem .4rem; vertical-align: top; }
-.tag-options .tag-evidence { display: inline-block; }
 .tag-options form { margin: 0; }
 .tag-options button { min-height: 1.7rem; padding: .1rem .5rem; font-size: inherit; }
 .component-tag-coverage .pill { color: CanvasText; }

@@ -13,7 +13,7 @@
           <table class="tag-options" aria-label="{{title $source.Name}} release tags">
             <thead><tr><th scope="col">Tag</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
             <tbody>
-            <tr><th scope="row"><code>{{.CurrentTag}}</code></th>
+            <tr><th scope="row"><a href="https://github.com/{{$source.Repo}}/tree/refs/tags/{{.CurrentTag}}" target="_blank" rel="noreferrer"><code>{{.CurrentTag}}</code></a></th>
             <td class="component-tag-coverage"><strong>Selected</strong>
               <span class="pill {{truth .Coverage.Status}}">
                 {{- if eq (truth .Coverage.Status) "yes"}}Covers included changes

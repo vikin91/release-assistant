@@ -1,14 +1,11 @@
 {{define "component-tag-option"}}
 <tr data-live-key="tag:{{.Component}}:{{.Repo}}@{{.Tag.Name}}:{{.Tag.SHA}}">
-  <th scope="row"><code>{{.Tag.Name}}</code></th>
+  <th scope="row"><a href="https://github.com/{{.Repo}}/tree/refs/tags/{{.Tag.Name}}" target="_blank" rel="noreferrer"><code>{{.Tag.Name}}</code></a></th>
   <td>
     {{if .Proposed}}<strong>Recommended candidate</strong>{{end}}
     {{if not .Tag.Evidence.Fresh}}<span class="unknown">Evidence unverified</span>
     {{else if eq (truth .Tag.Belongs) "no"}}<span class="no">Outside configured branch</span>
     {{else if ne (truth .Tag.Belongs) "yes"}}<span class="unknown">Branch membership unverified</span>{{end}}
-    <details class="tag-evidence" data-fold-key="tag-evidence:{{.Component}}:{{.Repo}}@{{.Tag.Name}}">
-      <summary>Evidence</summary>{{template "tag-observation" .}}
-    </details>
   </td>
   <td>{{if and .Tag.Evidence.Fresh (eq (truth .Tag.Belongs) "yes")}}
       <form method="post" action="/action#tag-selection" class="inline-form"><input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Generation}}"><input type="hidden" name="kind" value="tag"><input type="hidden" name="component" value="{{.Component}}"><input type="hidden" name="tag" value="{{.Tag.Name}}"><input type="hidden" name="sha" value="{{.Tag.SHA}}"><button type="submit">{{if .Switch}}Switch to{{else}}Confirm{{end}} {{.Component}} {{.Tag.Name}}</button></form>
