@@ -789,7 +789,7 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 			Status: status, Required: component != "acs",
 		}
 	}
-	rows := []release.ImageStatus{image("fact", "fact", "ci", "quay.io/fixture/fact:3.25.1", release.Yes), image("collector", "collector", "konflux", "quay.io/fixture/collector:3.25.4-fast", release.No), image("main", "acs", "ci", "quay.io/fixture/main:5.0.1-rc.0", release.No), image("scanner-v4", "acs", "konflux", "quay.io/fixture/release-scanner-v4:5.0.1-rc.0", "")}
+	rows := []release.ImageStatus{image("fact", "fact", "ci", "quay.io/fixture/fact:3.25.1", release.Yes), image("collector", "collector", "konflux", "quay.io/fixture/collector:3.25.4-fast", release.No), image("main", "acs", "ci", "quay.io/rhacs-eng/main:5.0.1-rc.0", release.No), image("scanner-v4", "acs", "konflux", "quay.io/fixture/release-scanner-v4:5.0.1-rc.0", "")}
 	rows[3].Image.Evidence.Known = false
 	rows[3].Image.Evidence.Error = "Registry access denied"
 	rows[3].Reason = "The registry request could not complete."
@@ -832,12 +832,12 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 		strings.Count(releaseImages, `scope="row"`) != 2 || strings.Contains(releaseImages, "3.25.4-fast") {
 		t.Fatal("component prerequisites and later ACS RC.0 images are mixed")
 	}
-	rcHeading := between(t, releaseImages, `id="release-images-heading"`, `</summary>`)
+	rcHeading := between(t, releaseImages, `id="release-images-heading"`, `</h3>`)
 	if !strings.Contains(rcHeading, "1 of 3 available · 1 not found · 1 unable to check") {
 		t.Error("RC image header must report all current statuses")
 	}
 	rcMain := between(t, releaseImages, `<th scope="row"><code>main</code></th>`, "</tr>")
-	if !strings.Contains(rcMain, "component-image:acs:ci:main") || !strings.Contains(rcMain, "component-image:acs:konflux:main") {
+	if !strings.Contains(rcMain, "quay.io/rhacs-eng/main:5.0.1-rc.0") || !strings.Contains(rcMain, "quay.io/fixture/release-main:5.0.1-rc.0") {
 		t.Error("both RC image families must appear in the same row")
 	}
 	heading := between(t, components, `id="component-images-heading"`, `</summary>`)
@@ -853,7 +853,7 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 			t.Errorf("missing stale component evidence %q", want)
 		}
 	}
-	for _, control := range []string{`<details id="component-images" open>`, `<details id="release-images" open>`, `<details id="component-prs-next-steps" open>`, `<details id="acs-prs-retry-details" open>`, `<details id="component-releases-retry-details" open>`} {
+	for _, control := range []string{`<details id="component-images" open>`, `<details id="component-prs-next-steps" open>`, `<details id="acs-prs-retry-details" open>`, `<details id="component-releases-retry-details" open>`} {
 		if !strings.Contains(body, control) {
 			t.Errorf("missing section fold control %s", control)
 		}

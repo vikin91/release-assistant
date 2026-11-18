@@ -84,28 +84,22 @@
 {{end}}
 
 {{define "image-table"}}
-  {{$acs := eq (index . 0).Component "acs"}}
   <div class="component-image-table-scroll">
-    <table class="component-image-table{{if $acs}} rc-image-table{{end}}" aria-labelledby="{{if $acs}}release-images-heading{{else}}component-images-heading{{end}}">
-      <colgroup>{{if not $acs}}<col class="component-image-identity">{{end}}<col class="component-image-identity"><col{{if $acs}} class="rc-ci-column"{{end}}><col></colgroup>
-      <thead><tr>{{if not $acs}}<th scope="col">Component</th>{{end}}<th scope="col">Image</th><th scope="col">CI</th><th scope="col">Konflux</th></tr></thead>
+    <table class="component-image-table" aria-labelledby="component-images-heading">
+      <colgroup><col class="component-image-identity"><col class="component-image-identity"><col><col></colgroup>
+      <thead><tr><th scope="col">Component</th><th scope="col">Image</th><th scope="col">CI</th><th scope="col">Konflux</th></tr></thead>
       {{range .}}
       <tbody>
         {{$group := .}}
         {{range $i, $row := .Rows}}
         <tr>
-          {{if and (not $acs) (eq $i 0)}}<th scope="rowgroup" rowspan="{{len $group.Rows}}">
+          {{if eq $i 0}}<th scope="rowgroup" rowspan="{{len $group.Rows}}">
             {{if eq $group.Component "scanner"}}Scanner V2{{else}}{{title $group.Component}}{{end}}
             <span class="component-image-tag">{{if $group.SelectedTag}}<code>{{$group.SelectedTag}}</code>{{else}}No tag selected{{end}}</span>
           </th>{{end}}
           <th scope="row">{{if .Name}}<code>{{.Name}}</code>{{else}}Unspecified{{end}}</th>
-          {{if $acs}}
-            {{template "rc-ci-cell" .CI}}
-            {{template "rc-image-cell" .Konflux}}
-          {{else}}
-            {{if .CI}}{{template "component-image-cell" (index .CI 0)}}{{else}}{{template "component-image-cell" .CI}}{{end}}
-            {{template "component-image-cell" .Konflux}}
-          {{end}}
+          {{if .CI}}{{template "component-image-cell" (index .CI 0)}}{{else}}{{template "component-image-cell" .CI}}{{end}}
+          {{template "component-image-cell" .Konflux}}
         </tr>
         {{end}}
       </tbody>

@@ -453,7 +453,8 @@ func (m *componentImagesModel) add(image imageModel, selectedTag string) {
 
 	component := image.Check.Image.Component
 	family := image.Check.Image.Family
-	if family != "ci" && family != "konflux" {
+	otherRCNamespace := component == "acs" && family == "ci" && image.Namespace != "rhacs-eng" && image.Namespace != "stackrox-io"
+	if otherRCNamespace || (family != "ci" && family != "konflux") {
 		m.Other = append(m.Other, image)
 		return
 	}

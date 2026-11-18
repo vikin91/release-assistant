@@ -3,6 +3,7 @@ package web
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"release-assistant/internal/dispatch"
 	"release-assistant/internal/release"
@@ -83,6 +84,7 @@ func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 	s := workflowStatusSnapshot()
 	target := s.Config.RC0Target()
 	const message = "PipelineRun identity verification failed: retag-fact: context deadline exceeded"
+	const digest = "quay.io/rhacs-eng/release-main@sha256:example"
 	plan := release.Plan{
 		Target: target, SHA: "rc-commit", Message: "No build retests needed.", Action: "None",
 		Evidence: release.Evidence{At: s.Inventory.Evidence.At, Error: message},
@@ -99,13 +101,15 @@ func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 		image.Evidence.URL = "https://quay.io/repository/rhacs-eng/release-" + image.Name + "?tag=" + target.Tag
 		plan.Runs = append(plan.Runs, release.Run{
 			Job: image.Name + "-on-push", ID: image.Name, Status: "completed", Outcome: "success",
-			URL: "https://konflux.example.com/" + image.Name,
+			URL:   "https://konflux.example.com/" + image.Name,
+			Image: release.Image{Reference: digest, Evidence: s.Inventory.Evidence},
 		})
 	}
+	latest := s.Inventory.Evidence.At.Add(time.Minute).Truncate(time.Second)
 	s.Inventory.ReleaseImages = append(s.Inventory.ReleaseImages, release.Image{
 		Component: "acs", Family: "ci", Name: "main",
 		Reference: "quay.io/stackrox-io/main:" + target.Tag,
-		Evidence:  s.Inventory.Evidence, Present: release.Yes,
+		Evidence:  release.Evidence{At: latest, Known: true}, Present: release.No,
 	})
 	s.Plans = []release.Plan{plan}
 	assessWorkflow(&s)
@@ -114,22 +118,33 @@ func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 		return activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-rcs")
 	}
 	panel := render()
-	table := between(t, panel, "<table", "</table>")
+	table := between(t, panel, `<table class="rc-image-table"`, "</table>")
 	main := between(t, table, "<code>main</code></th>", "</tr>")
-	for _, want := range []string{"Build succeeded", "Tag missing", "Check build output", "Open expected Quay tag", "Checked ", "<summary>Details</summary>"} {
-		if !strings.Contains(main, want) {
-			t.Errorf("missing %q in main image row", want)
+	headers := between(t, table, "<thead>", "</thead>")
+	for _, want := range []string{"Image", "CI rhacs-eng", "CI stackrox-io", "Konflux build", "Konflux image", "Last checked"} {
+		_, rest, found := strings.Cut(headers, ">"+want+"</th>")
+		if !found {
+			t.Fatalf("missing or misordered column %q", want)
 		}
+		headers = rest
 	}
-	if !strings.Contains(panel, "All 4 CI images are available.") ||
+	cells := strings.Split(main, "<td>")
+	if len(cells) != 6 ||
+		!strings.Contains(cells[1], "quay.io/rhacs-eng/main:"+target.Tag) || !strings.Contains(cells[1], "✓") ||
+		!strings.Contains(cells[2], "quay.io/stackrox-io/main:"+target.Tag) || !strings.Contains(cells[2], "✗") ||
+		!strings.Contains(cells[3], "Build succeeded") || !strings.Contains(cells[3], "Check build output") ||
+		!strings.Contains(cells[4], "quay.io/rhacs-eng/release-main:"+target.Tag) || !strings.Contains(cells[4], "Open expected Quay tag") ||
+		!strings.Contains(cells[5], latest.UTC().Format(time.RFC3339)) {
+		t.Errorf("unexpected main image columns: %s", main)
+	}
+	if !strings.Contains(panel, "3 of 4 CI images available.") ||
 		!strings.Contains(panel, "The corresponding Konflux builds succeeded, but their expected tags are missing in Quay.") ||
 		strings.Contains(panel, plan.Message) {
 		t.Error("missing focused image publication summary")
 	}
-	if strings.Count(table, "<code>main</code></th>") != 1 ||
-		!strings.Contains(main, "component-image:acs:ci:main:rhacs-eng") ||
-		!strings.Contains(main, "component-image:acs:ci:main:stackrox-io") {
-		t.Error("the main image row should group both CI namespaces and their independent details")
+	if strings.Count(table, "<code>main</code></th>") != 1 || strings.Contains(table, "<details") ||
+		strings.Contains(panel, `<details id="release-images"`) || strings.Contains(panel, digest) {
+		t.Error("the image table should show one compact row per image, without folds or reported output digests")
 	}
 	diagnostics := between(t, panel, `<details class="rc-diagnostics" data-fold-key="rc-build-diagnostics">`, "</details>")
 	for _, want := range []string{"1 additional job could not be verified", "A Konflux lookup timed out", "Open check in Konflux", message} {

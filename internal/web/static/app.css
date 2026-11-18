@@ -75,11 +75,18 @@ legend { padding: 0 .35rem; font-weight: 700; }
 .component-image-evidence { margin-top: .35rem; font-size: .86rem; overflow-wrap: anywhere; }
 .component-image-evidence p { margin: 0 0 .3rem; }
 .rc-summary, .rc-links { margin-block: .55rem; }
-.rc-row-status, .rc-row-links { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .55rem; }
-.rc-ci-variants { display: grid; gap: .5rem; }
-.rc-ci-namespace { font-size: .82rem; }
-.rc-row-links, .rc-image-evidence { margin-top: .35rem; font-size: .86rem; overflow-wrap: anywhere; }
-.rc-image-evidence p { margin: .25rem 0 0; }
+.rc-row-links { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .55rem; margin-top: .35rem; font-size: .86rem; overflow-wrap: anywhere; }
+.rc-image-table { min-width: 64rem; table-layout: fixed; margin-bottom: 0; font-size: .82rem; }
+.rc-image-table :is(th, td) { padding: .27rem .35rem; overflow-wrap: anywhere; }
+.rc-image-name { width: 7.5rem; }
+.rc-image-build { width: 8rem; }
+.rc-image-time { width: 7rem; }
+.rc-image-table time { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rc-image-reference { display: inline-flex; gap: .25rem; max-width: 100%; align-items: baseline; }
+.rc-image-mark { font-weight: 700; }
+:is(.rc-image-mark, .rc-build-status).yes { color: light-dark(#176b3a, #73d39b); }
+:is(.rc-image-mark, .rc-build-status).no { color: light-dark(#a61724, #ff8f96); }
+:is(.rc-image-mark, .rc-build-status).unknown { color: light-dark(#8a5600, #ffbf54); }
 .rc-diagnostics { margin-top: .85rem; font-size: .86rem; overflow-wrap: anywhere; }
 .rc-diagnostics p, .rc-diagnostics ol { margin: .35rem 0; }
 .rc-diagnostics pre { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -99,8 +106,6 @@ legend { padding: 0 .35rem; font-weight: 700; }
   .component-image-tag, .component-image-note, .component-image-status { font-size: .75rem; }
   .component-image-note { grid-column: 2; }
   .component-image-status { justify-self: start; padding-inline: .3rem; }
-  .rc-image-table { min-width: 0; }
-  .rc-ci-column { width: 27%; }
   .rc-retry { overflow-wrap: anywhere; }
 }
 .readiness-details { margin-bottom: .65rem; }

@@ -1,11 +1,11 @@
 {{define "acs-rcs"}}
   <section class="panel" id="release-images-panel">
-    <details id="release-images" open>
-      <summary id="release-images-heading" class="section-summary">ACS {{.Snapshot.Config.Version}} RC.0 images
+    <div id="release-images">
+      <h3 id="release-images-heading" class="section-summary">ACS {{.Snapshot.Config.Version}} RC.0 images
         {{if .RC.KonfluxMissing}}
           <span class="component-image-counts">{{.RC.KonfluxMissing}} Konflux {{if eq .RC.KonfluxMissing 1}}image{{else}}images{{end}} missing</span>
         {{else}}{{template "image-counts" .ReleaseImages}}{{end}}
-      </summary>
+      </h3>
       {{$waiting := .Snapshot.RCImageWaitReason}}
       {{if $waiting}}<p class="muted">{{$waiting}}</p>
       {{else}}
@@ -42,7 +42,7 @@
         {{if not .ReleaseImages.Total}}<p class="muted">Waiting for the first RC.0 image check results.</p>{{end}}
       {{end}}
       {{with .ReleaseImages}}
-        {{if .Groups}}{{template "image-table" .Groups}}{{end}}
+        {{if .Groups}}{{template "rc-image-table" .Groups}}{{end}}
         {{if .Other}}{{template "image-results" .Other}}{{end}}
       {{end}}
       {{with .RC.Plan}}
@@ -57,42 +57,68 @@
           </details>
         {{end}}
       {{end}}
-    </details>
+    </div>
   </section>
   {{template "rc-validation" .}}
   {{template "start-failures" .}}
 {{end}}
 
+{{define "rc-image-table"}}
+  <div class="component-image-table-scroll" role="region" aria-label="RC.0 image checks" tabindex="0">
+    <table class="rc-image-table" aria-labelledby="release-images-heading">
+      <colgroup><col class="rc-image-name"><col><col><col class="rc-image-build"><col><col class="rc-image-time"></colgroup>
+      <thead><tr>
+        <th scope="col">Image</th>
+        <th scope="col">CI rhacs-eng</th>
+        <th scope="col">CI stackrox-io</th>
+        <th scope="col">Konflux build</th>
+        <th scope="col">Konflux image</th>
+        <th scope="col" title="Latest registry check attempt for this row">Last checked</th>
+      </tr></thead>
+      {{range .}}
+        <tbody>
+          {{range .Rows}}
+            <tr>
+              <th scope="row"><code>{{.Name}}</code></th>
+              {{template "rc-ci-cell" (.CIIn "rhacs-eng")}}
+              {{template "rc-ci-cell" (.CIIn "stackrox-io")}}
+              <td>{{with .Konflux}}{{template "rc-build-cell" .RCBuild}}{{else}}<span title="No Konflux build configured">—</span>{{end}}</td>
+              <td>{{with .Konflux}}{{template "rc-image-reference" .}}{{else}}<span title="No Konflux image configured">—</span>{{end}}</td>
+              {{with .LastChecked}}<td>{{if .IsZero}}<span title="No registry check timestamp">—</span>{{else}}<time datetime="{{.UTC.Format "2006-01-02T15:04:05Z"}}" title="{{when .}}">{{.Local.Format "Jan 2 15:04"}}</time>{{end}}</td>{{end}}
+            </tr>
+          {{end}}
+        </tbody>
+      {{end}}
+    </table>
+  </div>
+{{end}}
+
 {{define "rc-ci-cell"}}
-  <td>{{if .}}<div class="rc-ci-variants">{{range .}}<div>{{template "rc-image-result" .}}</div>{{end}}</div>
-    {{else}}<span title="No image configured for this family">—</span>{{end}}</td>
+  <td>{{range .}}<div>{{template "rc-image-reference" .}}</div>
+    {{else}}<span title="No CI image configured for this namespace">—</span>{{end}}</td>
 {{end}}
 
-{{define "rc-image-cell"}}
-  <td>{{if .}}{{template "rc-image-result" .}}
-    {{else}}<span title="No image configured for this family">—</span>{{end}}</td>
+{{define "rc-image-reference"}}
+  {{$status := truth .Check.Status}}
+  {{$label := "Unable to check"}}
+  {{if eq $status "yes"}}{{$label = "Available"}}{{else if eq $status "no"}}{{$label = "Tag missing"}}{{end}}
+  <span class="rc-image-reference">
+    {{if .Check.Image.Reference}}<span>
+    {{if url .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer"{{if eq $status "no"}} title="Open expected Quay tag"{{end}}><code>{{.Check.Image.Reference}}</code></a>
+    {{else}}<code>{{.Check.Image.Reference}}</code>{{end}}
+    </span>{{end}}
+    <span class="rc-image-mark {{$status}}" role="img" aria-label="{{$label}}" title="{{$label}}{{with .Check.Image.Evidence.At}}{{if not .IsZero}} · {{if eq $status "unknown"}}Check attempted{{else}}Checked{{end}} {{when .}}{{end}}{{end}}{{if and (eq $status "no") (not .Check.Image.PublishingSince.IsZero)}} · First seen missing {{when .Check.Image.PublishingSince}}{{end}}">{{if eq $status "yes"}}✓{{else if eq $status "no"}}✗{{else}}?{{end}}</span>
+  </span>
+  {{if .Check.Image.Evidence.Error}}<div class="component-image-note error-text">{{.Check.Image.Evidence.Error}}</div>
+  {{else if and (eq $status "unknown") .Check.Reason}}<div class="component-image-note">{{.Check.Reason}}</div>{{end}}
 {{end}}
 
-{{define "rc-image-result"}}
-    {{$missing := eq (truth .Check.Status) "no"}}
-    <div class="rc-row-status">
-      {{if .Namespace}}<span class="rc-ci-namespace">{{.Namespace}}</span>{{end}}
-      {{with .RCBuild}}<span class="pill component-image-status {{.Class}}">{{.Status}}</span>{{end}}
-      <span class="pill component-image-status {{truth .Check.Status}}">{{if $missing}}Tag missing{{else}}{{template "image-status-label" .}}{{end}}</span>
-    </div>
-    {{if or .RCBuild (and $missing .URL)}}
-      <div class="rc-row-links">
-        {{with .RCBuild}}{{if url .Link}}<a href="{{url .Link}}" target="_blank" rel="noreferrer">{{.LinkLabel}}</a>{{end}}{{end}}
-        {{if and $missing .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer">Open expected Quay tag</a>{{end}}
-      </div>
-    {{end}}
-    <details class="rc-image-evidence" data-fold-key="component-image:acs:{{.Check.Image.Family}}:{{.Name}}{{if .Namespace}}:{{.Namespace}}{{end}}">
-      <summary>Details</summary>
-      {{template "image-evidence" .}}
-      {{if and $missing (not .Check.Image.PublishingSince.IsZero)}}<p>First seen missing {{when .Check.Image.PublishingSince}}</p>{{end}}
-      {{with .RCBuild}}{{with .Output}}<p>Reported build output <code>{{.}}</code></p>{{end}}{{end}}
-    </details>
-    {{with .RCBuild}}{{with .Retry}}{{template "rc-retry" .}}{{end}}{{end}}
+{{define "rc-build-cell"}}
+  {{with .}}
+    {{if url .Link}}<a class="rc-build-status {{.Class}}" href="{{url .Link}}" target="_blank" rel="noreferrer" title="{{.LinkLabel}}" aria-label="{{.Status}} · {{.LinkLabel}}">{{.Status}}</a>
+    {{else}}<span class="rc-build-status {{.Class}}">{{.Status}}</span>{{end}}
+    {{with .Retry}}{{template "rc-retry" .}}{{end}}
+  {{else}}<span title="No build result yet">—</span>{{end}}
 {{end}}
 
 {{define "rc-retry"}}

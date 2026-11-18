@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"net/url"
 	"strings"
+	"time"
 
 	"release-assistant/internal/release"
 )
@@ -24,7 +25,6 @@ type (
 	}
 	rcBuildModel struct {
 		Status, Class, Link, LinkLabel string
-		Output                         string
 		Retry                          *rcRetryModel
 	}
 	rcRetryModel struct {
@@ -38,15 +38,18 @@ func (p *pageModel) prepareRC() {
 	target := p.Snapshot.Config.RC0Target()
 	repoURL := "https://github.com/" + target.Repo
 	p.RC.WorkflowURL = repoURL + "/actions/workflows/start-release.yml"
-	for _, group := range p.ReleaseImages.Groups {
-		for _, row := range group.Rows {
-			for _, image := range row.CI {
-				p.RC.CITotal++
-				if image.Check.Status == release.Yes {
-					p.RC.CIAvailable++
-				}
+	for _, check := range p.Snapshot.Assessment.Images {
+		if check.Image.Component != "acs" {
+			continue
+		}
+		switch check.Image.Family {
+		case "ci":
+			p.RC.CITotal++
+			if check.Status == release.Yes {
+				p.RC.CIAvailable++
 			}
-			if row.Konflux != nil && row.Konflux.Check.Status == release.No {
+		case "konflux":
+			if check.Status == release.No {
 				p.RC.KonfluxMissing++
 			}
 		}
@@ -158,11 +161,33 @@ func rcBuild(run release.Run, checksURL string) rcBuildModel {
 		if run.URL != "" {
 			build.LinkLabel = "Check build output"
 		}
-		if run.Image.Evidence.Fresh() {
-			build.Output = run.Image.Reference
-		}
 	default:
 		build.Status = "Build status unknown"
 	}
 	return build
+}
+
+// CIIn returns the CI checks for the namespace named by the table column.
+func (row componentImageRow) CIIn(namespace string) []imageModel {
+	var checks []imageModel
+	for _, image := range row.CI {
+		if image.Namespace == namespace {
+			checks = append(checks, image)
+		}
+	}
+	return checks
+}
+
+// LastChecked reports the most recent image check attempt in the row.
+func (row componentImageRow) LastChecked() time.Time {
+	var latest time.Time
+	for _, image := range row.CI {
+		if at := image.Check.Image.Evidence.At; at.After(latest) {
+			latest = at
+		}
+	}
+	if row.Konflux != nil && row.Konflux.Check.Image.Evidence.At.After(latest) {
+		latest = row.Konflux.Check.Image.Evidence.At
+	}
+	return latest
 }
