@@ -96,7 +96,7 @@
       <input type="hidden" name="kind" value="interactive">
       <input type="hidden" name="enabled" value="false">
       <label class="check{{if not .Snapshot.WritesEnabled}} disabled-control{{end}}">
-        <input type="checkbox" name="enabled" value="true" aria-describedby="retry-permissions" {{if .Snapshot.Interactive}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}> Confirm each comment
+        <input type="checkbox" name="enabled" value="true" aria-describedby="retry-permissions" {{if .Snapshot.Interactive}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}> Confirm each write operation towards GitHub
       </label>
       <button type="submit"{{if not .Snapshot.WritesEnabled}} disabled{{end}}>Save mode</button>
     </form>

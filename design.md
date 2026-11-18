@@ -58,7 +58,7 @@ workflow and reruns GitHub Actions in GitHub.
 ## Write permissions
 
 1. The process starts read-only. With `--enable-writes`, the user can grant **RW allowed** on individual targets. A PR grant binds the current head and base branch. A tag grant binds the repository, tag, and resolved commit.
-2. **Confirm each comment** starts enabled. Approval is single-use and tied to the exact target, run, and payload. With confirmation disabled, an individually granted target can receive eligible retries automatically.
+2. **Confirm each write operation towards GitHub** starts enabled. Approval is single-use and tied to the exact target, run, and payload. With confirmation disabled, an individually granted target can receive eligible retries automatically.
 3. A target identity change, tag deselection, or the PR label `no-release-assistant` clears the affected permission. Revocation prevents new dispatch admission. An already admitted request may finish. Each send revalidates the target and eligibility against current evidence.
 4. The dispatcher enforces the per-target comment gap and the longer per-job cooldown after the configured threshold of distinct consecutive unsuccessful runs. An uncertain delivery consumes the cooldown. Rejection suppresses the specific run until the user reconsiders it.
 
