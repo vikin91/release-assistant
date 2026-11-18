@@ -57,7 +57,7 @@ legend { padding: 0 .35rem; font-weight: 700; }
 .image-results { padding-left: 1.6rem; }
 .image-result { padding: .7rem .2rem; border-top: 1px solid var(--line); }
 .image-result p { margin: .3rem 0; }
-.image-tag, .image-reference, .definition-link { font-size: .86rem; }
+.image-tag, .image-reference { font-size: .86rem; }
 .component-image-counts { display: inline-block; margin-left: .65rem; font-size: .9rem; font-weight: 600; }
 .component-image-table-scroll { overflow-x: auto; }
 .component-image-table { display: table; table-layout: fixed; min-width: 17rem; margin-bottom: 0; }

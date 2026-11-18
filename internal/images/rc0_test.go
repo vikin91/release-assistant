@@ -56,7 +56,7 @@ func TestInspectRC0UsesMajorFamilyPatternsAndNormalizedTags(t *testing.T) {
 				if image.Reference != expected {
 					t.Errorf("RC.0 reference = %q, want %q", image.Reference, expected)
 				}
-				if image.Present != release.Yes || !image.Evidence.Fresh() || image.DefinitionURL == "" {
+				if image.Present != release.Yes || !image.Evidence.Fresh() || image.Evidence.URL != sourceURL(expected) {
 					t.Errorf("RC.0 registry result incomplete: %#v", image)
 				}
 			}

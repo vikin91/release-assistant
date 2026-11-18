@@ -109,7 +109,7 @@ The CLI prints activity to stdout as `<timestamp> <Level>: <message>`, using RFC
 
 The server binds to loopback and protects forms with local Host/Origin checks and CSRF tokens. Read failures preserve prior observations for display while invalidating affected current evidence. Per-source polling and bounded requests allow other components to progress during outages.
 
-Image naming patterns are built into the executable: CI uses `quay.io/rhacs-eng/<image>:<version>` and Konflux uses `quay.io/rhacs-eng/release-<image>:<version>-fast`. Scanner V2 variants apply to ACS 4.x. ACS RC.0 uses `<acs-version>-rc.0` and a separate image set for ACS 4.x and 5.x, verified against streams 4.10, 4.11, and 5.0. Naming changes require updating the saved patterns and their tests; running the app never fetches Makefiles or CI scripts to determine image names. The retry library retains its independent source validation for job eligibility. The scope excludes RC.0 creation/build retries, architecture or attestation audits, persistent storage, and automated component release creation.
+Edit the image lists, repository prefixes, and tag suffixes in [image_config.go](internal/images/image_config.go) when upstream naming changes. Update the image tests and rebuild the assistant to apply the changes. The assistant uses this file to construct component and RC.0 references locally. The retry library validates job eligibility separately.
 
 ## Validate
 

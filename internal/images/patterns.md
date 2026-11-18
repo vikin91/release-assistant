@@ -1,10 +1,9 @@
-# Saved image patterns
+# Image naming patterns
 
-The inspector builds expected references from this saved catalog and checks only
-the resulting tags in Quay. It does not read GitHub, repository files, Makefiles,
-shell scripts, workflow definitions, or Tekton YAML at runtime. Component
-repository and branch overrides select release inputs; they do not change these
-image patterns.
+Edit the image names, repository prefixes, and tag suffixes in
+[image_config.go](image_config.go) when upstream naming changes. The inspector
+builds the expected references from that file and checks the resulting tags in
+Quay. The links below document how the defaults were verified.
 
 ## Component images
 

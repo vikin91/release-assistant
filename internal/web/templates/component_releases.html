@@ -128,7 +128,6 @@
         {{else if .Check.Image.Present}}
           <p>Last confirmed {{if eq .Check.Image.Present "yes"}}available{{else}}not found{{end}} at {{when .Check.Image.Evidence.At}}. Current availability is unverified.</p>
         {{end}}
-        {{if url .Check.Image.DefinitionURL}}<a href="{{url .Check.Image.DefinitionURL}}" target="_blank" rel="noreferrer">Saved pattern source</a>{{end}}
       </div>
     </details>
     {{with .RCBuild}}{{template "rc-image-build" .}}{{end}}

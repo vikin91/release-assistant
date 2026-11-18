@@ -15,21 +15,10 @@ import (
 	"release-assistant/internal/release"
 )
 
-const (
-	ciFamily      = "ci"
-	konfluxFamily = "konflux"
-	acsRepository = "stackrox/stackrox"
-)
-
 var (
 	imageTagPattern = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$`)
 	quayRepoPattern = regexp.MustCompile(`^quay\.io/[a-z0-9_-]+/[a-z0-9._/-]+$`)
 	bearerParamRE   = regexp.MustCompile(`([a-z]+)="([^"\r\n]*)"`)
-	sourceRevisions = map[string]string{
-		"4.10": "de310ded87bdec2cbe7f2750c6f9625632a39260",
-		"4.11": "8b36e9ad94e885ab7d7756fe88de74d9655c8716",
-		"5.0":  "32ef302fd73a452b292add4a6a117ce753bcf72a",
-	}
 )
 
 // Inspector resolves and checks the CI, Konflux, and ACS RC.0 image references.
@@ -48,7 +37,6 @@ type imagePattern struct {
 	family    string
 	repo      string
 	suffix    string
-	file      string
 }
 
 // Inspect resolves built-in image patterns and checks their registry manifests.
@@ -65,26 +53,17 @@ func (i *Inspector) inspect(ctx context.Context, config release.Config, confirme
 	now := time.Now()
 	major, minor, patch, versionOK := release.Version(config.Version)
 	releaseVersion := ""
-	stream := ""
 	if versionOK {
 		releaseVersion = fmt.Sprintf("%d.%d.%d", major, minor, patch)
-		stream = fmt.Sprintf("%d.%d", major, minor)
-	}
-	revision := sourceRevisions[stream]
-	if revision == "" && major == 4 {
-		revision = sourceRevisions["4.10"]
-	}
-	if revision == "" && major == 5 {
-		revision = sourceRevisions["5.0"]
 	}
 	inventory := release.Inventory{
 		ReleaseVersion: releaseVersion,
 		Versions:       make(map[string]string, len(config.Components)),
-		Evidence:       release.Evidence{At: now, URL: revisionURL(revision)},
+		Evidence:       release.Evidence{At: now},
 	}
 	if err := config.Validate(); err != nil {
 		inventory.Evidence.Error = "invalid release configuration: " + err.Error()
-		return unknownInventory(inventory, config, revision, inventory.Evidence.Error), fmt.Errorf("invalid release configuration: %w", err)
+		return unknownInventory(inventory, config, inventory.Evidence.Error), fmt.Errorf("invalid release configuration: %w", err)
 	}
 	patterns := componentPatterns(config)
 	var issues []error
@@ -108,15 +87,14 @@ func (i *Inspector) inspect(ctx context.Context, config release.Config, confirme
 		version, ok := inventory.Versions[pattern.component]
 		if !ok {
 			reason := fmt.Sprintf("select a %s tag in stream %s", pattern.component, componentStream(config, pattern.component))
-			inventory.Images = append(inventory.Images, unresolvedImage(pattern, revision, now, reason))
+			inventory.Images = append(inventory.Images, unresolvedImage(pattern, now, reason))
 			continue
 		}
 		reference := pattern.repo + ":" + version + pattern.suffix
-		definition := definitionURL(revision, pattern.file)
 		image := release.Image{
 			Component: pattern.component, Family: pattern.family, Name: pattern.name,
-			Reference: reference, DefinitionURL: definition,
-			Evidence: release.Evidence{At: now, URL: definition},
+			Reference: reference,
+			Evidence:  release.Evidence{At: now, URL: sourceURL(reference)},
 		}
 		if i == nil || i.registry == nil {
 			image.Evidence.Error = "registry client is unavailable; image availability is unknown"
@@ -134,10 +112,10 @@ func (i *Inspector) inspect(ctx context.Context, config release.Config, confirme
 		inventory.Images = append(inventory.Images, image)
 	}
 	if includeRC {
-		inventory.ReleaseImages = inspectRC0(ctx, i, config, revision, now)
-		inventory.Versions["acs"] = releaseVersion + "-rc.0"
+		inventory.ReleaseImages = inspectRC0(ctx, i, config, now)
+		inventory.Versions["acs"] = config.RC0Target().Tag
 	}
-	inventory.Evidence = release.Evidence{At: time.Now(), URL: revisionURL(revision), Known: len(metadataIssues) == 0 && !unselected}
+	inventory.Evidence = release.Evidence{At: time.Now(), Known: len(metadataIssues) == 0 && !unselected}
 	if len(metadataIssues) > 0 {
 		inventory.Evidence.Error = errors.Join(metadataIssues...).Error()
 	}
@@ -152,15 +130,17 @@ func (i *Inspector) inspect(ctx context.Context, config release.Config, confirme
 func componentPatterns(config release.Config) []imagePattern {
 	var patterns []imagePattern
 	for _, component := range config.Components {
-		names := []string{component.Name}
-		if component.Name == "scanner" {
-			names = []string{"scanner", "scanner-db", "scanner-slim", "scanner-db-slim"}
+		names, ok := componentImageNames[component.Name]
+		if !ok {
+			names = []string{component.Name}
 		}
 		for _, name := range names {
-			patterns = append(patterns,
-				imagePattern{component: component.Name, name: name, family: ciFamily, repo: "quay.io/rhacs-eng/" + name, file: "scripts/ci/lib.sh"},
-				imagePattern{component: component.Name, name: name, family: konfluxFamily, repo: "quay.io/rhacs-eng/release-" + name, suffix: "-fast", file: ".tekton/retag-" + name + ".yaml"},
-			)
+			for _, family := range imageFamilies {
+				patterns = append(patterns, imagePattern{
+					component: component.Name, name: name, family: family.family,
+					repo: family.repositoryPrefix + name, suffix: family.tagSuffix,
+				})
+			}
 		}
 	}
 	return patterns
@@ -172,19 +152,18 @@ func normalizeTag(source release.Source, tag string) (string, bool) {
 	return version, ok && fmt.Sprintf("%d.%d", major, minor) == source.Stream
 }
 
-func unknownInventory(inventory release.Inventory, config release.Config, revision, reason string) release.Inventory {
+func unknownInventory(inventory release.Inventory, config release.Config, reason string) release.Inventory {
 	now := inventory.Evidence.At
 	for _, pattern := range componentPatterns(config) {
-		inventory.Images = append(inventory.Images, unresolvedImage(pattern, revision, now, reason))
+		inventory.Images = append(inventory.Images, unresolvedImage(pattern, now, reason))
 	}
 	return inventory
 }
 
-func unresolvedImage(pattern imagePattern, revision string, now time.Time, reason string) release.Image {
-	definition := definitionURL(revision, pattern.file)
+func unresolvedImage(pattern imagePattern, now time.Time, reason string) release.Image {
 	return release.Image{
-		Component: pattern.component, Family: pattern.family, Name: pattern.name, DefinitionURL: definition,
-		Evidence: release.Evidence{At: now, URL: definition, Error: reason},
+		Component: pattern.component, Family: pattern.family, Name: pattern.name,
+		Evidence: release.Evidence{At: now, Error: reason},
 	}
 }
 
@@ -195,24 +174,6 @@ func componentStream(config release.Config, name string) string {
 		}
 	}
 	return "unknown"
-}
-
-func revisionURL(sha string) string {
-	if sha == "" {
-		return "https://github.com/" + acsRepository
-	}
-	return "https://github.com/" + acsRepository + "/tree/" + url.PathEscape(sha)
-}
-
-func definitionURL(sha, file string) string {
-	if sha == "" || file == "" {
-		return ""
-	}
-	parts := strings.Split(file, "/")
-	for index := range parts {
-		parts[index] = url.PathEscape(parts[index])
-	}
-	return "https://github.com/" + acsRepository + "/blob/" + url.PathEscape(sha) + "/" + strings.Join(parts, "/")
 }
 
 func sourceURL(reference string) string {

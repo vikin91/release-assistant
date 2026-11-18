@@ -32,6 +32,5 @@
       <p class="image-tag">Image tag: <code>{{if .Tag}}{{.Tag}}{{else}}not determined{{end}}</code>{{if and .Check.Required .Check.SelectedTag}} · selected {{title .Check.Image.Component}} tag: {{.Check.SelectedTag}}{{end}}</p>
       {{if .Check.Image.Reference}}<p class="image-reference">{{if .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer"><code>{{.Check.Image.Reference}}</code></a>{{else}}<code>{{.Check.Image.Reference}}</code>{{end}}</p>{{end}}
       {{if not .Check.Status}}<p>{{.Check.Reason}}</p>{{end}}{{if .Check.Image.Evidence.Error}}<p class="error-text">{{.Check.Image.Evidence.Error}}</p>{{end}}{{if and (not .Check.Image.Evidence.Fresh) .Check.Image.Present}}<p class="muted">Last confirmed {{if eq .Check.Image.Present "yes"}}available{{else}}not found{{end}} at {{when .Check.Image.Evidence.At}}; current availability is unverified.</p>{{end}}
-      {{if url .Check.Image.DefinitionURL}}<a class="definition-link" href="{{url .Check.Image.DefinitionURL}}" target="_blank" rel="noreferrer">Saved pattern source</a>{{end}}
     </li>{{end}}</ol>
 {{end}}

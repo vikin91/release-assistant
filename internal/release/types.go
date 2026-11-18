@@ -84,7 +84,7 @@ type (
 	// Image describes an expected reference and registry evidence. Empty references are unresolved.
 	Image struct {
 		Component, Family, Reference string
-		Name, DefinitionURL          string
+		Name                         string
 		Present                      Truth
 		Evidence                     Evidence
 		// PublishingSince starts when publication is underway and this image is still missing.

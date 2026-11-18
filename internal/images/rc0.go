@@ -8,27 +8,17 @@ import (
 )
 
 // inspectRC0 checks the fixed ACS release image families independently of component images.
-func inspectRC0(ctx context.Context, inspector *Inspector, config release.Config, revision string, now time.Time) []release.Image {
+func inspectRC0(ctx context.Context, inspector *Inspector, config release.Config, now time.Time) []release.Image {
 	major, _, _, _ := release.Version(config.Version)
 	tag := config.RC0Target().Tag
-	names := rc0Names(major)
-	rows := make([]release.Image, 0, len(names)*2)
+	names := rc0ImageNames[major]
+	rows := make([]release.Image, 0, len(names)*len(imageFamilies))
 	for _, name := range names {
-		for _, family := range []string{ciFamily, konfluxFamily} {
-			repository := "quay.io/rhacs-eng/" + name
-			file := "scripts/ci/lib.sh"
-			if family == konfluxFamily {
-				repository = "quay.io/rhacs-eng/release-" + name
-				file = ".tekton/" + name + "-build.yaml"
-			}
-			reference := repository + ":" + tag
-			if family == konfluxFamily {
-				reference += "-fast"
-			}
-			definition := definitionURL(revision, file)
+		for _, family := range imageFamilies {
+			reference := family.repositoryPrefix + name + ":" + tag + family.tagSuffix
 			image := release.Image{
-				Component: "acs", Family: family, Name: name, Reference: reference,
-				DefinitionURL: definition, Evidence: release.Evidence{At: now, URL: definition},
+				Component: "acs", Family: family.family, Name: name, Reference: reference,
+				Evidence: release.Evidence{At: now, URL: sourceURL(reference)},
 			}
 			if inspector == nil || inspector.registry == nil {
 				image.Evidence.Error = "registry client is unavailable; image availability is unknown"
@@ -45,11 +35,4 @@ func inspectRC0(ctx context.Context, inspector *Inspector, config release.Config
 		}
 	}
 	return rows
-}
-
-func rc0Names(major int) []string {
-	if major == 5 {
-		return []string{"main", "roxctl", "scanner-v4"}
-	}
-	return []string{"main", "roxctl", "central-db", "scanner-v4", "scanner-v4-db"}
 }

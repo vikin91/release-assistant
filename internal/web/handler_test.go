@@ -782,8 +782,12 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 	observed := release.Evidence{Known: true, At: time.Now()}
 	image := func(name, component, family, ref string, status release.Truth) release.ImageStatus {
 		evidence := observed
-		evidence.URL = "https://quay.io/repository/fixture/" + name + "?tag=" + strings.Split(ref, ":")[1]
-		return release.ImageStatus{Image: release.Image{Name: name, Component: component, Family: family, Reference: ref, Present: status, Evidence: evidence, DefinitionURL: "https://github.com/stackrox/stackrox/blob/exact-sha/.tekton/" + name + ".yaml"}, Status: status, Required: component != "acs"}
+		repo, tag, _ := strings.Cut(strings.TrimPrefix(ref, "quay.io/"), ":")
+		evidence.URL = "https://quay.io/repository/" + repo + "?tag=" + tag
+		return release.ImageStatus{
+			Image:  release.Image{Name: name, Component: component, Family: family, Reference: ref, Present: status, Evidence: evidence},
+			Status: status, Required: component != "acs",
+		}
 	}
 	rows := []release.ImageStatus{image("fact", "fact", "ci", "quay.io/fixture/fact:3.25.1", release.Yes), image("collector", "collector", "konflux", "quay.io/fixture/collector:3.25.4-fast", release.No), image("main", "acs", "ci", "quay.io/fixture/main:5.0.1-rc.0", release.No), image("scanner-v4", "acs", "konflux", "quay.io/fixture/scanner-v4:5.0.1-rc.0-fast", "")}
 	rows[3].Image.Evidence.Known = false
@@ -800,12 +804,21 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 	rows = append(rows, image("main", "acs", "konflux", "quay.io/fixture/release-main:5.0.1-rc.0-fast", release.Yes))
 	application := &fakeApplication{snapshot: app.Snapshot{Config: validACS5Config(), Choices: release.Choices{Tags: map[string]string{"fact": "3.25.1", "collector": "3.25.4"}}, Assessment: release.Assessment{Images: rows, Pins: release.PinSummary{BranchStatus: release.Yes, PRNumber: 99, PRURL: "https://github.com/stackrox/stackrox/pull/99"}, Conditions: []release.Condition{{Name: "configuration", Status: release.Yes, Reason: "Release configuration is valid"}}}, Repositories: []release.Repository{{Source: release.Source{Name: "acs"}, PinningPR: &release.PR{Target: release.Target{Repo: "stackrox/stackrox", PR: 99}, State: "open", Evidence: observed}}}}}
 	body := newBrowser(t, application).getBody(t)
-	for _, want := range []string{"Fact: 3.25.1", "Collector: 3.25.4", "ACS pins: match selected tags", "Pin PR #99: Open", `href="https://github.com/stackrox/stackrox/pull/99"`, "Available", "Not found", "Unable to check", "3.25.4-fast", "5.0.1-rc.0", "Registry access denied", "Saved pattern source", "green = selected versions are on the ACS branch"} {
+	for _, want := range []string{
+		"Fact: 3.25.1", "Collector: 3.25.4", "ACS pins: match selected tags", "Pin PR #99: Open",
+		`href="https://github.com/stackrox/stackrox/pull/99"`, "Available", "Not found", "Unable to check",
+		`href="https://quay.io/repository/fixture/release-fact?tag=3.25.1-fast"`,
+		`href="https://quay.io/repository/fixture/release-main?tag=5.0.1-rc.0-fast"`,
+		"Registry access denied", "green = selected versions are on the ACS branch",
+	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q", want)
 		}
 	}
-	for _, forbidden := range []string{"Release status", "Release configuration is valid", "Confirm PR selection", "confirm-selection", "image inventory evidence is not fresh"} {
+	for _, forbidden := range []string{
+		"Release status", "Release configuration is valid", "Confirm PR selection",
+		"confirm-selection", "image inventory evidence is not fresh", "Saved pattern source",
+	} {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("unexpected obsolete status/control %q", forbidden)
 		}

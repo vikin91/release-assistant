@@ -56,7 +56,8 @@ func TestInspectUsesSavedComponentPatternsForSupportedStreams(t *testing.T) {
 					t.Errorf("unexpected image reference %q", image.Reference)
 				}
 				delete(want, image.Reference)
-				if image.Present != release.Yes || !image.Evidence.Fresh() || image.Name == "" || image.DefinitionURL == "" {
+				if image.Present != release.Yes || !image.Evidence.Fresh() || image.Name == "" ||
+					image.Evidence.URL != sourceURL(image.Reference) {
 					t.Errorf("image result is incomplete: %#v", image)
 				}
 			}
