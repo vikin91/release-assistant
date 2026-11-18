@@ -1,0 +1,47 @@
+{{define "build-retries"}}
+  <section class="panel" id="{{.RetrySection}}">
+    <details id="{{.RetryDetails}}" open>
+      <summary class="section-summary">Build retries</summary>
+      {{range .BuildRetries}}
+        <article class="build-retry-target" data-live-key="build-retries:{{.Target}}">
+          <h3>{{.Target}}{{if eq .Target $.Snapshot.Config.PinningTarget}} <span class="pill">Pinning PR</span>{{end}}</h3>
+          {{with .Authority}}{{if .Message}}<p class="build-retry-note">{{.Message}}</p>{{end}}{{end}}
+          {{range .Candidates}}
+            <details class="build-retry-row" data-fold-key="build-retry:{{.Key}}">
+              <summary>
+                <strong>{{if .Proposal.Job}}{{.Proposal.Job}}{{else}}Retry comment{{end}}</strong>
+                {{if .Proposal.RunID}}<span class="build-retry-run">Run {{.Proposal.RunID}}</span>{{end}}
+                <span class="pill">{{.Status}}{{with .Offer}}{{if not .WaitingUntil.IsZero}} · until {{when .WaitingUntil}}{{end}}{{end}}</span>
+              </summary>
+              <p class="build-retry-note">Commit <code>{{.Proposal.SHA}}</code>{{with .Offer}}{{if .Failures}} · {{.Failures}} eligible failures{{end}}{{end}}</p>
+              {{template "manual-comment" .Proposal}}
+              {{with .Offer}}{{template "retry-offer-actions" ($.RetryOfferActions .)}}{{end}}
+            </details>
+          {{else}}
+            <p class="build-retry-note">
+              {{- if and .Plan .Plan.Plan.Message}}{{.Plan.Plan.Message}}
+              {{- else if and .Plan .Plan.Plan.Evidence.Error}}Build evidence unavailable.
+              {{- else}}No retry candidates observed yet.{{end -}}
+            </p>
+          {{end}}
+          <details class="build-retry-evidence" data-fold-key="build-retry-evidence:{{.Target}}">
+            <summary>Build evidence</summary>
+            {{if .Plan}}
+              {{if .Plan.Plan.Action}}<p>Build recommendation <strong>{{.Plan.Plan.Action}}</strong></p>{{end}}
+              {{if .Candidates}}{{if .Plan.Plan.Message}}<p>{{.Plan.Plan.Message}}</p>{{end}}{{end}}
+              {{template "retry-plan-evidence" ($.RetryPlanEvidence .Plan)}}
+            {{else}}<p>No build observations are available for this target.</p>{{end}}
+            {{with .Authority}}
+              {{if .OptOut}}<p>Retry comments disabled by the opt-out label.</p>
+              {{else if .Granted}}<p>Retry comment permission granted.</p>
+              {{else}}<p>Retry comment permission required.</p>{{end}}
+              {{if .Warnings}}<ol>{{range .Warnings}}<li>{{.}}</li>{{end}}</ol>{{end}}
+            {{end}}
+          </details>
+        </article>
+      {{else}}
+        <p class="muted">No retry observations yet. {{if eq .Tab "component-releases"}}Select a component tag to monitor its builds.{{else}}Include an ACS PR or supply a pinning PR number to monitor its builds.{{end}}</p>
+      {{end}}
+    </details>
+  </section>
+{{end}}

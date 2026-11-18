@@ -61,7 +61,6 @@ func tabPage(page pageModel, tab string) pageModel {
 		page.PRSection = tab + "-pr-selection"
 		page.RetrySection = tab + "-retry"
 		page.RetryDetails = tab + "-retry-details"
-		page.OfferSection = tab + "-offers"
 	}
 	acsRepo := page.Snapshot.Config.ACS().Repo
 	matchesTarget := func(target release.Target) bool {

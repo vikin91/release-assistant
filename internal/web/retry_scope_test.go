@@ -30,9 +30,13 @@ func TestRetryAndCommentSectionsUseExplicitCurrentScope(t *testing.T) {
 		}
 	}
 	offer := func(target release.Target, sha, marker string) dispatch.View {
+		comment := marker
+		if target.Tag != "" {
+			comment += "-marker"
+		}
 		return dispatch.View{Target: target, SHA: sha, Granted: marker == "included-open" || marker == "excluded", Offers: []dispatch.Offer{{
 			ID:       "offer-" + marker,
-			Proposal: release.Proposal{Target: target, SHA: sha, Job: marker, RunID: "run-" + marker, Payload: marker},
+			Proposal: release.Proposal{Target: target, SHA: sha, Job: comment, RunID: "run-" + comment, Payload: comment},
 			Allowed:  true, CanApprove: true,
 		}}}
 	}
@@ -84,39 +88,30 @@ func TestRetryAndCommentSectionsUseExplicitCurrentScope(t *testing.T) {
 	if count := strings.Count(inline, prCommentLink); count != 2 {
 		t.Errorf("included PR has %d manual comment links, want one for the proposal and one for the offer", count)
 	}
-	proposals := inline + between(t, body, `<section class="panel" id="component-releases-retry">`, `</section>`)
-	offers := inline + between(t, body, `<section class="panel" id="component-releases-offers">`, `</section>`)
-	for _, section := range []struct {
-		name string
-		body string
-	}{
-		{name: "retry proposals", body: proposals},
-		{name: "exact comment offers", body: offers},
+	builds := between(t, body, `<section class="panel" id="component-releases-retry">`, `</section>`)
+	for _, includedMarker := range []string{"accepted-fact-tag", "accepted-collector-tag", "offer-accepted-fact-tag", "offer-accepted-collector-tag"} {
+		if !strings.Contains(builds, includedMarker) {
+			t.Errorf("Build retries omitted scoped target marker %q", includedMarker)
+		}
+	}
+	for _, link := range []string{
+		`href="https://github.com/acme/fact/commit/fact-tag-sha" target="_blank"`,
+		`href="https://github.com/acme/collector/commit/collector-tag-sha" target="_blank"`,
 	} {
-		for _, includedMarker := range []string{"included-open", "accepted-fact-tag", "accepted-collector-tag"} {
-			if !strings.Contains(section.body, includedMarker) {
-				t.Errorf("%s omitted scoped target marker %q", section.name, includedMarker)
-			}
+		if got := strings.Count(builds, link); got != 1 {
+			t.Errorf("Build retries rendered %d instances of the manual comment link %s, want one", got, link)
 		}
-		for _, link := range []string{
-			`href="https://github.com/acme/fact/commit/fact-tag-sha" target="_blank"`,
-			`href="https://github.com/acme/collector/commit/collector-tag-sha" target="_blank"`,
-		} {
-			if !strings.Contains(section.body, link) {
-				t.Errorf("%s omitted manual comment link %s", section.name, link)
-			}
-		}
-		if !strings.Contains(section.body, "partial plan evidence") && section.name == "retry proposals" {
-			t.Error("included target with partial plan evidence was hidden")
-		}
-		for _, excludedMarker := range []string{
-			"excluded-marker", "undecided-marker", "ignored-marker", "merged-marker", "closed-marker",
-			"old-tag-marker", "unaccepted-tag-marker", "offer-excluded", "offer-undecided", "offer-ignored",
-			"offer-merged", "offer-closed", "offer-old-tag", "offer-unaccepted-tag",
-		} {
-			if strings.Contains(section.body, excludedMarker) {
-				t.Errorf("%s contains out-of-scope marker %q", section.name, excludedMarker)
-			}
+	}
+	if !strings.Contains(builds, "partial plan evidence") || !strings.Contains(inline, "partial plan evidence") {
+		t.Error("partial plan evidence was hidden")
+	}
+	for _, excludedMarker := range []string{
+		"excluded-marker", "undecided-marker", "ignored-marker", "merged-marker", "closed-marker",
+		"old-tag-marker", "unaccepted-tag-marker", "offer-excluded", "offer-undecided", "offer-ignored",
+		"offer-merged", "offer-closed", "offer-old-tag", "offer-unaccepted-tag",
+	} {
+		if strings.Contains(inline+builds, excludedMarker) {
+			t.Errorf("retry view contains out-of-scope marker %q", excludedMarker)
 		}
 	}
 	for _, title := range []string{"Excluded open PR", "Undecided open PR"} {

@@ -118,6 +118,15 @@ legend { padding: 0 .35rem; font-weight: 700; }
 .tag-evidence p, .tag-merge-coverage { margin: .3rem 0; }
 .clear-tag-form, .component-tag-chooser .other-tags { margin-top: .55rem; }
 .component-tag-images-link { margin: .65rem 0 0; font-size: .88rem; }
+.build-retry-target { margin-top: .4rem; padding: .6rem .2rem; border-top: 1px solid var(--line); }
+.build-retry-target h3 { font-size: 1rem; }
+.build-retry-row { padding: .3rem 0; border-bottom: 1px solid var(--line); }
+.build-retry-row summary, .build-retry-evidence { overflow-wrap: anywhere; }
+.build-retry-row summary > span { margin-inline-start: .35rem; }
+.build-retry-note, .build-retry-run, .build-retry-evidence { font-size: .86rem; }
+.build-retry-note { margin: .3rem 0; }
+.build-retry-evidence { margin-top: .45rem; }
+.build-retry-row form { margin: .35rem 0; }
 @media (max-width: 650px) {
   .component-tag-columns { display: none; }
   .component-tag-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; }

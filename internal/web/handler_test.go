@@ -831,7 +831,7 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 			t.Errorf("missing stale component evidence %q", want)
 		}
 	}
-	for _, control := range []string{`<details id="component-images" open>`, `<details id="release-images" open>`, `<details id="component-prs-next-steps" open>`, `<details id="acs-prs-retry-details" open>`, `<details id="acs-prs-offers-details" open>`} {
+	for _, control := range []string{`<details id="component-images" open>`, `<details id="release-images" open>`, `<details id="component-prs-next-steps" open>`, `<details id="acs-prs-retry-details" open>`, `<details id="component-releases-retry-details" open>`} {
 		if !strings.Contains(body, control) {
 			t.Errorf("missing section fold control %s", control)
 		}
