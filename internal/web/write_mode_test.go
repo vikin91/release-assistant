@@ -20,17 +20,19 @@ func TestWriteModeControls(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
 		writesEnabled bool
+		interactive   bool
 		optOut        bool
 		wantReadOnly  bool
 		wantDisabled  bool
+		wantMode      string
 	}{
-		{name: "startup read-only", wantReadOnly: true, wantDisabled: true},
-		{name: "writes enabled", writesEnabled: true},
-		{name: "writes enabled with opt-out", writesEnabled: true, optOut: true, wantDisabled: true},
+		{name: "startup read-only", interactive: true, wantReadOnly: true, wantDisabled: true, wantMode: "Read-only"},
+		{name: "writes enabled", writesEnabled: true, interactive: true, wantMode: "Confirm each comment"},
+		{name: "automatic with opt-out", writesEnabled: true, optOut: true, wantDisabled: true, wantMode: "Automatic for permitted targets"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			application := &fakeApplication{snapshot: app.Snapshot{
-				Config: validACS5Config(), Generation: 9, WritesEnabled: tc.writesEnabled,
+				Config: validACS5Config(), Generation: 9, WritesEnabled: tc.writesEnabled, Interactive: tc.interactive,
 				Choices: release.Choices{
 					Tags: map[string]string{"fact": "3.25.7", "collector": "3.25.4"},
 					PRs:  map[release.Target]release.Choice{prTarget: release.Included},
@@ -60,6 +62,10 @@ func TestWriteModeControls(t *testing.T) {
 			body := w.Body.String()
 			if got := strings.Contains(body, "Read-only mode. Restart with"); got != tc.wantReadOnly {
 				t.Errorf("read-only notice present=%t, want %t", got, tc.wantReadOnly)
+			}
+			modeSummary := between(t, body, `id="retry-settings"`, "</summary>")
+			if !strings.Contains(modeSummary, `class="pill summary-detail">`+tc.wantMode+"</span>") {
+				t.Errorf("retry settings header must display %q", tc.wantMode)
 			}
 
 			prCard := prCardContaining(body, "Included PR")
