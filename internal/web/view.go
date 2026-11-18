@@ -26,6 +26,9 @@ type (
 		TagUpdates                                               bool
 		Problems                                                 []release.Condition
 		Plans                                                    []planModel
+		StartFailureClusters                                     []startFailureCluster
+		EarlierStartFailureClusters                              []startFailureCluster
+		PinningStartFailures                                     bool
 		Authority                                                []authorityModel
 		ComponentImages                                          componentImagesModel
 		ReleaseImages                                            []imageModel
@@ -373,6 +376,13 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 			continue
 		}
 		model.Plans = append(model.Plans, planModel{Plan: plan, Pinning: plan.Target == pinTarget})
+		if plan.Target == pinTarget {
+			for _, failure := range plan.StartFailures {
+				if !failure.Superseded {
+					model.PinningStartFailures = true
+				}
+			}
+		}
 	}
 	if len(model.PinningImages) > 0 {
 		available, missing, unknown := 0, 0, 0

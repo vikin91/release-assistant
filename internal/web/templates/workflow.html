@@ -13,5 +13,5 @@
   {{if eq .Tab "component-prs"}}{{template "pr-list" .}}{{end}}
   {{if eq .Tab "component-releases"}}{{template "component-releases" .}}{{end}}
   {{if eq .Tab "acs-prs"}}{{template "acs-pinning" .}}{{template "pr-list" .}}{{end}}
-  {{if eq .Tab "acs-rcs"}}{{template "acs-rcs" .}}{{else}}{{template "retries" .}}{{end}}
+  {{if eq .Tab "acs-rcs"}}{{template "acs-rcs" .}}{{else}}{{template "start-failures" .}}{{template "retries" .}}{{end}}
 {{end}}

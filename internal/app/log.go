@@ -277,7 +277,7 @@ func recordLevel(r Record) string {
 		}
 	case strings.HasSuffix(r.Decision, "-error"), r.Decision == "delivery" && r.Result == "failed":
 		return "Error"
-	case r.Decision == "retry-wait", r.Decision == "tag-invalidated", r.Decision == "revoked", r.Decision == "withheld", r.Decision == "delivery" && r.Result == "uncertain":
+	case r.Decision == "start-failures", r.Decision == "retry-wait", r.Decision == "tag-invalidated", r.Decision == "revoked", r.Decision == "withheld", r.Decision == "delivery" && r.Result == "uncertain":
 		return "Warn"
 	case r.Decision == "observation", r.Decision == "checks":
 		return "Debug"

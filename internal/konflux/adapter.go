@@ -4,6 +4,7 @@ package konflux
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -65,6 +66,25 @@ func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, err
 			id = strconv.FormatInt(run.ID, 10)
 		}
 		p.Runs = append(p.Runs, release.Run{Job: run.Job, ID: id, Status: run.Status, Outcome: run.Conclusion, URL: run.URL, Eligible: run.Eligible, Image: imageOutput(run, p.Evidence.At)})
+	}
+	for _, failure := range r.StartFailures {
+		evidence := release.Evidence{At: p.Evidence.At}
+		if failure.CheckID > 0 && r.SHA != "" && release.ValidRepo(t.Repo) {
+			evidence.Known = true
+			evidence.URL = "https://github.com/" + t.Repo + "/commit/" + url.PathEscape(r.SHA) + "/checks?check_run_id=" + strconv.FormatInt(failure.CheckID, 10)
+		}
+		superseded := false
+		for _, run := range r.Runs {
+			if failure.CheckID > 0 && run.IdentityKnown && run.Job == failure.Job && run.ID > failure.CheckID {
+				superseded = true
+				break
+			}
+		}
+		p.StartFailures = append(p.StartFailures, release.StartFailure{
+			CheckID: failure.CheckID, Job: failure.Job, Cluster: failure.Cluster,
+			Category: string(failure.Category), Reason: observationProblem(failure.Reason, a.config),
+			Superseded: superseded, Evidence: evidence,
+		})
 	}
 	for _, advisory := range r.Advisories {
 		p.Advisories = append(p.Advisories, release.Advisory{ID: t.String() + ":" + strconv.FormatInt(advisory.ID, 10), Message: advisory.Name + ": " + advisory.Conclusion, URL: advisory.URL})

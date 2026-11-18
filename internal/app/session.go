@@ -382,11 +382,7 @@ func (s *Session) Snapshot() Snapshot {
 		return 1
 	})
 	for _, p := range s.plans {
-		p.Runs = slices.Clone(p.Runs)
-		p.Proposals = slices.Clone(p.Proposals)
-		p.Warnings = slices.Clone(p.Warnings)
-		p.Advisories = slices.Clone(p.Advisories)
-		x.Plans = append(x.Plans, p)
+		x.Plans = append(x.Plans, clonePlan(p))
 	}
 	slices.SortFunc(x.Plans, func(a, b release.Plan) int {
 		if a.Target.String() < b.Target.String() {
@@ -613,12 +609,17 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		}
 		s.repos[source.Name] = r
 		for _, p := range r.PRs {
+			if plan, exists := s.plans[p.Target]; exists && (!p.Evidence.Fresh() || p.SHA != plan.SHA) {
+				plan.StartFailures = staleStartFailures(plan.StartFailures, "Current PR identity does not confirm the commit for these earlier check observations.")
+				s.plans[p.Target] = plan
+			}
 			s.dispatcher.ObserveIdentity(dispatch.Identity{Target: p.Target, SHA: p.SHA, Base: p.Base, Open: p.State == "open" && p.Base == source.Branch, OptOut: p.OptOut, Evidence: p.Evidence})
 			if p.State != "open" {
 				if plan, exists := s.plans[p.Target]; exists {
 					plan.Proposals = nil
 					plan.Evidence.Known = false
 					plan.Evidence.Error = "PR is no longer open; retained build observations"
+					plan.StartFailures = staleStartFailures(plan.StartFailures, plan.Evidence.Error)
 					s.plans[p.Target] = plan
 					s.dispatcher.ObservePlan(plan)
 				}
@@ -626,11 +627,20 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		}
 		if confirmed := s.choices.Tags[source.Name]; confirmed != "" {
 			if !slices.ContainsFunc(r.Tags, func(tag release.Tag) bool { return tag.Name == confirmed }) {
+				target := release.Target{Repo: source.Repo, Tag: confirmed}
+				if plan, exists := s.plans[target]; exists {
+					plan.StartFailures = staleStartFailures(plan.StartFailures, "Current tag identity is unavailable for these earlier check observations.")
+					s.plans[target] = plan
+				}
 				s.dispatcher.ObserveIdentity(dispatch.Identity{Target: release.Target{Repo: source.Repo, Tag: confirmed}, SHA: s.confirmedSHAs[source.Name], Evidence: release.Evidence{At: time.Now(), Error: "confirmed tag was not returned by current discovery"}})
 			}
 			for _, tag := range r.Tags {
 				if tag.Name == confirmed {
 					t := release.Target{Repo: source.Repo, Tag: tag.Name}
+					if plan, exists := s.plans[t]; exists && (!tag.Evidence.Fresh() || tag.SHA != plan.SHA) {
+						plan.StartFailures = staleStartFailures(plan.StartFailures, "Current tag identity does not confirm the commit for these earlier check observations.")
+						s.plans[t] = plan
+					}
 					s.dispatcher.ObserveIdentity(dispatch.Identity{Target: t, SHA: tag.SHA, Open: true, Evidence: tag.Evidence})
 					if tag.SHA != "" && tag.SHA != s.confirmedSHAs[source.Name] {
 						delete(s.choices.Tags, source.Name)
@@ -750,6 +760,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			old.Evidence.Known = false
 			old.Target = target
 			old.Evidence.Error = message
+			old.StartFailures = staleStartFailures(old.StartFailures, message)
 			for i := range old.Runs {
 				old.Runs[i].Image.Evidence.Known = false
 				old.Runs[i].Image.Evidence.Error = message
@@ -759,6 +770,11 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		}
 		if plan.SHA == expected && expected != "" {
 			oldPlan := s.plans[target]
+			if err != nil && len(plan.StartFailures) == 0 && oldPlan.SHA == plan.SHA {
+				plan.StartFailures = staleStartFailures(oldPlan.StartFailures, message)
+				markSupersededStartFailures(&plan)
+			}
+			s.recordStartFailures(oldPlan, plan)
 			for _, proposal := range plan.Proposals {
 				if !slices.ContainsFunc(oldPlan.Proposals, func(old release.Proposal) bool { return dispatch.ID(old) == dispatch.ID(proposal) }) {
 					s.record(target, proposal.SHA, "proposal", proposal.Payload, "run "+proposal.RunID, "system", fmt.Sprintf("A retry is available for %s in %s (run %s).", proposal.Job, consoleRevision(target, proposal.SHA), proposal.RunID))
@@ -829,6 +845,7 @@ func clonePlan(p release.Plan) release.Plan {
 	p.Proposals = slices.Clone(p.Proposals)
 	p.Warnings = slices.Clone(p.Warnings)
 	p.Advisories = slices.Clone(p.Advisories)
+	p.StartFailures = slices.Clone(p.StartFailures)
 	return p
 }
 

@@ -125,6 +125,17 @@ type (
 		// Image records an observed build output, separately from retry eligibility.
 		Image Image
 	}
+	// StartFailure records a check's creation failure on the inspected commit.
+	// It does not establish that the check belongs to the requested PR or tag.
+	StartFailure struct {
+		CheckID                        int64
+		Job, Cluster, Category, Reason string
+		// Superseded identifies an attempt followed by a newer verified same-job check
+		// for this plan target. It does not establish cluster recovery.
+		Superseded bool
+		// Evidence identifies the source GitHub check and when it was observed.
+		Evidence Evidence
+	}
 	// Advisory is a separately acknowledged finding, never an implicit gate.
 	Advisory struct{ ID, Message, URL string }
 	// Proposal binds one exact comment to one observed run.
@@ -141,6 +152,7 @@ type (
 		Proposals            []Proposal
 		Warnings             []string
 		Advisories           []Advisory
+		StartFailures        []StartFailure
 		Evidence             Evidence
 	}
 	// Choices contains only session release decisions.

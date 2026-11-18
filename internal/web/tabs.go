@@ -90,6 +90,7 @@ func tabPage(page pageModel, tab string) pageModel {
 		}
 	}
 	page.Plans = plans
+	page.StartFailureClusters, page.EarlierStartFailureClusters = groupStartFailures(plans, tab)
 	authority := make([]authorityModel, 0, len(page.Authority))
 	for _, view := range page.Authority {
 		if matchesTarget(view.View.Target) {

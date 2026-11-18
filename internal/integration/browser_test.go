@@ -169,6 +169,19 @@ func (f *browserFixture) Plan(_ context.Context, t release.Target) (release.Plan
 		}
 		p.Advisories = []release.Advisory{{ID: "fixture-policy-1", Message: "Conforma fixture finding; human review required", URL: "https://example.com/finding"}}
 	}
+	if os.Getenv("ACS_BROWSER_START_FAILURES") == "1" && t.Repo == "stackrox/stackrox" && t.PR > 0 && t.PR != 201 && step < 2 {
+		p.Action, p.Message, p.Proposals = "Wait", "Checks on this commit reported PipelineRun creation failures.", nil
+		p.Runs = []release.Run{{Job: "main-on-push", Status: "completed", Outcome: "failure"}, {Job: "roxctl-on-push", Status: "completed", Outcome: "failure"}}
+		for index, run := range p.Runs {
+			checkID := int64(501 + index)
+			evidence := observation()
+			evidence.URL = fmt.Sprintf("https://example.com/check/%d", checkID)
+			p.StartFailures = append(p.StartFailures, release.StartFailure{
+				CheckID: checkID, Job: run.Job, Cluster: "example.openshiftapps.com", Category: "admission_policy",
+				Reason: "Admission policy deny-pipelinerun-create rejected this attempt: PipelineRun creation is temporarily disabled.", Evidence: evidence,
+			})
+		}
+	}
 	return p, nil
 }
 func (f *browserFixture) ReadTarget(ctx context.Context, t release.Target) (dispatch.Identity, error) {

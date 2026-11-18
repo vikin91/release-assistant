@@ -4,7 +4,7 @@ A local browser application for preparing one ACS 4.x or 5.x patch release, from
 
 ## Run
 
-Use Go 1.26.0 or later. This development module requires the local `github.com/vikin91/konflux-retest` checkout at `/Users/prygiels/code/konflux-retest`, including its public run-evidence extension. The `v0.0.0` requirement with a local replacement is intentional; it does not name a published release. The assistant imports the library directly. It neither invokes its CLI nor imports its internal packages.
+Use Go 1.26.0 or later. The module requirement records the `github.com/vikin91/konflux-retest` API revision, while the local `replace` uses the checkout at `/Users/prygiels/code/konflux-retest`. That checkout must provide identity-verified run evidence and structured PipelineRun creation failures. The assistant imports the library directly. It neither invokes its CLI nor imports its internal packages.
 
 ```sh
 cd /Users/prygiels/code/release-assistant
@@ -40,6 +40,10 @@ Credentials load once at startup. Restart after changing environment variables o
 3. Konflux uses the existing `oc whoami --show-server` and `oc whoami --show-token` session. The startup token is returned only for that cluster's hostname. The application does not log in, change contexts, or save credentials.
 
 The assistant enables the retry library's strict run-identity mode. It verifies original PipelineRun annotations through the cluster API or Tekton Results archive, including repository, SHA, GitHub check ID, and PR number or full tag ref. If evidence is unavailable or ambiguous, affected retries remain unconfirmed. A branch run on the same commit is insufficient evidence for a tag retry. Typed Conforma findings remain visible as commit-scoped advisories even when their exact run association cannot be established.
+
+The adapter preserves structured PipelineRun creation failures as commit-scoped check evidence, including their category, cluster, reported reason, source check, and read time. The relevant work tab groups these reports by cluster and retains earlier attempts separately. Logs summarize newly observed reports without treating them as proof that a cluster is currently unavailable.
+
+Failed reads mark retained reports as stale. A newer verified check for the same job and monitored target can supersede an older report without proving cluster-wide recovery. These observations neither authorize retries nor add release gates, and collecting them makes no additional health-probe requests. Developer Conforma findings remain advisories without triggering build identity lookups or monitoring backoff on their own.
 
 ## Work tabs
 

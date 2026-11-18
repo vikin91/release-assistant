@@ -1,0 +1,37 @@
+{{define "start-failures"}}
+{{if or .StartFailureClusters .EarlierStartFailureClusters}}
+<section class="panel" id="{{.Tab}}-start-failures-panel">
+  <details id="{{.Tab}}-start-failures" open>
+    <summary class="section-summary">Reported build creation failures</summary>
+    <p class="muted">These checks report failed PipelineRun creation attempts on the fetched commits. Their association with the monitored PR or tag is unverified, and a newer attempt may have superseded a report.</p>
+    <p class="muted">Current cluster availability is unknown. No live availability probe is performed. Reading an old check again does not establish a new failure.</p>
+    {{if .StartFailureClusters}}{{template "start-failure-clusters" .StartFailureClusters}}{{else}}<p>No unsuperseded creation failures are reported for these monitored targets. Current cluster availability remains unknown.</p>{{end}}
+    {{if .EarlierStartFailureClusters}}<details id="{{.Tab}}-earlier-start-failures" open><summary>Earlier creation attempts</summary><p class="muted">A newer verified run supersedes each of these reports. This does not establish current cluster availability.</p>{{template "start-failure-clusters" .EarlierStartFailureClusters}}</details>{{end}}
+  </details>
+</section>
+{{end}}
+{{end}}
+
+{{define "start-failure-clusters"}}
+    {{range .}}
+    <article class="creation-failure-cluster" data-live-key="creation-failures:{{.Name}}">
+      <h3>{{if .Name}}{{.Name}}{{else}}Cluster not reported{{end}} <span class="summary-detail">{{len .Failures}} reported check{{if ne (len .Failures) 1}}s{{end}}</span></h3>
+      <ol class="creation-failures">
+        {{range .Failures}}
+        <li data-live-key="start-failure:{{.Key}}">
+          <p><strong>{{if .Failure.Job}}{{.Failure.Job}}{{else}}Job not reported{{end}}</strong> · {{.Category}}{{if .Failure.Superseded}} · <span class="muted">Earlier attempt; a newer verified run was observed</span>{{end}}{{if not .Failure.Evidence.Fresh}} · <span class="unknown">Retained evidence; current read unavailable</span>{{end}}</p>
+          {{if .Failure.Reason}}<pre>{{.Failure.Reason}}</pre>{{else}}<p class="muted">No failure reason was reported.</p>{{end}}
+          <details data-fold-key="start-failure:{{.Key}}" open>
+            <summary>Source check and commit evidence</summary>
+            <p>{{if url .Failure.Evidence.URL}}<a href="{{url .Failure.Evidence.URL}}" target="_blank" rel="noreferrer">Source check{{if gt .Failure.CheckID 0}} #{{.Failure.CheckID}}{{end}}</a>{{else}}Source check{{if gt .Failure.CheckID 0}} #{{.Failure.CheckID}}{{else}} not reported{{end}}{{end}} · {{.Repo}}</p>
+            <p>Source commit{{if ne (len .Commits) 1}}s{{end}}: {{range $i,$commit:=.Commits}}{{if $i}}, {{end}}<code>{{$commit}}</code>{{else}}unknown{{end}}</p>
+            <p>{{if .Failure.Evidence.Fresh}}Check evidence read at{{else}}Last retained check evidence read at{{end}} {{when .Failure.Evidence.At}}. This is the observation time, not the creation attempt time.</p>
+            <p>Fetched while monitoring {{range $i,$target:=.Targets}}{{if $i}}, {{end}}<code>{{$target}}</code>{{end}}. PR/tag association is unverified.</p>
+            {{if .Failure.Evidence.Error}}<p class="error-text">{{.Failure.Evidence.Error}}</p>{{end}}
+          </details>
+        </li>
+        {{end}}
+      </ol>
+    </article>
+    {{end}}
+{{end}}
