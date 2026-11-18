@@ -127,6 +127,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const activityLog = document.getElementById("activity-log");
   const activityError = document.getElementById("activity-refresh-error");
+  const jumpToLatest = document.getElementById("activity-jump-latest");
   if (activityLog && activityError) {
     const scrollKey = "release-assistant:activity-scroll";
     let scrollState = { top: 0, follow: true };
@@ -134,8 +135,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const saved = JSON.parse(window.sessionStorage.getItem(scrollKey));
       if (saved && Number.isFinite(saved.top) && saved.top >= 0 && typeof saved.follow === "boolean") scrollState = saved;
     } catch {}
+    const updateActivityJump = () => {
+      if (jumpToLatest) jumpToLatest.hidden = scrollState.follow || activityLog.clientHeight === 0;
+    };
     const restoreActivityScroll = () => {
       if (activityLog.clientHeight > 0) activityLog.scrollTop = scrollState.follow ? activityLog.scrollHeight : scrollState.top;
+      updateActivityJump();
     };
     const saveActivityScroll = () => {
       if (activityLog.clientHeight === 0) return;
@@ -143,8 +148,14 @@ document.addEventListener("DOMContentLoaded", () => {
         top: activityLog.scrollTop,
         follow: activityLog.scrollHeight - activityLog.scrollTop - activityLog.clientHeight <= 1,
       };
+      updateActivityJump();
       try { window.sessionStorage.setItem(scrollKey, JSON.stringify(scrollState)); } catch {}
     };
+    jumpToLatest?.addEventListener("click", () => {
+      activityLog.scrollTop = activityLog.scrollHeight;
+      activityLog.focus({ preventScroll: true });
+      saveActivityScroll();
+    });
     activityLog.addEventListener("scroll", saveActivityScroll);
     window.addEventListener("pagehide", saveActivityScroll);
     const activityDetails = document.getElementById("activity-details");

@@ -71,7 +71,8 @@
     <details id="activity-details" open>
       <summary class="section-summary">Activity and errors</summary>
       <p class="muted">Latest 200 events from this process. Updates every two seconds without reloading your forms.</p>
-      <pre id="activity-log" role="log" aria-label="Activity and errors" aria-live="off">{{activity .Snapshot}}</pre>
+      <pre id="activity-log" role="log" aria-label="Activity and errors" aria-live="off" tabindex="0">{{activity .Snapshot}}</pre>
+      <button type="button" id="activity-jump-latest" hidden>Jump to latest</button>
       <p id="activity-refresh-error" class="error-text" role="status" hidden></p>
     </details>
   </section>

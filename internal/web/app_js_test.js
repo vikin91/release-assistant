@@ -25,11 +25,12 @@ function makeDetails({ id = "", foldKey = "", open = false } = {}) {
   return emitter({ id, dataset: foldKey ? { foldKey } : {}, open, tagName: "DETAILS" });
 }
 
-function makePage({ sections = [], storage = new Map(), session = "session:1", hash = "", configDraft = false, storageFails = false, activityLog, fetchActivity, livePage, fetchDashboard, parseDashboard, clipboard } = {}) {
+function makePage({ sections = [], storage = new Map(), session = "session:1", hash = "", configDraft = false, storageFails = false, activityLog, fetchActivity, livePage, fetchDashboard, parseDashboard, clipboard, jumpToLatest } = {}) {
   const byId = new Map(sections.filter((section) => section.id).map((section) => [section.id, section]));
   if (activityLog) {
     byId.set("activity-log", activityLog);
     byId.set("activity-refresh-error", { hidden: true, textContent: "" });
+    if (jumpToLatest) byId.set("activity-jump-latest", jumpToLatest);
   }
   if (livePage) {
     byId.set("live-dashboard", livePage.dashboard);
@@ -302,25 +303,31 @@ test("keeps a reader's scroll position on activity updates and page reloads", as
   assert.equal(reloadedLog.scrollTop, 200);
 });
 
-test("follows new entries initially and resumes following when the reader returns to the bottom", async () => {
+test("jumps to the latest activity and resumes following", async () => {
   const storage = new Map();
   const activityLog = makeActivityLog();
+  const jumpToLatest = emitter({ hidden: true });
+  let logFocused = false;
+  activityLog.focus = () => { logFocused = true; };
   let text = activityLog.textContent;
   const fetchActivity = async () => activityResponse(text);
-  const page = makePage({ storage, activityLog, fetchActivity });
+  const page = makePage({ storage, activityLog, fetchActivity, jumpToLatest });
   page.start();
   await new Promise(setImmediate);
   assert.equal(activityLog.scrollTop, activityLog.scrollHeight - activityLog.clientHeight);
+  assert.equal(jumpToLatest.hidden, true);
 
   activityLog.scrollTop -= 10;
   activityLog.emit("scroll");
+  assert.equal(jumpToLatest.hidden, false);
   const pausedTop = activityLog.scrollTop;
   text += "new entry\n";
   await page.timeouts.shift()();
   assert.equal(activityLog.scrollTop, pausedTop);
 
-  activityLog.scrollTop = activityLog.scrollHeight;
-  activityLog.emit("scroll");
+  jumpToLatest.emit("click");
+  assert.equal(jumpToLatest.hidden, true);
+  assert.equal(logFocused, true);
   text += "another entry\n";
   await page.timeouts.shift()();
   assert.equal(activityLog.scrollTop, activityLog.scrollHeight - activityLog.clientHeight);
