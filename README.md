@@ -37,7 +37,28 @@ Credentials load once at startup. Restart after changing environment variables o
 
 1. GitHub uses `GH_TOKEN`, then `GITHUB_TOKEN`, then `gh auth token --hostname github.com`. An invalid explicit token never causes an account fallback.
 2. Quay uses `QUAY_USERNAME` and `QUAY_PASSWORD`, or the existing `QUAY_RHACS_ENG_RO_USERNAME` and `QUAY_RHACS_ENG_RO_PASSWORD` pair when neither primary variable is supplied. Use a read-only account scoped to the release image repositories you are authorized to inspect. Anonymous access remains possible for public images. Authentication failures leave image availability unknown.
-3. Konflux uses the existing `oc whoami --show-server` and `oc whoami --show-token` session. Each authenticated lookup requires an explicit `--allow-konflux-lookup APP_ID,API_HOST,NAMESPACE` startup flag. Repeat the flag for each trusted combination. Use the GitHub App's numeric ID, the cluster API hostname without a scheme or port, and the exact namespace. The startup token is available only for the active `oc` hostname. With no approved combinations, affected runs stay unverified.
+3. Konflux uses your active `oc` session. You must approve each trusted GitHub App ID, API hostname, and namespace combination at startup.
+
+### Set up Konflux access
+
+`lookup denied by caller policy` means the check's GitHub App ID, API hostname, and namespace did not match an approved combination. The app skips the Konflux request for that check. The affected runs stay unverified and ineligible for retry, and monitoring may back off.
+
+1. Identify the GitHub App behind the check. The number after `run` in the warning is the GitHub check-run ID. Use it with the repository from the warning to look up `.app.id`. Verify the app slug and owner before approving it. For example, this Fact check ran in `rh-acs-tenant`.
+
+   ```sh
+   gh api repos/stackrox/fact/check-runs/131115008122 \
+     --jq '.app | {id, slug, owner: .owner.login}'
+   ```
+
+2. Run `oc whoami --show-server` and check that its hostname matches the Konflux API. For a build URL on `konflux-ui.apps.stone-prd-rh01.pg1f.p1.openshiftapps.com`, the matching API hostname is `api.stone-prd-rh01.pg1f.p1.openshiftapps.com`. The namespace is the segment after `/ns/` in the build URL.
+3. Restart the assistant with your usual flags and add `--allow-konflux-lookup` once for each trusted combination. Replace `APP_ID` with the numeric ID from step 1. Use the API hostname without a scheme or port and the exact namespace.
+
+   ```sh
+   go run ./cmd/release-assistant \
+     --allow-konflux-lookup 'APP_ID,api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant'
+   ```
+
+   Repeat the flag if another trusted GitHub App or namespace serves a monitored repository. The app uses the startup token only for the active `oc` hostname.
 
 The assistant enables the retry library's strict run-identity mode. It verifies original PipelineRun annotations through the cluster API or Tekton Results archive, including repository, SHA, GitHub check ID, and PR number or full tag ref. If evidence is unavailable or ambiguous, affected retries remain unconfirmed. A branch run on the same commit is insufficient evidence for a tag retry. Typed Conforma findings remain visible as commit-scoped advisories even when their exact run association cannot be established.
 
