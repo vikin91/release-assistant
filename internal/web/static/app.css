@@ -107,7 +107,7 @@ legend { padding: 0 .35rem; font-weight: 700; }
   .rc-retry { overflow-wrap: anywhere; }
 }
 .readiness-details { margin-bottom: .65rem; }
-#activity-log { max-height: 18rem; overflow: auto; font-size: .8rem; }
+#activity-log { height: min(calc(50lh + 1.5rem), 75dvh); overflow: auto; font-size: .8rem; }
 .summary-detail { font-size: .9rem; font-weight: 400; margin-left: .5rem; }
 .selected { color: var(--accent); }
 .component-tag-counts { display: inline-block; margin-inline-start: .45rem; font-size: .9rem; font-weight: 600; }

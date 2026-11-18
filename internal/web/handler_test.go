@@ -919,7 +919,7 @@ func TestFoldControlsHaveUniqueStableIdentities(t *testing.T) {
 		seen[key] = true
 	}
 	for _, key := range []string{
-		"activity-details", "previous-cycles",
+		"previous-cycles",
 		"tag-alternatives:fact:acme/fact", "tag-alternatives:collector:acme/collector",
 		"tag-evidence:fact:acme/fact@3.25.1", "tag-evidence:collector:acme/collector@3.25.1",
 		"repo-evidence:fact:acme/fact", "repo-evidence:collector:acme/collector",

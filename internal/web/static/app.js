@@ -11,11 +11,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   } catch {}
 
+  let restoreLogOnOpen;
   let activeTab = document.body.dataset.activeTab || "component-prs";
   const tabLinks = () => Array.from(document.querySelectorAll("[data-workflow-tab]"));
   const activateTab = (tab, historyMode = "") => {
     const links = tabLinks();
     if (!links.some((link) => link.dataset.workflowTab === tab)) return;
+    const openingLog = tab === "activity" && activeTab !== tab;
     activeTab = tab;
     document.body.dataset.activeTab = tab;
     for (const link of links) {
@@ -24,6 +26,7 @@ document.addEventListener("DOMContentLoaded", () => {
       link.setAttribute("tabindex", selected ? "0" : "-1");
     }
     for (const panel of document.querySelectorAll("[data-workflow-panel]")) panel.hidden = panel.dataset.workflowPanel !== tab;
+    if (openingLog) restoreLogOnOpen?.();
     // Shared forms return to the activity the reader is using.
     for (const input of document.querySelectorAll("#configuration-panel input[name=tab], #retry-settings input[name=tab]")) input.value = tab;
     if (historyMode) window.history[historyMode](null, "", `/?tab=${tab}`);
@@ -153,8 +156,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     activityLog.addEventListener("scroll", saveActivityScroll);
     window.addEventListener("pagehide", saveActivityScroll);
-    const activityDetails = document.getElementById("activity-details");
-    if (activityDetails) activityDetails.addEventListener("toggle", restoreActivityScroll);
+    restoreLogOnOpen = restoreActivityScroll;
     restoreActivityScroll();
     const refreshActivity = async () => {
       try {

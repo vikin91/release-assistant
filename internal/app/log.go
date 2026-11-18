@@ -13,7 +13,7 @@ import (
 	"release-assistant/internal/release"
 )
 
-const maxRecentRecords = 200
+const maxRecentRecords = 1_000
 
 type (
 	// Record contains application-owned audit fields only, never raw HTTP errors.

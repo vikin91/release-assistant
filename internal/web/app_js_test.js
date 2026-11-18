@@ -177,12 +177,12 @@ test("uses stable nested identities and leaves new panels at their markup defaul
 });
 
 test("captures section changes without reloading the page", () => {
-  const section = makeDetails({ id: "activity-details", open: true });
-  const page = makePage({ storage: savedState({ "activity-details": false }), sections: [section] });
+  const section = makeDetails({ id: "component-images", open: true });
+  const page = makePage({ storage: savedState({ "component-images": false }), sections: [section] });
   page.start();
   section.open = true;
   section.emit("toggle");
-  assert.deepEqual(page.stored(), { "activity-details": true });
+  assert.deepEqual(page.stored(), { "component-images": true });
   assert.equal(page.reloads(), 0);
   assert.equal(page.intervals.length, 0);
 });
@@ -323,37 +323,6 @@ test("honors scrolling while an activity request is in flight", async () => {
   respond(activityResponse(activityLog.textContent + "new entry\n"));
   await new Promise(setImmediate);
   assert.equal(activityLog.scrollTop, 200);
-});
-
-test("preserves the reading position while the activity panel is collapsed, including across reloads", async () => {
-  const storage = new Map();
-  const activityLog = makeActivityLog();
-  const details = makeDetails({ id: "activity-details", open: true });
-  let text = activityLog.textContent;
-  const fetchActivity = async () => activityResponse(text);
-  const page = makePage({ storage, sections: [details], activityLog, fetchActivity });
-  page.start();
-  await new Promise(setImmediate);
-  activityLog.scrollTop = 250;
-  activityLog.emit("scroll");
-
-  activityLog.hidden = true;
-  details.open = false;
-  details.emit("toggle");
-  text += "new entry\n";
-  await page.timeouts.shift()();
-  page.window.emit("pagehide");
-
-  const reloadedLog = makeActivityLog();
-  reloadedLog.hidden = true;
-  const reloadedDetails = makeDetails({ id: "activity-details", open: false });
-  const reloaded = makePage({ storage, sections: [reloadedDetails], activityLog: reloadedLog, fetchActivity });
-  reloaded.start();
-  await new Promise(setImmediate);
-  reloadedLog.hidden = false;
-  reloadedDetails.open = true;
-  reloadedDetails.emit("toggle");
-  assert.equal(reloadedLog.scrollTop, 250);
 });
 
 test("activity updates preserve scrolling when session storage is unavailable", async () => {

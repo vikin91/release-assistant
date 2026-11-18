@@ -169,7 +169,7 @@ Before sending, the assistant rechecks the target, current permission, eligible 
 
 The server listens on loopback. It polls active checks every minute and discovers PRs and tags every five minutes by default. Failed reads can leave the last results visible with their age while current evidence remains unverified. Browser refresh runs separately and preserves open panels and unsaved form input.
 
-**Log** shows the latest 200 events and refreshes every two seconds. The terminal prints timestamped activity to stdout, including discovery, check status changes, retry decisions, and Konflux read pauses and recovery. Redirect stdout if you need to retain the log.
+**Log** shows the latest 1,000 events and refreshes every two seconds. The terminal prints timestamped activity to stdout, including discovery, check status changes, retry decisions, and Konflux read pauses and recovery. Redirect stdout if you need to retain the log.
 
 Choices, grants, approvals, counters, and recent activity live in memory. Reloading the browser preserves the session. Restarting clears it, restores **Confirm each comment**, and rediscovers release work already completed in external systems.
 
