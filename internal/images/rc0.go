@@ -2,7 +2,6 @@ package images
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"release-assistant/internal/release"
@@ -10,8 +9,8 @@ import (
 
 // inspectRC0 checks the fixed ACS release image families independently of component images.
 func inspectRC0(ctx context.Context, inspector *Inspector, config release.Config, revision string, now time.Time) []release.Image {
-	major, minor, patch, _ := release.Version(config.Version)
-	tag := fmt.Sprintf("%d.%d.%d-rc.0", major, minor, patch)
+	major, _, _, _ := release.Version(config.Version)
+	tag := config.RC0Target().Tag
 	names := rc0Names(major)
 	rows := make([]release.Image, 0, len(names)*2)
 	for _, name := range names {

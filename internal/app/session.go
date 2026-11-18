@@ -167,6 +167,10 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		return fmt.Errorf("page belongs to an earlier configuration; reload")
 	}
 	if a.Kind == "send" {
+		if a.Target.Tag != "" && a.Target == s.config.RC0Target() && !s.rcReady() {
+			s.mu.Unlock()
+			return fmt.Errorf("RC.0 prerequisites are no longer verified")
+		}
 		s.mu.Unlock()
 		_, err := s.dispatcher.Send(ctx, a.Target, a.ID, true)
 		s.mu.Lock()
@@ -183,8 +187,11 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		}
 		sameContext := s.config.Version == a.Config.Version && s.config.Branch == a.Config.Branch && slices.Equal(s.config.Components, a.Config.Components)
 		if sameContext {
-			if s.config.PinningPR != a.Config.PinningPR && s.config.PinningPR > 0 {
-				_ = s.dispatcher.Grant(release.Target{Repo: s.config.ACS().Repo, PR: s.config.PinningPR}, "", false)
+			if s.config.PinningPR != a.Config.PinningPR {
+				s.clearRCPlan()
+				if s.config.PinningPR > 0 {
+					_ = s.dispatcher.Grant(s.config.PinningTarget(), "", false)
+				}
 			}
 			s.generation++
 		} else {
@@ -219,7 +226,8 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		default:
 		}
 	case "grant":
-		if !s.hasTarget(a.Target) {
+		isRC := a.Target.Tag != "" && a.Target == s.config.RC0Target()
+		if (isRC && (!s.rcReady() || s.plans[a.Target].SHA == "")) || (!isRC && !s.hasTarget(a.Target)) {
 			return fmt.Errorf("unknown target")
 		}
 		err = s.dispatcher.Grant(a.Target, a.SHA, a.Enabled)
@@ -305,6 +313,9 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		err = s.dispatcher.Reject(a.Target, a.ID, a.Enabled)
 	default:
 		return fmt.Errorf("unknown action")
+	}
+	if !s.rcReady() {
+		s.clearRCPlan()
 	}
 	s.drain()
 	return err
@@ -685,6 +696,9 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			default:
 			}
 		}
+		if !s.rcReady() {
+			s.clearRCPlan()
+		}
 		if old.Head != r.Head || old.Evidence.Fresh() != r.Evidence.Fresh() {
 			message := ""
 			if !initial && old.Head != r.Head && r.Head != "" {
@@ -713,13 +727,21 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	if tag := s.choices.Tags[source.Name]; work.plans && tag != "" {
 		targets = append(targets, release.Target{Repo: source.Repo, Tag: tag})
 	}
+	rcTarget := c.RC0Target()
+	if source.Name == "acs" && work.plans && work.releaseImages && s.rcReady() {
+		targets = append(targets, rcTarget)
+	}
 	s.mu.Unlock()
 	if work.images && work.releaseImages && work.scope != ReadAll {
 		imageReads.Go(func() { imageErr = s.refreshImagesScoped(ctx, generation, initial, true, true) })
 	}
 	for _, target := range targets {
+		isRC := target == rcTarget
 		s.mu.Lock()
 		ignore := generation != s.generation || (work.scope != ReadAll && revision != s.workRevision) || (s.choices.PRs[target] == release.Ignored || s.choices.PRs[target] == release.Excluded)
+		if isRC && (revision != s.workRevision || !s.rcReady()) {
+			ignore = true
+		}
 		if initial && !ignore {
 			s.record(target, "", "checks-start", "", "Reading build observations.", "system", fmt.Sprintf("Checking build results in %s.", consoleTarget(target)))
 		}
@@ -734,7 +756,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		if canceled(ctx) {
 			return ctx.Err()
 		}
-		if err != nil {
+		if err != nil && !isRC {
 			errs = append(errs, fmt.Errorf("reading build results for %s: %w", consoleRevision(target, plan.SHA), err))
 		}
 		s.mu.Lock()
@@ -753,6 +775,17 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			}
 		}
 		s.recordReadResult(target, "checks", message, "build results for "+consoleRevision(target, plan.SHA))
+		if isRC {
+			if revision == s.workRevision && s.rcReady() {
+				if err != nil {
+					plan.Evidence.Error = message
+				}
+				s.observeRCPlan(target, plan)
+				s.drain()
+			}
+			s.mu.Unlock()
+			continue
+		}
 		expected := ""
 		for _, p := range s.repos[source.Name].PRs {
 			if p.Target == target {

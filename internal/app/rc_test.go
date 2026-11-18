@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"testing"
 
 	"release-assistant/internal/release"
@@ -10,6 +12,70 @@ import (
 type phaseImages struct {
 	*fixture
 	components, release int
+}
+
+type rcPlanner struct {
+	calls []release.Target
+	plan  release.Plan
+	err   error
+}
+
+func (p *rcPlanner) Plan(_ context.Context, target release.Target) (release.Plan, error) {
+	p.calls = append(p.calls, target)
+	return p.plan, p.err
+}
+
+func TestRCBuildChecksAndRetryAuthority(t *testing.T) {
+	s, _, _ := rcFixture(t)
+	snapshot := s.Snapshot()
+	target := snapshot.Config.RC0Target()
+	proposal := release.Proposal{Target: target, SHA: "rc-commit", RunID: "17", Job: "main-on-push"}
+	planner := &rcPlanner{plan: release.Plan{
+		Target: target, SHA: proposal.SHA, Evidence: observed(),
+		Runs:      []release.Run{{Job: proposal.Job, ID: proposal.RunID, Eligible: true}},
+		Proposals: []release.Proposal{proposal, {Target: target, SHA: proposal.SHA, Job: "roxctl-on-push"}},
+	}}
+	s.planner = planner
+	refresh := func(discover bool) {
+		t.Helper()
+		if err := s.refreshPlanned(t.Context(), snapshot.Generation, snapshot.Config.ACS(), discover); err != nil {
+			t.Fatal(err)
+		}
+	}
+	refresh(true)
+	if slices.Contains(planner.calls, target) {
+		t.Fatal("read RC checks before pinning was verified")
+	}
+	refresh(false)
+	if !slices.Equal(planner.calls, []release.Target{target}) {
+		t.Fatalf("expected one check for %s, got %v", target, planner.calls)
+	}
+	apply(t, s, Action{Kind: "grant", Target: target, SHA: proposal.SHA, Enabled: true})
+	found := false
+	for _, view := range s.Snapshot().Authority {
+		if view.Target != target {
+			continue
+		}
+		found = true
+		if !view.Granted || len(view.Offers) != 1 || view.Offers[0].Proposal != proposal {
+			t.Fatalf("unexpected RC retry authority: %+v", view)
+		}
+	}
+	if !found {
+		t.Fatal("missing RC retry authority")
+	}
+	planner.plan = release.Plan{Target: target, Evidence: observed()}
+	planner.err = errors.New("tag lookup failed")
+	refresh(false)
+	for _, view := range s.Snapshot().Authority {
+		if view.Target == target && (view.Granted || len(view.Offers) != 0) {
+			t.Fatalf("unresolved RC retained write authority: %+v", view)
+		}
+	}
+	apply(t, s, Action{Kind: "clear-tag", Component: "fact"})
+	if slices.ContainsFunc(s.Snapshot().Plans, func(plan release.Plan) bool { return plan.Target == target }) {
+		t.Fatal("RC plan survived loss of a prerequisite")
+	}
 }
 
 func (i *phaseImages) Inspect(ctx context.Context, c release.Config, tags map[string]string) (release.Inventory, error) {

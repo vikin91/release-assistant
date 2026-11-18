@@ -53,7 +53,8 @@ func rcImageWaitReason(config release.Config, choices release.Choices, acs relea
 		return "Waiting to verify the component pins on the ACS release branch."
 	}
 	for _, source := range config.Components {
-		if strings.TrimPrefix(acs.Pins.Versions[source.Name], "v") != strings.TrimPrefix(choices.Tags[source.Name], "v") {
+		selected := strings.TrimPrefix(choices.Tags[source.Name], "v")
+		if selected == "" || strings.TrimPrefix(acs.Pins.Versions[source.Name], "v") != selected {
 			return "The ACS release branch pins must match the selected component tags."
 		}
 	}
