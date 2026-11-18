@@ -81,9 +81,21 @@
   </section>
 
   {{if .Configured}}
-  <details id="retry-settings" class="retry-settings" open><summary>Retry comment settings
-    <span class="pill summary-detail">{{if not .Snapshot.WritesEnabled}}Read-only{{else if .Snapshot.Interactive}}Confirm each comment{{else}}Automatic for permitted targets{{end}}</span>
-  </summary><form method="post" action="/action"><input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Snapshot.Generation}}"><input type="hidden" name="kind" value="interactive"><input type="hidden" name="enabled" value="false"><label class="check{{if not .Snapshot.WritesEnabled}} disabled-control{{end}}"><input type="checkbox" name="enabled" value="true" {{if .Snapshot.Interactive}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}> Confirm each comment</label><button type="submit"{{if not .Snapshot.WritesEnabled}} disabled{{end}}>Save mode</button></form><p class="muted">This setting applies to all tabs. Automatic retries require permission for each PR or tag.</p></details>
+  <section id="retry-settings" aria-labelledby="application-settings-heading">
+    <h3 id="application-settings-heading">Application settings</h3>
+    <form method="post" action="/action" class="control-row">
+      <input type="hidden" name="tab" value="{{.Tab}}">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
+      <input type="hidden" name="kind" value="interactive">
+      <input type="hidden" name="enabled" value="false">
+      <label class="check{{if not .Snapshot.WritesEnabled}} disabled-control{{end}}">
+        <input type="checkbox" name="enabled" value="true" aria-describedby="retry-permissions" {{if .Snapshot.Interactive}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}> Confirm each comment
+      </label>
+      <button type="submit"{{if not .Snapshot.WritesEnabled}} disabled{{end}}>Save mode</button>
+    </form>
+    <p id="retry-permissions" class="muted">This setting applies to all tabs. Automatic retries require permission for each PR or tag. The assistant checks that permission before posting each comment.</p>
+  </section>
   {{end}}
   </section>
 </main>

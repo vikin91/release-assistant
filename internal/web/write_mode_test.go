@@ -24,12 +24,12 @@ func TestWriteModeControls(t *testing.T) {
 		optOut        bool
 		wantReadOnly  bool
 		wantDisabled  bool
-		wantMode      string
-		wantHeader    string
+
+		wantHeader string
 	}{
-		{name: "startup read-only", interactive: true, wantReadOnly: true, wantDisabled: true, wantMode: "Read-only", wantHeader: "Read-only"},
-		{name: "writes enabled", writesEnabled: true, interactive: true, wantMode: "Confirm each comment", wantHeader: "Interactive"},
-		{name: "automatic with opt-out", writesEnabled: true, optOut: true, wantDisabled: true, wantMode: "Automatic for permitted targets", wantHeader: "Automatic"},
+		{name: "startup read-only", interactive: true, wantReadOnly: true, wantDisabled: true, wantHeader: "Read-only"},
+		{name: "writes enabled", writesEnabled: true, interactive: true, wantHeader: "Interactive"},
+		{name: "automatic with opt-out", writesEnabled: true, optOut: true, wantDisabled: true, wantHeader: "Automatic"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			application := &fakeApplication{snapshot: app.Snapshot{
@@ -67,10 +67,6 @@ func TestWriteModeControls(t *testing.T) {
 			}
 			if got := strings.Contains(header, "<code>--enable-writes</code>"); got != tc.wantReadOnly {
 				t.Errorf("header restart hint present=%t, want %t", got, tc.wantReadOnly)
-			}
-			modeSummary := between(t, body, `id="retry-settings"`, "</summary>")
-			if !strings.Contains(modeSummary, `class="pill summary-detail">`+tc.wantMode+"</span>") {
-				t.Errorf("retry settings header must display %q", tc.wantMode)
 			}
 
 			prCard := prCardContaining(body, "Included PR")

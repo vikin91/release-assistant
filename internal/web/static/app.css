@@ -301,7 +301,7 @@ a { color: var(--accent); }
 #dashboard-refresh-status { font-size: .78rem; margin: 1rem .8rem; }
 .workspace main { width: 100%; min-width: 0; max-width: 88rem; margin: 0 auto; padding: clamp(1rem, 2.6vw, 2.5rem); }
 .workflow-heading { padding-top: 0; }
-#panel-settings .retry-settings { padding: 1rem; border: 1px solid var(--line); border-radius: .8rem; background: var(--panel); }
+#retry-settings { padding: .75rem 1rem; }
 @media (max-width: 850px) {
   .workspace { grid-template-columns: 1fr; align-content: start; }
   .sidebar { border-right: 0; border-bottom: 1px solid var(--line); padding: .45rem .75rem; }
@@ -321,7 +321,7 @@ a { color: var(--accent); }
 .tab-status.action-needed { color: light-dark(#6942a1, #c9a9f7); }
 .tab-status.needs-attention { color: light-dark(#8a5600, #ffbf54); }
 .workflow-tabs a:focus-visible, .workflow-panel:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-.workflow-help, .retry-settings { font-size: .86rem; }
+.workflow-help, #retry-permissions { font-size: .86rem; }
 .workflow-heading { padding: .8rem .1rem .1rem; max-width: 54rem; }
 .workflow-heading h2 { margin-bottom: .3rem; }
 .workflow-heading p:last-child { margin-bottom: .5rem; }

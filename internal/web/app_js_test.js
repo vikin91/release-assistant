@@ -177,12 +177,12 @@ test("uses stable nested identities and leaves new panels at their markup defaul
 });
 
 test("captures section changes without reloading the page", () => {
-  const section = makeDetails({ id: "retry-settings", open: true });
-  const page = makePage({ storage: savedState({ "retry-settings": false }), sections: [section] });
+  const section = makeDetails({ id: "activity-details", open: true });
+  const page = makePage({ storage: savedState({ "activity-details": false }), sections: [section] });
   page.start();
   section.open = true;
   section.emit("toggle");
-  assert.deepEqual(page.stored(), { "retry-settings": true });
+  assert.deepEqual(page.stored(), { "activity-details": true });
   assert.equal(page.reloads(), 0);
   assert.equal(page.intervals.length, 0);
 });

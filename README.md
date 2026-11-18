@@ -157,7 +157,7 @@ The image views distinguish **Available**, **Not found**, and **Unable to check*
 Review and copy proposed comments in read-only mode. To send comments from the assistant, restart with your usual flags and add `--enable-writes`.
 
 1. Set **RW allowed** on the PR or tag you want to permit. Release inclusion alone grants no write access.
-2. Leave **Confirm each comment** on to approve a single exact comment at a time. To allow eligible retries without confirmation for permitted targets, change this setting under **Retry comment settings** and select **Save mode**.
+2. Leave **Confirm each comment** on to approve a single exact comment at a time. To allow eligible retries without confirmation for permitted targets, change this setting under **Application settings** and select **Save mode**.
 
 The retry library decides which Konflux jobs are eligible. PR retries use `/konflux-retest <job>`. Tag retries use `/retest <job> tag:<tag>` on the resolved commit. GitHub required-check settings inform the status display. Marking a Conforma advisory as reviewed only records your review for the session.
 
