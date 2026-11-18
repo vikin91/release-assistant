@@ -1,4 +1,11 @@
 {{define "acs-pinning"}}
+  <div class="release-pills" aria-label="Selected release versions">
+    {{range .Snapshot.Config.Components}}<span class="pill selected">{{title .Name}}: {{with index $.Snapshot.Choices.Tags .Name}}{{.}}{{else}}not selected{{end}}</span>{{end}}
+    {{$branchPending := and .Snapshot.Assessment.Pins.PROpen (eq (truth .Snapshot.Assessment.Pins.BranchStatus) "no")}}
+    <a class="pill {{if $branchPending}}unknown{{else}}{{truth .Snapshot.Assessment.Pins.BranchStatus}}{{end}}" href="/?tab=acs-prs#pinning-details" data-open-section title="{{if $branchPending}}Release-branch pins will be verified after the pinning PR merges.{{else}}{{.Snapshot.Assessment.Pins.BranchReason}}{{end}}">ACS pins: {{if $branchPending}}pending PR merge{{else}}{{if eq (truth .Snapshot.Assessment.Pins.BranchStatus) "yes"}}match selected tags{{else}}{{if eq (truth .Snapshot.Assessment.Pins.BranchStatus) "no"}}versions differ{{else}}unable to check{{end}}{{end}}{{end}}</a>
+    {{if .Snapshot.Assessment.Pins.PRNumber}}<a class="pill {{truth .Snapshot.Assessment.Pins.PRStatus}}" href="{{url .Snapshot.Assessment.Pins.PRURL}}" target="_blank" rel="noreferrer" title="{{.Snapshot.Assessment.Pins.PRReason}}">Pin PR #{{.Snapshot.Assessment.Pins.PRNumber}}: {{.PinPRState}}</a>{{else}}<span class="pill muted">Pin PR: not supplied</span>{{end}}
+  </div>
+  <p class="pin-legend">Pin colours: <span class="yes">green = selected versions are on the ACS branch</span>; <span class="unknown">yellow = waiting or unable to check</span>; <span class="no">red = a verified mismatch or PR problem</span>.</p>
   <details class="panel" id="pinning-details" open><summary class="section-summary">ACS pinning details</summary>
     {{if .Snapshot.Assessment.Pins.PRNumber}}<p><a href="{{url .Snapshot.Assessment.Pins.PRURL}}" target="_blank" rel="noreferrer">Open pinning PR #{{.Snapshot.Assessment.Pins.PRNumber}}</a>: {{.Snapshot.Assessment.Pins.PRSummary}}</p>{{else}}<p>Set a pinning PR number to monitor its checks.</p>{{end}}
     {{if .Snapshot.Assessment.Pins.PRProblems}}<ol class="pin-problems">{{range .Snapshot.Assessment.Pins.PRProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}

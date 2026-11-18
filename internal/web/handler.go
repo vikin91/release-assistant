@@ -50,7 +50,7 @@ func New(application Application) (http.Handler, error) {
 	}
 	page, err := template.New("index.html").Funcs(template.FuncMap{
 		"pinVersion": pinVersion, "pinDiffers": pinDiffers,
-		"planTab": planTab, "tabPage": tabPage, "tabTitle": tabTitle, "tabHelp": tabHelp, "tabStep": tabStep,
+		"tabPage": tabPage, "tabTitle": tabTitle, "tabHelp": tabHelp, "tabStep": tabStep,
 		"truth": truthLabel, "when": formatTime, "url": safeURL,
 		"activity": activityText, "commentURL": commentURL,
 		"slice": func(values ...string) []string { return values },

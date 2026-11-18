@@ -135,7 +135,7 @@ Run `go run ./cmd/release-assistant --help` for repository and branch overrides,
 
 ## Konflux verification
 
-The assistant uses PipelineRun annotations from the cluster API or Tekton Results archive to verify the repository, commit, check-run ID, and PR number or full tag ref. This matters when a branch build and a tag build share a commit. If reads fail, **Konflux status** shows which endpoint failed or paused and when the assistant can check again. A reported pipeline creation failure describes a specific attempt. Use its evidence link to investigate.
+The assistant uses PipelineRun annotations from the cluster API or Tekton Results archive to verify the repository, commit, check-run ID, and PR number or full tag ref. This matters when a branch build and a tag build share a commit. The header pill shows observed pipeline admission. If reads fail, **Log** shows which endpoint failed or paused and when the assistant can check again. A reported pipeline creation failure describes a specific attempt. Use its evidence link to investigate.
 
 ## Work through a release
 
@@ -148,7 +148,7 @@ You can switch tabs at any time. Monitoring continues in the background, includi
 
 PR choices apply immediately, and an empty selection is valid. **Excluded** keeps a PR visible and stops detailed monitoring and retries. **Ignore & hide** also removes it from the normal list. **RW allowed** is the separate permission to send a retry comment.
 
-**Release prerequisites met** means the included PRs have merged into their configured branches, the chosen component tags cover the included component changes, the component CI and Konflux images are available, and the actual ACS branch pins match. Readiness is advisory. Candidate images are outputs of the RC build.
+Release preparation requires that the included PRs have merged into their configured branches, the chosen component tags cover the included component changes, the component CI and Konflux images are available, and the actual ACS branch pins match. Readiness is advisory. Candidate images are outputs of the RC build.
 
 The image views distinguish **Available**, **Not found**, and **Unable to check**. A successful build check and a published image are separate observations. Registry errors or missing output references leave availability unknown. See [Image naming patterns](internal/images/patterns.md).
 

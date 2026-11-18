@@ -10,17 +10,6 @@
 <body data-configured="{{.Configured}}" data-active-tab="{{.Tab}}" data-session="{{.CSRF}}:{{.Snapshot.Generation}}" data-loading="{{and .Configured .Snapshot.Loading}}">
 <header class="topbar">
   <div class="release-identity"><h1>{{if .Configured}}ACS {{.Snapshot.Config.Version}}{{else}}{{.Title}}{{end}}</h1>{{if .Configured}}<code>{{.Snapshot.Config.Branch}}</code>{{end}}</div>
-  {{if .Configured}}
-  <details data-fold-key="release-context" name="header-menu" class="header-menu"><summary>{{if .Snapshot.Assessment.Ready}}Release prerequisites met{{else}}Preparing release{{end}}</summary><div class="menu-content">
-  <div class="release-pills" aria-label="Selected release versions">
-    {{range .Snapshot.Config.Components}}<span class="pill selected">{{title .Name}}: {{with index $.Snapshot.Choices.Tags .Name}}{{.}}{{else}}not selected{{end}}</span>{{end}}
-    {{$branchPending := and .Snapshot.Assessment.Pins.PROpen (eq (truth .Snapshot.Assessment.Pins.BranchStatus) "no")}}
-    <a class="pill {{if $branchPending}}unknown{{else}}{{truth .Snapshot.Assessment.Pins.BranchStatus}}{{end}}" href="/?tab=acs-prs#pinning-details" data-open-section title="{{if $branchPending}}Release-branch pins will be verified after the pinning PR merges.{{else}}{{.Snapshot.Assessment.Pins.BranchReason}}{{end}}">ACS pins: {{if $branchPending}}pending PR merge{{else}}{{if eq (truth .Snapshot.Assessment.Pins.BranchStatus) "yes"}}match selected tags{{else}}{{if eq (truth .Snapshot.Assessment.Pins.BranchStatus) "no"}}versions differ{{else}}unable to check{{end}}{{end}}{{end}}</a>
-    {{if .Snapshot.Assessment.Pins.PRNumber}}<a class="pill {{truth .Snapshot.Assessment.Pins.PRStatus}}" href="{{url .Snapshot.Assessment.Pins.PRURL}}" target="_blank" rel="noreferrer" title="{{.Snapshot.Assessment.Pins.PRReason}}">Pin PR #{{.Snapshot.Assessment.Pins.PRNumber}}: {{.PinPRState}}</a>{{else}}<span class="pill muted">Pin PR: not supplied</span>{{end}}
-  </div>
-  <p class="pin-legend">Pin colours: <span class="yes">green = selected versions are on the ACS branch</span>; <span class="unknown">yellow = waiting or unable to check</span>; <span class="no">red = a verified mismatch or PR problem</span>.</p>
-  </div></details>
-  {{end}}
   {{template "konflux-status" .}}
   <details data-fold-key="write-mode" name="header-menu" class="header-menu">
     <summary>Write mode · {{if not .Snapshot.WritesEnabled}}Read-only{{else if .Snapshot.Interactive}}Interactive{{else}}Automatic{{end}}</summary>
@@ -52,6 +41,7 @@
   {{end}}
   {{end}}
   <section id="panel-activity" class="workflow-panel" role="tabpanel" aria-labelledby="tab-activity" data-workflow-panel="activity" tabindex="0"{{if ne .Tab "activity"}} hidden{{end}}>
+  {{template "konflux-diagnostics" .}}
   <section class="panel" id="activity-console" data-live-preserve>
     <details id="activity-details" open>
       <summary class="section-summary">Log</summary>

@@ -9,12 +9,15 @@ import (
 	"release-assistant/internal/release"
 )
 
-type konfluxClusterStatus struct {
-	Cluster  string
-	Reads    []konflux.ReadIssue
-	Rejected release.StartFailure
-	Tab      string
-}
+type (
+	konfluxAdmission     struct{ Class, Label string }
+	konfluxClusterStatus struct {
+		Cluster  string
+		Reads    []konflux.ReadIssue
+		Rejected release.StartFailure
+		Tab      string
+	}
+)
 
 func (p pageModel) konfluxStatus(now time.Time) []konfluxClusterStatus {
 	const recentStart = 30 * time.Minute
@@ -34,7 +37,7 @@ func (p pageModel) konfluxStatus(now time.Time) []konfluxClusterStatus {
 	for _, item := range p.Plans {
 		for _, failure := range item.Plan.StartFailures {
 			age := now.Sub(failure.CheckStartedAt)
-			if failure.Category != "admission_policy" || failure.Superseded || !failure.Evidence.Fresh() || age < 0 || age > recentStart {
+			if failure.Superseded || !failure.Evidence.Fresh() || age < 0 || age > recentStart {
 				continue
 			}
 			cluster := forCluster(failure.Cluster)
@@ -65,40 +68,24 @@ func planTab(target release.Target, acsRepo string) string {
 	}
 }
 
-// BuildSummary describes the verified build evidence for one target.
-func (p planModel) BuildSummary() string {
-	result, running := p.Plan.BuildStatus()
-	switch {
-	case result == release.No:
-		return "Build failed"
-	case running:
-		return "Build running"
-	case result == release.Yes:
-		return "Build passed"
-	default:
-		return "Unverified"
-	}
-}
-
-// KonfluxLabel surfaces the most urgent observation across monitored targets.
-func (p pageModel) KonfluxLabel() string {
-	if len(p.KonfluxStatus) > 0 {
-		return "Needs attention"
-	}
-	if len(p.Plans) == 0 {
-		return "Awaiting evidence"
-	}
-	label := "Builds passed"
-	for _, item := range p.Plans {
-		result, running := item.Plan.BuildStatus()
-		switch {
-		case result == release.No:
-			return "Build failed"
-		case running:
-			label = "Build running"
-		case result != release.Yes && label != "Build running":
-			label = "Unverified"
+// KonfluxAdmission describes observed pipeline starts independently of build outcomes.
+func (p pageModel) KonfluxAdmission() konfluxAdmission {
+	for _, cluster := range p.KonfluxStatus {
+		if cluster.Tab != "" {
+			return konfluxAdmission{"rejected", "Start rejected"}
 		}
 	}
-	return label
+	if len(p.KonfluxStatus) == 0 {
+		for _, plan := range p.Plans {
+			if !plan.Plan.Evidence.Fresh() || time.Since(plan.Plan.Evidence.At) > 30*time.Minute {
+				continue
+			}
+			for _, run := range plan.Plan.Runs {
+				if run.ID != "" && run.Status == "in_progress" && run.Outcome == "" {
+					return konfluxAdmission{"accepted", "Pipeline accepted"}
+				}
+			}
+		}
+	}
+	return konfluxAdmission{"unverified", "Admission unverified"}
 }

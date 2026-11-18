@@ -1,14 +1,18 @@
 {{define "konflux-status"}}
-<details data-fold-key="konflux-menu" name="header-menu" class="header-menu"><summary>Konflux · {{.KonfluxLabel}}</summary>
-<section id="konflux-status" class="menu-content" aria-label="Konflux status">
-  {{range .Plans}}
-  <p><a href="/?tab={{planTab .Plan.Target $.Snapshot.Config.ACS.Repo}}">{{.Plan.Target.String}}</a> · {{.BuildSummary}}</p>
-  {{else}}<p>No build observations yet.</p>{{end}}
+  {{with .KonfluxAdmission}}
+  <span class="konflux-pill {{.Class}}" role="status">Konflux · {{.Label}}</span>
+  {{end}}
+{{end}}
+
+{{define "konflux-diagnostics"}}
+{{if .KonfluxStatus}}
+<section id="konflux-status" class="panel" aria-label="Konflux diagnostics">
+  <h2>Konflux diagnostics</h2>
   {{range .KonfluxStatus}}
   <div data-live-key="konflux-status:{{.Cluster}}">
     <strong>Konflux · {{if .Cluster}}<code>{{.Cluster}}</code>{{else}}Cluster unknown{{end}}</strong>
     {{if .Tab}}
-      <p>Pipeline start rejected by an admission policy. GitHub check started at {{when .Rejected.CheckStartedAt}}.
+      <p>{{if eq .Rejected.Category "admission_policy"}}Pipeline start rejected by an admission policy.{{else}}Pipeline creation failed.{{end}} GitHub check started at {{when .Rejected.CheckStartedAt}}.
         <a href="/?tab={{.Tab}}#{{.Tab}}-start-failures" data-open-section>View creation failure</a>
       </p>
     {{end}}
@@ -20,7 +24,8 @@
     {{end}}
   </div>
   {{end}}
-</section></details>
+</section>
+{{end}}
 {{end}}
 
 {{define "last-verified-builds"}}
