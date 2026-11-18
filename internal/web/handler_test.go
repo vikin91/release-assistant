@@ -539,7 +539,7 @@ func TestIncompleteInitialConfigKeepsSetupOpenAndVersionInTitle(t *testing.T) {
 	w := httptest.NewRecorder()
 	b.handler.ServeHTTP(w, r)
 	body := w.Body.String()
-	if !strings.Contains(body, "<title>ACS 5.0.1 Release Assistant</title>") || !strings.Contains(body, `<details id="release-configuration" open>`) {
+	if !strings.Contains(body, "<title>ACS 5.0.1 Release Assistant</title>") || !strings.Contains(body, `<h3 id="setup-heading">`) {
 		t.Fatal("incomplete CLI configuration did not keep setup visible")
 	}
 	if strings.Contains(body, "Confirm PR selection") {
@@ -597,7 +597,7 @@ func TestConfigurationErrorsPreserveSubmittedInputs(t *testing.T) {
 					t.Errorf("%s = %q, want submitted %q", field, got, values[0])
 				}
 			}
-			if !strings.Contains(body, `<details id="release-configuration" open>`) || !strings.Contains(body, "data-config-draft") {
+			if !strings.Contains(body, `<h3 id="setup-heading">`) || !strings.Contains(body, `aria-labelledby="setup-heading" data-live-preserve`) {
 				t.Error("rejected configuration must remain open and protected from automatic refresh")
 			}
 			if strings.Contains(body, "<script>alert(1)</script>") {
@@ -919,7 +919,7 @@ func TestFoldControlsHaveUniqueStableIdentities(t *testing.T) {
 		seen[key] = true
 	}
 	for _, key := range []string{
-		"release-configuration", "activity-details", "previous-cycles",
+		"activity-details", "previous-cycles",
 		"tag-alternatives:fact:acme/fact", "tag-alternatives:collector:acme/collector",
 		"tag-evidence:fact:acme/fact@3.25.1", "tag-evidence:collector:acme/collector@3.25.1",
 		"repo-evidence:fact:acme/fact", "repo-evidence:collector:acme/collector",

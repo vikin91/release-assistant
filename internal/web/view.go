@@ -49,7 +49,6 @@ type (
 		History                                                  []historyModel
 		ConfigForm                                               url.Values
 		ConfiguredSources                                        map[string]release.Source
-		ConfigDraft                                              bool
 		ACS4                                                     bool
 	}
 	repoModel struct {

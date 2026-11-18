@@ -55,31 +55,29 @@
   <section id="panel-settings" class="workflow-panel" role="tabpanel" aria-labelledby="tab-settings" data-workflow-panel="settings" tabindex="0"{{if ne .Tab "settings"}} hidden{{end}}>
   <h2>Settings</h2>
   <section id="configuration-panel" class="panel" aria-labelledby="setup-heading" data-live-preserve>
-    <details id="release-configuration" open>
-      <summary id="setup-heading">{{if .Configured}}Release configuration{{else}}Configure release{{end}}</summary>
-      <form method="post" action="/action" class="config-grid"{{if .ConfigDraft}} data-config-draft{{end}}>
-        <input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="configure">
-        <label>ACS version<input name="version" required value="{{.ConfigForm.Get "version"}}" placeholder="5.0.1"></label>
-        <label>ACS release branch<input name="branch" required value="{{.ConfigForm.Get "branch"}}" placeholder="release-5.0"></label>
-        <label>Pinning PR number (optional)<input name="pinning_pr" inputmode="numeric" pattern="[0-9]+" placeholder="12345" value="{{.ConfigForm.Get "pinning_pr"}}"></label>
-        {{range $name := (slice "fact" "collector")}}
-          {{$source := index $.ConfiguredSources $name}}
-          <fieldset data-component-config data-configured-repo="{{$source.Repo}}" data-configured-stream="{{$source.Stream}}" data-configured-branch="{{$source.Branch}}"><legend>{{title $name}}</legend>
-            <label>Repository<input name="{{$name}}_repo" required value="{{$.ConfigForm.Get (printf "%s_repo" $name)}}" placeholder="stackrox/{{$name}}"></label>
-            <label>Release stream<input name="{{$name}}_stream" data-release-stream required value="{{$.ConfigForm.Get (printf "%s_stream" $name)}}"></label>
-            <label>Release branch<input name="{{$name}}_branch" data-release-branch readonly value="{{$.ConfigForm.Get (printf "%s_branch" $name)}}"></label>
-          </fieldset>
-        {{end}}
-        {{$scanner := index .ConfiguredSources "scanner"}}
-        <fieldset data-component-config data-configured-repo="{{$scanner.Repo}}" data-configured-stream="{{$scanner.Stream}}" data-configured-branch="{{$scanner.Branch}}" data-scanner-fields {{if and .Configured (not .ACS4)}}hidden{{end}}><legend>Scanner (ACS 4.x only)</legend>
-          <label>Repository<input name="scanner_repo" value="{{.ConfigForm.Get "scanner_repo"}}" placeholder="stackrox/scanner"></label>
-          <label>Release stream<input name="scanner_stream" data-release-stream value="{{.ConfigForm.Get "scanner_stream"}}"></label>
-          <label>Release branch<input name="scanner_branch" data-release-branch readonly value="{{.ConfigForm.Get "scanner_branch"}}"></label>
+    <h3 id="setup-heading">{{if .Configured}}Release configuration{{else}}Configure release{{end}}</h3>
+    <form method="post" action="/action" class="config-grid">
+      <input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="configure">
+      <label>ACS version<input name="version" required value="{{.ConfigForm.Get "version"}}" placeholder="5.0.1"></label>
+      <label>ACS release branch<input name="branch" required value="{{.ConfigForm.Get "branch"}}" placeholder="release-5.0"></label>
+      <label>Pinning PR number (optional)<input name="pinning_pr" inputmode="numeric" pattern="[0-9]+" placeholder="12345" value="{{.ConfigForm.Get "pinning_pr"}}"></label>
+      {{range $name := (slice "fact" "collector")}}
+        {{$source := index $.ConfiguredSources $name}}
+        <fieldset data-component-config data-configured-repo="{{$source.Repo}}" data-configured-stream="{{$source.Stream}}" data-configured-branch="{{$source.Branch}}"><legend>{{title $name}}</legend>
+          <label>Repository<input name="{{$name}}_repo" required value="{{$.ConfigForm.Get (printf "%s_repo" $name)}}" placeholder="stackrox/{{$name}}"></label>
+          <label>Release stream<input name="{{$name}}_stream" data-release-stream required value="{{$.ConfigForm.Get (printf "%s_stream" $name)}}"></label>
+          <label>Release branch<input name="{{$name}}_branch" data-release-branch readonly value="{{$.ConfigForm.Get (printf "%s_branch" $name)}}"></label>
         </fieldset>
-        <p class="muted">Scanner values are used for ACS 4.x and omitted automatically for ACS 5.x.</p>
-        <button type="submit">Save configuration</button>
-      </form>
-    </details>
+      {{end}}
+      {{$scanner := index .ConfiguredSources "scanner"}}
+      <fieldset data-component-config data-configured-repo="{{$scanner.Repo}}" data-configured-stream="{{$scanner.Stream}}" data-configured-branch="{{$scanner.Branch}}" data-scanner-fields {{if and .Configured (not .ACS4)}}hidden{{end}}><legend>Scanner (ACS 4.x only)</legend>
+        <label>Repository<input name="scanner_repo" value="{{.ConfigForm.Get "scanner_repo"}}" placeholder="stackrox/scanner"></label>
+        <label>Release stream<input name="scanner_stream" data-release-stream value="{{.ConfigForm.Get "scanner_stream"}}"></label>
+        <label>Release branch<input name="scanner_branch" data-release-branch readonly value="{{.ConfigForm.Get "scanner_branch"}}"></label>
+      </fieldset>
+      <p class="muted">Scanner values are used for ACS 4.x and omitted automatically for ACS 5.x.</p>
+      <button type="submit">Save configuration</button>
+    </form>
   </section>
 
   {{if .Configured}}

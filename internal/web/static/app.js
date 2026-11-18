@@ -49,11 +49,8 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("popstate", () => activateTab(new URLSearchParams(window.location.search).get("tab") || (document.body.dataset.configured === "false" ? "settings" : "component-prs")));
   activateTab(activeTab);
 
-  const configDraft = document.querySelector("[data-config-draft]") !== null;
-  let configSubmitted = false;
   const restoreSection = (section) => {
     const key = sectionKey(section);
-    if (key === "release-configuration" && (configDraft || document.body.dataset.configured === "false")) return;
     if (typeof sectionStates[key] === "boolean") section.open = sectionStates[key];
   };
   sections().forEach(restoreSection);
@@ -62,7 +59,6 @@ document.addEventListener("DOMContentLoaded", () => {
       const key = sectionKey(section);
       if (key) sectionStates[key] = section.open;
     }
-    if (configSubmitted) sectionStates["release-configuration"] = false;
     try {
       window.sessionStorage.setItem(storageKey, JSON.stringify({ session: appSession, sections: sectionStates }));
       return true;
@@ -72,10 +68,7 @@ document.addEventListener("DOMContentLoaded", () => {
   };
   document.addEventListener("toggle", saveSections, true);
   window.addEventListener("pagehide", saveSections);
-  document.addEventListener("submit", (event) => {
-    configSubmitted = event.target.matches(".config-grid");
-    saveSections();
-  });
+  document.addEventListener("submit", saveSections);
 
   const openSection = (section) => {
     revealTab(section);

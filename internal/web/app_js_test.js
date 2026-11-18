@@ -25,7 +25,7 @@ function makeDetails({ id = "", foldKey = "", open = false } = {}) {
   return emitter({ id, dataset: foldKey ? { foldKey } : {}, open, tagName: "DETAILS" });
 }
 
-function makePage({ sections = [], storage = new Map(), session = "session:1", hash = "", configDraft = false, storageFails = false, activityLog, fetchActivity, livePage, fetchDashboard, parseDashboard, clipboard, jumpToLatest } = {}) {
+function makePage({ sections = [], storage = new Map(), session = "session:1", hash = "", storageFails = false, activityLog, fetchActivity, livePage, fetchDashboard, parseDashboard, clipboard, jumpToLatest } = {}) {
   const byId = new Map(sections.filter((section) => section.id).map((section) => [section.id, section]));
   if (activityLog) {
     byId.set("activity-log", activityLog);
@@ -60,7 +60,6 @@ function makePage({ sections = [], storage = new Map(), session = "session:1", h
     },
     querySelector(selector) {
       if (selector === "header" && livePage) return livePage.header;
-      if (selector === "[data-config-draft]" && configDraft) return {};
       return null;
     },
     getElementById(id) {
@@ -178,17 +177,17 @@ test("uses stable nested identities and leaves new panels at their markup defaul
 });
 
 test("captures section changes without reloading the page", () => {
-  const section = makeDetails({ id: "release-configuration", open: true });
-  const page = makePage({ storage: savedState({ "release-configuration": false }), sections: [section] });
+  const section = makeDetails({ id: "retry-settings", open: true });
+  const page = makePage({ storage: savedState({ "retry-settings": false }), sections: [section] });
   page.start();
   section.open = true;
   section.emit("toggle");
-  assert.deepEqual(page.stored(), { "release-configuration": true });
+  assert.deepEqual(page.stored(), { "retry-settings": true });
   assert.equal(page.reloads(), 0);
   assert.equal(page.intervals.length, 0);
 });
 
-test("saves section state on non-configuration form submission and pagehide", () => {
+test("saves section state on form submission and pagehide", () => {
   const section = makeDetails({ id: "repo-panel", open: false });
   const page = makePage({ sections: [section] });
   page.start();
@@ -222,32 +221,6 @@ test("explicit navigation opens and stores a section; same-hash reload preserves
   const reloaded = makePage({ storage: savedState({ "repo-target": false }), sections: [makeDetails({ id: "repo-target", open: true })], hash: "#repo-target" });
   reloaded.start();
   assert.equal(reloaded.document.querySelectorAll("details")[0].open, false);
-});
-
-test("configuration submission folds only configuration while a rejected draft stays open", () => {
-  const config = makeDetails({ id: "release-configuration", open: false });
-  const other = makeDetails({ id: "repo-panel", open: false });
-  const storage = savedState({ "release-configuration": true, "repo-panel": true, "unrendered-panel": false });
-  const page = makePage({
-    storage,
-    sections: [config, other],
-  });
-  page.start();
-  page.document.emit("submit", { target: { matches: (selector) => selector === ".config-grid" } });
-  assert.deepEqual(page.stored(), { "release-configuration": false, "repo-panel": true, "unrendered-panel": false });
-  page.window.emit("pagehide");
-  const savedConfig = makeDetails({ id: "release-configuration", open: true });
-  makePage({ storage, sections: [savedConfig], session: "session:2" }).start();
-  assert.equal(savedConfig.open, false);
-
-  const draftConfig = makeDetails({ id: "release-configuration", open: true });
-  const draftPage = makePage({
-    storage: savedState({ "release-configuration": false }),
-    sections: [draftConfig],
-    configDraft: true,
-  });
-  draftPage.start();
-  assert.equal(draftConfig.open, true);
 });
 
 test("section changes tolerate unavailable session storage", () => {
@@ -631,13 +604,4 @@ test("a deep section link reveals its activity and retains section choices", () 
   assert.equal(page.window.location.search, "?tab=acs-prs");
   assert.equal(page.window.location.hash, "#acs-prs-details");
   assert.equal(page.stored()["acs-prs-details"], true);
-});
-
-
-test("initial setup stays open when configuration was saved as collapsed", () => {
-  const configuration = makeDetails({ id: "release-configuration", open: true });
-  const page = makePage({ sections: [configuration], storage: savedState({ "release-configuration": false }) });
-  page.document.body.dataset.configured = "false";
-  page.start();
-  assert.equal(configuration.open, true);
 });
