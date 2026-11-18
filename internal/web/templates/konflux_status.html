@@ -1,6 +1,12 @@
 {{define "konflux-status"}}
   {{with .KonfluxAdmission}}
-  <span class="konflux-pill {{.Class}}" role="status">Konflux · {{.Label}}</span>
+  <details class="header-menu" name="header-menu" data-fold-key="konflux-admission">
+    <summary class="konflux-pill {{.Class}}">Konflux · {{.Label}}</summary>
+    <div class="menu-content"><p class="konflux-excerpt">{{.Detail}}</p>
+      {{if $.KonfluxStatus}}<a href="/?tab=activity#konflux-status" data-open-section>View Konflux diagnostics</a>
+      {{else}}<a href="/?tab=activity#activity-details" data-open-section>View log</a>{{end}}
+    </div>
+  </details>
   {{end}}
 {{end}}
 

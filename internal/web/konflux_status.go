@@ -10,7 +10,7 @@ import (
 )
 
 type (
-	konfluxAdmission     struct{ Class, Label string }
+	konfluxAdmission     struct{ Class, Label, Detail string }
 	konfluxClusterStatus struct {
 		Cluster  string
 		Reads    []konflux.ReadIssue
@@ -72,20 +72,42 @@ func planTab(target release.Target, acsRepo string) string {
 func (p pageModel) KonfluxAdmission() konfluxAdmission {
 	for _, cluster := range p.KonfluxStatus {
 		if cluster.Tab != "" {
-			return konfluxAdmission{"rejected", "Start rejected"}
+			reason := cluster.Rejected.Reason
+			if reason == "" {
+				reason = "The source check reported a pipeline creation failure."
+			}
+			return konfluxAdmission{"rejected", "Start rejected", reason}
 		}
 	}
-	if len(p.KonfluxStatus) == 0 {
-		for _, plan := range p.Plans {
-			if !plan.Plan.Evidence.Fresh() || time.Since(plan.Plan.Evidence.At) > 30*time.Minute {
-				continue
-			}
-			for _, run := range plan.Plan.Runs {
-				if run.ID != "" && run.Status == "in_progress" && run.Outcome == "" {
-					return konfluxAdmission{"accepted", "Pipeline accepted"}
+	for _, cluster := range p.KonfluxStatus {
+		if len(cluster.Reads) > 0 {
+			issue := cluster.Reads[0]
+			return konfluxAdmission{"unverified", "Admission unverified", issue.Endpoint + " read failed: " + issue.Reason}
+		}
+	}
+	detail := ""
+	for _, plan := range p.Plans {
+		if plan.Plan.Evidence.Error != "" {
+			detail = plan.Plan.Evidence.Error
+		} else if detail == "" {
+			for _, warning := range plan.Plan.Warnings {
+				if strings.HasPrefix(warning, "identity unknown:") {
+					detail = warning
+					break
 				}
 			}
 		}
+		if !plan.Plan.Evidence.Fresh() || time.Since(plan.Plan.Evidence.At) > 30*time.Minute {
+			continue
+		}
+		for _, run := range plan.Plan.Runs {
+			if run.ID != "" && run.Status == "in_progress" && run.Outcome == "" {
+				return konfluxAdmission{"accepted", "Pipeline accepted", "A recent check verified a running pipeline."}
+			}
+		}
 	}
-	return konfluxAdmission{"unverified", "Admission unverified"}
+	if detail == "" {
+		detail = "No recent observation confirms a running pipeline."
+	}
+	return konfluxAdmission{"unverified", "Admission unverified", detail}
 }

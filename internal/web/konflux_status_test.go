@@ -18,7 +18,7 @@ func TestDashboardShowsRecentKonfluxEvidenceAcrossTabs(t *testing.T) {
 	evidence := release.Evidence{Known: true, At: now}
 	failure := release.StartFailure{
 		CheckID: 12, Job: "build", Cluster: "example.openshiftapps.com",
-		Category: "admission_policy", CheckStartedAt: now.Add(-time.Minute), Evidence: evidence,
+		Category: "admission_policy", Reason: "Pipeline creation denied by policy.", CheckStartedAt: now.Add(-time.Minute), Evidence: evidence,
 	}
 	earlier := failure
 	earlier.CheckID, earlier.Cluster, earlier.CheckStartedAt = 13, "earlier.openshiftapps.com", now.Add(-time.Hour)
@@ -37,7 +37,7 @@ func TestDashboardShowsRecentKonfluxEvidenceAcrossTabs(t *testing.T) {
 	}}
 	body := newBrowser(t, application).getBody(t)
 	header := between(t, body, "<header", "</header>")
-	if !strings.Contains(header, "Konflux · Start rejected</span>") || strings.Contains(header, "View creation failure") || strings.Contains(header, "release-context") {
+	if !strings.Contains(header, "Konflux · Start rejected</summary>") || !strings.Contains(header, failure.Reason) || !strings.Contains(header, "View Konflux diagnostics") || strings.Contains(header, "View creation failure") || strings.Contains(header, "release-context") {
 		t.Fatalf("unexpected header: %s", header)
 	}
 	banner := between(t, body, `<section id="konflux-status"`, `</section>`)

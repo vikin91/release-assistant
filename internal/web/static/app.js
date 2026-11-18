@@ -94,8 +94,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const link = event.target.closest("[data-open-section]");
     if (link && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
       const section = document.getElementById(link.hash.slice(1));
-      openSection(section);
       if (section) {
+        const menu = link.closest?.("details.header-menu");
+        if (menu) menu.open = false;
+        openSection(section);
         event.preventDefault();
         if (window.history) window.history.replaceState(null, "", `/?tab=${activeTab}${link.hash}`);
         section.scrollIntoView?.({ block: "start" });
