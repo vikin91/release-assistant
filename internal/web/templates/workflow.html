@@ -12,7 +12,11 @@
   {{if eq .Tab "acs-prs"}}{{template "acs-pinning" .}}{{template "pr-list" .}}{{end}}
   {{if and (ne .Tab "acs-rcs") (or (ne .Tab "component-releases") .Guidance)}}
   <section id="{{.Tab}}-next-steps-panel" class="panel" aria-label="Next actions">
+    {{if eq .Tab "component-prs"}}
+    <h3 id="{{.Tab}}-next-steps" class="section-summary">Recommended next steps</h3>
+    {{else}}
     <details id="{{.Tab}}-next-steps" open><summary class="section-summary">Recommended next steps</summary>
+    {{end}}
     {{if .Guidance}}<ol>{{range .Guidance}}<li>{{.}}</li>{{end}}</ol>{{else}}<p class="muted">Waiting for the first observations for this activity.</p>{{end}}
     {{if .Problems}}<details id="{{.Tab}}-readiness-details" class="readiness-details" open><summary>Checks that need attention</summary><ol>{{range .Problems}}<li>{{.Reason}}{{range .Evidence}}{{if .Error}} · {{.Error}}{{end}}{{end}}</li>{{end}}</ol></details>{{end}}
     {{if and (eq .Tab "acs-prs") .Snapshot.Assessment.Commands}}
@@ -22,7 +26,7 @@
         <div class="copy-text-actions"><button type="button" data-copy-text>Copy commands</button><span role="status" data-copy-status data-live-preserve></span></div>
       </div>
     {{end}}
-    </details>
+    {{if ne .Tab "component-prs"}}</details>{{end}}
   </section>
   {{end}}
   {{if eq .Tab "acs-rcs"}}{{template "acs-rcs" .}}{{else}}{{template "start-failures" .}}{{template "retries" .}}{{end}}

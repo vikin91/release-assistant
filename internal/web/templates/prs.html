@@ -2,10 +2,15 @@
   <section class="panel" aria-labelledby="{{.PRSection}}-heading" id="{{.PRSection}}-panel">
     {{$triage := .PRList}}
     {{$component := eq .Tab "component-prs"}}
+    {{if $component}}
+    <div id="{{.PRSection}}" class="pr-list">
+    <h3 id="{{.PRSection}}-heading" class="section-summary">Component PRs
+    {{else}}
     <details id="{{.PRSection}}" class="pr-list" open>
-    <summary id="{{.PRSection}}-heading" class="section-summary">{{if eq .Tab "component-prs"}}Component PRs{{else}}ACS release PRs{{end}}
+    <summary id="{{.PRSection}}-heading" class="section-summary">ACS release PRs
+    {{end}}
       <span class="pr-list-counts">{{$triage.AwaitingMerge}} awaiting merge{{if $triage.Closed}} · {{$triage.Closed}} included and closed{{end}} · {{$triage.Undecided}} undecided{{if $triage.Merged}} · {{$triage.Merged}} included and merged{{end}}</span>
-    </summary>
+    {{if $component}}</h3>{{else}}</summary>{{end}}
     {{if .ComponentPRNotice}}<p class="muted">{{.ComponentPRNotice}}</p>{{end}}
     <fieldset class="pr-list-filters" data-live-preserve>
       <legend>Filter open and selected PRs</legend>
@@ -73,7 +78,7 @@
         </details>
       </article>
     {{else}}<p class="muted">No repository observations yet.</p>{{end}}
-    </details>
+    {{if $component}}</div>{{else}}</details>{{end}}
   </section>
 {{end}}
 
