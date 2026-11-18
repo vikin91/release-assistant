@@ -50,7 +50,7 @@ func tabHelp(tab string) string {
 	case "acs-rcs":
 		return "Follow the current RC builds and verify their published images."
 	default:
-		return "Choose the changes for this patch, help their checks pass, and merge them into the component release branches. No component tags are required here."
+		return ""
 	}
 }
 
