@@ -6,6 +6,11 @@ It reads GitHub, Quay, and Konflux to suggest what to do next. You merge PRs, pu
 
 ## Quick start
 
+Read-only access to GitHub and Quay is sufficient to start the assistant
+and monitor a release. To let the assistant post retry comments, enable
+writes and use a GitHub credential with permission to comment on the
+target PR or commit. [Retry comments](#retry-comments)
+
 For Konflux, log in to the build cluster before starting the assistant. An
 active login to that cluster is enough. GitHub and Quay can run without it.
 
@@ -95,10 +100,6 @@ at startup. Restart it after changing a token or login.
    A `lookup denied by caller policy` message in **Activity and errors**
    names the repository and check-run ID. Verify the combination and
    restart with the flag.
-
-To post retry comments from the app, add `--enable-writes` and follow
-[Retry comments](#retry-comments). Your GitHub credential also needs
-permission to comment on the target PR or commit.
 
 ## Release configuration
 
