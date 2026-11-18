@@ -55,8 +55,8 @@ func TestRCValidationShowsExceptionsAndReusesExactTagRetest(t *testing.T) {
 				}}
 			}
 			panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-rcs")
-			if strings.Index(panel, `id="rc-validation"`) > strings.Index(panel, `id="release-images-panel"`) {
-				t.Fatal("validation should lead when the images are available")
+			if strings.Index(panel, `id="release-images-panel"`) > strings.Index(panel, `id="rc-validation"`) {
+				t.Fatal("the image summary should appear above validation when the images are available")
 			}
 			validation := between(t, panel, `id="rc-validation"`, "</section>")
 			for _, want := range []string{
@@ -83,6 +83,37 @@ func TestRCValidationShowsExceptionsAndReusesExactTagRetest(t *testing.T) {
 			}
 			if strings.Contains(validation, `action="/action#rc-validation"`) != mode.writes {
 				t.Error("tag permission should return to validation")
+			}
+		})
+	}
+}
+
+func TestRCValidationRemainsVisibleWhileWaitingForEvidence(t *testing.T) {
+	for name, tc := range map[string]struct {
+		sha, want string
+		observed  bool
+	}{
+		"tag unresolved":  {want: "Waiting to verify the RC.0 tag."},
+		"checks loading":  {sha: "candidate", want: "Waiting for GitHub check results."},
+		"no checks found": {sha: "candidate", observed: true, want: "No validation checks have been reported for this commit yet."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := workflowStatusSnapshot()
+			if tc.sha != "" {
+				plan := release.Plan{Target: s.Config.RC0Target(), SHA: tc.sha}
+				if tc.observed {
+					plan.Validation = release.Validation{SHA: tc.sha, Evidence: s.Inventory.Evidence}
+				}
+				s.Plans = []release.Plan{plan}
+			}
+			assessWorkflow(&s)
+			panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-rcs")
+			validation := between(t, panel, `id="rc-validation"`, "</section>")
+			if !strings.Contains(validation, "Pending") || !strings.Contains(validation, tc.want) {
+				t.Fatalf("missing pending status or explanation %q", tc.want)
+			}
+			if strings.Contains(validation, "All checks on GitHub") != (tc.sha != "") {
+				t.Fatal("the checks link should appear once the candidate commit is known")
 			}
 		})
 	}

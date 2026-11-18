@@ -1,5 +1,4 @@
 {{define "acs-rcs"}}
-  {{if .RC.ImagesAvailable}}{{template "rc-validation" .}}{{end}}
   <section class="panel" id="release-images-panel">
     <details id="release-images" open>
       <summary id="release-images-heading" class="section-summary">ACS {{.Snapshot.Config.Version}} RC.0 images
@@ -59,7 +58,7 @@
       {{end}}
     </details>
   </section>
-  {{if not .RC.ImagesAvailable}}{{template "rc-validation" .}}{{end}}
+  {{template "rc-validation" .}}
   {{template "start-failures" .}}
 {{end}}
 
