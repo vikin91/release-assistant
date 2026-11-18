@@ -52,7 +52,9 @@ func (f *fixture) Discover(ctx context.Context, r DiscoveryRequest) (release.Rep
 		}
 		if !r.Reads(ReadPRs) {
 			repo.PRs = slices.DeleteFunc(repo.PRs, func(p release.PR) bool {
-				return !(r.Reads(ReadTargets) && slices.Contains(r.Tracked, p.Target)) && !(r.Reads(ReadPins) && p.Target.PR == r.PinningPR)
+				tracked := r.Reads(ReadTargets) && slices.Contains(r.Tracked, p.Target)
+				pinning := r.Reads(ReadPins) && p.Target.PR == r.PinningPR
+				return !tracked && !pinning
 			})
 		}
 		if !r.Reads(ReadChecks) {

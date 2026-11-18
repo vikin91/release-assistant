@@ -120,7 +120,7 @@ func (c *Client) get(ctx context.Context, endpoint string, dst any) (err error) 
 		}
 		return failure
 	}
-	var body io.Reader = io.LimitReader(resp.Body, 8<<20)
+	body := io.LimitReader(resp.Body, 8<<20)
 	if cacheable {
 		body = io.TeeReader(body, &capture)
 	}
