@@ -1015,7 +1015,6 @@ func TestFoldControlsHaveUniqueStableIdentities(t *testing.T) {
 	for _, key := range []string{
 		"previous-cycles",
 		"tag-evidence:fact:acme/fact@3.25.1",
-		"repo-evidence:fact:acme/fact", "repo-evidence:collector:acme/collector",
 	} {
 		if !seen[key] {
 			t.Errorf("missing stable fold identity %q", key)

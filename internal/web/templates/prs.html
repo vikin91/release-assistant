@@ -81,10 +81,14 @@
           </article>
         {{else}}<p class="muted">No open PR observations. New PRs continue to appear as discovery refreshes.</p>{{end}}
         {{if .MergedPRs}}<details class="merged-prs" data-fold-key="merged-prs:{{.Repository.Source.Repo}}"><summary>Included PRs merged ({{len .MergedPRs}})</summary><ol>{{range .MergedPRs}}<li><a href="{{url .URL}}" target="_blank" rel="noreferrer">#{{.Target.PR}} {{.Title}}</a>{{if eq .Target $.Snapshot.Config.PinningTarget}} · <a class="pill yes" href="/?tab=acs-prs#pinning-details" data-open-section>Confirmed pinning PR</a>{{end}}{{if not .Evidence.Fresh}} · <span class="unknown">last observed merged</span>{{end}}</li>{{end}}</ol></details>{{end}}
+        {{if $component}}
+          {{with .Repository.Evidence.Error}}<p class="error-text">Unable to verify branch head: {{.}}</p>{{end}}
+        {{else}}
         <details class="repo-evidence" data-fold-key="repo-evidence:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}"><summary>Repository evidence</summary>
           <p>Head <code>{{.Repository.Head}}</code></p>
           <div class="evidence"><span>{{if .Repository.Evidence.Known}}Head observed{{else}}Head unknown{{end}} at {{when .Repository.Evidence.At}}</span>{{if .Repository.Evidence.Error}}<span class="error-text">{{.Repository.Evidence.Error}}</span>{{end}}{{if url .Repository.Evidence.URL}}<a href="{{url .Repository.Evidence.URL}}" target="_blank" rel="noreferrer">Branch source</a>{{end}}</div>
         </details>
+        {{end}}
       </article>
     {{else}}<p class="muted">No repository observations yet.</p>{{end}}
     {{if $component}}</div>{{else}}</details>{{end}}
