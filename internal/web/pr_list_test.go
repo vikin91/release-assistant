@@ -75,7 +75,7 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 	if !strings.Contains(body, `name="`+section+`-filter" value="attention"`) {
 		t.Fatal("the PR list needs its own filter group")
 	}
-	if tab == "acs-prs" && (!strings.Contains(tabBody, "Pinning PR #8") || strings.Count(body, "change-8") != 1 || !strings.Contains(body, "Confirmed pinning PR")) {
+	if tab == "acs-prs" && (!strings.Contains(tabBody, "<h3>Pinning PR</h3>") || !strings.Contains(tabBody, "Open pinning PR #8</a>") || strings.Count(body, "change-8") != 1 || !strings.Contains(body, "Confirmed pinning PR")) {
 		t.Fatal("expected one confirmed pinning PR row")
 	}
 	hasBulkAction := strings.Contains(body, "Ignore &amp; hide all")

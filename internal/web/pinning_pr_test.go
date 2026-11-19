@@ -143,8 +143,8 @@ func TestConfiguredPinningPRGrantIsDisabledWhenIdentityOrWritesAreUnsafe(t *test
 		{name: "opt out", pr: func() release.PR { p := base; p.OptOut = true; return p }(), writes: true},
 		{name: "wrong base", pr: func() release.PR { p := base; p.Base = "master"; return p }(), writes: true},
 		{name: "unknown identity", pr: func() release.PR { p := base; p.Evidence.Known = false; return p }(), writes: true},
-		{name: "merged", pr: func() release.PR { p := base; p.State = "closed"; p.Merged = true; return p }(), writes: true, wantText: "Merged."},
-		{name: "closed", pr: func() release.PR { p := base; p.State = "closed"; return p }(), writes: true, wantText: "Closed without merging."},
+		{name: "merged", pr: func() release.PR { p := base; p.State = "closed"; p.Merged = true; return p }(), writes: true, wantText: `class="pill yes">Merged</span>`},
+		{name: "closed", pr: func() release.PR { p := base; p.State = "closed"; return p }(), writes: true, wantText: `class="pill no">Closed without merging</span>`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			target := tc.pr.Target

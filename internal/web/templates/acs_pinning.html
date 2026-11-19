@@ -32,9 +32,18 @@
       </table>
     {{end}}
     {{if .PinningPR}}{{$pin := .PinningPR.PR}}<article class="pr-card" data-fold-key="pinning-pr:{{$pin.Target.Repo}}#{{$pin.Target.PR}}">
-      <h3><a href="{{url $pin.URL}}" target="_blank" rel="noreferrer">Pinning PR #{{$pin.Target.PR}}{{if $pin.Title}} · {{$pin.Title}}{{end}}</a></h3>
+      <h3>Pinning PR</h3>
+      <p class="control-row">
+        <a href="{{url $pin.URL}}" target="_blank" rel="noreferrer"{{with $pin.Title}} title="{{.}}"{{end}}>Open pinning PR #{{$pin.Target.PR}}</a>
+        {{if not $pin.Evidence.Fresh}}<span class="pill unknown">Last observed: {{or $pin.State "unknown"}}</span>
+        {{else if or $pin.Merged (eq $pin.State "merged")}}<span class="pill yes">Merged</span>
+        {{else if eq $pin.State "closed"}}<span class="pill no">Closed without merging</span>
+        {{else if eq $pin.State "open"}}<span class="pill">Open</span>
+          <span>Head <code>{{$pin.SHA}}</code> · base {{$pin.Base}}</span>
+          {{if and (eq $pin.Base $.Snapshot.Config.Branch) (ne $.PinningPR.Choice "ignored")}}<a href="/?tab=acs-prs#acs-prs-retry-details" data-open-section>Builds and retries</a>{{end}}
+        {{else}}<span class="pill unknown">Pending PR status</span>{{end}}
+      </p>
       {{if .PinningStartFailures}}<p><a href="/?tab=acs-prs#acs-prs-start-failures" data-open-section>View reported build creation failures</a>.</p>{{end}}
-      {{if not $pin.Evidence.Fresh}}<p class="evidence">Last observed PR status: {{$pin.State}}.</p>{{else}}{{if or $pin.Merged (eq $pin.State "merged")}}<p class="yes">Merged.</p>{{else}}{{if eq $pin.State "closed"}}<p class="no">Closed without merging.</p>{{else}}{{if eq $pin.State "open"}}<p>Open · head <code>{{$pin.SHA}}</code> · base {{$pin.Base}}.{{if and (eq $pin.Base $.Snapshot.Config.Branch) (ne $.PinningPR.Choice "ignored")}} <a href="/?tab=acs-prs#acs-prs-retry-details" data-open-section>Builds and retries</a>.{{end}}</p>{{else}}<p class="unknown">Pending PR status.</p>{{end}}{{end}}{{end}}{{end}}
       {{if and (eq $pin.State "open") (not $pin.Merged)}}
         {{if eq (truth .PinningHealth) "yes"}}<p class="yes">Required checks passed.</p>{{else}}
           {{$results := $pin.CheckResultsEvidence}}{{if $results.At.IsZero}}{{$results = $pin.ChecksEvidence}}{{end}}
