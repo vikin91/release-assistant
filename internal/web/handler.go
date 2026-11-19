@@ -152,6 +152,7 @@ func (s *server) get(w http.ResponseWriter, r *http.Request) {
 		page.Tab = "settings"
 	}
 	page.ConfigSaved = page.Configured && page.Tab == "settings" && r.URL.Query().Get("saved") == "configuration"
+	page.CacheCleared = page.Snapshot.CacheAvailable && page.Tab == "settings" && r.URL.Query().Get("saved") == "cache-clear"
 	if err := s.template.Execute(w, page); err != nil {
 		http.Error(w, "page rendering failed", http.StatusInternalServerError)
 	}
@@ -204,8 +205,11 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 	if tab := r.PostForm.Get("tab"); tab != "" {
 		destination = "/?tab=" + validTab(tab)
 	}
-	if action.Kind == "configure" {
+	switch action.Kind {
+	case "configure":
 		destination = "/?tab=settings&saved=configuration"
+	case "clear-cache":
+		destination = "/?tab=settings&saved=cache-clear"
 	}
 	http.Redirect(w, r, destination, http.StatusSeeOther)
 }
@@ -296,8 +300,9 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 		if a.SHA == "" {
 			return a, fmt.Errorf("grant requires the displayed SHA")
 		}
-	case "interactive":
+	case "interactive", "cache-enabled":
 		a.Enabled = formHasValue(form, "enabled", "true")
+	case "clear-cache":
 	case "clear-tag":
 		a.Component = form.Get("component")
 		if a.Component == "" {

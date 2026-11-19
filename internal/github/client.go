@@ -30,6 +30,7 @@ type (
 		backoff      readBackoff
 		inventories  sync.Map
 		candidatePRs sync.Map
+		windowCache  *CommitWindowCache
 	}
 	// requestError separates safe UI causes from endpoint diagnostics.
 	requestError struct {
@@ -76,7 +77,17 @@ func New(baseURL, token string, httpClient *http.Client) *Client {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, http: &clientCopy}
 }
 
-func (c *Client) get(ctx context.Context, endpoint string, dst any) (err error) {
+// WithCommitWindowCache attaches an optional discovery cache before the client serves requests.
+func (c *Client) WithCommitWindowCache(cache *CommitWindowCache) *Client {
+	c.windowCache = cache
+	return c
+}
+
+func (c *Client) get(ctx context.Context, endpoint string, dst any) error {
+	return c.getObservation(ctx, endpoint, dst, nil)
+}
+
+func (c *Client) getObservation(ctx context.Context, endpoint string, dst any, storable *bool) (err error) {
 	cycle, _ := ctx.Value(discoveryCycleKey{}).(*discoveryCycle)
 	cacheable := cycle != nil && cacheableObservation(endpoint)
 	var capture bytes.Buffer
@@ -85,7 +96,7 @@ func (c *Client) get(ctx context.Context, endpoint string, dst any) (err error) 
 			if read.err != nil {
 				return read.err
 			}
-			return c.decodeResponse(ctx, endpoint, bytes.NewReader(read.data), dst)
+			return c.decodeResponse(ctx, endpoint, json.NewDecoder(bytes.NewReader(read.data)), dst)
 		}
 		defer func() { cycle.reads[endpoint] = cachedRead{data: capture.Bytes(), err: err} }()
 	}
@@ -121,15 +132,26 @@ func (c *Client) get(ctx context.Context, endpoint string, dst any) (err error) 
 		}
 		return failure
 	}
-	body := io.LimitReader(resp.Body, 8<<20)
+	const maxResponseBytes = 8 << 20
+	limited := &io.LimitedReader{R: resp.Body, N: maxResponseBytes}
+	var body io.Reader = limited
 	if cacheable {
 		body = io.TeeReader(body, &capture)
 	}
-	return c.decodeResponse(ctx, endpoint, body, dst)
+	decoder := json.NewDecoder(body)
+	if err := c.decodeResponse(ctx, endpoint, decoder, dst); err != nil {
+		return err
+	}
+	if storable != nil && windowAllowsStorage(resp) && maxResponseBytes-limited.N <= maxCacheableWindowBytes {
+		// Require actual EOF so a truncated or multi-value body cannot seed the cache.
+		_, trailing := decoder.Token()
+		*storable = trailing == io.EOF && maxResponseBytes-limited.N <= maxCacheableWindowBytes && ctx.Err() == nil
+	}
+	return nil
 }
 
-func (c *Client) decodeResponse(ctx context.Context, endpoint string, body io.Reader, dst any) error {
-	if err := json.NewDecoder(body).Decode(dst); err != nil {
+func (c *Client) decodeResponse(ctx context.Context, endpoint string, decoder *json.Decoder, dst any) error {
+	if err := decoder.Decode(dst); err != nil {
 		if ctx.Err() != nil {
 			err = ctx.Err()
 		}

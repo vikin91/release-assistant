@@ -232,8 +232,14 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 			shas = append(shas, tag.SHA)
 		}
 		graph := newCommitGraph()
+		if result.Head != "" {
+			graph.cache = c.windowCache
+		}
 		if err := graph.load(ctx, c, source.Repo, shas); err != nil {
 			issues = append(issues, err)
+		}
+		if graph.cacheHits > 0 && graph.cache.reportHits != nil {
+			graph.cache.reportHits(source.Repo, graph.cacheHits)
 		}
 		for ti := range result.Tags {
 			tag := &result.Tags[ti]

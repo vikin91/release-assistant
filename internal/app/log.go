@@ -41,6 +41,14 @@ type (
 // NewLog writes audit records to w and retains recent activity for the UI.
 func NewLog(w io.Writer) *Log { return &Log{output: w} }
 
+// CommitWindowCacheHits records reused history once per discovery pass.
+func (l *Log) CommitWindowCacheHits(repo string, hits int) {
+	l.Append(Record{
+		At: time.Now(), Target: release.Target{Repo: repo}, Decision: "commit-window-cache-hit", Origin: "system",
+		Result: fmt.Sprintf("GitHub discovery for %s reused %s from the in-memory cache.", repo, counted(hits, "commit history window")),
+	})
+}
+
 // KonfluxReadPauseChanged records endpoint transitions shared by all release targets.
 func (l *Log) KonfluxReadPauseChanged(issue konflux.ReadIssue) {
 	endpoint := issue.Endpoint + " on " + issue.Cluster
@@ -294,7 +302,7 @@ func recordLevel(r Record) string {
 	case r.Decision == "github-checks-attention", r.Decision == "konflux-reads-paused",
 		r.Decision == "start-failures", r.Decision == "retry-wait", r.Decision == "tag-invalidated", r.Decision == "revoked", r.Decision == "withheld", r.Decision == "delivery" && r.Result == "uncertain":
 		return "Warn"
-	case r.Decision == "observation", r.Decision == "checks":
+	case r.Decision == "observation", r.Decision == "checks", r.Decision == "commit-window-cache-hit":
 		return "Debug"
 	default:
 		return "Info"

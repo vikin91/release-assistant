@@ -17,6 +17,7 @@ import (
 
 	"release-assistant/internal/app"
 	"release-assistant/internal/dispatch"
+	"release-assistant/internal/github"
 	"release-assistant/internal/release"
 )
 
@@ -55,7 +56,7 @@ func prefilledConfig(version string) release.Config {
 	return config
 }
 
-func newBrowser(t *testing.T, application *fakeApplication) browser {
+func newBrowser(t *testing.T, application Application) browser {
 	t.Helper()
 	handler, err := New(application)
 	if err != nil {
@@ -92,6 +93,46 @@ func (b browser) post(values url.Values) *httptest.ResponseRecorder {
 	w := httptest.NewRecorder()
 	b.handler.ServeHTTP(w, r)
 	return w
+}
+
+func TestSettingsControlsCommitWindowCache(t *testing.T) {
+	cache := github.NewCommitWindowCache(nil)
+	session := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{}), nil, app.Options{Cache: cache})
+	b := newBrowser(t, session)
+	getSettings := func(address string) string {
+		t.Helper()
+		response := httptest.NewRecorder()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080"+address, nil)
+		b.handler.ServeHTTP(response, req)
+		if response.Code != http.StatusOK {
+			t.Fatalf("GET status = %d", response.Code)
+		}
+		return response.Body.String()
+	}
+	const checked = `aria-describedby="discovery-cache-help" checked`
+	if body := getSettings("/?tab=settings"); !strings.Contains(body, checked) || !strings.Contains(body, ">Clear cache</button>") {
+		t.Fatal("cache controls should be available before configuring a release")
+	}
+	action := url.Values{"tab": {"settings"}, "generation": {fmt.Sprint(session.Snapshot().Generation)}, "kind": {"cache-enabled"}}
+	if response := b.post(action); response.Code != http.StatusSeeOther || cache.Enabled() {
+		t.Fatalf("disable status=%d enabled=%t", response.Code, cache.Enabled())
+	}
+	if body := getSettings("/?tab=settings"); strings.Contains(body, checked) {
+		t.Fatal("disabled cache rendered as enabled")
+	}
+	action.Set("kind", "clear-cache")
+	response := b.post(action)
+	if response.Code != http.StatusSeeOther || cache.Enabled() {
+		t.Fatalf("clear status=%d enabled=%t", response.Code, cache.Enabled())
+	}
+	if body := getSettings(response.Header().Get("Location")); !strings.Contains(body, "Cache cleared.") {
+		t.Fatal("clear confirmation missing")
+	}
+	action.Set("kind", "cache-enabled")
+	action.Set("enabled", "true")
+	if response := b.post(action); response.Code != http.StatusSeeOther || !cache.Enabled() {
+		t.Fatalf("enable status=%d enabled=%t", response.Code, cache.Enabled())
+	}
 }
 
 func TestGETDoesNotMutateAndRendersIndependentPRControls(t *testing.T) {

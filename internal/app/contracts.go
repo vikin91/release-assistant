@@ -24,6 +24,12 @@ type (
 	Discoverer interface {
 		Discover(context.Context, DiscoveryRequest) (release.Repository, error)
 	}
+	// DiscoveryCache exposes controls for optional reusable discovery data.
+	DiscoveryCache interface {
+		Enabled() bool
+		SetEnabled(bool)
+		Clear()
+	}
 	// Planner delegates all retry eligibility to its adapter.
 	Planner interface {
 		Plan(context.Context, release.Target) (release.Plan, error)

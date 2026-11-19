@@ -4,16 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 
 	"release-assistant/internal/release"
 )
 
 type (
 	commitGraph struct {
-		parents  map[string][]string
-		failed   map[string]error
-		requests int
+		parents   map[string][]string
+		failed    map[string]error
+		requests  int
+		cache     *CommitWindowCache
+		cacheHits int
 	}
 	graphCommit struct {
 		SHA     string `json:"sha"`
@@ -52,13 +53,8 @@ func (g *commitGraph) load(ctx context.Context, c *Client, repo string, roots []
 			issues = append(issues, fmt.Errorf("GitHub commit graph acquisition limit reached"))
 			break
 		}
-		var window []graphCommit
 		g.requests++
-		err := c.get(ctx, repoPath(repo)+"/commits?sha="+url.QueryEscape(sha)+"&per_page=100", &window)
-		if err == nil {
-			err = g.addWindow(sha, window)
-		}
-		if err != nil {
+		if err := g.readWindow(ctx, c, repo, sha); err != nil {
 			g.failed[sha] = err
 			issues = append(issues, err)
 			continue

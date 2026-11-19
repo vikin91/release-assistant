@@ -20,6 +20,7 @@ type (
 	Options struct {
 		Poll, Discovery, BackoffCap, Timeout time.Duration
 		Initial                              release.Config
+		Cache                                DiscoveryCache
 	}
 	// Cycle retains observed builds and images when a confirmed component tag changes.
 	Cycle struct {
@@ -30,14 +31,15 @@ type (
 	}
 	// Snapshot is a copied display state; service credentials are never included.
 	Snapshot struct {
-		Config       release.Config
-		Choices      release.Choices
-		Repositories []release.Repository
-		Inventory    release.Inventory
-		Plans        []release.Plan
-		Assessment   release.Assessment
-		Authority    []dispatch.View
-		Interactive  bool
+		Config                       release.Config
+		Choices                      release.Choices
+		Repositories                 []release.Repository
+		Inventory                    release.Inventory
+		Plans                        []release.Plan
+		Assessment                   release.Assessment
+		Authority                    []dispatch.View
+		Interactive                  bool
+		CacheAvailable, CacheEnabled bool
 		// WritesEnabled reports startup permission; target grants remain independent.
 		WritesEnabled   bool
 		Error, LogError string
@@ -243,6 +245,16 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		err = s.dispatcher.Grant(a.Target, a.SHA, a.Enabled)
 	case "interactive":
 		s.dispatcher.Interactive(a.Enabled)
+	case "cache-enabled", "clear-cache":
+		if s.options.Cache == nil {
+			return fmt.Errorf("discovery cache is unavailable")
+		}
+		if a.Kind == "clear-cache" {
+			s.options.Cache.Clear()
+		} else {
+			s.options.Cache.SetEnabled(a.Enabled)
+		}
+		return nil
 	case "tag":
 		r, ok := s.repos[a.Component]
 		configuredSource, configured := release.Source{}, false
@@ -403,6 +415,10 @@ func (s *Session) Snapshot() Snapshot {
 	}
 	if planner, ok := s.planner.(interface{ ReadIssues() []konflux.ReadIssue }); ok {
 		x.KonfluxReadIssues = planner.ReadIssues()
+	}
+	if s.options.Cache != nil {
+		x.CacheAvailable = true
+		x.CacheEnabled = s.options.Cache.Enabled()
 	}
 	if c.Validate() == nil {
 		for _, source := range append([]release.Source{c.ACS()}, c.Components...) {

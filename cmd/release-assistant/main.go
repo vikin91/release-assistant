@@ -78,8 +78,10 @@ func run() error {
 	defer stop()
 	credentials := loadCredentials(ctx)
 	client := &http.Client{Transport: githubread.New(nil), Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	gh := github.New("", credentials.github, client)
 	log := app.NewLog(os.Stdout)
+	windowCache := github.NewCommitWindowCache(log.CommitWindowCacheHits)
+	gh := github.New("", credentials.github, client).WithCommitWindowCache(windowCache)
+	options.Cache = windowCache
 	planner := konflux.New(konflux.Config{
 		GitHubToken: credentials.github, QuayUsername: credentials.quayUser, QuayPassword: credentials.quayPassword,
 		HTTPClient: client, KonfluxToken: credentials.clusterToken, AllowKonfluxLookup: allowedLookups.allows,

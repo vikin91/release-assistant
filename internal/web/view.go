@@ -50,6 +50,7 @@ type (
 		ConfigForm                                               url.Values
 		SavedConfigForm                                          string
 		ConfigRejected, ConfigSaved                              bool
+		CacheCleared                                             bool
 		ConfiguredSources                                        map[string]release.Source
 		ACS4                                                     bool
 	}
