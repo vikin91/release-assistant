@@ -3,19 +3,18 @@
     <p class="eyebrow">{{tabStep .Tab}}</p><h2>{{tabTitle .Tab}}</h2>
     {{if eq .Tab "component-prs"}}
       <p><strong>Components</strong> · {{range $i, $source := .Snapshot.Config.Components}}{{if $i}}, {{end}}{{title $source.Name}} (<code>{{$source.Branch}}</code>){{end}}</p>
-      <details class="workflow-help" data-fold-key="component-prs-guide" open>
-        <summary>Help</summary>
+    {{end}}
+    <details class="workflow-help" data-fold-key="{{.Tab}}-guide" open>
+      <summary>Help</summary>
+      {{if eq .Tab "component-prs"}}
         <p>For each component listed above, review the pull requests open against its release branch. Choose which PRs to include in that component’s release. You can leave a PR undecided, exclude it, or hide it from this view. Follow the checks here and merge each included PR in GitHub.</p>
         <p><strong>Include</strong> tells the assistant to track the PR’s checks and merge, then verify that the selected component tag contains the merge. <strong>Exclude</strong> keeps the PR visible and stops detailed monitoring and retries. <strong>Ignore &amp; hide</strong> also hides it from the default list. Use the <strong>Ignored &amp; hidden</strong> filter to find it again.</p>
         <p>With writes enabled, select <strong>Allow retry comments</strong> on an included PR to let the assistant post <code>/konflux-retest &lt;job&gt;</code> on GitHub to rerun an eligible Konflux job. In interactive mode, you approve each comment. In automatic mode, the assistant rechecks permission and eligibility before posting on its own.</p>
-      </details>
-    {{else if eq .Tab "component-releases"}}
-      <details data-fold-key="component-releases-guide" open>
-        <summary>How to track component releases</summary>
+      {{else if eq .Tab "component-releases"}}
         <p>Select the release tag for each component. If you need a new tag, follow the component’s release guide to create it and start the release, then select it here. Check that the tag covers the included PRs, follow its build status, and use <strong>Component images</strong> to see whether the CI and Konflux images have been published.</p>
         <p>Under <strong>Build retries</strong>, you can review and copy the proposed retry comment in read-only mode. With writes enabled and permission granted for the selected tag, the assistant can post <code>/retest &lt;job&gt; tag:&lt;tag&gt;</code> on the tag’s commit in GitHub to retry an eligible Konflux build. In interactive mode, you approve each comment. In automatic mode, the assistant rechecks permission and eligibility before posting.</p>
-      </details>
-    {{else}}<p>{{tabHelp .Tab}}</p>{{end}}
+      {{else}}<p>{{tabHelp .Tab}}</p>{{end}}
+    </details>
   </div>
   {{with index .TabStatuses .Tab}}{{if .Label}}<p class="workflow-status"><strong>{{.Label}}</strong> · {{.Reason}}</p>{{end}}{{end}}
   {{if eq .Tab "component-prs"}}{{template "pr-list" .}}{{end}}
