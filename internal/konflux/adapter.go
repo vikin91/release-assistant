@@ -4,7 +4,6 @@ package konflux
 import (
 	"context"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -107,7 +106,7 @@ func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, err
 		evidence := release.Evidence{At: p.Evidence.At}
 		if failure.CheckID > 0 && r.SHA != "" && release.ValidRepo(t.Repo) {
 			evidence.Known = true
-			evidence.URL = "https://github.com/" + t.Repo + "/commit/" + url.PathEscape(r.SHA) + "/checks?check_run_id=" + strconv.FormatInt(failure.CheckID, 10)
+			evidence.URL = "https://github.com/" + t.Repo + "/runs/" + strconv.FormatInt(failure.CheckID, 10)
 		}
 		superseded := false
 		for _, run := range r.Runs {

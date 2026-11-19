@@ -35,7 +35,7 @@ func TestStartFailureConversionPreservesCheckEvidenceWithoutRunIdentity(t *testi
 				t.Fatalf("creation failure acquired retry identity: plan=%+v err=%v", plan, err)
 			}
 			failure := plan.StartFailures[0]
-			if failure.CheckID != 42 || failure.Job != "fact-on-push" || failure.Cluster != "example.openshiftapps.com" || failure.Category != "admission_policy" || failure.Reason != "denied [redacted] [redacted]" || failure.Superseded || !failure.Evidence.Fresh() || !failure.Evidence.At.Equal(plan.Evidence.At) || failure.Evidence.URL != "https://github.com/stackrox/fact/commit/commit/checks?check_run_id=42" {
+			if failure.CheckID != 42 || failure.Job != "fact-on-push" || failure.Cluster != "example.openshiftapps.com" || failure.Category != "admission_policy" || failure.Reason != "denied [redacted] [redacted]" || failure.Superseded || !failure.Evidence.Fresh() || !failure.Evidence.At.Equal(plan.Evidence.At) || failure.Evidence.URL != "https://github.com/stackrox/fact/runs/42" {
 				t.Fatalf("lost typed commit check observation: %+v", failure)
 			}
 		})

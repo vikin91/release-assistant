@@ -20,7 +20,7 @@ func TestCreationFailuresShowTypedCommitEvidenceWithoutGrantingRetries(t *testin
 		CheckID: 731, Job: "fact-build", Cluster: "konflux.example", Category: "admission_policy",
 		ExternalID: "fact-build-<check>", CheckStartedAt: startedAt,
 		Reason:   `creating pipelinerun fact-build- in namespace test-tenant has failed: admission webhook denied <script>alert("x")</script>`,
-		Evidence: release.Evidence{Known: true, At: readAt, URL: "https://github.com/acme/fact/commit/fetched-sha/checks?check_run_id=731"},
+		Evidence: release.Evidence{Known: true, At: readAt, URL: "https://github.com/acme/fact/runs/731"},
 	}
 	application := &fakeApplication{snapshot: app.Snapshot{
 		Config: config, Choices: release.Choices{PRs: map[release.Target]release.Choice{target: release.Included}},
@@ -32,7 +32,7 @@ func TestCreationFailuresShowTypedCommitEvidenceWithoutGrantingRetries(t *testin
 	section := between(t, panel, `<section class="panel" id="component-prs-start-failures-panel">`, `</section>`)
 	for _, want := range []string{
 		"Reported build creation failures", "konflux.example", "1 reported check", "fact-build", "Admission policy rejection",
-		"denied &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", "Open source check #731 on GitHub", `href="https://github.com/acme/fact/commit/fetched-sha/checks?check_run_id=731"`,
+		"denied &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", "Open source check #731 on GitHub", `href="https://github.com/acme/fact/runs/731"`,
 		"Source commit: <code>fetched-sha</code>", "<dt>Check read at</dt>", formatTime(readAt),
 		"<dt>GitHub check started</dt>", formatTime(startedAt),
 		"GitHub check external ID: <code>fact-build-&lt;check&gt;</code>",
