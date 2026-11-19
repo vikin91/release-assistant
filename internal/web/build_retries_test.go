@@ -46,7 +46,11 @@ func TestBuildRetriesMergeOnlyExactComments(t *testing.T) {
 			b := newBrowser(t, application)
 			retrySection := "<section class=\"panel\" id=\"" + tab + "-retry\">"
 			body := between(t, activityPanel(t, b.getBody(t), tab), retrySection, "</section>")
-			for _, want := range []string{"Konflux check retries", "Next action:", "Check details", "A run observation is incomplete"} {
+			heading := "Konflux check retries"
+			if tab == "acs-prs" {
+				heading = "Checks of Included PRs"
+			}
+			for _, want := range []string{heading, "Check details", "A run observation is incomplete"} {
 				if !strings.Contains(body, want) {
 					t.Errorf("Build retries missing %q", want)
 				}
@@ -104,5 +108,40 @@ func TestKonfluxRetryNextAction(t *testing.T) {
 	group := buildRetryTarget{Candidates: []*buildRetryCandidate{{Offer: &dispatch.Offer{CommentSent: true}}}}
 	if got := group.nextAction(true); !strings.Contains(got, "after the retry comment") {
 		t.Errorf("next action after delivery = %q", got)
+	}
+}
+
+func TestACSChecksGroupActionsByIncludedPR(t *testing.T) {
+	s := workflowStatusSnapshot()
+	acs := &s.Repositories[len(s.Repositories)-1]
+	target := func(n int) release.Target { return release.Target{Repo: acs.Source.Repo, PR: n} }
+	for _, n := range []int{42, 41, 7} {
+		s.Choices.PRs[target(n)] = release.Included
+	}
+	acs.PRs = []release.PR{{Target: target(7), State: "closed", Merged: true}, {Target: target(41), State: "open"}}
+	s.Choices.PRs[target(43)] = release.Excluded
+	s.Plans = []release.Plan{{Target: target(41), Proposals: []release.Proposal{
+		{Target: target(41), SHA: "head", RunID: "2", Job: "build", Payload: "/konflux-retest build"},
+	}}}
+	s.ManualRetries = []release.ManualRetryReport{
+		{Target: target(41), SHA: "head", Jobs: []release.ManualJob{{ID: 201}},
+			Prow: []release.ProwRetry{{Command: "/test unit"}}},
+		{Target: target(43), Warnings: []string{"excluded result"}},
+	}
+	panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-prs")
+	checks := between(t, panel, `id="acs-prs-retry"`, "</section>")
+	if strings.Count(checks, "<article ") != 3 || strings.Contains(panel, "Manual CI retries") || strings.Contains(panel, "Konflux check retries") || strings.Contains(checks, "excluded result") {
+		t.Fatalf("unexpected ACS check groups: %s", checks)
+	}
+	active := between(t, checks, `id="acs-pr-retries-41"`, "</article>")
+	for _, action := range []string{"/konflux-retest build", "actions/jobs/201/rerun", "/test unit"} {
+		if strings.Count(active, action) != 1 || strings.Count(checks, action) != 1 {
+			t.Errorf("expected %q only under PR 41", action)
+		}
+	}
+	merged := between(t, checks, `id="acs-pr-retries-7"`, "</article>")
+	pending := between(t, checks, `id="acs-pr-retries-42"`, "</article>")
+	if !strings.Contains(merged, ">Merged<") || !strings.Contains(pending, "Wait for the first Konflux check observation") {
+		t.Fatal("missing merged or pending PR status")
 	}
 }

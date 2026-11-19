@@ -1,12 +1,13 @@
 {{define "build-retries"}}
   <section class="panel" id="{{.RetrySection}}">
     <details id="{{.RetryDetails}}" open>
-      <summary class="section-summary">Konflux check retries</summary>
+      <summary class="section-summary">{{if eq .Tab "acs-prs"}}Checks of Included PRs{{else}}Konflux check retries{{end}}</summary>
       {{range .BuildRetries}}
         <article class="build-retry-target" {{if .Target.PR}}id="acs-pr-retries-{{.Target.PR}}" {{end}}data-live-key="build-retries:{{.Target}}">
-          <h3>{{.Target}}{{if eq .Target $.Snapshot.Config.PinningTarget}} <span class="pill">Pinning PR</span>{{end}}</h3>
+          <h3>{{if .Target.PR}}<a aria-describedby="new-tab-description" href="https://github.com/{{.Target.Repo}}/pull/{{.Target.PR}}" target="_blank" rel="noreferrer">{{.Target}}</a>{{else}}{{.Target}}{{end}}{{if eq .Target $.Snapshot.Config.PinningTarget}} <span class="pill">Pinning PR</span>{{end}}</h3>
+          {{if .ClosedState}}<p class="muted">{{.ClosedState}}</p>{{else}}
           {{with .Authority}}{{if .Message}}<p class="build-retry-note">{{.Message}}</p>{{end}}{{end}}
-          <p class="build-retry-note"><strong>Next action:</strong> {{.NextAction}}</p>
+          <p class="build-retry-note"><strong>{{if eq $.Tab "acs-prs"}}Konflux{{else}}Next action{{end}}:</strong> {{.NextAction}}</p>
           {{range .Candidates}}
             <details class="build-retry-row" data-fold-key="build-retry:{{.Key}}">
               <summary>
@@ -19,6 +20,7 @@
               {{with .Offer}}{{template "retry-offer-actions" ($.RetryOfferActions .)}}{{end}}
             </details>
           {{end}}
+          {{with .Manual}}{{template "manual-ci-instructions" .}}{{end}}
           <details class="build-retry-evidence" data-fold-key="build-retry-evidence:{{.Target}}">
             <summary>Check details</summary>
             {{if .Plan}}
@@ -31,6 +33,7 @@
               {{if .Warnings}}<ol>{{range .Warnings}}<li>{{.}}</li>{{end}}</ol>{{end}}
             {{end}}
           </details>
+          {{end}}
         </article>
       {{else}}
         <p class="muted">No retry observations yet. {{if eq .Tab "component-releases"}}Select a component tag to monitor its builds.{{else}}Include an ACS PR or supply a pinning PR number to monitor its builds.{{end}}</p>

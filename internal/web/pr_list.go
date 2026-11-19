@@ -45,6 +45,11 @@ func (p pageModel) PRList() prListModel {
 	)
 	if p.Tab == "acs-prs" {
 		acsProposals = make(map[release.Target]bool)
+		for _, report := range p.ManualRetries {
+			if len(report.Jobs)+len(report.Prow) > 0 {
+				acsProposals[report.Target] = true
+			}
+		}
 		for _, plan := range p.Plans {
 			if len(plan.Plan.Proposals) > 0 {
 				acsProposals[plan.Plan.Target] = true

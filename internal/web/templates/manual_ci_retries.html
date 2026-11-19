@@ -1,35 +1,40 @@
 {{define "manual-ci-retries"}}
 <section class="panel" aria-label="Manual CI retries">
   <h3 class="section-summary">Manual CI retries</h3>
-  {{range $report := .ManualRetries}}
+  {{range .ManualRetries}}
     <article class="build-retry-target" data-live-key="manual-ci:{{.Target}}">
       <h4>{{.Target}}</h4>
-      {{if or .Jobs .Prow}}<p class="muted">Available retries for commit <code>{{.SHA}}</code>. {{manualRetryWarning}}</p>{{end}}
-      {{range .Jobs}}
-        <div class="proposal" data-live-key="manual-job:{{$report.Target}}:{{.ID}}">
-          <a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">{{if .WorkflowName}}{{.WorkflowName}} / {{end}}{{.Name}}</a>
-          <div class="copyable-text rerun-command">
-            <pre><code>{{.RerunCommand $report.Target.Repo}}</code></pre>
-            <button type="button" data-copy-text>Copy command</button>
-            <span role="status" data-copy-status data-live-preserve></span>
-          </div>
-        </div>
-      {{end}}
-      {{if .Prow}}
-        <p>Failed Prow checks: {{range $i, $job := .Prow}}{{if $i}}, {{end}}{{$job.Context}}{{end}}</p>
-        <p>Retry the listed checks by posting this comment on <a aria-describedby="new-tab-description" href="{{url .URL}}#new_comment_field" target="_blank" rel="noreferrer">PR #{{.Target.PR}}</a>.</p>
-        <div class="copyable-text">
-          <pre><code>{{.ProwComment}}</code></pre>
-          <div class="copy-text-actions"><button type="button" data-copy-text>Copy comment</button><span role="status" data-copy-status data-live-preserve></span></div>
-        </div>
-      {{end}}
+      {{template "manual-ci-instructions" .}}
       {{if and (eq $.Tab "acs-rcs") (not (or .Jobs .Prow))}}
         <p class="muted">{{if .Warnings}}No verified retry commands. See retry diagnostics.{{else}}No manual CI retries available for this RC.{{end}}</p>
       {{end}}
-      {{if .Warnings}}<details data-fold-key="manual-ci-warnings:{{.Target}}"><summary>Retry diagnostics</summary><ol>{{range .Warnings}}<li>{{.}}</li>{{end}}</ol></details>{{end}}
     </article>
   {{else}}
     <p class="muted">{{if .RC.Candidate.Evidence.Error}}Unavailable · The current RC could not be verified.{{else}}Pending · {{with .Snapshot.RCImageWaitReason}}{{.}}{{else}}Waiting for CI retry checks.{{end}}{{end}}</p>
   {{end}}
 </section>
+{{end}}
+
+{{define "manual-ci-instructions"}}
+  {{$report := .}}
+  {{if or .Jobs .Prow}}<p class="muted">Available retries for commit <code>{{.SHA}}</code>. {{manualRetryWarning}}</p>{{end}}
+  {{range .Jobs}}
+    <div class="proposal" data-live-key="manual-job:{{$report.Target}}:{{.ID}}">
+      <a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">{{if .WorkflowName}}{{.WorkflowName}} / {{end}}{{.Name}}</a>
+      <div class="copyable-text rerun-command">
+        <pre><code>{{.RerunCommand $report.Target.Repo}}</code></pre>
+        <button type="button" data-copy-text>Copy command</button>
+        <span role="status" data-copy-status data-live-preserve></span>
+      </div>
+    </div>
+  {{end}}
+  {{if .Prow}}
+    <p>Failed Prow checks: {{range $i, $job := .Prow}}{{if $i}}, {{end}}{{$job.Context}}{{end}}</p>
+    <p>Retry the listed checks by posting this comment on <a aria-describedby="new-tab-description" href="{{url .URL}}#new_comment_field" target="_blank" rel="noreferrer">PR #{{.Target.PR}}</a>.</p>
+    <div class="copyable-text">
+      <pre><code>{{.ProwComment}}</code></pre>
+      <div class="copy-text-actions"><button type="button" data-copy-text>Copy comment</button><span role="status" data-copy-status data-live-preserve></span></div>
+    </div>
+  {{end}}
+  {{if .Warnings}}<details data-fold-key="manual-ci-warnings:{{.Target}}"><summary>Retry diagnostics</summary><ol>{{range .Warnings}}<li>{{.}}</li>{{end}}</ol></details>{{end}}
 {{end}}

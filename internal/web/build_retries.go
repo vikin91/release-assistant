@@ -1,17 +1,22 @@
 package web
 
 import (
+	"cmp"
+	"slices"
+
 	"release-assistant/internal/dispatch"
 	"release-assistant/internal/release"
 )
 
 type (
 	buildRetryTarget struct {
-		Target     release.Target
-		Plan       *planModel
-		Authority  *dispatch.View
-		Candidates []*buildRetryCandidate
-		NextAction string
+		Target      release.Target
+		Plan        *planModel
+		Authority   *dispatch.View
+		Candidates  []*buildRetryCandidate
+		NextAction  string
+		Manual      *release.ManualRetryReport
+		ClosedState string
 	}
 	buildRetryCandidate struct {
 		Key      string
@@ -29,7 +34,7 @@ type (
 	}
 )
 
-// BuildRetries groups exact retry comments and their current offers by target.
+// BuildRetries groups retry instructions by target, including ACS PRs awaiting their first observation.
 func (p pageModel) BuildRetries() []*buildRetryTarget {
 	var targets []*buildRetryTarget
 	byTarget := make(map[release.Target]*buildRetryTarget)
@@ -69,10 +74,43 @@ func (p pageModel) BuildRetries() []*buildRetryTarget {
 			row.Status = p.retryStatus(&offer)
 		}
 	}
+	if p.Tab == "acs-prs" {
+		for target, choice := range p.Snapshot.Choices.PRs {
+			if choice == release.Included && target.Repo == p.Snapshot.Config.ACS().Repo && target.PR > 0 {
+				targetGroup(target)
+			}
+		}
+		for _, report := range p.ManualRetries {
+			if group := byTarget[report.Target]; group != nil {
+				group.Manual = &report
+			}
+		}
+		if p.ACS != nil {
+			for _, pr := range p.ACS.PRs {
+				if group := byTarget[pr.Target]; group != nil {
+					group.setPRState(pr)
+				}
+			}
+			if pr := p.ACS.PinningPR; pr != nil && byTarget[pr.Target] != nil {
+				byTarget[pr.Target].setPRState(*pr)
+			}
+		}
+		slices.SortFunc(targets, func(a, b *buildRetryTarget) int {
+			return cmp.Compare(a.Target.PR, b.Target.PR)
+		})
+	}
 	for _, group := range targets {
 		group.NextAction = group.nextAction(p.Snapshot.Interactive)
 	}
 	return targets
+}
+
+func (g *buildRetryTarget) setPRState(pr release.PR) {
+	if pr.Merged || pr.State == "merged" {
+		g.ClosedState = "Merged"
+	} else if pr.State == "closed" {
+		g.ClosedState = "Closed"
+	}
 }
 
 // nextAction describes the next step supported by this target's observations.
