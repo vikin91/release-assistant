@@ -56,7 +56,7 @@ type (
 		KonfluxReadIssues []konflux.ReadIssue
 		// NextSourceCheck records scheduled monitoring times by repository.
 		NextSourceCheck map[string]time.Time
-		// Loading keeps the dashboard refreshing while initial reads or startup tag batches are pending.
+		// Loading keeps the dashboard refreshing during startup and while included ACS PRs await CI results.
 		Loading bool
 	}
 	// Action is a typed browser or CLI session decision.
@@ -488,6 +488,7 @@ func (s *Session) Snapshot() Snapshot {
 		x.Repositories = append(x.Repositories, cloneRepository(r))
 	}
 	slices.SortFunc(x.ManualRetries, func(a, b release.ManualRetryReport) int { return strings.Compare(a.Target.String(), b.Target.String()) })
+	x.Loading = x.Loading || slices.ContainsFunc(x.ManualRetries, func(r release.ManualRetryReport) bool { return r.Pending })
 	slices.SortFunc(x.Repositories, func(a, b release.Repository) int {
 		if a.Source.Name < b.Source.Name {
 			return -1

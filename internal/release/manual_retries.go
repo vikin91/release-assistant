@@ -16,6 +16,10 @@ type (
 		Jobs     []ManualJob
 		Prow     []ProwRetry
 		Warnings []string
+		// Pending marks a revision awaiting its first retry report.
+		Pending bool
+		// Incomplete marks a read that failed to verify all retry results.
+		Incomplete bool
 	}
 	// ProwRetry pairs a failed status context with its configured presubmit command.
 	ProwRetry struct{ Context, Command string }

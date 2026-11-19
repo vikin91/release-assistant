@@ -157,3 +157,35 @@ func TestACSChecksGroupActionsByIncludedPR(t *testing.T) {
 		t.Fatal("missing merged or pending PR status")
 	}
 }
+
+func TestACSChecksShowProgressPerPR(t *testing.T) {
+	s := workflowStatusSnapshot()
+	pr := func(n int) release.Target { return release.Target{Repo: s.Config.ACS().Repo, PR: n} }
+	s.ManualRetries = []release.ManualRetryReport{
+		{Target: pr(1), Pending: true},
+		{Target: pr(2), Incomplete: true, Warnings: []string{"Actions read deferred"}, Prow: []release.ProwRetry{{Command: "/test unit"}}},
+		{Target: pr(3)},
+		{Target: pr(4), Jobs: []release.ManualJob{{ID: 201}}},
+	}
+	for _, r := range s.ManualRetries {
+		s.Choices.PRs[r.Target] = release.Included
+	}
+	s.Plans = []release.Plan{{Target: pr(1), StartFailures: []release.StartFailure{{Category: "admission_policy", Evidence: release.Evidence{Known: true, At: time.Now()}}}}}
+	panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-prs")
+	for id, want := range map[string][]string{
+		"1": {"Loading GitHub Actions and Prow results", "Investigate the admission policy"},
+		"2": {"results are incomplete", "/test unit", "Actions read deferred"},
+		"3": {"No verified GitHub Actions or Prow retries"},
+		"4": {"actions/jobs/201/rerun"},
+	} {
+		card := between(t, panel, `id="acs-pr-retries-`+id+`"`, "</article>")
+		for _, fragment := range want {
+			if !strings.Contains(card, fragment) {
+				t.Errorf("PR %s is missing %q", id, fragment)
+			}
+		}
+		if id != "1" && strings.Contains(card, "Loading GitHub Actions and Prow results") {
+			t.Errorf("PR %s still shows a loading message", id)
+		}
+	}
+}

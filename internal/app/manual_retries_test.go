@@ -76,6 +76,57 @@ func TestMonitorManualRetries(t *testing.T) {
 	}
 }
 
+func TestACSManualRetryProgress(t *testing.T) {
+	s, f := newFixture()
+	s.config = configuration()
+	source := s.config.ACS()
+	repo := f.repos[source.Name]
+	target := release.Target{Repo: source.Repo, PR: 1}
+	pr := release.PR{Target: target, SHA: "head", Base: source.Branch, State: "open", Evidence: observed()}
+	repo.PRs = []release.PR{pr}
+	s.repos[source.Name] = repo
+	s.choices.PRs[target] = release.Included
+	for _, src := range append(slices.Clone(s.config.Components), source) {
+		s.initiallyLoaded[src.Name] = true
+	}
+	report := func() release.ManualRetryReport {
+		t.Helper()
+		snap := s.Snapshot()
+		if len(snap.ManualRetries) != 1 || snap.ManualRetries[0].Target != target {
+			t.Fatalf("expected one ACS PR report, got %+v", snap.ManualRetries)
+		}
+		got := snap.ManualRetries[0]
+		if snap.Loading != got.Pending {
+			t.Fatalf("dashboard loading = %t for report %+v", snap.Loading, got)
+		}
+		return got
+	}
+	readErr := errors.New("GitHub read deferred")
+	s.options.ManualRetries = manualReaderFunc(func(context.Context, release.Target) (release.ManualRetryReport, error) {
+		if readErr != nil && !report().Pending {
+			t.Fatal("first read must remain pending until it returns")
+		}
+		return release.ManualRetryReport{Target: target, SHA: pr.SHA}, readErr
+	})
+	s.refreshManualRetries(t.Context(), s.generation, s.workRevision, source)
+	if got := report(); got.Pending || !got.Incomplete || len(got.Warnings) == 0 {
+		t.Fatalf("deferred read: %+v", got)
+	}
+	readErr = nil
+	s.refreshManualRetries(t.Context(), s.generation, s.workRevision, source)
+	if got := report(); got.Pending || got.Incomplete || len(got.Warnings) > 0 {
+		t.Fatalf("completed empty read: %+v", got)
+	}
+	repo.PRs[0].SHA = "new-head"
+	if got := report(); got.SHA != "new-head" || !got.Pending {
+		t.Fatalf("new revision: %+v", got)
+	}
+	repo.PRs[0].CheckResultsEvidence = observed()
+	if got := s.Snapshot(); got.Loading || len(got.ManualRetries) != 0 {
+		t.Fatal("a PR without failed checks should not wait for retry collection")
+	}
+}
+
 func TestManualRetriesFollowCurrentRC(t *testing.T) {
 	s, f, _ := rcFixture(t)
 	source := s.config.ACS()

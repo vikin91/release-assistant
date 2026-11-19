@@ -27,7 +27,12 @@
               {{with .Offer}}{{template "retry-offer-actions" ($.RetryOfferActions .)}}{{end}}
             </details>
           {{end}}
-          {{with .Manual}}{{template "manual-ci-instructions" .}}{{end}}
+          {{with .Manual}}
+            {{if .Pending}}<p class="build-retry-note" role="status">Loading GitHub Actions and Prow results…</p>
+            {{else if .Incomplete}}<p class="build-retry-note" role="status">GitHub Actions and Prow results are incomplete. The next poll will check again. See retry diagnostics below.</p>
+            {{else if not (or .Jobs .Prow)}}<p class="build-retry-note">No verified GitHub Actions or Prow retries for this commit.{{if .Warnings}} See retry diagnostics below.{{end}}</p>{{end}}
+            {{template "manual-ci-instructions" .}}
+          {{end}}
           <details class="build-retry-evidence" data-fold-key="build-retry-evidence:{{.Target}}">
             <summary>Check details</summary>
             {{if .Plan}}
