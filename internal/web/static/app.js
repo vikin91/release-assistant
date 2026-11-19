@@ -85,6 +85,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (tab?.dataset?.workflowTab && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && (!event.button || event.button === 0)) {
       event.preventDefault();
       activateTab(tab.dataset.workflowTab, "pushState");
+      const drawer = tab.closest(".sidebar:popover-open");
+      if (drawer) {
+        drawer.hidePopover();
+        document.getElementById(tab.getAttribute("aria-controls")).focus();
+      }
       return;
     }
     const link = event.target.closest("[data-open-section]");

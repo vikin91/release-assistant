@@ -3,12 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
+  <meta name="color-scheme" content="dark">
   <title>{{.Title}}</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body data-configured="{{.Configured}}" data-active-tab="{{.Tab}}" data-session="{{.CSRF}}:{{.Snapshot.Generation}}" data-loading="{{and .Configured .Snapshot.Loading}}">
 <header class="topbar">
+  <button type="button" class="drawer-toggle" popovertarget="release-navigation" aria-label="Open release navigation">{{template "nav-icon" "menu"}}</button>
   <div class="release-identity"><h1>{{if .Configured}}ACS {{.Snapshot.Config.Version}}{{else}}{{.Title}}{{end}}</h1>{{if .Configured}}<code>{{.Snapshot.Config.Branch}}</code>{{end}}</div>
   {{template "konflux-status" .}}
   <details data-fold-key="write-mode" name="header-menu" class="header-menu">
@@ -17,28 +18,28 @@
   </details>
 </header>
 <div id="live-dashboard" class="workspace">
-<aside class="sidebar">
+<aside class="sidebar" id="release-navigation" popover="auto">
+  <div class="rail-heading"><span class="rail-mark" aria-hidden="true">{{template "nav-icon" "layers"}}</span><strong>Release assistant</strong>
+    <button type="button" class="drawer-toggle" popovertarget="release-navigation" popovertargetaction="hide" aria-label="Close release navigation">×</button></div>
   <h2 class="phases-title">Release phases</h2>
   <nav class="workflow-tabs" role="tablist" aria-orientation="vertical" aria-label="Release work">
     {{range $i, $tab := (slice "component-prs" "component-releases" "acs-prs" "acs-rcs" "activity" "settings")}}
     {{$label := tabTitle $tab}}
     {{if lt $i 4}}{{$label = printf "%s. %s" (index (slice "1" "2" "3" "4") $i) $label}}{{end}}
     {{if and (not $.Configured) (lt $i 4)}}
-    <span role="tab" aria-disabled="true" aria-selected="false" class="phase-disabled" title="Save the release configuration to unlock this phase.">{{$label}}</span>
+    <span role="tab" aria-disabled="true" aria-selected="false" class="phase-disabled" title="Save the release configuration to unlock this phase.">{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}</span></span>
     {{else}}
     {{$status := index $.TabStatuses $tab}}
-    <a id="tab-{{$tab}}" role="tab" href="/?tab={{$tab}}" data-workflow-tab="{{$tab}}" aria-controls="panel-{{$tab}}" aria-selected="{{if eq $.Tab $tab}}true{{else}}false{{end}}" tabindex="{{if eq $.Tab $tab}}0{{else}}-1{{end}}"{{if $status.Label}} aria-label="{{$label}} · {{$status.Label}} · {{$status.Reason}}" title="{{$status.Label}} · {{$status.Reason}}"{{end}}>{{$label}} {{if eq $tab "settings"}}<span id="setup-state" class="setup-state" data-live-preserve{{if and $.Configured (not $.ConfigRejected)}} hidden{{end}}>{{if $.Configured}}Unsaved changes{{else}}Setup required{{end}}</span>{{else}}<span class="tab-status{{with $status.Class}} {{.}}{{end}}" aria-hidden="true">{{$status.Icon}}</span>{{end}}</a>
+    <a id="tab-{{$tab}}" role="tab" href="/?tab={{$tab}}" data-workflow-tab="{{$tab}}" aria-controls="panel-{{$tab}}" aria-selected="{{if eq $.Tab $tab}}true{{else}}false{{end}}" tabindex="{{if eq $.Tab $tab}}0{{else}}-1{{end}}"{{if $status.Label}} aria-label="{{$label}} · {{$status.Label}} · {{$status.Reason}}" title="{{$status.Label}} · {{$status.Reason}}"{{end}}>{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}</span> {{if eq $tab "settings"}}<span id="setup-state" class="setup-state" data-live-preserve{{if and $.Configured (not $.ConfigRejected)}} hidden{{end}}>{{if $.Configured}}Unsaved changes{{else}}Setup required{{end}}</span>{{else}}<span class="tab-status{{with $status.Class}} {{.}}{{end}}" aria-hidden="true">{{$status.Icon}}</span>{{end}}</a>
     {{end}}{{end}}
   </nav>
   <p id="dashboard-refresh-status" class="muted" role="status" data-live-preserve>Waiting for release updates.</p>
-  {{if .Configured}}
   <section class="phase-legend" aria-labelledby="phase-legend-title">
     <h2 id="phase-legend-title">Phase icons</h2>
     <dl>{{range .PhaseLegend}}
       <div><dt><span class="tab-status {{.Class}}" aria-hidden="true">{{.Icon}}</span> {{.Label}}</dt><dd>{{.Reason}}</dd></div>
     {{end}}</dl>
   </section>
-  {{end}}
 </aside>
 <main>
   <div id="form-error" class="notice error" role="alert" data-live-preserve{{if not .Error}} hidden{{end}}>{{.Error}}</div>
@@ -93,7 +94,7 @@
   </section>
 
   {{if or .Configured .Snapshot.CacheAvailable}}
-  <section id="retry-settings" aria-labelledby="application-settings-heading">
+  <section class="panel" id="retry-settings" aria-labelledby="application-settings-heading">
     <h3 id="application-settings-heading">Application settings</h3>
     {{if .Configured}}
     <form method="post" action="/action" class="control-row">

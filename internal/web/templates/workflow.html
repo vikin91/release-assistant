@@ -4,7 +4,7 @@
     {{if eq .Tab "component-prs"}}
       <p><strong>Components</strong> · {{range $i, $source := .Snapshot.Config.Components}}{{if $i}}, {{end}}{{title $source.Name}} (<code>{{$source.Branch}}</code>){{end}}</p>
     {{end}}
-    <details class="workflow-help" data-fold-key="{{.Tab}}-guide" open>
+    <details class="workflow-help" data-fold-key="{{.Tab}}-guide">
       <summary>Help</summary>
       {{if eq .Tab "component-prs"}}
         <p>For each component listed above, review the pull requests open against its release branch. Choose which PRs to include in that component’s release. You can leave a PR undecided, exclude it, or hide it from this view. Follow the checks here and merge each included PR in GitHub.</p>

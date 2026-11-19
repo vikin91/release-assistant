@@ -77,6 +77,10 @@ func New(application Application) (http.Handler, error) {
 	mux.HandleFunc("POST /action", s.post)
 	mux.HandleFunc("GET /static/app.css", serveAsset("static/app.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("GET /static/app.js", serveAsset("static/app.js", "text/javascript; charset=utf-8"))
+	for _, family := range []string{"redhattext", "redhatdisplay", "inconsolata"} {
+		name := "static/fonts/" + family + ".ttf"
+		mux.HandleFunc("GET /"+name, serveAsset(name, "font/ttf"))
+	}
 	return s.localOnly(mux), nil
 }
 
