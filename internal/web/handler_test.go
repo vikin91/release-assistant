@@ -147,7 +147,7 @@ func TestGETDoesNotMutateAndRendersIndependentPRControls(t *testing.T) {
 	if len(appFake.actions) != 0 {
 		t.Fatalf("GET applied actions: %+v", appFake.actions)
 	}
-	for _, needle := range []string{"Include</button>", "Exclude</button>", "Allow retry comments", "Ignore &amp; hide", "#12 A PR"} {
+	for _, needle := range []string{"Include</button>", "Exclude</button>", retryCommentPermissionLabel, "Ignore &amp; hide", "#12 A PR"} {
 		if !strings.Contains(body, needle) {
 			t.Errorf("page missing %q", needle)
 		}
@@ -344,7 +344,7 @@ func TestIgnoredPRIsHiddenAndConfirmedTagHasIndependentRWControl(t *testing.T) {
 		t.Fatal("ignored PR remained visible")
 	}
 	tagRow := tagRowContaining(body, "tag-sha")
-	if !strings.Contains(tagRow, `value="acme/fact"`) || !strings.Contains(tagRow, `value="3.25.7"`) || !strings.Contains(tagRow, "Allow retry comments") {
+	if !strings.Contains(tagRow, `value="acme/fact"`) || !strings.Contains(tagRow, `value="3.25.7"`) || !strings.Contains(tagRow, retryCommentPermissionLabel) {
 		t.Fatal("confirmed tag target is missing independent RW controls")
 	}
 }
@@ -512,7 +512,7 @@ func TestComponentPRSelectionShowsAuthorsAndSummarizesUnverifiedChecks(t *testin
 		t.Fatal("the component PR should show unverified status without exposing the check table")
 	}
 	if !strings.Contains(card, `name="sha" value="exact-pr-head"`) ||
-		!strings.Contains(card, `value="included" aria-pressed="true"`) || !strings.Contains(card, `value="true"  disabled> Allow retry comments`) {
+		!strings.Contains(card, `value="included" aria-pressed="true"`) || !strings.Contains(card, `value="true"  disabled> `+retryCommentPermissionLabel) {
 		t.Fatal("inclusion must stay selected independently of the unchecked RW permission")
 	}
 }

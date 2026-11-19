@@ -26,8 +26,9 @@ import (
 var assets embed.FS
 
 const (
-	maxFormBytes = 64 << 10
-	csrfCookie   = "release_assistant_csrf"
+	retryCommentPermissionLabel = "Allow posting retry comments"
+	maxFormBytes                = 64 << 10
+	csrfCookie                  = "release_assistant_csrf"
 )
 
 type (
@@ -49,7 +50,8 @@ func New(application Application) (http.Handler, error) {
 		return nil, errors.New("web application is required")
 	}
 	page, err := template.New("index.html").Funcs(template.FuncMap{
-		"pinVersion": pinVersion, "pinDiffers": pinDiffers,
+		"retryCommentPermissionLabel": func() string { return retryCommentPermissionLabel },
+		"pinVersion":                  pinVersion, "pinDiffers": pinDiffers,
 		"tabPage": tabPage, "tabTitle": tabTitle, "tabHelp": tabHelp, "tabStep": tabStep,
 		"truth": truthLabel, "when": formatTime, "url": safeURL,
 		"activity": activityText, "commentURL": commentURL,

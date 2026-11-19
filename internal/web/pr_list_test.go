@@ -127,7 +127,7 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 			}
 		}
 		if !strings.Contains(controls, `type="checkbox" name="enabled"`) ||
-			!strings.Contains(controls, "Allow retry comments") {
+			!strings.Contains(controls, retryCommentPermissionLabel) {
 			t.Errorf("PR %q lacks a visible retry-comment checkbox", tt.title)
 		}
 		if strings.Contains(card, "Evidence and checks") || strings.Contains(card, "Retry comment permission") {

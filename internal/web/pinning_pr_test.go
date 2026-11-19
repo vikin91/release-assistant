@@ -74,6 +74,9 @@ func TestConfiguredPinningPRMonitoringAndGrant(t *testing.T) {
 	if grantForm == "" {
 		t.Fatal("configured pinning PR has no RW permission form")
 	}
+	if !strings.Contains(grantForm, "Allow posting retry comments</label>") {
+		t.Errorf("pinning grant form missing retry comment permission label")
+	}
 	assertGrantFields(t, grantForm, b, target, "pin-sha", 73, true)
 	formValues := url.Values{}
 	for _, field := range []string{"kind", "generation", "repo", "pr", "sha", "enabled"} {
