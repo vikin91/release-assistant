@@ -108,6 +108,39 @@ func TestWorkflowComponentReleaseStatus(t *testing.T) {
 		wantText string
 	}{
 		"should verify all selected tags and required images": {want: tabComplete},
+		"should show progress before the first image inventory": {
+			update: func(s *app.Snapshot) { s.Inventory = release.Inventory{} },
+			want:   tabInProgress, wantText: "Waiting for image checks",
+		},
+		"should show progress while replacing unselected image placeholders": {
+			update: func(s *app.Snapshot) {
+				delete(s.Inventory.Versions, s.Inventory.Images[0].Component)
+				s.Inventory.Images[0].Reference = ""
+				s.Inventory.Images[0].Evidence.Error = "select a component tag"
+				s.Inventory.Evidence.Known = false
+			},
+			want: tabInProgress, wantText: "Waiting for image checks",
+		},
+		"should ignore registry failures for the previous selected version": {
+			update: func(s *app.Snapshot) {
+				s.Inventory.Versions[s.Inventory.Images[0].Component] = "previous"
+				s.Inventory.Images[0].Evidence.Error = "registry unavailable"
+			},
+			want: tabInProgress, wantText: "Waiting for image checks",
+		},
+		"should warn about a registry error for the current version while loading": {
+			update: func(s *app.Snapshot) {
+				s.Loading = true
+				s.Inventory.Images[0].Evidence.Error = "registry unavailable"
+			},
+			want: tabNeedsAttention, wantText: "Unable to verify image",
+		},
+		"should warn when the inventory read failed before returning versions": {
+			update: func(s *app.Snapshot) {
+				s.Inventory = release.Inventory{Evidence: release.Evidence{Error: "registry unavailable"}}
+			},
+			want: tabNeedsAttention, wantText: "registry unavailable",
+		},
 		"should ask for tag selection": {
 			update: func(s *app.Snapshot) { delete(s.Choices.Tags, "fact") },
 			want:   tabActionNeeded, wantText: "Select a component tag for fact.",

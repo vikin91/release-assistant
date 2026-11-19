@@ -224,18 +224,7 @@ func (p pageModel) componentTagStatus(repo repoModel, prsComplete bool) tabStatu
 		status.add(tabPending, "")
 	}
 
-	images := tabStatus{State: tabComplete}
-	count := 0
-	for _, image := range p.Snapshot.Assessment.Images {
-		if image.Required && image.Image.Component == name && image.SelectedTag == repo.CurrentTag {
-			item := publishingImageStatus(image.Image, image.Status)
-			images.add(item.State, item.Reason)
-			count++
-		}
-	}
-	if count == 0 {
-		images.add(tabPending, "")
-	}
+	images := p.componentImageStatus(name, repo.CurrentTag)
 	if images.State == tabComplete || repo.SelectedTag == nil || !repo.SelectedTag.Tag.Evidence.Fresh() {
 		status.add(images.State, images.Reason)
 		return status
@@ -260,6 +249,35 @@ func (p pageModel) componentTagStatus(repo repoModel, prsComplete bool) tabStatu
 	}
 	status.add(images.State, images.Reason)
 	return status
+}
+
+// componentImageStatus considers registry results only for the selected release and tag.
+func (p pageModel) componentImageStatus(name, tag string) tabStatus {
+	inventory := p.Snapshot.Inventory
+	unobserved := tabStatus{State: tabInProgress, Reason: "Waiting for image checks for " + name + " " + tag + "."}
+	if inventory.Evidence.Error != "" {
+		unobserved = tabStatus{State: tabNeedsAttention, Reason: "Unable to verify component image checks: " + inventory.Evidence.Error}
+	}
+	if inventory.ReleaseVersion != strings.TrimPrefix(p.Snapshot.Config.Version, "v") ||
+		inventory.Versions[name] != strings.TrimPrefix(tag, "v") {
+		return unobserved
+	}
+
+	var images tabStatus
+	for _, image := range p.Snapshot.Assessment.Images {
+		if !image.Required || image.Image.Component != name || image.SelectedTag != tag {
+			continue
+		}
+		item := publishingImageStatus(image.Image, image.Status)
+		if image.Status == "" && image.Image.Evidence.At.IsZero() && image.Image.Evidence.Error == "" {
+			item = unobserved
+		}
+		images.add(item.State, item.Reason)
+	}
+	if images.State == 0 {
+		return unobserved
+	}
+	return images
 }
 
 func (p pageModel) pinStatus() tabStatus {
