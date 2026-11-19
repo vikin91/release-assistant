@@ -160,6 +160,7 @@ func (s *server) get(w http.ResponseWriter, r *http.Request) {
 		page.Tab = "settings"
 	}
 	page.ConfigSaved = page.Configured && page.Tab == "settings" && r.URL.Query().Get("saved") == "configuration"
+	page.SettingsSaved = page.Tab == "settings" && r.URL.Query().Get("saved") == "application"
 	page.CacheCleared = page.Snapshot.CacheAvailable && page.Tab == "settings" && r.URL.Query().Get("saved") == "cache-clear"
 	if err := s.template.Execute(w, page); err != nil {
 		http.Error(w, "page rendering failed", http.StatusInternalServerError)
@@ -216,8 +217,10 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 	switch action.Kind {
 	case "configure":
 		destination = "/?tab=settings&saved=configuration"
+	case "application-settings":
+		destination = "/?tab=settings&saved=application#retry-settings"
 	case "clear-cache":
-		destination = "/?tab=settings&saved=cache-clear"
+		destination = "/?tab=settings&saved=cache-clear#retry-settings"
 	}
 	http.Redirect(w, r, destination, http.StatusSeeOther)
 }

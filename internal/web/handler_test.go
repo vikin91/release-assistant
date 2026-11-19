@@ -103,7 +103,8 @@ func TestSettingsControlsCommitWindowCache(t *testing.T) {
 	getSettings := func(address string) string {
 		t.Helper()
 		response := httptest.NewRecorder()
-		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080"+address, nil)
+		path, _, _ := strings.Cut(address, "#")
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080"+path, nil)
 		b.handler.ServeHTTP(response, req)
 		if response.Code != http.StatusOK {
 			t.Fatalf("GET status = %d", response.Code)
@@ -117,6 +118,8 @@ func TestSettingsControlsCommitWindowCache(t *testing.T) {
 	action := url.Values{"tab": {"settings"}, "generation": {fmt.Sprint(session.Snapshot().Generation)}, "kind": {"application-settings"}, "cache": {"false"}}
 	if response := b.post(action); response.Code != http.StatusSeeOther || cache.Enabled() {
 		t.Fatalf("disable status=%d enabled=%t", response.Code, cache.Enabled())
+	} else if location := response.Header().Get("Location"); !strings.HasSuffix(location, "#retry-settings") || !strings.Contains(getSettings(location), "Settings saved.") {
+		t.Fatal("saving settings should return to the panel with a confirmation")
 	}
 	if body := getSettings("/?tab=settings"); strings.Contains(body, checked) {
 		t.Fatal("disabled cache rendered as enabled")

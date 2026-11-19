@@ -102,37 +102,59 @@
       <input type="hidden" name="tab" value="settings">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
-      <table class="application-settings" aria-labelledby="application-settings-heading">
-        <tbody>
-          {{if .Snapshot.StartupReadLimit}}<tr><td>
-            <label>Concurrent GitHub reads during startup
-              <input type="number" name="startup_read_limit" min="1" max="5" required value="{{.Snapshot.StartupReadLimit}}" aria-describedby="startup-read-help">
-            </label>
-          </td><td id="startup-read-help" class="muted">For the first five minutes of release monitoring. Choose 1–5.</td></tr>
-          <tr><td>
-            <label>Concurrent GitHub reads after startup
-              <input type="number" name="ongoing_read_limit" min="1" max="3" required value="{{.Snapshot.OngoingReadLimit}}" aria-describedby="ongoing-read-help">
-            </label>
-          </td><td id="ongoing-read-help" class="muted">For the rest of the monitoring session. Choose 1–3.</td></tr>{{end}}
-          {{if .Configured}}<tr><td>
-            {{if .Snapshot.WritesEnabled}}<input type="hidden" name="interactive" value="false">{{end}}
-            <label class="check{{if not .Snapshot.WritesEnabled}} disabled-control{{end}}">
-              <input type="checkbox" name="interactive" value="true" aria-describedby="retry-permissions" {{if .Snapshot.Interactive}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}> Confirm each write operation towards GitHub
-            </label>
-          </td><td id="retry-permissions" class="muted">This setting applies to all tabs. Automatic retries require permission for each PR or tag. The assistant checks that permission before posting each comment.</td></tr>{{end}}
-          {{if .Snapshot.CacheAvailable}}<tr><td>
-            <div class="control-row">
-              <input type="hidden" name="cache" value="false">
-              <label class="check">
-                <input type="checkbox" name="cache" value="true" aria-describedby="discovery-cache-help" {{if .Snapshot.CacheEnabled}}checked{{end}}> Reuse GitHub commit history in memory
-              </label>
-              <button type="submit" form="clear-cache-form">Clear cache</button>
-              {{if .CacheCleared}}<span role="status">Cache cleared.</span>{{end}}
+      {{if .Snapshot.StartupReadLimit}}
+      <section class="setting-group" aria-labelledby="read-limits-heading">
+        <h4 id="read-limits-heading">Concurrent GitHub reads</h4>
+        <div class="read-limits">
+          <div>
+            <label for="startup-read-limit">First 5 minutes</label>
+            <input id="startup-read-limit" type="number" name="startup_read_limit" min="1" max="5" required value="{{.Snapshot.StartupReadLimit}}" aria-describedby="startup-read-help">
+            <p id="startup-read-help" class="setting-help">1–5 requests</p>
+          </div>
+          <div>
+            <label for="ongoing-read-limit">After 5 minutes</label>
+            <input id="ongoing-read-limit" type="number" name="ongoing_read_limit" min="1" max="3" required value="{{.Snapshot.OngoingReadLimit}}" aria-describedby="ongoing-read-help">
+            <p id="ongoing-read-help" class="setting-help">1–3 requests</p>
+          </div>
+        </div>
+      </section>
+      {{end}}
+      {{if .Configured}}
+      <section class="setting-group" aria-labelledby="writes-heading">
+        <h4 id="writes-heading">GitHub writes</h4>
+        <div class="setting-option">
+          {{if .Snapshot.WritesEnabled}}<input type="hidden" name="interactive" value="false">{{end}}
+          <input type="checkbox" name="interactive" value="true" id="confirm-writes" aria-describedby="retry-permissions" {{if .Snapshot.Interactive}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}>
+          <div>
+            <label for="confirm-writes">Confirm each retry comment</label>
+            <p id="retry-permissions" class="setting-help">{{if .Snapshot.WritesEnabled}}Automatic retries still require permission for each PR or tag.{{else}}Read-only mode is active. Restart with <code>--enable-writes</code> to change this setting.{{end}}</p>
+          </div>
+        </div>
+      </section>
+      {{end}}
+      {{if .Snapshot.CacheAvailable}}
+      <section class="setting-group" aria-labelledby="cache-heading">
+        <h4 id="cache-heading">Discovery cache</h4>
+        <div>
+          <div class="setting-option">
+            <input type="hidden" name="cache" value="false">
+            <input id="reuse-cache" type="checkbox" name="cache" value="true" aria-describedby="discovery-cache-help" {{if .Snapshot.CacheEnabled}}checked{{end}}>
+            <div>
+              <label for="reuse-cache">Reuse GitHub commit history in memory</label>
+              <p id="discovery-cache-help" class="setting-help">Turning this off clears the cache when you save.</p>
             </div>
-          </td><td id="discovery-cache-help" class="muted">The cache is enabled at startup. Disabling it empties it for this session.</td></tr>{{end}}
-        </tbody>
-      </table>
-      <button type="submit" name="kind" value="application-settings"{{if not (or .Snapshot.CacheAvailable .Snapshot.WritesEnabled .Snapshot.StartupReadLimit)}} disabled{{end}}>Save</button>
+          </div>
+          <div class="cache-action control-row">
+            <button type="submit" form="clear-cache-form">Clear cache</button>
+            {{if .CacheCleared}}<span role="status">Cache cleared.</span>{{end}}
+          </div>
+        </div>
+      </section>
+      {{end}}
+      <div class="settings-footer control-row">
+        <button type="submit" name="kind" value="application-settings"{{if not (or .Snapshot.CacheAvailable .Snapshot.WritesEnabled .Snapshot.StartupReadLimit)}} disabled{{end}}>Save settings</button>
+        {{if .SettingsSaved}}<span role="status">Settings saved.</span>{{end}}
+      </div>
     </form>
     {{if .Snapshot.CacheAvailable}}<form id="clear-cache-form" method="post" action="/action">
       <input type="hidden" name="kind" value="clear-cache">

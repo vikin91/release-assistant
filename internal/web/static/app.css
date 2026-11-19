@@ -188,7 +188,7 @@ legend { padding: 0 .35rem; font-weight: var(--emphasis-weight); }
 .creation-failure-message { flex-basis: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: .4rem; }
 .creation-failure-message pre { margin: 0; padding: .2rem .45rem; background: var(--canvas); }
 
-button[aria-pressed=true], .config-grid button[type=submit] { color: var(--canvas); font-weight: var(--emphasis-weight); border-color: var(--accent); background: var(--accent); }
+button[aria-pressed=true], .config-grid button[type=submit], .settings-footer button:enabled { color: var(--canvas); font-weight: var(--emphasis-weight); border-color: var(--accent); background: var(--accent); }
 .pr-repo { margin-top: 1rem; padding-top: .75rem; border-top: 1px solid var(--line); }
 .pr-repo h3 { font-size: 1rem; }
 .pr-repo h3 .muted { font-size: .88rem; font-weight: 400; }
@@ -384,13 +384,32 @@ thead th { color: var(--muted); font-size: 12px; font-weight: 600; }
 .pr-card[data-release-choice=included] .pr-list-choice .pill:not(.yes) { color: var(--accent); border-color: currentColor; }
 .config-grid label { font-size: 14px; }
 .config-grid fieldset { min-width: 0; margin: 8px 0 0; padding: 12px 16px 16px; }
-.application-settings td { border: 0; padding: .5rem .75rem .5rem 0; vertical-align: middle; }
-.application-settings td:first-child { width: 50%; }
+#retry-settings form { margin: 0; }
+.setting-group {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) minmax(0, 2fr);
+  align-items: baseline;
+  gap: .5rem 2rem;
+  padding-block: 1rem;
+}
+.setting-group + .setting-group, .settings-footer { border-top: 1px solid var(--line); }
+.setting-group h4 { margin: 0; font: 600 1rem/1.5 var(--heading-font); }
+.setting-group label { font-size: .9rem; }
+.read-limits { display: flex; flex-wrap: wrap; gap: .75rem 1.5rem; }
+.read-limits > div { width: 8rem; max-width: 100%; }
+.read-limits label { margin-bottom: .35rem; }
+.setting-help { max-width: 55ch; margin: .25rem 0 0; color: var(--muted); font-size: .85rem; line-height: 1.5; }
+.setting-option { display: grid; grid-template-columns: 1.05rem minmax(0, 1fr); gap: .55rem; }
+.setting-option input[type=checkbox] { margin: .2rem 0 0; }
+.setting-option input:disabled + div label { color: var(--muted); cursor: not-allowed; }
+.setting-option input:enabled + div label { cursor: pointer; }
+.cache-action { margin: .65rem 0 0 1.6rem; }
+.settings-footer { padding-top: 1rem; }
+#retry-settings [role=status] { color: var(--green); font-size: .85rem; }
 @media (max-width: 760px) {
-  .application-settings td { display: block; }
-  .application-settings td:first-child { width: auto; }
+  .setting-group { grid-template-columns: minmax(0, 1fr); gap: .65rem; }
 }
 .config-grid legend { font: var(--emphasis-weight) 16px/1.6 var(--heading-font); }
 .config-grid > .muted, .config-grid > .control-row { grid-column: 1 / -1; margin: 0; }
-.config-grid > .muted, #retry-settings .muted { font-size: 12px; }
+.config-grid > .muted { font-size: 12px; }
 #activity-log { background: var(--canvas); }
