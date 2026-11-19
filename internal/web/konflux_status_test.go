@@ -67,7 +67,7 @@ func TestKonfluxAdmission(t *testing.T) {
 		"unverified identity":     {run: release.Run{Status: "in_progress"}, want: "unverified"},
 		"completed build failure": {run: release.Run{ID: "12", Status: "completed", Outcome: "failure"}, want: "unverified"},
 		"old observation":         {run: release.Run{ID: "12", Status: "in_progress"}, age: time.Hour, want: "unverified"},
-		"read issue":              {run: release.Run{ID: "12", Status: "in_progress"}, issues: []konfluxClusterStatus{{Reads: []konflux.ReadIssue{{}}}}, want: "unverified"},
+		"read issue":              {run: release.Run{ID: "12", Status: "in_progress"}, issues: []konfluxClusterStatus{{Reads: []konflux.ReadIssue{{}}}}, want: "unavailable"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			page := pageModel{Plans: []planModel{{Plan: release.Plan{
@@ -92,7 +92,25 @@ func TestAdmissionKeepsLastReportedErrorAfterHealthEvidenceExpires(t *testing.T)
 		}}}}},
 	}
 	status := page.KonfluxAdmission()
-	if status.Label != "Unknown" || status.Detail != page.Plans[0].Plan.StartFailures[0].Reason || !status.Last.Equal(now) || !status.Next.Equal(next) {
+	if status.Label != "Unverified" || status.Detail != page.Plans[0].Plan.StartFailures[0].Reason || !status.Last.Equal(now) || !status.Next.Equal(next) {
 		t.Fatalf("unexpected diagnostic: %+v", status)
+	}
+}
+
+func TestKonfluxPillBeforeAndAfterTimeout(t *testing.T) {
+	now := time.Now()
+	issue := konflux.ReadIssue{Endpoint: "PipelineRun API", Reason: "request timed out", LastFailure: now, RetryAt: now.Add(time.Minute)}
+	application := &fakeApplication{snapshot: app.Snapshot{Config: validACS5Config()}}
+	browser := newBrowser(t, application)
+	header := func() string { return between(t, browser.getBody(t), "<header", "</header>") }
+	if got := header(); !strings.Contains(got, `class="konflux-pill pending">Konflux · Unknown`) {
+		t.Fatalf("unexpected initial header: %s", got)
+	}
+	application.snapshot.KonfluxReadIssues = []konflux.ReadIssue{issue}
+	got := header()
+	for _, want := range []string{`class="konflux-pill unavailable">Konflux · API unavailable`, "PipelineRun API read failed: request timed out", formatTime(issue.LastFailure), formatTime(issue.RetryAt)} {
+		if !strings.Contains(got, want) {
+			t.Errorf("header missing %q: %s", want, got)
+		}
 	}
 }

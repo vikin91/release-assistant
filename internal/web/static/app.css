@@ -317,7 +317,8 @@ body { display: grid; grid-template: auto 1fr / 220px minmax(0, 1fr); min-height
 .tab-status.in-progress { color: var(--accent); }
 .tab-status.action-needed { color: #c9a9f7; }
 .tab-status.needs-attention, .konflux-pill.unverified { color: var(--amber); }
-.konflux-pill.rejected { color: var(--red); }
+.konflux-pill.pending { color: var(--muted); }
+.konflux-pill.rejected, .konflux-pill.unavailable { color: var(--red); }
 
 .topbar {
   grid-column: 2; position: relative; z-index: 1; display: flex; flex-wrap: wrap; align-items: center;

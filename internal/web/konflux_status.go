@@ -75,7 +75,7 @@ func planTab(target release.Target, acsRepo string) string {
 func (p pageModel) KonfluxAdmission() konfluxAdmission {
 	var failure konfluxAdmission
 	var started time.Time
-	result := konfluxAdmission{Class: "unverified", Label: "Unknown"}
+	result := konfluxAdmission{Class: "pending", Label: "Unknown"}
 	var active konfluxAdmission
 	for _, item := range p.Plans {
 		plan := item.Plan
@@ -85,12 +85,13 @@ func (p pageModel) KonfluxAdmission() konfluxAdmission {
 				continue
 			}
 			started = f.CheckStartedAt
-			failure = konfluxAdmission{"unverified", "Unknown", f.Reason, f.Evidence.At, next}
+			failure = konfluxAdmission{"unverified", "Unverified", f.Reason, f.Evidence.At, next}
 			if age := time.Since(started); age >= 0 && age <= 30*time.Minute {
 				failure.Class, failure.Label = "rejected", "Unhealthy"
 			}
 		}
 		if plan.Evidence.At.After(result.Last) {
+			result.Class, result.Label = "unverified", "Unverified"
 			result.Last, result.Next = plan.Evidence.At, next
 			result.Detail = plan.Evidence.Error
 			if result.Detail == "" {
@@ -123,7 +124,7 @@ func (p pageModel) KonfluxAdmission() konfluxAdmission {
 		}
 	}
 	if readIssue != nil {
-		return konfluxAdmission{"unverified", "Unknown", readIssue.Endpoint + " read failed: " + readIssue.Reason, readIssue.LastFailure, readIssue.RetryAt}
+		return konfluxAdmission{"unavailable", "API unavailable", readIssue.Endpoint + " read failed: " + readIssue.Reason, readIssue.LastFailure, readIssue.RetryAt}
 	}
 	if active.Class != "" {
 		return active
