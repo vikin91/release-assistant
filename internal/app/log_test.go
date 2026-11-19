@@ -91,7 +91,7 @@ func TestLogLabelsCommitRoles(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var output bytes.Buffer
 			NewLog(&output).Append(Record{Decision: "dispatch", Target: tc.target, SHA: "abc123"})
-			if !strings.Contains(output.String(), "Posting a retry comment in "+tc.want+".\n") {
+			if !strings.Contains(output.String(), "Authorized a retry comment in "+tc.want+".\n") {
 				t.Fatalf("unexplained commit in log: %s", output.String())
 			}
 		})
@@ -187,7 +187,7 @@ func TestLogExplainsUserActionsAndDelivery(t *testing.T) {
 		"should explain retry rejection":        {"reject", "true", "Rejected the proposed retry in fact#7."},
 		"should explain clearing rejection":     {"reject", "false", "Cleared the rejection of the proposed retry in fact#7."},
 		"should explain approval":               {"approve", "single use", "Approved one retry comment in fact#7."},
-		"should explain dispatch":               {"dispatch", "attempt", "Posting a retry comment in fact#7."},
+		"should explain dispatch":               {"dispatch", "attempt", "Authorized a retry comment in fact#7."},
 		"should explain successful delivery":    {"delivery", "sent", "Posted a retry comment in fact#7."},
 		"should explain failed delivery":        {"delivery", "failed", "Could not post a retry comment in fact#7."},
 		"should explain uncertain delivery":     {"delivery", "uncertain", "Could not confirm whether a retry comment was posted in fact#7. Check GitHub before retrying."},

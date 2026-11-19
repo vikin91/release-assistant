@@ -90,7 +90,7 @@ func run() error {
 		OnReadPauseChange: log.KonfluxReadPauseChanged,
 	})
 	inspector := images.New(client, credentials.quayUser, credentials.quayPassword)
-	dispatcher := dispatch.New(gh, planner, github.NewWriter(gh), limits)
+	dispatcher := dispatch.New(gh, planner, github.NewWriter(gh, log), limits)
 	session := app.New(gh, planner, inspector, dispatcher, log, options)
 
 	handler, err := web.New(session)

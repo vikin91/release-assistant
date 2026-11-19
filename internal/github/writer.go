@@ -9,15 +9,19 @@ import (
 	"net/http"
 	"strconv"
 
+	"release-assistant/internal/app"
 	"release-assistant/internal/dispatch"
 	"release-assistant/internal/release"
 )
 
 // Writer contains the only GitHub write operation: posting one retest comment.
-type Writer struct{ client *Client }
+type Writer struct {
+	client *Client
+	log    *app.Log
+}
 
-// NewWriter constructs the comment writer using the client's credentials and transport.
-func NewWriter(client *Client) *Writer { return &Writer{client: client} }
+// NewWriter binds the comment writer to the activity log used before each POST.
+func NewWriter(client *Client, log *app.Log) *Writer { return &Writer{client: client, log: log} }
 
 // Write posts exactly one approved comment. A transport failure or server error is uncertain.
 func (w *Writer) Write(ctx context.Context, proposal release.Proposal) (dispatch.Delivery, error) {
@@ -30,7 +34,6 @@ func (w *Writer) Write(ctx context.Context, proposal release.Proposal) (dispatch
 		endpoint = repoPath(proposal.Target.Repo) + "/issues/" + strconv.Itoa(proposal.Target.PR) + "/comments"
 	} else {
 		endpoint = repoPath(proposal.Target.Repo) + "/commits/" + segment(proposal.SHA) + "/comments"
-		payload = map[string]string{"body": proposal.Payload}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -42,6 +45,12 @@ func (w *Writer) Write(ctx context.Context, proposal release.Proposal) (dispatch
 	}
 	w.client.authorize(req)
 	req.Header.Set("Content-Type", "application/json")
+	if w.log == nil {
+		return dispatch.Delivery{Status: "failed"}, fmt.Errorf("cannot post GitHub comment without an activity log")
+	}
+	if err := w.log.GitHubCommentAttempt(proposal); err != nil {
+		return dispatch.Delivery{Status: "failed"}, fmt.Errorf("cannot log GitHub comment before posting: %w", err)
+	}
 	resp, err := w.client.http.Do(req)
 	if err != nil {
 		return dispatch.Delivery{Status: "uncertain"}, fmt.Errorf("GitHub comment delivery uncertain")

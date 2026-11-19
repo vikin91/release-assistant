@@ -1,11 +1,14 @@
 package github
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"maps"
 	"net"
 	"net/http"
@@ -508,30 +511,35 @@ func pinningDiscoveryServer(t *testing.T, pr string, refs map[string]bool, value
 
 func TestWriterUsesPRIssueAndCommitCommentEndpoints(t *testing.T) {
 	tests := []struct {
-		name              string
-		target            release.Target
-		wantPath, wantSHA string
+		name                           string
+		target                         release.Target
+		wantPath, comment, destination string
 	}{
-		{name: "PR", target: release.Target{Repo: "acme/rox", PR: 17}, wantPath: "/repos/acme/rox/issues/17/comments"},
-		{name: "tag", target: release.Target{Repo: "acme/rox", Tag: "4.8.1"}, wantPath: "/repos/acme/rox/commits/commit-sha/comments", wantSHA: "commit-sha"},
+		{name: "PR", target: release.Target{Repo: "acme/rox", PR: 17}, wantPath: "/repos/acme/rox/issues/17/comments", comment: "/konflux-retest job-a", destination: "PR acme/rox#17"},
+		{name: "tag", target: release.Target{Repo: "acme/rox", Tag: "4.8.1"}, wantPath: "/repos/acme/rox/commits/commit-sha/comments", comment: "/retest job-a tag:4.8.1", destination: "tag acme/rox@4.8.1 (commit commit-sha)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			called := false
+			var output bytes.Buffer
+			log := app.NewLog(&output)
 			srv := newFakeServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				called = true
 				if r.Method != http.MethodPost || r.URL.Path != tt.wantPath {
 					t.Errorf("request %s %s", r.Method, r.URL.Path)
 				}
-				if tt.wantSHA != "" && r.URL.Path != "/repos/acme/rox/commits/"+tt.wantSHA+"/comments" {
-					t.Errorf("wrong commit destination")
-				}
+
 				var body map[string]string
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 					t.Fatal(err)
 				}
-				if body["body"] != "/konflux-retest job-a" {
+				if body["body"] != tt.comment {
 					t.Errorf("payload=%q", body["body"])
+				}
+				want := fmt.Sprintf("Posting GitHub comment %q to %s.", body["body"], tt.destination)
+				entries := log.Recent()
+				if len(entries) != 1 || entries[0].Message() != want || !strings.HasSuffix(output.String(), " Info: "+want+"\n") {
+					t.Fatalf("POST reached GitHub before its activity entry: %q", output.String())
 				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusCreated)
@@ -539,7 +547,7 @@ func TestWriterUsesPRIssueAndCommitCommentEndpoints(t *testing.T) {
 			}))
 			defer srv.Close()
 			c := New(srv.URL, "test-secret", srv.Client())
-			delivery, err := NewWriter(c).Write(context.Background(), release.Proposal{Target: tt.target, SHA: "commit-sha", Payload: "/konflux-retest job-a"})
+			delivery, err := NewWriter(c, log).Write(t.Context(), release.Proposal{Target: tt.target, SHA: "commit-sha", Payload: tt.comment})
 			if err != nil || delivery.Status != "sent" || delivery.URL == "" || !called {
 				t.Fatalf("delivery=%+v err=%v called=%t", delivery, err, called)
 			}
@@ -554,11 +562,38 @@ func TestWriterDistinguishesRejectedFromUncertain(t *testing.T) {
 	}{{http.StatusBadRequest, "failed"}, {http.StatusInternalServerError, "uncertain"}} {
 		srv := newFakeServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "private response content", tc.status) }))
 		c := New(srv.URL, "", srv.Client())
-		delivery, err := NewWriter(c).Write(context.Background(), release.Proposal{Target: release.Target{Repo: "acme/rox", PR: 1}, SHA: "sha", Payload: "command"})
+		delivery, err := NewWriter(c, app.NewLog(io.Discard)).Write(t.Context(), release.Proposal{Target: release.Target{Repo: "acme/rox", PR: 1}, SHA: "sha", Payload: "command"})
 		srv.Close()
 		if err == nil || delivery.Status != tc.want || strings.Contains(err.Error(), "private") {
 			t.Fatalf("status=%d delivery=%+v err=%v", tc.status, delivery, err)
 		}
+	}
+}
+
+type shortLogWriter struct{}
+
+func (shortLogWriter) Write(p []byte) (int, error) { return len(p) - 1, nil }
+
+func TestWriterRequiresCompleteLogBeforePOST(t *testing.T) {
+	closedReader, brokenOutput := io.Pipe()
+	if err := closedReader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	defer brokenOutput.Close()
+	for name, log := range map[string]*app.Log{
+		"missing log": nil, "missing output": app.NewLog(nil),
+		"failed write": app.NewLog(brokenOutput), "short write": app.NewLog(shortLogWriter{}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := newFakeServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("unexpected GitHub POST") }))
+			writer := NewWriter(New(srv.URL, "", srv.Client()), log)
+			delivery, err := writer.Write(t.Context(), release.Proposal{
+				Target: release.Target{Repo: "acme/rox", PR: 17}, SHA: "commit-sha", Payload: "/konflux-retest job-a",
+			})
+			if err == nil || delivery.Status != "failed" {
+				t.Fatalf("unlogged write: delivery=%+v err=%v", delivery, err)
+			}
+		})
 	}
 }
 

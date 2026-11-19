@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -62,12 +63,26 @@ func (l *Log) KonfluxReadPauseChanged(issue konflux.ReadIssue) {
 	l.Append(r)
 }
 
+// GitHubCommentAttempt records the exact comment and destination before the HTTP request can be sent.
+func (l *Log) GitHubCommentAttempt(p release.Proposal) error {
+	destination := "PR " + p.Target.String()
+	if p.Target.Tag != "" {
+		destination = fmt.Sprintf("tag %s (commit %s)", p.Target, p.SHA)
+	}
+	return l.append(Record{
+		At: time.Now(), Target: p.Target, SHA: p.SHA, Decision: "github-comment-attempt", Origin: "system",
+		Result: fmt.Sprintf("Posting GitHub comment %q to %s.", p.Payload, destination),
+	})
+}
+
 // Append records a decision; failures remain visible until a successful write.
-func (l *Log) Append(r Record) {
+func (l *Log) Append(r Record) { _ = l.append(r) }
+
+func (l *Log) append(r Record) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if r.Decision == "work-complete" || (r.Decision == "observation" && r.message == "") {
-		return
+		return nil
 	}
 	if len(l.recent) == maxRecentRecords {
 		l.recent = slices.Delete(l.recent, 0, 1)
@@ -79,11 +94,15 @@ func (l *Log) Append(r Record) {
 	if r.Payload != "" && r.Decision != "image" {
 		fmt.Fprintf(&text, "%s Debug: Retry comment for %s:\n    %s\n", stamp, consoleRevision(r.Target, r.SHA), strings.ReplaceAll(r.Payload, "\n", "\n    "))
 	}
-	if _, err := io.WriteString(l.output, text.String()); err != nil {
-		l.failure = "Action log write failed"
-	} else {
-		l.failure = ""
+	if l.output != nil {
+		n, err := io.WriteString(l.output, text.String())
+		if err == nil && n == text.Len() {
+			l.failure = ""
+			return nil
+		}
 	}
+	l.failure = "Action log write failed"
+	return errors.New(l.failure)
 }
 
 // Message describes a decision in the same prose used by the console log.
@@ -278,7 +297,7 @@ func recordMessage(r Record) string {
 	case "withheld":
 		return fmt.Sprintf("Did not post a retry comment in %s because its approval is out of date.", target)
 	case "dispatch":
-		return fmt.Sprintf("Posting a retry comment in %s.", target)
+		return fmt.Sprintf("Authorized a retry comment in %s.", target)
 	case "delivery":
 		switch r.Result {
 		case "sent":
