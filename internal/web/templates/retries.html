@@ -44,7 +44,7 @@
       {{if $plan.Warnings}}<h4>Warnings</h4><ol>{{range $plan.Warnings}}<li>{{.}}</li>{{end}}</ol>{{end}}
       {{if $plan.Advisories}}<h4>Conforma advisories</h4><p class="muted" id="review-help-{{$plan.Target}}">Mark as reviewed records that you have read an advisory for this session and adds an action-log entry. It does not change check results, retry eligibility, write permissions, or release readiness. Reviews reset on restart.</p>{{range $plan.Advisories}}<div class="advisory">
         <p>{{.Message}}</p>
-        {{if url .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer">Evidence</a>{{end}}
+        {{if url .URL}}<a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">Evidence</a>{{end}}
         {{if index $page.Snapshot.Choices.Acknowledged .ID}}<p class="review-status"><span class="pill selected">Reviewed for this session</span></p>{{end}}
         <form method="post" action="/action#{{$page.RetrySection}}" class="inline-form"><input type="hidden" name="tab" value="{{$page.Tab}}"><input type="hidden" name="csrf" value="{{$page.CSRF}}"><input type="hidden" name="generation" value="{{$page.Snapshot.Generation}}"><input type="hidden" name="kind" value="acknowledge"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="repo" value="{{$plan.Target.Repo}}"><input type="hidden" name="pr" value="{{if $plan.Target.PR}}{{$plan.Target.PR}}{{end}}"><input type="hidden" name="tag" value="{{$plan.Target.Tag}}"><input type="hidden" name="sha" value="{{$plan.SHA}}"><input type="hidden" name="enabled" value="{{if index $page.Snapshot.Choices.Acknowledged .ID}}false{{else}}true{{end}}"><button type="submit" aria-describedby="review-help-{{$plan.Target}}">{{if index $page.Snapshot.Choices.Acknowledged .ID}}Mark as unreviewed{{else}}Mark as reviewed{{end}}</button></form>
       </div>{{end}}{{end}}
@@ -84,7 +84,7 @@
     <div class="copy-text-actions">
       <button type="button" data-copy-text>Copy comment</button>
       {{$target := .Target}}
-      {{with commentURL .}}<a href="{{.}}" target="_blank" rel="noreferrer">Comment on {{if $target.PR}}PR #{{$target.PR}}{{else}}the commit{{end}} on GitHub (opens in a new tab)</a>{{end}}
+      {{with commentURL .}}<a aria-describedby="new-tab-description" href="{{.}}" target="_blank" rel="noreferrer">Comment on {{if $target.PR}}PR #{{$target.PR}}{{else}}the commit{{end}} on GitHub</a>{{end}}
       <span role="status" data-copy-status data-live-preserve></span>
     </div>
   </div>

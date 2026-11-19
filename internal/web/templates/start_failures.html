@@ -39,7 +39,7 @@
             </div>
             {{if eq .Failure.Category "admission_policy"}}<p>Tekton stopped this attempt before the build could run.</p>{{end}}
             <p class="creation-failure-source">{{if url .Failure.Evidence.URL}}
-              <a href="{{url .Failure.Evidence.URL}}" target="_blank" rel="noreferrer">Open source check{{if gt .Failure.CheckID 0}} #{{.Failure.CheckID}}{{end}} on GitHub</a>
+              <a aria-describedby="new-tab-description" href="{{url .Failure.Evidence.URL}}" target="_blank" rel="noreferrer">Open source check{{if gt .Failure.CheckID 0}} #{{.Failure.CheckID}}{{end}} on GitHub</a>
             {{else if gt .Failure.CheckID 0}}Source check #{{.Failure.CheckID}} · link unavailable
             {{else}}Source check link unavailable{{end}}</p>
             <dl class="creation-failure-facts">
@@ -55,7 +55,7 @@
               {{if .Failure.Reason}}<pre>{{.Failure.Reason}}</pre>{{else}}<p class="muted">No failure reason was reported.</p>{{end}}
               <p>Source commit{{if ne (len .Commits) 1}}s{{end}}: {{range $i,$commit:=.Commits}}{{if $i}}, {{end}}<code>{{$commit}}</code>{{else}}unknown{{end}}</p>
               {{if .Failure.ExternalID}}<p>GitHub check external ID: <code>{{.Failure.ExternalID}}</code></p>{{end}}
-              {{if url .RawCheckURL}}<p><a href="{{url .RawCheckURL}}" target="_blank" rel="noreferrer">Open raw GitHub check JSON</a></p>{{end}}
+              {{if url .RawCheckURL}}<p><a aria-describedby="new-tab-description" href="{{url .RawCheckURL}}" target="_blank" rel="noreferrer">Open raw GitHub check JSON</a></p>{{end}}
               {{if .Failure.CheckStartedAt.IsZero}}<p class="muted">GitHub did not report when the check started.</p>{{end}}
               {{if .Failure.Evidence.Error}}<p class="error-text">{{.Failure.Evidence.Error}}</p>{{end}}
             </details>

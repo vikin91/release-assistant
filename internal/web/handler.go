@@ -78,6 +78,7 @@ func New(application Application) (http.Handler, error) {
 	mux.HandleFunc("GET /activity", s.getActivity)
 	mux.HandleFunc("POST /action", s.post)
 	mux.HandleFunc("GET /static/app.css", serveAsset("static/app.css", "text/css; charset=utf-8"))
+	mux.HandleFunc("GET /static/external-link.svg", serveAsset("static/external-link.svg", "image/svg+xml"))
 	mux.HandleFunc("GET /static/app.js", serveAsset("static/app.js", "text/javascript; charset=utf-8"))
 	for _, family := range []string{"redhattext", "redhatdisplay", "inconsolata"} {
 		name := "static/fonts/" + family + ".ttf"

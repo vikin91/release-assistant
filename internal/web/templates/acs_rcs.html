@@ -9,13 +9,13 @@
       {{with .RC.Candidate}}
         {{if $.RC.TagURL}}
           <div class="control-row rc-links">
-            <a href="{{url $.RC.TagURL}}" target="_blank" rel="noreferrer">Open RC.{{.Number}} tag</a>
-            {{if $.RC.ChecksURL}}<a href="{{url $.RC.ChecksURL}}" target="_blank" rel="noreferrer">View tag checks</a>{{end}}
+            <a aria-describedby="new-tab-description" href="{{url $.RC.TagURL}}" target="_blank" rel="noreferrer">Open RC.{{.Number}} tag</a>
+            {{if $.RC.ChecksURL}}<a aria-describedby="new-tab-description" href="{{url $.RC.ChecksURL}}" target="_blank" rel="noreferrer">View tag checks</a>{{end}}
           </div>
           {{if eq .Ahead 0}}<p>No commits have landed on the release branch since RC.{{.Number}}.</p>
           {{else}}
-            <p><a href="{{url .CompareURL}}" target="_blank" rel="noreferrer">{{.Ahead}} {{if eq .Ahead 1}}commit{{else}}commits{{end}}</a> landed on the release branch since RC.{{.Number}}.</p>
-            {{if .PRs}}<ol>{{range .PRs}}<li><a href="{{url .URL}}" target="_blank" rel="noreferrer">#{{.Number}} {{.Title}}</a></li>{{end}}</ol>
+            <p><a aria-describedby="new-tab-description" href="{{url .CompareURL}}" target="_blank" rel="noreferrer">{{.Ahead}} {{if eq .Ahead 1}}commit{{else}}commits{{end}}</a> landed on the release branch since RC.{{.Number}}.</p>
+            {{if .PRs}}<ol>{{range .PRs}}<li><a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">#{{.Number}} {{.Title}}</a></li>{{end}}</ol>
             {{else if not .PRError}}<p class="muted">GitHub reported no associated merged PRs.</p>{{end}}
             {{if .PRError}}<p class="muted">Some PR links are unavailable. {{.PRError}}</p>{{end}}
           {{end}}
@@ -23,7 +23,7 @@
           <p>Unable to discover the current RC tag. {{.Evidence.Error}}</p>
         {{else if .Evidence.Fresh}}
           <p>No release candidate tag exists for this patch on the release branch.</p>
-          <p><a href="{{url $.RC.WorkflowURL}}" target="_blank" rel="noreferrer">Open release workflow</a></p>
+          <p><a aria-describedby="new-tab-description" href="{{url $.RC.WorkflowURL}}" target="_blank" rel="noreferrer">Open release workflow</a></p>
         {{else}}
           <p class="muted">Waiting to discover release candidate tags.</p>
         {{end}}
@@ -64,7 +64,7 @@
           <details class="rc-diagnostics" data-fold-key="rc-build-diagnostics">
             <summary>{{with $.RC.UnverifiedJobs}}{{len .}} {{if $.ReleaseImages.Total}}additional {{end}}{{if eq (len .) 1}}job{{else}}jobs{{end}} could not be verified{{else}}Build check diagnostics{{end}}</summary>
             {{if $.RC.LookupTimedOut}}<p class="muted">A Konflux lookup timed out while verifying build checks.</p>{{end}}
-            {{with $.RC.UnverifiedJobs}}<ol>{{range .}}<li><code>{{.Job}}</code>{{if url .URL}} · <a href="{{url .URL}}" target="_blank" rel="noreferrer">Open check in Konflux</a>{{end}}</li>{{end}}</ol>{{end}}
+            {{with $.RC.UnverifiedJobs}}<ol>{{range .}}<li><code>{{.Job}}</code>{{if url .URL}} · <a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">Open check in Konflux</a>{{end}}</li>{{end}}</ol>{{end}}
             {{if .Plan.Evidence.Error}}<pre>{{.Plan.Evidence.Error}}</pre>
             {{else}}<ol>{{range .Plan.Warnings}}<li>{{.}}</li>{{end}}</ol>{{end}}
           </details>
@@ -117,7 +117,7 @@
   {{if eq $status "yes"}}{{$label = "Available"}}{{else if eq $status "no"}}{{$label = "Tag missing"}}{{end}}
   <span class="rc-image-reference">
     {{if .Check.Image.Reference}}<span>
-    {{if url .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer"{{if eq $status "no"}} title="Open expected Quay tag"{{end}}><code>{{.Check.Image.Reference}}</code></a>
+    {{if url .URL}}<a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer"{{if eq $status "no"}} title="Open expected Quay tag"{{end}}><code>{{.Check.Image.Reference}}</code></a>
     {{else}}<code>{{.Check.Image.Reference}}</code>{{end}}
     </span>{{end}}
     <span class="rc-image-mark {{$status}}" role="img" aria-label="{{$label}}" title="{{$label}}{{with .Check.Image.Evidence.At}}{{if not .IsZero}} · {{if eq $status "unknown"}}Check attempted{{else}}Checked{{end}} {{when .}}{{end}}{{end}}{{if and (eq $status "no") (not .Check.Image.PublishingSince.IsZero)}} · First seen missing {{when .Check.Image.PublishingSince}}{{end}}">{{if eq $status "yes"}}✓{{else if eq $status "no"}}✗{{else}}?{{end}}</span>
@@ -128,7 +128,7 @@
 
 {{define "rc-build-cell"}}
   {{with .}}
-    {{if url .Link}}<a class="rc-build-status {{.Class}}" href="{{url .Link}}" target="_blank" rel="noreferrer" title="{{.LinkLabel}}" aria-label="{{.Status}} · {{.LinkLabel}}">{{.Status}}</a>
+    {{if url .Link}}<a aria-describedby="new-tab-description" class="rc-build-status {{.Class}}" href="{{url .Link}}" target="_blank" rel="noreferrer" title="{{.LinkLabel}}" aria-label="{{.Status}} · {{.LinkLabel}}">{{.Status}}</a>
     {{else}}<span class="rc-build-status {{.Class}}">{{.Status}}</span>{{end}}
     {{with .Retry}}{{template "rc-retry" .}}{{end}}
   {{else}}<span title="No build result yet">—</span>{{end}}

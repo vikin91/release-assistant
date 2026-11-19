@@ -3,8 +3,8 @@
     <h3 id="rc-validation-heading">RC validation</h3>
     {{if .RC.CommitURL}}
       <div class="control-row rc-links">
-        <a href="{{url .RC.CommitURL}}" target="_blank" rel="noreferrer">Commit <code>{{.RC.Plan.Plan.SHA}}</code></a>
-        <a href="{{url .RC.ChecksURL}}" target="_blank" rel="noreferrer">All checks on GitHub</a>
+        <a aria-describedby="new-tab-description" href="{{url .RC.CommitURL}}" target="_blank" rel="noreferrer">Commit <code>{{.RC.Plan.Plan.SHA}}</code></a>
+        <a aria-describedby="new-tab-description" href="{{url .RC.ChecksURL}}" target="_blank" rel="noreferrer">All checks on GitHub</a>
       </div>
       {{if .RC.ImagesAvailable}}{{with .RC.Permission}}{{template "tag-comment-permission" .}}{{end}}{{end}}
       {{with .RC.Plan.Plan.Validation}}
@@ -25,7 +25,7 @@
                   <td><span class="pill component-image-status {{.Class}}">{{.Status}}</span></td>
                   <td>
                     <div class="rc-row-links">
-                      <a href="{{url .URL}}" target="_blank" rel="noreferrer">{{.LinkLabel}}</a>
+                      <a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">{{.LinkLabel}}</a>
                     </div>
                     {{with .Retry}}{{template "rc-retry" .}}{{end}}
                   </td>
