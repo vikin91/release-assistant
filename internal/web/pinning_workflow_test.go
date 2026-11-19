@@ -38,7 +38,7 @@ func TestPinningWorkflowPrioritizesOpenPRVersions(t *testing.T) {
 			body := newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t)
 			section := pinningSection(t, body)
 			if tc.merged {
-				if !strings.Contains(section, "Actual ACS branch pins differ") || strings.Count(section, `class="pin-differs"`) != 3 {
+				if !strings.Contains(section, `class="pill no">ACS pins differ from selected versions</span>`) || strings.Count(section, `class="pin-differs"`) != 3 {
 					t.Fatal("merged PR did not restore branch pin verification", section)
 				}
 				return

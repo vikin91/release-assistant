@@ -6,14 +6,34 @@
     {{if .Snapshot.Assessment.Pins.PRNumber}}<a class="pill {{truth .Snapshot.Assessment.Pins.PRStatus}}" href="{{url .Snapshot.Assessment.Pins.PRURL}}" target="_blank" rel="noreferrer" title="{{.Snapshot.Assessment.Pins.PRReason}}">Pin PR #{{.Snapshot.Assessment.Pins.PRNumber}}: {{.PinPRState}}</a>{{else}}<span class="pill muted">Pin PR: not supplied</span>{{end}}
   </div>
   <details class="panel" id="pinning-details" open><summary class="section-summary">ACS pinning details</summary>
-    {{if .Snapshot.Assessment.Pins.PRNumber}}<p><a href="{{url .Snapshot.Assessment.Pins.PRURL}}" target="_blank" rel="noreferrer">Open pinning PR #{{.Snapshot.Assessment.Pins.PRNumber}}</a>: {{.Snapshot.Assessment.Pins.PRSummary}}</p>{{else}}<p>Choose a pinning PR from the ACS release PR list or enter its number in Settings.</p>{{end}}
-    {{if .Snapshot.Assessment.Pins.PRProblems}}<ol class="pin-problems">{{range .Snapshot.Assessment.Pins.PRProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}
-    {{if and .Snapshot.Assessment.Pins.PROpen (eq (truth .Snapshot.Assessment.Pins.BranchStatus) "no")}}
-      <p class="muted">The pinning PR has not merged. Release-branch pins will be verified after merge.</p>
+    {{$pins := .Snapshot.Assessment.Pins}}
+    {{if .PinningPR}}{{$pin := .PinningPR.PR}}
+      <p class="control-row">
+        <a href="{{url (or $pin.URL $.Snapshot.Assessment.Pins.PRURL)}}" target="_blank" rel="noreferrer"{{with $pin.Title}} title="{{.}}"{{end}}>Open pinning PR #{{$pin.Target.PR}}</a>
+        {{if not $pin.Evidence.Fresh}}<span class="pill unknown">Last observed: {{or $pin.State "unknown"}}</span>
+        {{else if or $pin.Merged (eq $pin.State "merged")}}<span class="pill yes">Merged</span>
+        {{else if eq $pin.State "closed"}}<span class="pill no">Closed without merging</span>
+        {{else if eq $pin.State "open"}}<span class="pill">Open</span>
+        {{else}}<span class="pill unknown">Pending PR status</span>{{end}}
+        {{template "branch-pin-pill" .}}
+      </p>
+      <form method="post" action="/action#pinning-details" class="inline-form grant-form" data-autosubmit><input type="hidden" name="tab" value="{{$.Tab}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="grant"><input type="hidden" name="repo" value="{{$pin.Target.Repo}}"><input type="hidden" name="pr" value="{{$pin.Target.PR}}"><input type="hidden" name="sha" value="{{$pin.SHA}}"><input type="hidden" name="enabled" value="false"><label class="check{{if not $.PinningCanGrant}} disabled-control{{end}}" title="Saves immediately"><input type="checkbox" name="enabled" value="true" {{if and $.PinningPR.Authority $.PinningPR.Authority.Granted}}checked{{end}}{{if not $.PinningCanGrant}} disabled{{end}}> {{retryCommentPermissionLabel}}</label><noscript><button type="submit"{{if not $.PinningCanGrant}} disabled{{end}}>Apply RW permission</button></noscript></form>
+      {{if and $pin.Evidence.Fresh (eq $pin.State "open") (not $pin.Merged)}}<p>
+          <span>Head <code>{{$pin.SHA}}</code> · base {{$pin.Base}}</span>
+          {{if and (eq $pin.Base $.Snapshot.Config.Branch) (ne $.PinningPR.Choice "ignored")}}<a href="/?tab=acs-prs#acs-prs-retry-details" data-open-section>Builds and retries</a>{{end}}
+      </p>{{end}}
+      {{if or (not $pin.Evidence.Fresh) (and (not $pin.Merged) (ne $pin.State "merged") (ne $pin.State "closed"))}}{{with $pins.PRSummary}}<p>{{.}}</p>{{end}}{{end}}
+    {{else if $pins.PRNumber}}
+      <p class="control-row"><a href="{{url $pins.PRURL}}" target="_blank" rel="noreferrer">Open pinning PR #{{$pins.PRNumber}}</a> {{template "branch-pin-pill" .}}</p>
+      <p>{{$pins.PRSummary}}</p>
     {{else}}
-      <p>{{.Snapshot.Assessment.Pins.BranchSummary}}</p>
-      {{if .Snapshot.Assessment.Pins.BranchProblems}}<ol class="pin-problems">{{range .Snapshot.Assessment.Pins.BranchProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}
+      <p>Choose a pinning PR from the ACS release PR list or enter its number in Settings.</p>
+      {{template "branch-pin-pill" .}}
     {{end}}
+    {{if $pins.PRProblems}}<ol class="pin-problems">{{range $pins.PRProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}
+    {{if $branchPending}}
+      <p class="muted">Release-branch pins will be verified after merge.</p>
+    {{else if $pins.BranchProblems}}<ol class="pin-problems">{{range $pins.BranchProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}
     {{if .ACS}}
       <table class="pin-comparison" aria-label="Component version comparison">
         <thead><tr><th scope="col">Component</th><th scope="col">Selected tag</th><th scope="col">On ACS branch</th>{{if .Snapshot.Config.PinningPR}}<th scope="col">In pinning PR</th>{{end}}</tr></thead>
@@ -31,18 +51,7 @@
         {{end}}</tbody>
       </table>
     {{end}}
-    {{if .PinningPR}}{{$pin := .PinningPR.PR}}<article class="pr-card" data-fold-key="pinning-pr:{{$pin.Target.Repo}}#{{$pin.Target.PR}}">
-      <h3>Pinning PR</h3>
-      <p class="control-row">
-        <a href="{{url $pin.URL}}" target="_blank" rel="noreferrer"{{with $pin.Title}} title="{{.}}"{{end}}>Open pinning PR #{{$pin.Target.PR}}</a>
-        {{if not $pin.Evidence.Fresh}}<span class="pill unknown">Last observed: {{or $pin.State "unknown"}}</span>
-        {{else if or $pin.Merged (eq $pin.State "merged")}}<span class="pill yes">Merged</span>
-        {{else if eq $pin.State "closed"}}<span class="pill no">Closed without merging</span>
-        {{else if eq $pin.State "open"}}<span class="pill">Open</span>
-          <span>Head <code>{{$pin.SHA}}</code> · base {{$pin.Base}}</span>
-          {{if and (eq $pin.Base $.Snapshot.Config.Branch) (ne $.PinningPR.Choice "ignored")}}<a href="/?tab=acs-prs#acs-prs-retry-details" data-open-section>Builds and retries</a>{{end}}
-        {{else}}<span class="pill unknown">Pending PR status</span>{{end}}
-      </p>
+    {{if .PinningPR}}{{$pin := .PinningPR.PR}}
       {{if .PinningStartFailures}}<p><a href="/?tab=acs-prs#acs-prs-start-failures" data-open-section>View reported build creation failures</a>.</p>{{end}}
       {{if and (eq $pin.State "open") (not $pin.Merged)}}
         {{if eq (truth .PinningHealth) "yes"}}<p class="yes">Required checks passed.</p>{{else}}
@@ -55,10 +64,18 @@
           {{if and $pin.ChecksEvidence.Fresh (not .PinningFailures) (not .PinningPending)}}<p>Unable to establish which checks are required.</p>{{end}}
         {{end}}
       {{end}}
-      <form method="post" action="/action#pinning-details" class="inline-form grant-form" data-autosubmit><input type="hidden" name="tab" value="{{$.Tab}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="grant"><input type="hidden" name="repo" value="{{$pin.Target.Repo}}"><input type="hidden" name="pr" value="{{$pin.Target.PR}}"><input type="hidden" name="sha" value="{{$pin.SHA}}"><input type="hidden" name="enabled" value="false"><label class="check{{if not $.PinningCanGrant}} disabled-control{{end}}" title="Saves immediately"><input type="checkbox" name="enabled" value="true" {{if and $.PinningPR.Authority $.PinningPR.Authority.Granted}}checked{{end}}{{if not $.PinningCanGrant}} disabled{{end}}> {{retryCommentPermissionLabel}}</label><noscript><button type="submit"{{if not $.PinningCanGrant}} disabled{{end}}>Apply RW permission</button></noscript></form>
       {{if and (eq $pin.State "open") (not $pin.Merged) (eq (truth .PinningHealth) "yes")}}
         {{if .PinningImages}}<h4>Konflux images</h4><p>{{.PinningImageSummary}}</p><ol class="image-results">{{range .PinningImages}}<li class="image-result"><div class="section-heading"><strong>{{if .Image.Name}}{{.Image.Name}}{{else}}{{if .Job}}{{.Job}}{{else}}Image name unknown{{end}}{{end}}</strong><span class="pill {{truth .Status}}">{{if eq (truth .Status) "yes"}}Available{{else}}{{if eq (truth .Status) "no"}}Not found{{else}}Unable to check{{end}}{{end}}</span></div>{{if .Image.Reference}}<details data-fold-key="pinning-image:{{$pin.Target.Repo}}#{{$pin.Target.PR}}:{{.Job}}"><summary>Image reference</summary><p><code>{{.Image.Reference}}</code></p></details>{{end}}{{if url .URL}}<p><a href="{{url .URL}}" target="_blank" rel="noreferrer">Build evidence{{if .Job}} · {{.Job}}{{end}}</a></p>{{else}}{{if .Job}}<p>{{.Job}}</p>{{end}}{{end}}{{if url .Image.Evidence.URL}}<p><a href="{{url .Image.Evidence.URL}}" target="_blank" rel="noreferrer">Image evidence</a></p>{{end}}{{if .Reason}}<p class="error-text">{{.Reason}}</p>{{end}}</li>{{end}}</ol>{{else}}<p class="muted">{{if .PinningBuildProblems}}Unable to get build images from pinning PR #{{$pin.Target.PR}}.{{else}}Pending build images.{{end}}</p>{{if .PinningBuildProblems}}<ol>{{range .PinningBuildProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}{{end}}
       {{end}}
-    </article>{{end}}
+    {{end}}
   </details>
+{{end}}
+
+{{define "branch-pin-pill"}}
+  {{with .Snapshot.Assessment.Pins}}
+    {{if and .PROpen (eq (truth .BranchStatus) "no")}}<span class="pill unknown">ACS pins pending PR merge</span>
+    {{else if eq (truth .BranchStatus) "yes"}}<span class="pill yes">ACS pins match selected versions</span>
+    {{else if eq (truth .BranchStatus) "no"}}<span class="pill no">ACS pins differ from selected versions</span>
+    {{else}}<span class="pill unknown">{{or .BranchSummary "ACS pins unverified"}}</span>{{end}}
+  {{end}}
 {{end}}
