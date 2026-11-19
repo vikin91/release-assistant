@@ -36,7 +36,7 @@
     <p class="pr-list-filter-empty muted">No PRs match this filter.</p>
     {{range $triage.Repos}}
       <article class="pr-repo" data-live-key="pr-repo:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}">
-        <h3>{{title .Repository.Source.Name}} <span class="muted">{{.Repository.Source.Repo}} · {{.Repository.Source.Branch}}</span></h3>
+        {{with .Repository.Source}}<h3>{{title .Name}} <span class="muted">{{.Repo}} · {{if and $component .Repo .Branch}}<a href="https://github.com/{{.Repo}}/commits/{{.Branch | urlquery}}" target="_blank" rel="noreferrer">{{.Branch}}</a>{{else}}{{.Branch}}{{end}}</span></h3>{{end}}
         {{range .PRs}}
           {{$row := index $triage.Rows .PR.Target}}
           <article class="pr-card" data-live-key="pr:{{.PR.Target}}" data-release-choice="{{.ChoiceLabel}}"{{if $row.Attention}} data-pr-attention{{end}}>
