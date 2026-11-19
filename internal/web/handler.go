@@ -318,6 +318,15 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 		if a.SHA == "" {
 			return a, fmt.Errorf("grant requires the displayed SHA")
 		}
+	case "application-settings":
+		a.Interactive, err = checkboxSetting(r.PostForm, "interactive")
+		if err != nil {
+			return a, err
+		}
+		a.CacheEnabled, err = checkboxSetting(r.PostForm, "cache")
+		if err != nil {
+			return a, err
+		}
 	case "interactive", "cache-enabled":
 		a.Enabled = formHasValue(form, "enabled", "true")
 	case "clear-cache":
@@ -356,6 +365,20 @@ func truthLabel(value release.Truth) string {
 		return "unknown"
 	}
 	return string(value)
+}
+
+func checkboxSetting(form url.Values, field string) (*bool, error) {
+	if !form.Has(field) {
+		return nil, nil
+	}
+	switch lastFormValue(form, field) {
+	case "true":
+		return new(true), nil
+	case "false":
+		return new(false), nil
+	default:
+		return nil, fmt.Errorf("invalid %s setting", field)
+	}
 }
 
 func lastFormValue(values url.Values, name string) string {

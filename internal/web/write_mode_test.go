@@ -91,10 +91,10 @@ func TestWriteModeControls(t *testing.T) {
 			if !strings.Contains(body, "/konflux-retest unit") {
 				t.Error("copyable retry comment must remain available")
 			}
-			modeForm := formContaining(t, body, "Save mode")
-			assertCheckboxDisabled(t, "interactive confirmation", modeForm, "enabled", !tc.writesEnabled)
-			assertButtonTextDisabled(t, "Save mode", modeForm, "Save mode", !tc.writesEnabled)
-			if tc.writesEnabled && !strings.Contains(modeForm, `name="enabled" value="true"`) {
+			modeForm := formContaining(t, body, `value="application-settings"`)
+			assertCheckboxDisabled(t, "interactive confirmation", modeForm, "interactive", !tc.writesEnabled)
+			assertButtonTextDisabled(t, "save settings", modeForm, "Save", !tc.writesEnabled)
+			if tc.writesEnabled && !strings.Contains(modeForm, `name="interactive" value="true"`) {
 				t.Error("interactive confirmation should be available when writes are enabled")
 			}
 

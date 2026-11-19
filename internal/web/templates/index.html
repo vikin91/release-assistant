@@ -97,40 +97,38 @@
   {{if or .Configured .Snapshot.CacheAvailable}}
   <section class="panel" id="retry-settings" aria-labelledby="application-settings-heading">
     <h3 id="application-settings-heading">Application settings</h3>
-    {{if .Configured}}
-    <form method="post" action="/action" class="control-row">
-      <input type="hidden" name="tab" value="{{.Tab}}">
-      <input type="hidden" name="csrf" value="{{.CSRF}}">
-      <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
-      <input type="hidden" name="kind" value="interactive">
-      <input type="hidden" name="enabled" value="false">
-      <label class="check{{if not .Snapshot.WritesEnabled}} disabled-control{{end}}">
-        <input type="checkbox" name="enabled" value="true" aria-describedby="retry-permissions" {{if .Snapshot.Interactive}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}> Confirm each write operation towards GitHub
-      </label>
-      <button type="submit"{{if not .Snapshot.WritesEnabled}} disabled{{end}}>Save mode</button>
-    </form>
-    <p id="retry-permissions" class="muted">This setting applies to all tabs. Automatic retries require permission for each PR or tag. The assistant checks that permission before posting each comment.</p>
-    {{end}}
-    {{if .Snapshot.CacheAvailable}}
-    <form method="post" action="/action" class="control-row">
+    <form method="post" action="/action">
       <input type="hidden" name="tab" value="settings">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
-      <input type="hidden" name="kind" value="cache-enabled">
-      <label class="check">
-        <input type="checkbox" name="enabled" value="true" aria-describedby="discovery-cache-help" {{if .Snapshot.CacheEnabled}}checked{{end}}> Reuse GitHub commit history in memory
-      </label>
-      <button type="submit">Save cache setting</button>
+      <table class="application-settings" aria-labelledby="application-settings-heading">
+        <tbody>
+          {{if .Configured}}<tr><td>
+            {{if .Snapshot.WritesEnabled}}<input type="hidden" name="interactive" value="false">{{end}}
+            <label class="check{{if not .Snapshot.WritesEnabled}} disabled-control{{end}}">
+              <input type="checkbox" name="interactive" value="true" aria-describedby="retry-permissions" {{if .Snapshot.Interactive}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}> Confirm each write operation towards GitHub
+            </label>
+          </td><td id="retry-permissions" class="muted">This setting applies to all tabs. Automatic retries require permission for each PR or tag. The assistant checks that permission before posting each comment.</td></tr>{{end}}
+          {{if .Snapshot.CacheAvailable}}<tr><td>
+            <div class="control-row">
+              <input type="hidden" name="cache" value="false">
+              <label class="check">
+                <input type="checkbox" name="cache" value="true" aria-describedby="discovery-cache-help" {{if .Snapshot.CacheEnabled}}checked{{end}}> Reuse GitHub commit history in memory
+              </label>
+              <button type="submit" form="clear-cache-form">Clear cache</button>
+              {{if .CacheCleared}}<span role="status">Cache cleared.</span>{{end}}
+            </div>
+          </td><td id="discovery-cache-help" class="muted">The cache is enabled at startup. Disabling it empties it for this session.</td></tr>{{end}}
+        </tbody>
+      </table>
+      <button type="submit" name="kind" value="application-settings"{{if not (or .Snapshot.CacheAvailable .Snapshot.WritesEnabled)}} disabled{{end}}>Save</button>
     </form>
-    <p id="discovery-cache-help" class="muted">The cache is enabled at startup. Disabling it empties it for this session.</p>
-    <form method="post" action="/action" class="control-row">
+    {{if .Snapshot.CacheAvailable}}<form id="clear-cache-form" method="post" action="/action">
+      <input type="hidden" name="kind" value="clear-cache">
       <input type="hidden" name="tab" value="settings">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
-      <button type="submit" name="kind" value="clear-cache">Clear cache</button>
-      {{if .CacheCleared}}<span role="status">Cache cleared.</span>{{end}}
-    </form>
-    {{end}}
+    </form>{{end}}
   </section>
   {{end}}
   </section>

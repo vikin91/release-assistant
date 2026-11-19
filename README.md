@@ -154,7 +154,7 @@ The image views distinguish **Available**, **Not found**, and **Unable to check*
 Review and copy proposed comments in read-only mode. To send comments from the assistant, restart with your usual flags and add `--enable-writes`.
 
 1. Set **Allow posting retry comments** on the PR or tag you want to permit. Release inclusion alone grants no write access.
-2. Leave **Confirm each write operation towards GitHub** on to approve a single exact comment at a time. To allow eligible retries without confirmation for permitted targets, change this setting under **Application settings** and select **Save mode**.
+2. Leave **Confirm each write operation towards GitHub** on to approve a single exact comment at a time. To allow eligible retries without confirmation for permitted targets, change this setting under **Application settings** and select **Save**.
 
 The retry library decides which Konflux jobs are eligible. PR retries use `/konflux-retest <job>`. Tag retries use `/retest <job> tag:<tag>` on the resolved commit. GitHub required-check settings inform the status display. Marking a Conforma advisory as reviewed only records your review for the session.
 
@@ -168,7 +168,7 @@ The server listens on loopback. It polls active checks every minute and discover
 
 **Log** shows the latest 1,000 events and refreshes every two seconds. The terminal prints timestamped activity to stdout, including discovery, check status changes, retry decisions, and Konflux read pauses and recovery. Redirect stdout if you need to retain the log.
 
-GitHub discovery reuses commit history in memory by default and logs cache hits at Debug level. In **Settings**, uncheck **Reuse GitHub commit history in memory** and select **Save cache setting** to turn it off and empty the cache. **Clear cache** empties it without changing the setting. A restart starts with an empty, enabled cache.
+GitHub discovery reuses commit history in memory by default and logs cache hits at Debug level. In **Settings**, uncheck **Reuse GitHub commit history in memory** and select **Save** to turn it off and empty the cache. **Clear cache** empties it without changing the setting. A restart starts with an empty, enabled cache.
 
 Choices, grants, approvals, counters, and recent activity live in memory. Reloading the browser preserves the session. Restarting clears it, restores **Confirm each write operation towards GitHub**, and rediscovers release work already completed in external systems.
 

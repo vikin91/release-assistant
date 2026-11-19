@@ -113,7 +113,7 @@ func TestSettingsControlsCommitWindowCache(t *testing.T) {
 	if body := getSettings("/?tab=settings"); !strings.Contains(body, checked) || !strings.Contains(body, ">Clear cache</button>") {
 		t.Fatal("cache controls should be available before configuring a release")
 	}
-	action := url.Values{"tab": {"settings"}, "generation": {fmt.Sprint(session.Snapshot().Generation)}, "kind": {"cache-enabled"}}
+	action := url.Values{"tab": {"settings"}, "generation": {fmt.Sprint(session.Snapshot().Generation)}, "kind": {"application-settings"}, "cache": {"false"}}
 	if response := b.post(action); response.Code != http.StatusSeeOther || cache.Enabled() {
 		t.Fatalf("disable status=%d enabled=%t", response.Code, cache.Enabled())
 	}
@@ -128,10 +128,33 @@ func TestSettingsControlsCommitWindowCache(t *testing.T) {
 	if body := getSettings(response.Header().Get("Location")); !strings.Contains(body, "Cache cleared.") {
 		t.Fatal("clear confirmation missing")
 	}
-	action.Set("kind", "cache-enabled")
-	action.Set("enabled", "true")
+	action.Set("kind", "application-settings")
+	action.Set("cache", "true")
 	if response := b.post(action); response.Code != http.StatusSeeOther || !cache.Enabled() {
 		t.Fatalf("enable status=%d enabled=%t", response.Code, cache.Enabled())
+	}
+}
+
+func TestSaveApplicationSettingsTogether(t *testing.T) {
+	cache := github.NewCommitWindowCache(nil)
+	session := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{EnableWrites: true}), nil, app.Options{Cache: cache})
+	if err := session.Apply(t.Context(), app.Action{Kind: "configure", Config: validACS5Config()}); err != nil {
+		t.Fatal(err)
+	}
+	b := newBrowser(t, session)
+	fields := url.Values{"kind": {"application-settings"}, "generation": {fmt.Sprint(session.Snapshot().Generation)}, "interactive": {"false"}, "cache": {"false"}}
+	if resp := b.post(fields); resp.Code != http.StatusSeeOther || session.Snapshot().Interactive || cache.Enabled() {
+		t.Fatal("save did not apply both unchecked settings")
+	}
+	fields.Add("interactive", "true")
+	fields.Add("cache", "true")
+	fields.Set("kind", "clear-cache")
+	if resp := b.post(fields); resp.Code != http.StatusSeeOther || session.Snapshot().Interactive || cache.Enabled() {
+		t.Fatal("clear cache applied pending checkbox changes")
+	}
+	fields.Set("kind", "application-settings")
+	if resp := b.post(fields); resp.Code != http.StatusSeeOther || !session.Snapshot().Interactive || !cache.Enabled() {
+		t.Fatal("save did not apply both checked settings")
 	}
 }
 

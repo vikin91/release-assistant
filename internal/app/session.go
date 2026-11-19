@@ -61,7 +61,9 @@ type (
 		SHA, ID, Component, Tag string
 		Choice                  release.Choice
 		Enabled                 bool
-		Generation              uint64
+		// Nil settings are omitted from the submitted form.
+		Interactive, CacheEnabled *bool
+		Generation                uint64
 	}
 	// Session owns release observations. Dispatcher alone owns write grants.
 	Session struct {
@@ -253,6 +255,23 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			return fmt.Errorf("unknown target")
 		}
 		err = s.dispatcher.Grant(a.Target, a.SHA, a.Enabled)
+	case "application-settings":
+		if a.CacheEnabled != nil && s.options.Cache == nil {
+			return fmt.Errorf("discovery cache is unavailable")
+		}
+		if a.Interactive != nil {
+			if !s.dispatcher.WritesEnabled() || s.config.Validate() != nil {
+				return fmt.Errorf("confirmation mode is unavailable")
+			}
+			if s.dispatcher.IsInteractive() != *a.Interactive {
+				s.dispatcher.Interactive(*a.Interactive)
+			}
+		}
+		if a.CacheEnabled != nil {
+			s.options.Cache.SetEnabled(*a.CacheEnabled)
+		}
+		s.drain()
+		return nil
 	case "interactive":
 		s.dispatcher.Interactive(a.Enabled)
 	case "cache-enabled", "clear-cache":
