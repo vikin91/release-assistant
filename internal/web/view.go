@@ -138,6 +138,12 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 	model.Configured = snapshot.Config.Validate() == nil
 	major, _, _, ok := release.Version(snapshot.Config.Version)
 	model.ACS4 = ok && major == 4
+	if snapshot.Config.DetectPinningPR {
+		model.ConfigForm.Set("detect_pinning_pr", "true")
+		if n := snapshot.Config.ManualPinningPR; n > 0 {
+			model.ConfigForm.Set("pinning_pr", strconv.Itoa(n))
+		}
+	}
 	if snapshot.Config.PinningPR != 0 {
 		model.ConfigForm.Set("pinning_pr", strconv.Itoa(snapshot.Config.PinningPR))
 	}
@@ -248,12 +254,14 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 			}
 		}
 		for _, pr := range repo.PRs {
-			if pr.Merged && snapshot.Choices.PRs[pr.Target] == release.Included && pr.Target != pinTarget {
+			choice := snapshot.Choices.PRs[pr.Target]
+			mergedIncluded := pr.Merged && choice == release.Included
+			if mergedIncluded {
 				r.MergedPRs = append(r.MergedPRs, pr)
 			}
-			choice := snapshot.Choices.PRs[pr.Target]
-			showIgnored := repo.Source.Name != "acs" && choice == release.Ignored
-			if pr.Target == pinTarget || !pr.Selectable(choice) && !showIgnored {
+			showIgnored := choice == release.Ignored && (repo.Source.Name != "acs" || pr.State == "open" && pr.Base == repo.Source.Branch)
+			showPin := pr.Target == pinTarget && pr.Base == repo.Source.Branch && !mergedIncluded
+			if !pr.Selectable(choice) && !showIgnored && !showPin {
 				continue
 			}
 			label := string(choice)

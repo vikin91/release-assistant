@@ -260,7 +260,15 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 			if err != nil {
 				return a, fmt.Errorf("pinning PR must be a number, for example 12345 (not a URL)")
 			}
+			if n < 0 {
+				return a, fmt.Errorf("pinning PR must be nonnegative")
+			}
 			config.PinningPR = n
+		}
+		if form.Get("detect_pinning_pr") == "true" {
+			config.DetectPinningPR = true
+			config.ManualPinningPR = config.PinningPR
+			config.PinningPR = 0
 		}
 		for _, name := range []string{"fact", "collector", "scanner"} {
 			if name == "scanner" && major == 5 {
@@ -287,6 +295,10 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 	}
 	a.Target.Tag = form.Get("tag")
 	switch a.Kind {
+	case "use-pinning-pr":
+		if a.Target.PR < 1 || !a.Target.Valid() || a.SHA == "" {
+			return a, fmt.Errorf("pinning PR selection requires the reviewed PR and SHA")
+		}
 	case "choice":
 		a.Choice = release.Choice(lastFormValue(form, "choice"))
 		if a.Target.PR < 1 || a.Target.Tag != "" || !release.ValidRepo(a.Target.Repo) {

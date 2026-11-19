@@ -143,6 +143,17 @@ func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) re
 		}
 	}
 	if !request.Reads(ReadPRs) {
+		latest.PinDiscovery = old.PinDiscovery
+		if old.Head != latest.Head {
+			latest.PinDiscovery.Files = nil
+			latest.PinDiscovery.Evidence.Known = false
+		}
+		for _, pr := range latest.PRs {
+			match, ok := latest.PinDiscovery.Files[pr.Target.PR]
+			if (ok && (match.Head != pr.SHA || pr.State != "open")) || (!ok && pr.State == "open") {
+				latest.PinDiscovery.Evidence.Known = false
+			}
+		}
 		prs := slices.Clone(old.PRs)
 		for _, p := range latest.PRs {
 			index := slices.IndexFunc(prs, func(pr release.PR) bool { return pr.Target == p.Target })

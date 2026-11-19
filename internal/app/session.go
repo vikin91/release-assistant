@@ -170,6 +170,9 @@ func (s *Session) recordReadResult(target release.Target, operation, message str
 
 // Apply validates configuration and enforces session actions independently of the UI.
 func (s *Session) Apply(ctx context.Context, a Action) error {
+	if a.Kind == "use-pinning-pr" {
+		return s.confirmPinningPR(ctx, a)
+	}
 	s.mu.Lock()
 	if a.Kind != "configure" && a.Generation != s.generation {
 		s.mu.Unlock()
@@ -198,10 +201,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		sameContext := s.config.Version == a.Config.Version && s.config.Branch == a.Config.Branch && slices.Equal(s.config.Components, a.Config.Components)
 		if sameContext {
 			if s.config.PinningPR != a.Config.PinningPR {
-				s.clearRCPlan()
-				if s.config.PinningPR > 0 {
-					_ = s.dispatcher.Grant(s.config.PinningTarget(), "", false)
-				}
+				s.clearPinningSelection()
 			}
 			s.generation++
 		} else {
@@ -478,6 +478,7 @@ func cloneRepository(r release.Repository) release.Repository {
 	r.PreviousPins.Versions = maps.Clone(r.PreviousPins.Versions)
 	r.PreviousPins.Paths = maps.Clone(r.PreviousPins.Paths)
 	r.PreviousPins.Failures = maps.Clone(r.PreviousPins.Failures)
+	r.PinDiscovery.Files = maps.Clone(r.PinDiscovery.Files)
 	r.PinningPins.Versions = maps.Clone(r.PinningPins.Versions)
 	r.PinningPins.Paths = maps.Clone(r.PinningPins.Paths)
 	r.PinningPins.Failures = maps.Clone(r.PinningPins.Failures)
@@ -591,6 +592,10 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	earlyComponentImages := work.images && !s.rcReady()
 	initial := discover && !s.initiallyLoaded[source.Name]
 	request := DiscoveryRequest{Source: source, ConfirmedTag: s.choices.Tags[source.Name], PinningPR: c.PinningPR, Version: c.Version, Scope: work.scope}
+	if source.Name == "acs" && c.PinningPR == 0 {
+		request.DetectPinningPR = true
+		request.PreviousPinFiles = s.repos["acs"].PinDiscovery.Files
+	}
 	if work.tagInventory {
 		request.ConfirmedTag = ""
 	}
@@ -621,7 +626,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	var errs []error
 	if discover {
 		r, err := s.discovery.Discover(ctx, request)
-		if err != nil && ctx.Err() != nil {
+		if err != nil && errors.Is(ctx.Err(), context.Canceled) {
 			return fmt.Errorf("reading %s on %s: %w", discoverySubject(request), consoleBranch(source), ctx.Err())
 		}
 		if err != nil {
@@ -658,6 +663,12 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			}
 		}
 		r.Source = source
+		if request.DetectPinningPR && request.Reads(ReadPRs) {
+			if err != nil && r.PinDiscovery.Evidence.At.IsZero() {
+				r.PinDiscovery.Evidence = release.Evidence{At: time.Now(), Error: err.Error()}
+			}
+			s.logPinDiscovery(old.PinDiscovery, r.PinDiscovery)
+		}
 		if err != nil {
 			if source.Name != "acs" && (work.tagInventory || work.scope == ReadAll) {
 				r.TagsPending = true

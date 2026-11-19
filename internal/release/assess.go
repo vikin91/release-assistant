@@ -644,11 +644,7 @@ func assessPinSummary(in Input, repos map[string]Repository, versions map[string
 		summary.PRURL = fmt.Sprintf("https://github.com/%s/pull/%d", in.Config.ACS().Repo, in.Config.PinningPR)
 		summary.PRSummary = fmt.Sprintf("Pending: reading pinning PR #%d", in.Config.PinningPR)
 		summary.PRReason = summary.PRSummary
-		if in.Choices.PRs[in.Config.PinningTarget()] == Ignored {
-			summary.PRSummary = "Pinning PR monitoring is disabled by Ignore."
-			summary.PRReason = summary.PRSummary
-			return summary
-		}
+
 	}
 	if !found {
 		return summary

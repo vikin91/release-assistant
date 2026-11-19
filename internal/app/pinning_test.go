@@ -207,3 +207,98 @@ func TestPinningImagesWaitForHealthyChecksWithoutSuppressingRetests(t *testing.T
 		})
 	}
 }
+
+func TestPinningSelection(t *testing.T) {
+	for name, tc := range map[string]struct {
+		chosen              int
+		state, head, branch string
+		success             bool
+	}{
+		"confirm detected PR": {123, "open", "pin-head", "release-5.0", true},
+		"choose unrelated PR": {124, "open", "pin-head", "release-5.0", true},
+		"closed after review": {123, "closed", "pin-head", "release-5.0", true},
+		"merged after review": {123, "merged", "pin-head", "release-5.0", true},
+		"changed head":        {123, "open", "new-head", "release-5.0", false},
+		"changed branch":      {123, "open", "pin-head", "master", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, f, config := newPinningSession(t)
+			poll := func() {
+				t.Helper()
+				if err := s.refreshPlanned(t.Context(), s.Snapshot().Generation, config.ACS(), true); err != nil {
+					t.Fatal(err)
+				}
+			}
+			poll()
+			if f.requests[len(f.requests)-1].DetectPinningPR {
+				t.Fatal("manual selection started detection")
+			}
+			config.PinningPR = 0
+			apply(t, s, Action{Kind: "configure", Config: config})
+			repo := f.repos["acs"]
+			repo.PinningPR = nil
+			other := repo.PRs[0]
+			other.Target.PR = 124
+			repo.PRs = append(repo.PRs, other)
+			repo.PinDiscovery = release.PinDiscovery{Evidence: observed(), Files: map[int]release.PinFileMatch{123: {Head: "pin-head", Base: "base", Reason: "Changes FACT_VERSION."}}}
+			f.repos["acs"] = repo
+			poll()
+			if !f.requests[len(f.requests)-1].DetectPinningPR || s.config.PinningPR != 0 {
+				t.Fatal("clearing did not resume detection")
+			}
+			target := release.Target{Repo: config.ACS().Repo, PR: tc.chosen}
+			assertNoWrite := func() {
+				t.Helper()
+				if _, err := s.dispatcher.Send(t.Context(), f.plan.Target, dispatch.ID(f.plan.Proposals[0]), true); err == nil || f.writes != 0 {
+					t.Fatal("selection authorized a retry")
+				}
+				for _, view := range s.Snapshot().Authority {
+					if view.Granted {
+						t.Fatal("selection granted permission")
+					}
+				}
+			}
+			assertNoWrite()
+			for i := range repo.PRs {
+				p := &repo.PRs[i]
+				if p.Target == target {
+					p.SHA = tc.head
+					p.Base = tc.branch
+					p.State = tc.state
+					p.Merged = tc.state == "merged"
+				}
+			}
+			f.repos["acs"] = repo
+			err := s.Apply(t.Context(), Action{Kind: "use-pinning-pr", Generation: s.generation, Target: target, SHA: "pin-head"})
+			if (err == nil) != tc.success {
+				t.Fatalf("confirmation: %v", err)
+			}
+			if tc.success {
+				if s.config.PinningTarget() != target || s.choices.PRs[target] != "" {
+					t.Fatal("selection did not independently set the monitoring target")
+				}
+				repo.PinningPR = &repo.PRs[tc.chosen-123]
+				f.repos["acs"] = repo
+				poll()
+				if s.repos["acs"].PinningPR.State != tc.state || f.requests[len(f.requests)-1].DetectPinningPR {
+					t.Fatal("lost confirmed PR")
+				}
+				if tc.state == "open" {
+					pr := repo.PinningPR
+					pr.State = "closed"
+					pr.Merged = tc.chosen == 123
+					f.repos["acs"] = repo
+					poll()
+					tracked := s.repos["acs"].PinningPR
+					if s.config.PinningTarget() != target || tracked == nil || tracked.State != "closed" || tracked.Merged != pr.Merged {
+						t.Fatal("lost pinning selection after closure")
+					}
+				}
+
+			} else if s.config.PinningPR != 0 {
+				t.Fatal("stale confirmation changed selection")
+			}
+			assertNoWrite()
+		})
+	}
+}

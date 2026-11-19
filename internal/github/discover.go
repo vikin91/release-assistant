@@ -68,7 +68,9 @@ type (
 		} `json:"head"`
 		Base struct {
 			Ref string `json:"ref"`
+			SHA string `json:"sha"`
 		} `json:"base"`
+		ChangedFiles       *int              `json:"changed_files"`
 		Merged             bool              `json:"merged"`
 		MergedAt           *time.Time        `json:"merged_at"`
 		MergeCommitSHA     string            `json:"merge_commit_sha"`
@@ -173,24 +175,17 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 	}
 
 	var prs []prResponse
+	var prErr error
 	if req.Reads(app.ReadPRs) {
-		var prErr error
-		if req.Scope == app.ReadAll {
-			prs, prErr = c.listRelevantPRs(ctx, source, result.Tags, best, req.ConfirmedTag, ignored)
-		} else {
-			prErr = c.pages(ctx, base+"/pulls?state=open&base="+url.QueryEscape(source.Branch), func(raw json.RawMessage) error {
-				var p prResponse
-				if err := json.Unmarshal(raw, &p); err != nil {
-					return fmt.Errorf("malformed pull request record")
-				}
-				if p.Base.Ref == source.Branch {
-					prs = append(prs, p)
-				}
-				return nil
-			})
-		}
+		prs, prErr = c.listOpenPRs(ctx, source)
 		if prErr != nil {
 			issues = append(issues, prErr)
+		} else if req.Scope == app.ReadAll {
+			var historyErr error
+			prs, historyErr = c.appendMergedPRs(ctx, source, prs, result.Tags, best, req.ConfirmedTag, ignored)
+			if historyErr != nil {
+				issues = append(issues, historyErr)
+			}
 		}
 	}
 	tracked := map[int]bool{}
@@ -272,7 +267,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 				issues = append(issues, err)
 			}
 		}
-		if req.PinningPR > 0 && !ignored[req.PinningPR] {
+		if req.PinningPR > 0 {
 			result.PinningEvidence = release.Evidence{At: time.Now(), URL: "https://github.com/" + req.Source.Repo + "/pull/" + strconv.Itoa(req.PinningPR)}
 			var raw prResponse
 			if err := c.get(ctx, base+"/pulls/"+strconv.Itoa(req.PinningPR), &raw); err != nil {
@@ -283,7 +278,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 				result.PinningEvidence.Known = true
 				p := convertPR(req.Source.Repo, raw)
 				eligible := p.Base == req.Source.Branch && p.State == "open" && !p.Merged && p.SHA != ""
-				if eligible && req.Reads(app.ReadChecks) {
+				if eligible && !ignored[req.PinningPR] && req.Reads(app.ReadChecks) {
 					if existing := findPR(result.PRs, p.Target.PR); existing != nil && existing.SHA == p.SHA && !existing.ChecksEvidence.At.IsZero() {
 						p.Checks = existing.Checks
 						p.ChecksEvidence = existing.ChecksEvidence
@@ -293,7 +288,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 						c.readChecks(ctx, source, &p, classicEnforcement)
 					}
 				}
-				if findPR(result.PRs, p.Target.PR) != nil || eligible {
+				if findPR(result.PRs, p.Target.PR) != nil || p.Base == req.Source.Branch {
 					upsertPR(&result.PRs, p)
 				}
 				result.PinningPR = &p
@@ -326,6 +321,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 			}
 		}
 	}
+
 	if source.Name == "acs" && req.Reads(app.ReadPreviousPins) {
 		if cycle.remaining >= 12 && cycle.budgetErr == nil && cycle.rateErr == nil {
 			baseline := &discoveryCycle{reads: map[string]cachedRead{}, limit: 12, remaining: 12}
@@ -343,6 +339,9 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		rcCycle := &discoveryCycle{reads: map[string]cachedRead{}, limit: maxCandidateRequests, remaining: maxCandidateRequests}
 		rcCtx := context.WithValue(ctx, discoveryCycleKey{}, rcCycle)
 		result.Candidate = c.readCandidate(rcCtx, source, req.Version, result.Head)
+	}
+	if source.Name == "acs" && req.DetectPinningPR && req.Reads(app.ReadPRs) {
+		result.PinDiscovery = c.discoverPinFiles(ctx, req, prs, prErr, result.Head)
 	}
 	return result, err
 }
@@ -447,26 +446,27 @@ func (c *Client) resolveTag(ctx context.Context, src release.Source, name, headS
 	return tag, nil
 }
 
-func (c *Client) listRelevantPRs(ctx context.Context, src release.Source, tags []release.Tag, best int, confirmed string, ignored map[int]bool) ([]prResponse, error) {
-	seen := map[int]bool{}
-	var out []prResponse
-	add := func(p prResponse) error {
-		if p.Base.Ref == src.Branch && !seen[p.Number] {
-			seen[p.Number] = true
-			out = append(out, p)
-		}
-		return nil
-	}
+func (c *Client) listOpenPRs(ctx context.Context, src release.Source) ([]prResponse, error) {
+	var prs []prResponse
+	seen := make(map[int]bool)
 	err := c.pages(ctx, repoPath(src.Repo)+"/pulls?state=open&base="+url.QueryEscape(src.Branch), func(raw json.RawMessage) error {
 		var p prResponse
-		if e := json.Unmarshal(raw, &p); e != nil {
+		if err := json.Unmarshal(raw, &p); err != nil || p.Number <= 0 || p.Base.Ref == "" {
 			return fmt.Errorf("malformed pull request record")
 		}
-		return add(p)
+		if seen[p.Number] {
+			return fmt.Errorf("open pull request list changed during pagination")
+		}
+		seen[p.Number] = true
+		if p.Base.Ref == src.Branch {
+			prs = append(prs, p)
+		}
+		return nil
 	})
-	if err != nil {
-		return out, err
-	}
+	return prs, err
+}
+
+func (c *Client) appendMergedPRs(ctx context.Context, src release.Source, out []prResponse, tags []release.Tag, best int, confirmed string, ignored map[int]bool) ([]prResponse, error) {
 	baseline := best
 	confirmedFound := confirmed == ""
 	for i := range tags {
@@ -491,7 +491,17 @@ func (c *Client) listRelevantPRs(ctx context.Context, src release.Source, tags [
 	}
 	query := "repo:" + src.Repo + " is:pr is:merged base:" + src.Branch + " merged:>=" + base.Commit.Committer.Date.UTC().Format("2006-01-02")
 	endpoint := "/search/issues?q=" + url.QueryEscape(query) + "&sort=created&order=asc"
-	err = c.searchMerged(ctx, endpoint, src, ignored, add)
+	seen := make(map[int]bool, len(out))
+	for _, p := range out {
+		seen[p.Number] = true
+	}
+	err := c.searchMerged(ctx, endpoint, src, ignored, func(p prResponse) error {
+		if p.Base.Ref == src.Branch && !seen[p.Number] {
+			seen[p.Number] = true
+			out = append(out, p)
+		}
+		return nil
+	})
 	if err != nil {
 		return out, err
 	}
@@ -658,12 +668,17 @@ func cmpInt(a, b int) int {
 	return 0
 }
 
-func (c *Client) readPins(ctx context.Context, repo, sha, version string) (release.Pins, error) {
-	p := release.Pins{Versions: map[string]string{}, Paths: map[string]string{}, Evidence: release.Evidence{At: time.Now(), Known: true, URL: "https://github.com/" + repo + "/tree/" + sha}}
+func pinPaths(version string) map[string]string {
 	paths := map[string]string{"fact": "FACT_VERSION", "collector": "COLLECTOR_VERSION"}
 	if major, _, _, ok := release.Version(version); ok && major == 4 {
 		paths["scanner"] = "SCANNER_VERSION"
 	}
+	return paths
+}
+
+func (c *Client) readPins(ctx context.Context, repo, sha, version string) (release.Pins, error) {
+	p := release.Pins{Versions: map[string]string{}, Paths: map[string]string{}, Evidence: release.Evidence{At: time.Now(), Known: true, URL: "https://github.com/" + repo + "/tree/" + sha}}
+	paths := pinPaths(version)
 	var issues []error
 	for _, name := range []string{"fact", "collector", "scanner"} {
 		path, required := paths[name]

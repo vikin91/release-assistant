@@ -33,6 +33,9 @@ type (
 		Version, Branch string
 		Components      []Source
 		PinningPR       int
+		// DetectPinningPR requests suggestions while retaining the inactive Settings value.
+		DetectPinningPR bool
+		ManualPinningPR int
 	}
 	// PR includes historical merge identity for tag coverage.
 	PR struct {
@@ -81,6 +84,13 @@ type (
 		Failures map[string]string
 		Evidence Evidence
 	}
+	// PinFileMatch records a complete file comparison for one PR revision.
+	PinFileMatch struct{ Head, Base, Reason string }
+	// PinDiscovery records verified comparisons and whether all open PRs were inspected.
+	PinDiscovery struct {
+		Files    map[int]PinFileMatch
+		Evidence Evidence
+	}
 	// Repository is a partial, revision-bound discovery result.
 	Repository struct {
 		Source Source
@@ -90,8 +100,9 @@ type (
 		PRs       []PR
 		Tags      []Tag
 		// TagsPending prevents an incomplete inventory from proving that tags are absent.
-		TagsPending bool
-		Pins        Pins
+		TagsPending  bool
+		PinDiscovery PinDiscovery
+		Pins         Pins
 		// PreviousPins records component versions at the preceding ACS patch tag.
 		PreviousPins Pins
 		// PinningPins uses the merge commit for a merged PR and its head otherwise.
@@ -348,6 +359,17 @@ func (t Target) String() string {
 // Valid verifies that exactly one target kind is specified.
 func (t Target) Valid() bool {
 	return ValidRepo(t.Repo) && ((t.PR > 0 && t.Tag == "") || (t.PR == 0 && ValidRef(t.Tag)))
+}
+
+// Candidates counts open PR comparisons that identified at least one pin file.
+func (d PinDiscovery) Candidates() int {
+	count := 0
+	for _, match := range d.Files {
+		if match.Reason != "" {
+			count++
+		}
+	}
+	return count
 }
 
 // Fresh requires a successful current observation.

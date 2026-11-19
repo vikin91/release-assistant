@@ -75,15 +75,19 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 	if !strings.Contains(body, `name="`+section+`-filter" value="attention"`) {
 		t.Fatal("the PR list needs its own filter group")
 	}
-	if tab == "acs-prs" && (!strings.Contains(tabBody, "Pinning PR #8") || strings.Contains(body, "change-8")) {
-		t.Fatal("the pinning PR belongs in its separate panel")
+	if tab == "acs-prs" && (!strings.Contains(tabBody, "Pinning PR #8") || strings.Count(body, "change-8") != 1 || !strings.Contains(body, "Confirmed pinning PR")) {
+		t.Fatal("expected one confirmed pinning PR row")
 	}
 	hasBulkAction := strings.Contains(body, "Ignore &amp; hide all")
 	hasIgnoredFilter := strings.Contains(body, `-filter" value="ignored"`)
 	if hasBulkAction != (tab == "component-prs") || hasIgnoredFilter != (tab == "component-prs") {
 		t.Fatal("bulk ignore and the ignored filter belong on Component PRs")
 	}
-	if !strings.Contains(body, "2 awaiting merge · 1 included and closed · 2 undecided · 1 included and merged") {
+	undecided := 2
+	if tab == "acs-prs" {
+		undecided++
+	}
+	if !strings.Contains(body, fmt.Sprintf("2 awaiting merge · 1 included and closed · %d undecided · 1 included and merged", undecided)) {
 		t.Fatal("summary did not reflect the user's PR selection")
 	}
 	assertPROrder := func(body string) {
@@ -208,5 +212,59 @@ func TestACSPRRowShowsObservedFailuresWithoutRequiredSettings(t *testing.T) {
 	}
 	if !strings.Contains(body, `id="acs-pr-retries-24102"`) {
 		t.Fatal("retry link must point to the matching PR")
+	}
+}
+
+func TestPinDiscoveryRows(t *testing.T) {
+	for name, tc := range map[string]struct {
+		matches    int
+		incomplete bool
+		want       string
+	}{
+		"one candidate":      {1, false, "Suggested pinning PR"},
+		"several candidates": {2, false, "Several PRs change component pin files"},
+		"no candidates":      {0, false, "No open PR changes a component pin file"},
+		"partial discovery":  {1, true, "Pinning PR discovery incomplete"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := validACS5Config()
+			fresh := release.Evidence{Known: true, At: time.Now()}
+			repo := release.Repository{Source: cfg.ACS(), PinDiscovery: release.PinDiscovery{Files: map[int]release.PinFileMatch{}, Evidence: fresh}}
+			for n := 1; n <= 2; n++ {
+				repo.PRs = append(repo.PRs, release.PR{Target: release.Target{Repo: repo.Source.Repo, PR: n}, Base: cfg.Branch, SHA: "reviewed", State: "open", Evidence: fresh})
+				if n <= tc.matches {
+					repo.PinDiscovery.Files[n] = release.PinFileMatch{Head: "reviewed", Base: "base", Reason: "Changes FACT_VERSION."}
+				}
+			}
+			if tc.incomplete {
+				repo.PinDiscovery.Evidence.Error = "incomplete file inventory"
+			}
+			body := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: app.Snapshot{Config: cfg, Repositories: []release.Repository{repo}}}).getBody(t), "acs-prs")
+			if !strings.Contains(body, tc.want) || strings.Count(body, "Use as pinning PR") != 2 || !strings.Contains(body, "2 open ·") || strings.Count(body, "Changes FACT_VERSION.") != tc.matches {
+				t.Fatal("unexpected pinning roles or choices", body)
+			}
+			if tc.want != "Suggested pinning PR" && strings.Contains(body, "Suggested pinning PR") {
+				t.Fatal("suggested without unique complete evidence")
+			}
+		})
+	}
+}
+
+func TestPinDetectionSetting(t *testing.T) {
+	cfg := validACS5Config()
+	form := makePage(app.Snapshot{Config: cfg}, "", "").ConfigForm
+	form.Set("kind", "configure")
+	form.Set("pinning_pr", "46")
+	form.Set("detect_pinning_pr", "true")
+	a, err := parseAction(&http.Request{Form: form}, cfg)
+	if err != nil || a.Config.PinningPR != 0 || a.Config.ManualPinningPR != 46 || !a.Config.DetectPinningPR {
+		t.Fatalf("detection override: %+v %v", a, err)
+	}
+	saved := makePage(app.Snapshot{Config: a.Config}, "", "").ConfigForm
+	saved.Set("kind", "configure")
+	saved.Del("detect_pinning_pr")
+	a, err = parseAction(&http.Request{Form: saved}, cfg)
+	if err != nil || a.Config.PinningPR != 46 || a.Config.DetectPinningPR {
+		t.Fatalf("restoring manual selection: %+v %v", a, err)
 	}
 }

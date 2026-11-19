@@ -10,16 +10,18 @@ import (
 
 type (
 	prListModel struct {
+		PinDiscoveryStatus                       string
 		Repos                                    []repoModel
 		Rows                                     map[release.Target]prListRow
 		AwaitingMerge, Closed, Undecided, Merged int
-		Active, Ignored                          int
+		Open, Active, Ignored                    int
 	}
 	prListRow struct {
-		Checks      prCheckSummary
-		Attention   bool
-		Retry       *pageModel
-		HasProposal bool
+		PinRole, PinReason string
+		Checks             prCheckSummary
+		Attention          bool
+		Retry              *pageModel
+		HasProposal        bool
 	}
 	prCheckSummary struct {
 		URL, RetryURL, Problem            string
@@ -80,7 +82,33 @@ func (p pageModel) PRList() prListModel {
 		slices.SortStableFunc(triage.Repos[i].PRs, func(a, b prModel) int {
 			return cmp.Compare(a.PR.Target.PR, b.PR.Target.PR)
 		})
+		discovery := repo.Repository.PinDiscovery
+		detecting := repo.Repository.Source.Name == "acs" && p.Snapshot.Config.PinningPR == 0
+		candidates := discovery.Candidates()
+		if detecting {
+			switch {
+			case !discovery.Evidence.Fresh():
+				triage.PinDiscoveryStatus = "Pinning PR discovery incomplete. " + discovery.Evidence.Error
+			case candidates == 0:
+				triage.PinDiscoveryStatus = "No open PR changes a component pin file."
+			case candidates > 1:
+				triage.PinDiscoveryStatus = "Several PRs change component pin files. Choose the PR to monitor."
+			}
+		}
 		for _, row := range repo.PRs {
+			if row.PR.State == "open" && row.PR.Evidence.Fresh() {
+				triage.Open++
+			}
+			view := prListRow{Retry: retries[row.PR.Target], HasProposal: acsProposals[row.PR.Target]}
+			if row.PR.Target == p.Snapshot.Config.PinningTarget() {
+				view.PinRole = "Confirmed pinning PR"
+			} else if match := discovery.Files[row.PR.Target.PR]; detecting && match.Reason != "" && match.Head == row.PR.SHA && row.PR.Evidence.Fresh() && row.PR.State == "open" {
+				view.PinRole, view.PinReason = "Pinning PR candidate", match.Reason
+				if discovery.Evidence.Fresh() && candidates == 1 {
+					view.PinRole = "Suggested pinning PR"
+				}
+			}
+			triage.Rows[row.PR.Target] = view
 			if row.Choice == release.Ignored {
 				triage.Ignored++
 				continue
@@ -96,7 +124,7 @@ func (p pageModel) PRList() prListModel {
 				triage.Undecided++
 			}
 			retry := retries[row.PR.Target]
-			view := prListRow{Retry: retry, HasProposal: acsProposals[row.PR.Target]}
+
 			if row.Choice == release.Included {
 				view.Checks = summarizePRChecks(row.PR)
 				if view.HasProposal {

@@ -827,13 +827,6 @@ func TestAssessPinSummaryDiagnostics(t *testing.T) {
 			wantBranch:   "Actual branch pins match selected versions",
 			absentBranch: "Choose Fact tag",
 		},
-		"ignored configured PR is not pending": {
-			mutate: func(in *Input) {
-				in.Config.PinningPR = 99
-				in.Choices.PRs[in.Config.PinningTarget()] = Ignored
-			},
-			wantPRSummary: "monitoring is disabled by Ignore",
-		},
 		"partial branch pins identify missing file": {
 			mutate: func(in *Input) {
 				delete(in.Repositories[0].Pins.Versions, "fact")

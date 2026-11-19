@@ -15,6 +15,8 @@ type (
 		ConfirmedTag     string
 		Tracked, Ignored []release.Target
 		PinningPR        int
+		DetectPinningPR  bool
+		PreviousPinFiles map[int]release.PinFileMatch
 		Version          string
 		Scope            DiscoveryScope
 		// Progress publishes verified tags while the remaining inventory is still loading.

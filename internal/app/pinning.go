@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
 	"release-assistant/internal/release"
 )
@@ -57,4 +59,85 @@ func (s *Session) inspectPinningImages(ctx context.Context, generation uint64, p
 		s.recordReadResult(plan.Target, "pinning-images", message, "build images for "+consoleRevision(plan.Target, plan.SHA))
 	}
 	return err
+}
+
+// clearPinningSelection drops evidence and grants associated with the outgoing selection.
+// The caller holds the session lock.
+func (s *Session) clearPinningSelection() {
+	s.clearRCPlan()
+	if s.config.PinningPR > 0 {
+		_ = s.dispatcher.Grant(s.config.PinningTarget(), "", false)
+	}
+	repo, exists := s.repos["acs"]
+	if !exists {
+		return
+	}
+	repo.PinningPR = nil
+	repo.PinningPins = release.Pins{}
+	repo.PinningEvidence = release.Evidence{}
+	repo.PinDiscovery = release.PinDiscovery{}
+	s.repos["acs"] = repo
+}
+
+// confirmPinningPR binds the selection to the displayed configuration and head across the live identity read.
+func (s *Session) confirmPinningPR(ctx context.Context, a Action) error {
+	s.mu.Lock()
+	source := s.config.ACS()
+	reviewed := func() bool {
+		return slices.ContainsFunc(s.repos["acs"].PRs, func(pr release.PR) bool {
+			return pr.Target == a.Target && pr.Base == source.Branch && pr.SHA == a.SHA
+		})
+	}
+	if a.Generation != s.generation || a.Target.Repo != source.Repo || !a.Target.Valid() || a.Target.PR <= 0 || a.SHA == "" || !reviewed() {
+		s.mu.Unlock()
+		return fmt.Errorf("PR evidence changed; review the current ACS release PR list")
+	}
+	s.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, s.options.Timeout)
+	defer cancel()
+	repo, err := s.discovery.Discover(ctx, DiscoveryRequest{Source: source, Tracked: []release.Target{a.Target}, Scope: ReadTargets})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a.Generation != s.generation {
+		return fmt.Errorf("configuration changed; review the ACS release PR list")
+	}
+	valid := slices.ContainsFunc(repo.PRs, func(pr release.PR) bool {
+		return pr.Target == a.Target && pr.Base == source.Branch && pr.SHA == a.SHA && pr.Evidence.Fresh() && (pr.State == "open" || pr.State == "closed" || pr.State == "merged")
+	})
+	s.workRevision++
+	select {
+	case s.changed <- struct{}{}:
+	default:
+	}
+	if err != nil {
+		return fmt.Errorf("could not verify pinning PR: %w", err)
+	}
+	if !valid || !reviewed() {
+		return fmt.Errorf("PR changed; refreshing discovery for another review")
+	}
+	s.clearPinningSelection()
+	s.config.PinningPR = a.Target.PR
+	s.config.DetectPinningPR = false
+	s.config.ManualPinningPR = 0
+	s.generation++
+	s.record(a.Target, a.SHA, "pinning-pr-selected", "", "Selected as pinning PR.", "user")
+	return nil
+}
+
+func (s *Session) logPinDiscovery(old, current release.PinDiscovery) {
+	if old.Evidence.Fresh() == current.Evidence.Fresh() && old.Evidence.Error == current.Evidence.Error && maps.Equal(old.Files, current.Files) {
+		return
+	}
+	s.recordReadResult(release.Target{Repo: s.config.ACS().Repo}, "pin-file-discovery", current.Evidence.Error, "pinning PR candidates")
+	role := "Pinning PR candidate"
+	if current.Evidence.Fresh() && current.Candidates() == 1 {
+		role = "Suggested pinning PR"
+	}
+	for _, n := range slices.Sorted(maps.Keys(current.Files)) {
+		m := current.Files[n]
+		if m.Reason != "" {
+			message := fmt.Sprintf("%s #%d. %s", role, n, m.Reason)
+			s.record(release.Target{Repo: s.config.ACS().Repo, PR: n}, m.Head, "pinning-pr-candidate", "", message, "system", message)
+		}
+	}
 }

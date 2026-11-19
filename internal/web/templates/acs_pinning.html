@@ -6,7 +6,7 @@
     {{if .Snapshot.Assessment.Pins.PRNumber}}<a class="pill {{truth .Snapshot.Assessment.Pins.PRStatus}}" href="{{url .Snapshot.Assessment.Pins.PRURL}}" target="_blank" rel="noreferrer" title="{{.Snapshot.Assessment.Pins.PRReason}}">Pin PR #{{.Snapshot.Assessment.Pins.PRNumber}}: {{.PinPRState}}</a>{{else}}<span class="pill muted">Pin PR: not supplied</span>{{end}}
   </div>
   <details class="panel" id="pinning-details" open><summary class="section-summary">ACS pinning details</summary>
-    {{if .Snapshot.Assessment.Pins.PRNumber}}<p><a href="{{url .Snapshot.Assessment.Pins.PRURL}}" target="_blank" rel="noreferrer">Open pinning PR #{{.Snapshot.Assessment.Pins.PRNumber}}</a>: {{.Snapshot.Assessment.Pins.PRSummary}}</p>{{else}}<p>Set a pinning PR number to monitor its checks.</p>{{end}}
+    {{if .Snapshot.Assessment.Pins.PRNumber}}<p><a href="{{url .Snapshot.Assessment.Pins.PRURL}}" target="_blank" rel="noreferrer">Open pinning PR #{{.Snapshot.Assessment.Pins.PRNumber}}</a>: {{.Snapshot.Assessment.Pins.PRSummary}}</p>{{else}}<p>Choose a pinning PR from the ACS release PR list or enter its number in Settings.</p>{{end}}
     {{if .Snapshot.Assessment.Pins.PRProblems}}<ol class="pin-problems">{{range .Snapshot.Assessment.Pins.PRProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}
     {{if and .Snapshot.Assessment.Pins.PROpen (eq (truth .Snapshot.Assessment.Pins.BranchStatus) "no")}}
       <p class="muted">The pinning PR has not merged. Release-branch pins will be verified after merge.</p>

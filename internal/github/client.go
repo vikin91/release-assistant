@@ -262,6 +262,9 @@ func (c *Client) pages(ctx context.Context, endpoint string, consume func(json.R
 		if err := c.get(ctx, fmt.Sprintf("%s%sper_page=100&page=%d", endpoint, sep, page), &data); err != nil {
 			return err
 		}
+		if data == nil {
+			return fmt.Errorf("GitHub returned an invalid page")
+		}
 		for _, item := range data {
 			if err := consume(item); err != nil {
 				return err

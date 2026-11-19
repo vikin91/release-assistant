@@ -57,11 +57,11 @@ func TestPinningWorkflowDistinguishesPendingMergeFromBranchProblems(t *testing.T
 			},
 			wantBranchIssue: true,
 		},
-		"should retain branch problems when the PR is ignored": {
+		"should keep monitoring pins when the PR is ignored": {
 			mutate: func(in *Input) {
 				in.Choices.PRs[in.Config.PinningTarget()] = Ignored
 			},
-			wantBranchIssue: true,
+			wantGuidance: "wait for it to merge",
 		},
 		"should retain branch problems when the PR closes without merge": {
 			mutate: func(in *Input) {

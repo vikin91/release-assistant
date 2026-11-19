@@ -128,7 +128,7 @@ func (p pageModel) prStatus(acs bool) tabStatus {
 		}
 		for _, pr := range repo.Repository.PRs {
 			choice := p.Snapshot.Choices.PRs[pr.Target]
-			if pr.Target != pin && choice == "" && undecidedCandidate(pr, source.Branch) {
+			if choice == "" && undecidedCandidate(pr, source.Branch) {
 				undecided++
 			}
 			if choice == release.Included {
@@ -273,7 +273,7 @@ func (p pageModel) pinStatus() tabStatus {
 	if p.ACS.Pins.Evidence.Error != "" || p.ACS.PinningEvidence.Error != "" {
 		return tabStatus{State: tabNeedsAttention, Reason: "Unable to verify ACS pinning."}
 	}
-	if p.PinningPR != nil && p.PinningPR.Choice != release.Ignored {
+	if p.PinningPR != nil {
 		if p.ACS.PinningPins.Evidence.Error != "" {
 			return tabStatus{State: tabNeedsAttention, Reason: "Unable to verify the versions in the pinning PR."}
 		}

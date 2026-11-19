@@ -9,8 +9,9 @@
     <details id="{{.PRSection}}" class="pr-list" open>
     <summary id="{{.PRSection}}-heading" class="section-summary">ACS release PRs
     {{end}}
-      <span class="pr-list-counts">{{$triage.AwaitingMerge}} awaiting merge{{if $triage.Closed}} · {{$triage.Closed}} included and closed{{end}} · {{$triage.Undecided}} undecided{{if $triage.Merged}} · {{$triage.Merged}} included and merged{{end}}</span>
+      <span class="pr-list-counts">{{if not $component}}{{$triage.Open}} open · {{end}}{{$triage.AwaitingMerge}} awaiting merge{{if $triage.Closed}} · {{$triage.Closed}} included and closed{{end}} · {{$triage.Undecided}} undecided{{if $triage.Merged}} · {{$triage.Merged}} included and merged{{end}}</span>
     {{if $component}}</h3>{{else}}</summary>{{end}}
+    {{if and (not $component) $triage.PinDiscoveryStatus}}<p>{{$triage.PinDiscoveryStatus}}</p>{{end}}
     {{if .ComponentPRNotice}}<p class="muted">{{.ComponentPRNotice}}</p>{{end}}
     <fieldset class="pr-list-filters" data-live-preserve>
       <legend>Filter open and selected PRs</legend>
@@ -18,7 +19,7 @@
       <label><input type="radio" name="{{.PRSection}}-filter" value="attention"> Needs attention</label>
       <label><input type="radio" name="{{.PRSection}}-filter" value="included"> Included</label>
       <label><input type="radio" name="{{.PRSection}}-filter" value="undecided"> Undecided</label>
-      {{if $component}}<label><input type="radio" name="{{.PRSection}}-filter" value="ignored"> Ignored &amp; hidden</label>{{end}}
+      {{if or $component $triage.Ignored}}<label><input type="radio" name="{{.PRSection}}-filter" value="ignored"> Ignored &amp; hidden</label>{{end}}
     </fieldset>
     {{if $component}}
       <form method="post" action="/action#{{.PRSection}}" class="control-row pr-list-ignore-all">
@@ -45,13 +46,21 @@
                 <div class="pr-meta">{{template "pr-identity-summary" .PR}}</div>
               </div>
               <div class="pr-list-choice">
+                {{if eq $row.PinRole "Confirmed pinning PR"}}<a href="/?tab=acs-prs#pinning-details" data-open-section>{{$row.PinRole}}</a>{{else if $row.PinRole}}<span class="pill">{{$row.PinRole}}</span> {{$row.PinReason}}{{end}}
                 <span class="pill">{{title .ChoiceLabel}}</span>
-                {{if eq .PR.State "closed"}}<span class="pr-list-note">{{if .PR.Evidence.Fresh}}Closed without merging{{else}}Last observed closed without merging{{end}}</span>
+                {{if .PR.Merged}}<span class="pr-list-note">Merged</span>{{else if eq .PR.State "closed"}}<span class="pr-list-note">{{if .PR.Evidence.Fresh}}Closed without merging{{else}}Last observed closed without merging{{end}}</span>
                 {{else if eq .Choice "included"}}<span class="pr-list-note">Awaiting merge</span>{{end}}
               </div>
               {{if eq .Choice "included"}}{{template "pr-list-checks" $row.Checks}}{{end}}
             </div>
             <div class="control-row">
+              {{if and (not $component) (ne $row.PinRole "Confirmed pinning PR") .PR.Evidence.Fresh .PR.SHA (eq .PR.State "open") (eq .PR.Base $.Snapshot.Config.Branch)}}
+              <form method="post" action="/action#{{$.PRSection}}" class="inline-form">
+                <input type="hidden" name="kind" value="use-pinning-pr"><input type="hidden" name="tab" value="{{$.Tab}}">
+                <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}">
+                <input type="hidden" name="repo" value="{{.PR.Target.Repo}}"><input type="hidden" name="pr" value="{{.PR.Target.PR}}"><input type="hidden" name="sha" value="{{.PR.SHA}}">
+                <button type="submit">Use as pinning PR</button>
+              </form>{{end}}
               <form method="post" action="/action#{{$.PRSection}}" class="inline-form choice-form" aria-label="PR {{.PR.Target.PR}} inclusion"><input type="hidden" name="tab" value="{{$.Tab}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="choice"><input type="hidden" name="repo" value="{{.PR.Target.Repo}}"><input type="hidden" name="pr" value="{{.PR.Target.PR}}"><input type="hidden" name="sha" value="{{.PR.SHA}}">
                 <button type="submit" name="choice" value="included" aria-pressed="{{if eq .Choice "included"}}true{{else}}false{{end}}">Include</button>
                 <button type="submit" name="choice" value="excluded" aria-pressed="{{if eq .Choice "excluded"}}true{{else}}false{{end}}">Exclude</button>
@@ -71,7 +80,7 @@
             </div>{{end}}
           </article>
         {{else}}<p class="muted">No open PR observations. New PRs continue to appear as discovery refreshes.</p>{{end}}
-        {{if .MergedPRs}}<details class="merged-prs" data-fold-key="merged-prs:{{.Repository.Source.Repo}}"><summary>Included PRs merged ({{len .MergedPRs}})</summary><ol>{{range .MergedPRs}}<li><a href="{{url .URL}}" target="_blank" rel="noreferrer">#{{.Target.PR}} {{.Title}}</a>{{if not .Evidence.Fresh}} · <span class="unknown">last observed merged</span>{{end}}</li>{{end}}</ol></details>{{end}}
+        {{if .MergedPRs}}<details class="merged-prs" data-fold-key="merged-prs:{{.Repository.Source.Repo}}"><summary>Included PRs merged ({{len .MergedPRs}})</summary><ol>{{range .MergedPRs}}<li><a href="{{url .URL}}" target="_blank" rel="noreferrer">#{{.Target.PR}} {{.Title}}</a>{{if eq .Target $.Snapshot.Config.PinningTarget}} · <a href="/?tab=acs-prs#pinning-details" data-open-section>Confirmed pinning PR</a>{{end}}{{if not .Evidence.Fresh}} · <span class="unknown">last observed merged</span>{{end}}</li>{{end}}</ol></details>{{end}}
         <details class="repo-evidence" data-fold-key="repo-evidence:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}"><summary>Repository evidence</summary>
           <p>Head <code>{{.Repository.Head}}</code></p>
           <div class="evidence"><span>{{if .Repository.Evidence.Known}}Head observed{{else}}Head unknown{{end}} at {{when .Repository.Evidence.At}}</span>{{if .Repository.Evidence.Error}}<span class="error-text">{{.Repository.Evidence.Error}}</span>{{end}}{{if url .Repository.Evidence.URL}}<a href="{{url .Repository.Evidence.URL}}" target="_blank" rel="noreferrer">Branch source</a>{{end}}</div>

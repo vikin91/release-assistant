@@ -226,7 +226,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const saved = new URLSearchParams(configForm.dataset.savedConfig);
     const fields = Array.from(configForm.querySelectorAll("input:not([type=hidden]):not([readonly])"));
     const updateSetupState = () => {
-      setupState.hidden = fields.every(field => field.value === (saved.get(field.name) || ""));
+      setupState.hidden = fields.every(field => (field.type === "checkbox" && !field.checked ? "" : field.value) === (saved.get(field.name) || ""));
     };
     configForm.addEventListener("input", updateSetupState);
     configForm.addEventListener("change", updateSetupState);

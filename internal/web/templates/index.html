@@ -71,6 +71,7 @@
       <label>ACS version<input name="version" required value="{{.ConfigForm.Get "version"}}" placeholder="5.0.1"></label>
       <label>ACS release branch<input name="branch" required value="{{.ConfigForm.Get "branch"}}" placeholder="release-5.0"></label>
       <label>Pinning PR number (optional)<input name="pinning_pr" inputmode="numeric" pattern="[0-9]+" placeholder="12345" value="{{.ConfigForm.Get "pinning_pr"}}"></label>
+      <label><input type="checkbox" name="detect_pinning_pr" value="true" {{if .ConfigForm.Get "detect_pinning_pr"}}checked{{end}}>Detect pinning PR even when a number is supplied</label>
       {{range $name := (slice "fact" "collector")}}
         {{$source := index $.ConfiguredSources $name}}
         <fieldset data-component-config data-configured-repo="{{$source.Repo}}" data-configured-stream="{{$source.Stream}}" data-configured-branch="{{$source.Branch}}"><legend>{{title $name}}</legend>

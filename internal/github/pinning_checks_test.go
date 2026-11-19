@@ -42,7 +42,7 @@ func TestDiscoverMonitorsSuppliedOpenPinningPR(t *testing.T) {
 		},
 		{
 			name: "ignored", supplied: pinningPRJSON("open", false, "head-1", "release", "supplied", false), ignored: true,
-			wantChecks: 0, wantListCount: 0,
+			wantChecks: 0, wantListCount: 1,
 		},
 		{
 			name: "wrong base", supplied: pinningPRJSON("open", false, "head-1", "other", "supplied", false),
@@ -50,11 +50,11 @@ func TestDiscoverMonitorsSuppliedOpenPinningPR(t *testing.T) {
 		},
 		{
 			name: "merged", supplied: pinningPRJSON("closed", true, "head-1", "release", "supplied", false),
-			wantChecks: 0, wantListCount: 0,
+			wantChecks: 0, wantListCount: 1,
 		},
 		{
 			name: "closed without merge", supplied: pinningPRJSON("closed", false, "head-1", "release", "supplied", false),
-			wantChecks: 0, wantListCount: 0,
+			wantChecks: 0, wantListCount: 1,
 		},
 	}
 	for _, tc := range tests {
@@ -119,6 +119,12 @@ func TestDiscoverMonitorsSuppliedOpenPinningPR(t *testing.T) {
 				if checkReads[head] != 1 {
 					t.Errorf("check reads for %q = %d, want 1 (all reads: %v)", head, checkReads[head], checkReads)
 				}
+			}
+			if tc.wantChecks == 0 && tc.wantListCount == 1 {
+				if listed == nil || repo.PinningPR == nil || listed.State != repo.PinningPR.State || len(listed.Checks) != 0 {
+					t.Fatalf("invalid tracked identity: %+v", repo)
+				}
+				return
 			}
 			if tc.wantListCount == 0 {
 				return

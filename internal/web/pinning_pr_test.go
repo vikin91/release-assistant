@@ -53,7 +53,7 @@ func TestConfiguredPinningPRMonitoringAndGrant(t *testing.T) {
 	if strings.Contains(body, "must remain out of scope") {
 		t.Error("unrelated undecided PR proposal appeared in retry proposals")
 	}
-	if strings.Count(body, "Pin release components") != 1 {
+	if strings.Count(between(t, body, `id="acs-prs-pr-selection-panel"`, "</section>"), "Pin release components") != 1 {
 		t.Error("configured PR was duplicated in normal PR selection")
 	}
 	retries := between(t, body, `id="acs-prs-retry"`, "</section>")

@@ -66,6 +66,17 @@ func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (
 			}
 		}
 		repository.PRs = []release.PR{pr}
+		// The fixture pin PR can be reviewed before a number or component tag is selected.
+		pin := release.PR{Target: release.Target{Repo: r.Source.Repo, PR: 202}, Title: "Fixture: component versions", State: "open", Base: r.Source.Branch, SHA: "pin-head", Evidence: observation()}
+		if f.step < 3 && r.PinningPR != pin.Target.PR {
+			repository.PRs = append(repository.PRs, pin)
+		}
+		if r.DetectPinningPR && r.Reads(app.ReadPRs) {
+			repository.PinDiscovery = release.PinDiscovery{Files: make(map[int]release.PinFileMatch), Evidence: observation()}
+			if f.step < 3 {
+				repository.PinDiscovery.Files[202] = release.PinFileMatch{Head: pin.SHA, Base: repository.Head, Reason: "Changes FACT_VERSION and COLLECTOR_VERSION."}
+			}
+		}
 		repository.PreviousPins = release.Pins{Versions: map[string]string{"fact": "0.4.6", "collector": "3.26.4"}, Evidence: observation()}
 		versions := map[string]string{"fact": "0.4.6", "collector": "3.26.4"}
 		if f.step >= 3 {
@@ -78,7 +89,7 @@ func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (
 				Base:   r.Source.Branch, State: "closed", Merged: true, SHA: "pin-head", MergeSHA: "pin-merge",
 				URL: "https://github.com/" + r.Source.Repo + "/pull/" + strconv.Itoa(r.PinningPR), Evidence: observation(),
 			}
-			if os.Getenv("ACS_BROWSER_PINNING_OPEN") == "1" && f.step < 3 {
+			if (r.PinningPR == 202 || os.Getenv("ACS_BROWSER_PINNING_OPEN") == "1") && f.step < 3 {
 				repository.PinningPR.State, repository.PinningPR.Merged = "open", false
 				repository.PinningPR.ChecksEvidence = observation()
 				repository.PinningPR.Checks = []release.Check{{Name: "CI build", Status: "completed", Conclusion: "success", URL: "https://example.com/ci-build", Required: release.Yes}, {Name: "Red Hat Konflux / main-on-push", Status: "completed", Conclusion: "failure", URL: "https://example.com/main-build", Required: release.Yes}}

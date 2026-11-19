@@ -244,7 +244,12 @@ func TestListRelevantPRsIncludesMergedAndClosedHistoryAfterBaseline(t *testing.T
 	}))
 	defer srv.Close()
 	c := New(srv.URL, "", srv.Client())
-	prs, err := c.listRelevantPRs(context.Background(), release.Source{Repo: "acme/fact", Branch: "release"}, []release.Tag{{Name: "3.25.1", SHA: "base-sha", Belongs: release.Yes}}, 0, "", nil)
+	source := release.Source{Repo: "acme/fact", Branch: "release"}
+	prs, err := c.listOpenPRs(t.Context(), source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prs, err = c.appendMergedPRs(t.Context(), source, prs, []release.Tag{{Name: "3.25.1", SHA: "base-sha", Belongs: release.Yes}}, 0, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +333,7 @@ func TestListRelevantPRsUsesConfirmedOlderTagAsBaseline(t *testing.T) {
 	}))
 	c := New(srv.URL, "", srv.Client())
 	tags := []release.Tag{{Name: "3.25.1", SHA: "older-sha", Belongs: release.Yes}, {Name: "3.25.9", SHA: "newer-sha", Belongs: release.Yes}}
-	if _, err := c.listRelevantPRs(context.Background(), release.Source{Repo: "acme/fact", Branch: "release"}, tags, 1, "3.25.1", nil); err != nil {
+	if _, err := c.appendMergedPRs(t.Context(), release.Source{Repo: "acme/fact", Branch: "release"}, nil, tags, 1, "3.25.1", nil); err != nil {
 		t.Fatal(err)
 	}
 	if !usedOlder || !queriedFromOlderDate {
