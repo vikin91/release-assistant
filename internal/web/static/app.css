@@ -177,14 +177,11 @@ legend { padding: 0 .35rem; font-weight: var(--emphasis-weight); }
 .creation-failure-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: .25rem .55rem; margin-bottom: .35rem; }
 .creation-failure-title h4 { margin: 0; overflow-wrap: anywhere; }
 .creation-failure p { margin: 0 0 .4rem; }
-.creation-failure-facts { display: grid; grid-template-columns: 10rem minmax(0, 1fr); gap: .22rem .6rem; margin: .45rem 0; font-size: .88rem; }
+.creation-failure-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .22rem .6rem; margin: .45rem 0; font-size: .88rem; }
 .creation-failure-facts dt { font-weight: var(--emphasis-weight); }
-.creation-failure-facts dd { margin: 0; }
-.creation-failure-facts dd .muted { display: block; }
-.creation-failure-source, .creation-failure > details { font-size: .88rem; }
-@media (max-width: 550px) {
-  .creation-failure-facts { grid-template-columns: minmax(6rem, 2fr) minmax(0, 3fr); }
-}
+.creation-failure-facts dd { margin: 0; overflow-wrap: anywhere; }
+.creation-failure-reason { white-space: pre-wrap; }
+.creation-failure-source { font-size: .88rem; }
 
 button[aria-pressed=true], .config-grid button[type=submit] { color: var(--canvas); font-weight: var(--emphasis-weight); border-color: var(--accent); background: var(--accent); }
 .pr-repo { margin-top: 1rem; padding-top: .75rem; border-top: 1px solid var(--line); }

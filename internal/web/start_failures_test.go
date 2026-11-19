@@ -31,26 +31,17 @@ func TestCreationFailuresShowTypedCommitEvidenceWithoutGrantingRetries(t *testin
 	panel := activityPanel(t, body, "component-prs")
 	section := between(t, panel, `<section class="panel" id="component-prs-start-failures-panel">`, `</section>`)
 	for _, want := range []string{
-		"Reported build creation failures", "konflux.example", "1 reported check", "fact-build", "Admission policy rejection",
-		"denied &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", "Open source check #731 on GitHub", `href="https://github.com/acme/fact/runs/731"`,
-		"Source commit: <code>fetched-sha</code>", "<dt>Check read at</dt>", formatTime(readAt),
-		"<dt>GitHub check started</dt>", formatTime(startedAt),
-		"GitHub check external ID: <code>fact-build-&lt;check&gt;</code>",
-		`href="https://api.github.com/repos/acme/fact/check-runs/731"`, "Open raw GitHub check JSON",
-		"PR/tag association is unverified", "Current cluster availability is unknown",
+		"Reported build creation failures", "konflux.example", "1 reported check", "fact-build", "Stopped before build could run.",
+		`creating pipelinerun fact-build- in namespace test-tenant has failed: admission webhook denied &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;`,
+		"Check #731 on GitHub", `href="https://github.com/acme/fact/runs/731"`,
+		`href="https://github.com/acme/fact/commit/fetched-sha"`, "<code>fetched-sha</code></a>",
+		"<dt>Last update:</dt>", formatTime(readAt), "<dt>Failure:</dt>", "<code>fact#41</code>",
 	} {
 		if !strings.Contains(section, want) {
 			t.Errorf("creation evidence missing %q: %s", want, section)
 		}
 	}
-	summary, technical, found := strings.Cut(section, "<summary>Technical details</summary>")
-	if !found || strings.Contains(summary, "test-tenant") ||
-		!strings.Contains(summary, "<dt>Repository</dt><dd><code>acme/fact</code></dd>") ||
-		!strings.Contains(summary, "Open source check #731 on GitHub") || strings.Contains(summary, "admission webhook denied") ||
-		!strings.Contains(technical, "admission webhook denied") {
-		t.Fatal("the summary should expose failure context and the source link while the raw error stays in technical details")
-	}
-	for _, unwanted := range []string{"<script>alert", "Retained evidence", "Recovered", "Cluster is healthy", "Cluster is down", `name="kind"`, "/konflux-retest"} {
+	for _, unwanted := range []string{"Technical details", "GitHub check started", "GitHub check external ID", "raw GitHub check JSON", "Admission policy rejection", "<dt>Repository</dt>", "<script>alert", "Retained evidence", "Recovered", "Cluster is healthy", "Cluster is down", `name="kind"`, "/konflux-retest"} {
 		if strings.Contains(section, unwanted) {
 			t.Errorf("creation evidence invented authority or status %q", unwanted)
 		}
@@ -76,10 +67,10 @@ func TestCreationFailuresDeduplicateChecksWithinTheActivity(t *testing.T) {
 	}}
 	panel := activityPanel(t, newBrowser(t, application).getBody(t), "component-prs")
 	section := between(t, panel, `<section class="panel" id="component-prs-start-failures-panel">`, `</section>`)
-	if strings.Count(section, "creation transport failure") != 1 || !strings.Contains(section, "1 reported check") || !strings.Contains(section, "Other creation failure") {
+	if strings.Count(section, "creation transport failure") != 1 || !strings.Contains(section, "1 reported check") {
 		t.Fatal("the same historical check was counted more than once across PRs", section)
 	}
-	if !strings.Contains(section, first.String()) || !strings.Contains(section, second.String()) {
+	if !strings.Contains(section, "fact#42") || !strings.Contains(section, "fact#43") {
 		t.Fatal("deduplication discarded fetched monitoring contexts")
 	}
 	before := application.snapshot.Plans[0]
@@ -138,6 +129,10 @@ func TestCreationFailureScopeFollowsIncludedPRsSelectedTagsAndPinning(t *testing
 			}
 		}
 	}
+	tagPanel := activityPanel(t, body, "component-releases")
+	if !strings.Contains(tagPanel, ">Tag:</dt>") || !strings.Contains(tagPanel, "<code>fact@3.25.8</code>") {
+		t.Error("tag failure should identify the monitored tag")
+	}
 	for _, hidden := range []string{"excluded-report", "undecided-report", "ignored-report", "closed-report", "old-tag-report"} {
 		if strings.Contains(body, hidden) {
 			t.Errorf("out-of-scope evidence %q is visible", hidden)
@@ -164,7 +159,7 @@ func TestRetainedCreationFailuresKeepUncertaintyAndSafeSources(t *testing.T) {
 		}}}},
 	}}
 	panel := activityPanel(t, newBrowser(t, application).getBody(t), "component-prs")
-	for _, want := range []string{"Cluster not reported", "Job not reported", "Retained evidence · current read unavailable", "<dt>Last retained check read at</dt>", formatTime(readAt), "previous-commit", "refresh failed &lt;tag&gt;"} {
+	for _, want := range []string{"Cluster not reported", "Job not reported", "Retained evidence · current read unavailable", "<dt>Last update:</dt>", formatTime(readAt), "previous-commit", "refresh failed &lt;tag&gt;"} {
 		if !strings.Contains(panel, want) {
 			t.Errorf("retained diagnostic missing %q", want)
 		}

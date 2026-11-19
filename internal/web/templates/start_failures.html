@@ -37,36 +37,29 @@
         <span class="summary-detail">{{len .Failures}} reported check{{if ne (len .Failures) 1}}s{{end}}</span>
       </h3>
       <ol class="creation-failures">
-        {{range .Failures}}
+        {{range $row := .Failures}}
           <li class="creation-failure" data-live-key="start-failure:{{.Key}}">
             <div class="creation-failure-title">
               <h4>{{if .Failure.Job}}Job <code>{{.Failure.Job}}</code>{{else}}Job not reported{{end}}</h4>
-              <span class="pill">{{.Category}}</span>
               {{if .Failure.Superseded}}<span class="muted">Newer verified run observed</span>{{end}}
               {{if not .Failure.Evidence.Fresh}}<span class="unknown">Retained evidence · current read unavailable</span>{{end}}
             </div>
-            {{if eq .Failure.Category "admission_policy"}}<p>Tekton stopped this attempt before the build could run.</p>{{end}}
+            <p>Stopped before build could run.</p>
             <p class="creation-failure-source">{{if url .Failure.Evidence.URL}}
-              <a aria-describedby="new-tab-description" href="{{url .Failure.Evidence.URL}}" target="_blank" rel="noreferrer">Open source check{{if gt .Failure.CheckID 0}} #{{.Failure.CheckID}}{{end}} on GitHub</a>
-            {{else if gt .Failure.CheckID 0}}Source check #{{.Failure.CheckID}} · link unavailable
-            {{else}}Source check link unavailable{{end}}</p>
+              <a aria-describedby="new-tab-description" href="{{url .Failure.Evidence.URL}}" target="_blank" rel="noreferrer">Check{{if gt .Failure.CheckID 0}} #{{.Failure.CheckID}}{{end}} on GitHub</a>
+            {{else if gt .Failure.CheckID 0}}Check #{{.Failure.CheckID}} · link unavailable
+            {{else}}Check link unavailable{{end}}</p>
             <dl class="creation-failure-facts">
-              <dt>Repository</dt><dd><code>{{.Repo}}</code></dd>
-              <dt>Fetched while monitoring</dt>
-              <dd>{{range $i,$target:=.Targets}}{{if $i}}, {{end}}<code>{{$target}}</code>{{end}} <span class="muted">PR/tag association is unverified</span></dd>
-              {{if not .Failure.CheckStartedAt.IsZero}}<dt>GitHub check started</dt><dd>{{when .Failure.CheckStartedAt}}</dd>{{end}}
-              <dt>{{if .Failure.Evidence.Fresh}}Check read at{{else}}Last retained check read at{{end}}</dt>
-              <dd>{{when .Failure.Evidence.At}}</dd>
+              {{range .Targets}}
+                {{if .PR}}<dt title="PR monitored when this check was fetched">PR:</dt><dd><code>{{$row.RepoName}}#{{.PR}}</code></dd>
+                {{else}}<dt title="Tag monitored when this check was fetched">Tag:</dt><dd><code>{{$row.RepoName}}@{{.Tag}}</code></dd>{{end}}
+              {{end}}
+              <dt>Last update:</dt><dd>{{when .Failure.Evidence.At}}</dd>
+              <dt>Failure:</dt><dd class="creation-failure-reason">{{if .Failure.Reason}}{{.Failure.Reason}}{{else}}No failure reason was reported.{{end}}</dd>
+              <dt>Source commit{{if gt (len .Commits) 1}}s{{end}}:</dt>
+              <dd>{{range $i, $sha := .Commits}}{{if $i}}, {{end}}<a aria-describedby="new-tab-description" href="https://github.com/{{$row.Repo}}/commit/{{$sha}}" target="_blank" rel="noreferrer"><code>{{$sha}}</code></a>{{else}}Unknown{{end}}</dd>
             </dl>
-            <details data-fold-key="start-failure:{{.Key}}">
-              <summary>Technical details</summary>
-              {{if .Failure.Reason}}<pre>{{.Failure.Reason}}</pre>{{else}}<p class="muted">No failure reason was reported.</p>{{end}}
-              <p>Source commit{{if ne (len .Commits) 1}}s{{end}}: {{range $i,$commit:=.Commits}}{{if $i}}, {{end}}<code>{{$commit}}</code>{{else}}unknown{{end}}</p>
-              {{if .Failure.ExternalID}}<p>GitHub check external ID: <code>{{.Failure.ExternalID}}</code></p>{{end}}
-              {{if url .RawCheckURL}}<p><a aria-describedby="new-tab-description" href="{{url .RawCheckURL}}" target="_blank" rel="noreferrer">Open raw GitHub check JSON</a></p>{{end}}
-              {{if .Failure.CheckStartedAt.IsZero}}<p class="muted">GitHub did not report when the check started.</p>{{end}}
-              {{if .Failure.Evidence.Error}}<p class="error-text">{{.Failure.Evidence.Error}}</p>{{end}}
-            </details>
+            {{if .Failure.Evidence.Error}}<p class="error-text">{{.Failure.Evidence.Error}}</p>{{end}}
           </li>
         {{end}}
       </ol>

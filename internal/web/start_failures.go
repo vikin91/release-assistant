@@ -3,6 +3,7 @@ package web
 import (
 	"crypto/sha256"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
 
@@ -15,10 +16,10 @@ type (
 		Failures []startFailureModel
 	}
 	startFailureModel struct {
-		Key, Repo, Category, RawCheckURL string
-		Failure                          release.StartFailure
-		Commits                          []string
-		Targets                          []release.Target
+		Key, Repo string
+		Failure   release.StartFailure
+		Commits   []string
+		Targets   []release.Target
 	}
 	startFailureKey struct {
 		cluster, repo string
@@ -43,13 +44,9 @@ func groupStartFailures(plans []planModel, tab string) (reported, earlier []star
 			if !exists {
 				index = len(rows)
 				positions[key] = index
-				rawCheckURL := ""
-				if failure.CheckID > 0 && release.ValidRepo(key.repo) {
-					rawCheckURL = fmt.Sprintf("https://api.github.com/repos/%s/check-runs/%d", key.repo, failure.CheckID)
-				}
 				rows = append(rows, startFailureModel{
 					Key: fmt.Sprintf("%s:%s:%d:%x", tab, key.repo, key.checkID, sha256.Sum256([]byte(cluster+"\x00"+key.fallback))), Repo: key.repo,
-					Failure: failure, Category: startFailureCategory(failure.Category), RawCheckURL: rawCheckURL,
+					Failure: failure,
 				})
 			}
 			row := &rows[index]
@@ -57,7 +54,6 @@ func groupStartFailures(plans []planModel, tab string) (reported, earlier []star
 			if failure.Evidence.Fresh() && !row.Failure.Evidence.Fresh() ||
 				failure.Evidence.Fresh() == row.Failure.Evidence.Fresh() && failure.Evidence.At.After(row.Failure.Evidence.At) {
 				row.Failure = failure
-				row.Category = startFailureCategory(failure.Category)
 			}
 			row.Failure.Superseded = superseded
 			if plan.Plan.SHA != "" && !slices.Contains(row.Commits, plan.Plan.SHA) {
@@ -95,13 +91,7 @@ func groupStartFailures(plans []planModel, tab string) (reported, earlier []star
 	return reported, earlier
 }
 
-func startFailureCategory(category string) string {
-	switch category {
-	case "admission_policy":
-		return "Admission policy rejection"
-	case "other":
-		return "Other creation failure"
-	default:
-		return "Creation failure (category not reported)"
-	}
+// RepoName returns the short repository name for monitored PR and tag labels.
+func (f startFailureModel) RepoName() string {
+	return path.Base(f.Repo)
 }
