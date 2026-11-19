@@ -36,11 +36,8 @@ Have the GitHub CLI (`gh`) and OpenShift CLI (`oc`) available in the
 terminal you’ll use to start the assistant. The assistant reads credentials
 at startup. Restart it after changing a token or login.
 
-1. **Set up Go and the local dependency.** Install Go 1.26.0 or later. The
-   `replace` directive in [go.mod](go.mod) points to a local checkout of
-   `github.com/vikin91/konflux-retest`. Use the revision recorded there or a
-   compatible revision. If your checkout is elsewhere, adjust the path in
-   the directive.
+1. **Set up Go.** Install Go 1.26.0 or later. Go downloads the
+   `github.com/vikin91/konflux-retest` version pinned in [go.mod](go.mod).
 
 2. **Authenticate to GitHub.** If you use the GitHub CLI for credentials,
    check whether you’re signed in and log in if needed.
