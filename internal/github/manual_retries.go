@@ -85,7 +85,7 @@ func (c *Client) retryTarget(ctx context.Context, t release.Target) (retryPR, er
 	return pr, err
 }
 
-// ManualRetries collects Actions job links and targeted commands for failed Prow presubmits.
+// ManualRetries classifies failed checks and offers verified Actions and Prow retries.
 // Read errors can accompany independent offers for the same verified target.
 func (c *Client) ManualRetries(ctx context.Context, t release.Target) (ManualRetryReport, error) {
 	report := ManualRetryReport{Target: t}
@@ -108,31 +108,28 @@ func (c *Client) ManualRetries(ctx context.Context, t release.Target) (ManualRet
 		report.Warnings = append(report.Warnings, "PR is not open")
 		return report, nil
 	}
-	var prowErr error
-	if t.PR > 0 {
-		var statuses []commitStatus
-		statuses, prowErr = c.readCommitStatuses(ctx, t.Repo, pr.Head.SHA)
-		if prowErr == nil {
-			report.Prow, report.Warnings, prowErr = c.prowRetries(ctx, t, pr.Base.Ref, statuses)
-		}
+	statuses, prowErr := c.readCommitStatuses(ctx, t.Repo, pr.Head.SHA)
+	if prowErr == nil {
+		prowErr = c.prowRetries(ctx, &report, pr.Base.Ref, statuses)
 	}
 	checks, actionsErr := c.readCommitCheckRuns(ctx, t.Repo, pr.Head.SHA)
 	if actionsErr == nil {
 		actionsErr = c.manualActions(ctx, t, pr, checks, &report)
 	}
-	if len(report.Jobs)+len(report.Prow) > 0 {
+	slices.Sort(report.OtherChecks)
+	if len(report.Jobs)+len(report.Prow)+len(report.OtherChecks) > 0 {
 		current, err := c.retryTarget(ctx, t)
 		if err != nil || current != pr {
-			report.Jobs, report.Prow = nil, nil
+			report.Jobs, report.Prow, report.OtherChecks = nil, nil, nil
 			return report, errors.Join(prowErr, actionsErr, err, errors.New("target identity could not be reconfirmed"))
 		}
 	}
 	return report, errors.Join(prowErr, actionsErr)
 }
 
-func failedPresubmits(t release.Target, statuses []commitStatus) (map[string]string, []string) {
+func failedPresubmits(report *ManualRetryReport, statuses []commitStatus) map[string]string {
+	t := report.Target
 	failed := make(map[string]string)
-	var warnings []string
 	// The statuses API returns newest first. Another reporter can supersede the failure.
 	seen := make(map[string]bool)
 	prefix := fmt.Sprintf("/view/gs/test-platform-results-public/pr-logs/pull/%s/%d/", strings.ReplaceAll(strings.ToLower(t.Repo), "/", "_"), t.PR)
@@ -142,22 +139,32 @@ func failedPresubmits(t release.Target, statuses []commitStatus) (map[string]str
 			continue
 		}
 		seen[key] = true
-		if s.State != "failure" || !strings.HasPrefix(s.Context, "ci/prow/") {
+		if s.State != "failure" && s.State != "error" {
 			continue
 		}
 		if s.Creator.ID != openshiftCIReporterID {
-			warnings = append(warnings, s.Context+": Prow reporter unverified")
+			provider := "commit status"
+			if s.Creator.Login != "" {
+				provider += " (" + s.Creator.Login + ")"
+			}
+			classifyRetry(report, provider, "", s.Context)
+			continue
+		}
+		if !classifyRetry(report, "Prow", "", s.Context) {
+			continue
+		}
+		if t.PR == 0 || s.State != "failure" {
+			report.Warnings = append(report.Warnings, s.Context+": Prow retries require a failed PR presubmit")
 			continue
 		}
 		job := prowBuildJob(s.URL, prefix)
 		if job == "" {
-			warnings = append(warnings, s.Context+": build URL does not identify this PR")
+			report.Warnings = append(report.Warnings, s.Context+": build URL does not identify this PR")
 			continue
 		}
 		failed[s.Context] = job
 	}
-	slices.Sort(warnings)
-	return failed, warnings
+	return failed
 }
 
 func prowBuildJob(raw, prefix string) string {
@@ -205,19 +212,24 @@ func retryPages[T any](ctx context.Context, c *Client, endpoint, key string, lim
 func (c *Client) manualActions(ctx context.Context, t release.Target, pr retryPR, checks []commitCheckRun, report *ManualRetryReport) error {
 	failed := make(map[int64][]commitCheckRun)
 	for _, check := range checks {
-		if check.App.Slug == "github-actions" && check.HeadSHA == pr.Head.SHA && check.Status == "completed" && check.Conclusion == "failure" {
-			failed[check.Suite.ID] = append(failed[check.Suite.ID], check)
+		if check.HeadSHA != pr.Head.SHA || check.Status != "completed" || check.check().Result() != release.No {
+			continue
 		}
+		if check.App.Slug != "github-actions" {
+			classifyRetry(report, cmp.Or(check.App.Slug, "unknown reporter"), "", check.Name)
+			continue
+		}
+		failed[check.Suite.ID] = append(failed[check.Suite.ID], check)
 	}
 	if len(failed) == 0 {
 		return nil
 	}
 	root := repoPath(t.Repo) + "/actions"
 	runs, err := retryPages[retryRun](ctx, c, root+"/runs?head_sha="+url.QueryEscape(pr.Head.SHA), "workflow_runs", 10)
-	if err != nil {
-		return err
-	}
 	var problems []error
+	if err != nil {
+		problems = append(problems, err)
+	}
 	countBySuite := make(map[int64]int)
 	for _, run := range runs {
 		countBySuite[run.SuiteID]++
@@ -227,12 +239,11 @@ func (c *Client) manualActions(ctx context.Context, t release.Target, pr retryPR
 		if len(selected) == 0 || run.SuiteID == 0 {
 			continue
 		}
-		delete(failed, run.SuiteID)
 		if countBySuite[run.SuiteID] != 1 {
-			report.Warnings = append(report.Warnings, fmt.Sprintf("check suite %d matches multiple Actions runs", run.SuiteID))
 			continue
 		}
-		jobs, reason, err := c.retryRunJobs(ctx, t, pr, run, runs, selected)
+		delete(failed, run.SuiteID)
+		jobs, reason, err := c.retryRunJobs(ctx, report, pr, run, runs, selected)
 		report.Jobs = append(report.Jobs, jobs...)
 		if reason != "" {
 			report.Warnings = append(report.Warnings, fmt.Sprintf("%s (run %d): %s", run.Name, run.ID, reason))
@@ -243,7 +254,8 @@ func (c *Client) manualActions(ctx context.Context, t release.Target, pr retryPR
 	}
 	for _, group := range failed {
 		for _, check := range group {
-			report.Warnings = append(report.Warnings, check.Name+": no matching Actions run")
+			classifyRetry(report, check.App.Slug, "", check.Name)
+			report.Warnings = append(report.Warnings, check.Name+": no unique matching Actions run")
 		}
 	}
 	slices.Sort(report.Warnings)
@@ -257,7 +269,8 @@ func associatedPR(run retryRun, pr retryPR) bool {
 	})
 }
 
-func (c *Client) retryRunJobs(ctx context.Context, t release.Target, pr retryPR, run retryRun, runs []retryRun, checks []commitCheckRun) ([]ManualJob, string, error) {
+func (c *Client) retryRunJobs(ctx context.Context, report *ManualRetryReport, pr retryPR, run retryRun, runs []retryRun, checks []commitCheckRun) ([]ManualJob, string, error) {
+	t := report.Target
 	if run.SHA != pr.Head.SHA || run.ID <= 0 || run.WorkflowID <= 0 || run.Number <= 0 {
 		return nil, "missing run identity", nil
 	}
@@ -267,11 +280,19 @@ func (c *Client) retryRunJobs(ctx context.Context, t release.Target, pr retryPR,
 	if t.Tag != "" && (run.Event != "push" || run.Ref != t.Tag) {
 		return nil, "run belongs to another ref or event", nil
 	}
-	// Collector and FACT use Actions to wait for and test images built by Konflux.
-	// Only the Konflux planner can identify a build eligible for a retry comment.
-	if strings.EqualFold(strings.TrimSuffix(run.Name, " ("+t.Tag+")"), "Test Konflux builds") ||
-		run.Path == ".github/workflows/konflux.yml" || run.Path == ".github/workflows/konflux-tests.yml" {
-		return nil, "Use konflux-retest to check the underlying build for an eligible retry comment.", nil
+	var allowed []commitCheckRun
+	for _, check := range checks {
+		if !classifyRetry(report, check.App.Slug, run.Path, check.Name) {
+			continue
+		}
+		if check.Conclusion != "failure" {
+			report.Warnings = append(report.Warnings, check.Name+": ineligible Actions conclusion "+check.Conclusion)
+			continue
+		}
+		allowed = append(allowed, check)
+	}
+	if len(allowed) == 0 {
+		return nil, "", nil
 	}
 	if run.Status != "completed" {
 		return nil, "run is still active", nil
@@ -307,7 +328,7 @@ func (c *Client) retryRunJobs(ctx context.Context, t release.Target, pr retryPR,
 	if err := c.get(ctx, endpoint, &current); err != nil {
 		return nil, "", err
 	}
-	if current.ID != run.ID || current.SuiteID != run.SuiteID || current.WorkflowID != run.WorkflowID || current.Attempt != run.Attempt || current.Status != "completed" || current.SHA != pr.Head.SHA {
+	if current.ID != run.ID || current.SuiteID != run.SuiteID || current.WorkflowID != run.WorkflowID || current.Path != run.Path || current.Attempt != run.Attempt || current.Status != "completed" || current.SHA != pr.Head.SHA {
 		return nil, "run changed during collection", nil
 	}
 	if t.PR > 0 && !associatedPR(current, pr) {
@@ -325,7 +346,7 @@ func (c *Client) retryRunJobs(ctx context.Context, t release.Target, pr retryPR,
 	}
 	var offers []ManualJob
 	var missing []string
-	for _, check := range checks {
+	for _, check := range allowed {
 		checkURL := fmt.Sprintf("https://api.github.com/repos/%s/check-runs/%d", t.Repo, check.ID)
 		var matches []retryJob
 		for _, job := range jobs {

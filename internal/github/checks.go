@@ -35,7 +35,8 @@ type (
 		State   string `json:"state"`
 		URL     string `json:"target_url"`
 		Creator struct {
-			ID int64 `json:"id"`
+			ID    int64  `json:"id"`
+			Login string `json:"login"`
 		} `json:"creator"`
 	}
 	workflowRun struct {

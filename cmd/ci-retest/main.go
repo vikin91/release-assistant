@@ -139,7 +139,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader 
 		switch {
 		case len(report.Jobs)+len(report.Prow) > 0:
 			fmt.Fprintln(out, "\nAvailable retries")
-		case len(report.Warnings) > 0:
+		case len(report.OtherChecks)+len(report.Warnings) > 0:
 			fmt.Fprintln(out, "\nNext action: Investigate")
 		default:
 			fmt.Fprintln(out, "\nNext action: None")
@@ -159,6 +159,12 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader 
 				fmt.Fprintln(out)
 			}
 			fmt.Fprintf(out, "Failed Prow checks: post this comment on %s\n%s\n", report.URL, report.ProwComment())
+		}
+		if len(report.OtherChecks) > 0 {
+			fmt.Fprintln(out, "\nOther failed checks")
+			for _, check := range report.OtherChecks {
+				fmt.Fprintln(out, check)
+			}
 		}
 		fmt.Fprintln(out, "\nWarnings:")
 		for _, w := range report.Warnings {

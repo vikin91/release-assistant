@@ -44,14 +44,12 @@ func TestTargetLists(t *testing.T) {
 }
 
 func TestCLIReports(t *testing.T) {
-	const root = "/repos/stackrox/stackrox"
 	const sha = "1111111111111111111111111111111111111111"
 	const pr = `{"state":"open","number":7,"base":{"ref":"master","repo":{"id":1}},"head":{"sha":"` + sha + `","repo":{"id":2}}}`
-	const statuses = `[{"context":"ci/prow/Green","state":"success"},{"context":"ci/prow/green","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/green/111"},{"context":"ci/prow/build","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/build/123"},{"context":"ci/prow/test","state":"pending"},{"context":"ci/prow/test","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/test/345"}]`
-	const checks = `{"total_count":2,"check_runs":[
-		{"id":41,"name":"Konflux: release-central-db:rc","status":"completed","conclusion":"failure","head_sha":"` + sha + `","app":{"slug":"github-actions"},"check_suite":{"id":11}},
-		{"id":42,"name":"unit tests","status":"completed","conclusion":"failure","head_sha":"` + sha + `","app":{"slug":"github-actions"},"check_suite":{"id":11}}
-	]}`
+	const statuses = `[{"context":"ci/prow/Green","state":"success"},{"context":"ci/prow/green","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/green/111"},{"context":"ci/prow/gke-qa-e2e-tests","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/build/123"},{"context":"ci/prow/test","state":"pending"},{"context":"ci/prow/test","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/test/345"}]`
+	failedCheck := func(id int, name, app string) string {
+		return fmt.Sprintf(`{"id":%d,"name":%q,"status":"completed","conclusion":"failure","head_sha":%q,"app":{"slug":%q},"check_suite":{"id":11}}`, id, name, sha, app)
+	}
 	const jobs = `{"total_count":2,"jobs":[
 		{"id":99,"status":"completed","conclusion":"failure","check_run_url":"https://api.github.com/repos/stackrox/stackrox/check-runs/41"},
 		{"id":101,"status":"completed","conclusion":"failure","check_run_url":"https://api.github.com/repos/stackrox/stackrox/check-runs/42"}
@@ -62,40 +60,59 @@ Scan images for vulnerabilities / Konflux: release-central-db:rc
 https://github.com/stackrox/stackrox/actions/runs/22/job/99
 gh api --method POST repos/stackrox/stackrox/actions/jobs/99/rerun
 
-Scan images for vulnerabilities / unit tests
+Scan images for vulnerabilities / Upstream: main:rc
 https://github.com/stackrox/stackrox/actions/runs/22/job/101
 gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 
 	for name, tc := range map[string]struct {
 		args                             []string
 		workflow, ref                    string
-		workflowName, workflowPath       string
+		repo, workflowName, workflowPath string
+		mixed                            bool
 		moved, otherCheck, missingConfig bool
 		want, absent                     []string
 		code                             int
 	}{
-		"PR reports both actions and continues past missing target": {args: []string{"--prs", "8,7", "7"}, want: []string{"HTTP 404", jobOutput + "\n\nFailed Prow checks:", "Failed Prow checks: post this comment on https://github.com/stackrox/stackrox/pull/7", "\n/test build-job\n"}, absent: []string{"ci/prow/test", "/test green", "/test pending", "\n/retest\n"}, code: 1},
-		"Prow config unavailable preserves Actions offers":          {args: []string{"--prs", "7"}, missingConfig: true, want: []string{jobOutput, "reading OpenShift CI presubmits"}, absent: []string{"Failed Prow checks:", "/test build-job", "\n/retest\n"}, code: 1},
-		"PR head moved after observation":                           {args: []string{"--prs", "7"}, moved: true, want: []string{"target identity could not be reconfirmed"}, absent: []string{"/job/99", "\n/retest\n", "/test build-job"}, code: 1},
-		"job for different check":                                   {args: []string{"--prs", "7"}, otherCheck: true, want: []string{"no unique failed job", "\n/test build-job\n"}, absent: []string{"/job/99"}},
+		"PR reports both actions and continues past missing target": {args: []string{"--prs", "8,7", "7"}, want: []string{"HTTP 404", jobOutput + "\n\nFailed Prow checks:", "Failed Prow checks: post this comment on https://github.com/stackrox/stackrox/pull/7", "\n/test gke-qa-e2e-tests\n"}, absent: []string{"ci/prow/test", "/test green", "/test pending", "\n/retest\n"}, code: 1},
+		"Prow config unavailable preserves Actions offers":          {args: []string{"--prs", "7"}, missingConfig: true, want: []string{jobOutput, "reading OpenShift CI presubmits"}, absent: []string{"Failed Prow checks:", "/test gke-qa-e2e-tests", "\n/retest\n"}, code: 1},
+		"PR head moved after observation":                           {args: []string{"--prs", "7"}, moved: true, want: []string{"target identity could not be reconfirmed"}, absent: []string{"/job/99", "\n/retest\n", "/test gke-qa-e2e-tests"}, code: 1},
+		"job for different check":                                   {args: []string{"--prs", "7"}, otherCheck: true, want: []string{"no unique failed job", "\n/test gke-qa-e2e-tests\n"}, absent: []string{"/job/99"}},
 		"tag only push":                                             {args: []string{"--tags", "rc"}, workflow: "on:\n  push:\n    tags: ['*']\n", want: []string{"Tag: rc", "/commit/" + sha, jobOutput + "\n\nWarnings:\nThis tool cannot tell flakes from true failures. Inspect each failure before retrying.\n"}, absent: []string{"\n/retest\n"}},
 		"tag proven by local workflow":                              {args: []string{"--tags", "rc"}, workflow: "jobs:\n  build:\n    uses: ./.github/workflows/build.yml\n", ref: "refs/tags/rc", want: []string{"/job/99"}},
-		"same name branch push":                                     {args: []string{"--tags", "rc"}, workflow: "jobs:\n  build:\n    uses: ./.github/workflows/build.yml\n", ref: "refs/heads/rc", want: []string{"tag trigger unproven"}, absent: []string{"/job/99", "\n/retest\n", "/test build-job"}},
+		"same name branch push":                                     {args: []string{"--tags", "rc"}, workflow: "jobs:\n  build:\n    uses: ./.github/workflows/build.yml\n", ref: "refs/heads/rc", want: []string{"tag trigger unproven"}, absent: []string{"/job/99", "\n/retest\n", "/test gke-qa-e2e-tests"}},
 		"separately pinned reusable workflow":                       {args: []string{"--tags", "rc"}, workflow: "jobs:\n  build:\n    uses: stackrox/stackrox/.github/workflows/build.yml@rc\n", ref: "refs/tags/rc", want: []string{"tag trigger unproven"}, absent: []string{"/job/99"}},
-		"Konflux image wait on a tag":                               {args: []string{"--tags", "rc"}, workflowName: "Test Konflux builds", workflowPath: ".github/workflows/konflux.yml", workflow: "on:\n  push:\n    tags: ['*']\n", want: []string{"konflux-retest"}, absent: []string{"gh api --method POST"}},
-		"Konflux tests with a renamed workflow on a PR":             {args: []string{"--prs", "7"}, workflowName: "Image checks", workflowPath: ".github/workflows/konflux-tests.yml", want: []string{"konflux-retest", "/test build-job"}, absent: []string{"gh api --method POST"}},
-		"Konflux tests with a renamed workflow file":                {args: []string{"--prs", "7"}, workflowName: "Test Konflux builds", want: []string{"konflux-retest"}, absent: []string{"gh api --method POST"}},
+		"Konflux image wait on a tag":                               {repo: "stackrox/collector", args: []string{"--tags", "rc"}, workflowName: "Test Konflux builds", workflowPath: ".github/workflows/konflux.yml", workflow: "on:\n  push:\n    tags: ['*']\n", want: []string{"wait-for-images · Handled by konflux-retest"}, absent: []string{"gh api --method POST"}},
+		"Konflux tests with a renamed workflow on a PR":             {repo: "stackrox/fact", args: []string{"--prs", "7"}, workflowName: "Image checks", workflowPath: ".github/workflows/konflux-tests.yml", want: []string{"stackrox/fact / github-actions / .github/workflows/konflux-tests.yml / run-konflux-tests / integration-tests (fedora-coreos) · Handled by konflux-retest"}, absent: []string{"gh api --method POST"}},
+		"Konflux tests with a renamed workflow file":                {args: []string{"--prs", "7"}, repo: "stackrox/collector", workflowName: "Test Konflux builds", workflowPath: ".github/workflows/new-path.yml", want: []string{"wait-for-images · Unknown check — patch ci-retest to classify it"}, absent: []string{"gh api --method POST", "Handled by konflux-retest"}},
+		"mixed ownership on one tag": {
+			args: []string{"--tags", "rc"}, repo: "stackrox/fact", workflowName: "Main CI", workflowPath: ".github/workflows/ci.yml", workflow: "on:\n  push:\n    tags: ['*']\n", mixed: true,
+			want:   []string{"gh api --method POST repos/stackrox/fact/actions/jobs/99/rerun", "stackrox/fact / red-hat-konflux / Red Hat Konflux / fact-on-push · Handled by konflux-retest", "stackrox/fact / github-actions / .github/workflows/ci.yml / wait-for-images · Unknown check — patch ci-retest to classify it", "commit status (vendor-bot) / vendor/gate · Unknown check"},
+			absent: []string{"/jobs/101/rerun", "/konflux-retest "},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			repo := cmp.Or(tc.repo, "stackrox/stackrox")
+			root := "/repos/" + repo
 			reads := 0
 			event, ref := "pull_request", "feature"
 			workflowName := cmp.Or(tc.workflowName, "Scan images for vulnerabilities")
-			workflowPath := cmp.Or(tc.workflowPath, ".github/workflows/ci.yml")
+			workflowPath := cmp.Or(tc.workflowPath, ".github/workflows/scan-image-vulnerabilities.yaml")
 			if tc.args[0] == "--tags" {
 				event, ref = "push", "rc"
 				workflowName += " (rc)"
 			}
 			runData := fmt.Sprintf(`{"id":22,"name":%q,"path":%q,"workflow_id":33,"check_suite_id":11,"head_sha":%q,"head_branch":%q,"event":%q,"run_attempt":1,"run_number":2,"status":"completed","created_at":%q,"pull_requests":[%s],"referenced_workflows":[{"path":"stackrox/stackrox/.github/workflows/build.yml@%s","ref":%q,"sha":%q}]}`, workflowName, workflowPath, sha, ref, event, time.Now().UTC().Format(time.RFC3339), pr, sha, tc.ref, sha)
+			first, second := "Konflux: release-central-db:rc", "Upstream: main:rc"
+			if tc.workflowName != "" {
+				first, second = "wait-for-images", "run-konflux-tests / integration-tests (fedora-coreos)"
+			}
+			if tc.mixed {
+				first, second = "unit-tests / unit-tests (rhcos)", "wait-for-images"
+			}
+			checks := []string{failedCheck(41, first, "github-actions"), failedCheck(42, second, "github-actions")}
+			if tc.mixed {
+				checks = append(checks, failedCheck(43, "Red Hat Konflux / fact-on-push", "red-hat-konflux"))
+			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != "GET" {
 					t.Errorf("unexpected method %s", r.Method)
@@ -112,14 +129,14 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
   stackrox/stackrox:
   - name: build
     branches: [^master$]
-    context: ci/prow/build
-    rerun_command: /test build-job
-    trigger: '(?m)^/test build-job$'
+    context: ci/prow/gke-qa-e2e-tests
+    rerun_command: /test gke-qa-e2e-tests
+    trigger: '(?m)^/test gke-qa-e2e-tests$'
   - name: release-build
     branches: [^release-5$]
     context: ci/prow/release
-    rerun_command: /test build-job
-    trigger: '(?m)^/test build-job$'
+    rerun_command: /test gke-qa-e2e-tests
+    trigger: '(?m)^/test gke-qa-e2e-tests$'
   - name: green
     context: ci/prow/green
     rerun_command: /test green
@@ -143,16 +160,16 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 				case "/commits/refs/tags/rc":
 					fmt.Fprintf(w, `{"sha":%q}`, sha)
 				case "/commits/" + sha + "/statuses":
-					if tc.args[0] == "--tags" {
-						t.Error("read PR statuses for tag")
+					switch {
+					case tc.mixed:
+						fmt.Fprint(w, `[{"context":"vendor/gate","state":"error","creator":{"login":"vendor-bot"}}]`)
+					case tc.args[0] == "--prs" && repo == "stackrox/stackrox":
+						fmt.Fprint(w, statuses)
+					default:
+						fmt.Fprint(w, "[]")
 					}
-					fmt.Fprint(w, statuses)
 				case "/commits/" + sha + "/check-runs":
-					if tc.workflowName != "" {
-						fmt.Fprint(w, strings.NewReplacer("Konflux: release-central-db:rc", "wait-for-images", "unit tests", "run-konflux-tests / integration-tests (fedora-coreos)").Replace(checks))
-						return
-					}
-					fmt.Fprint(w, checks)
+					fmt.Fprintf(w, `{"total_count":%d,"check_runs":[%s]}`, len(checks), strings.Join(checks, ","))
 				case "/actions/runs":
 					fmt.Fprintf(w, `{"total_count":1,"workflow_runs":[%s]}`, runData)
 				case "/actions/runs/22":
@@ -166,7 +183,7 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 						fmt.Fprint(w, strings.ReplaceAll(jobs, "check-runs/4", "check-runs/9"))
 						return
 					}
-					fmt.Fprint(w, jobs)
+					fmt.Fprint(w, strings.ReplaceAll(jobs, "repos/stackrox/stackrox", "repos/"+repo))
 				default:
 					t.Errorf("unexpected request %s", r.URL)
 					http.NotFound(w, r)
@@ -174,7 +191,8 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 			}))
 			defer server.Close()
 			var out, diag bytes.Buffer
-			code := run(t.Context(), tc.args, &out, &diag, func(context.Context) (*github.Client, error) { return github.New(server.URL, "", server.Client()), nil })
+			args := append([]string{"--repo", repo}, tc.args...)
+			code := run(t.Context(), args, &out, &diag, func(context.Context) (*github.Client, error) { return github.New(server.URL, "", server.Client()), nil })
 			if code != tc.code || diag.Len() != 0 {
 				t.Fatalf("code=%d, stderr=%s, stdout=%s", code, &diag, &out)
 			}

@@ -34,17 +34,19 @@ type (
 var singleTestCommand = regexp.MustCompile(`^/test [A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
 // prowRetries checks the complete comment against the applicable presubmit triggers.
-func (c *Client) prowRetries(ctx context.Context, t release.Target, branch string, statuses []commitStatus) ([]release.ProwRetry, []string, error) {
-	failed, warnings := failedPresubmits(t, statuses)
+func (c *Client) prowRetries(ctx context.Context, report *ManualRetryReport, branch string, statuses []commitStatus) error {
+	failed := failedPresubmits(report, statuses)
 	if len(failed) == 0 {
-		return nil, warnings, nil
+		return nil
 	}
-	triggers, err := c.prowTriggers(ctx, strings.ToLower(t.Repo), branch)
+	triggers, err := c.prowTriggers(ctx, strings.ToLower(report.Target.Repo), branch)
 	if err != nil {
-		return nil, warnings, fmt.Errorf("reading OpenShift CI presubmits: %w", err)
+		return fmt.Errorf("reading OpenShift CI presubmits: %w", err)
 	}
 	retries, problems := targetedProwRetries(failed, triggers)
-	return retries, append(warnings, problems...), nil
+	report.Prow = retries
+	report.Warnings = append(report.Warnings, problems...)
+	return nil
 }
 
 func targetedProwRetries(failed map[string]string, triggers []prowTrigger) ([]release.ProwRetry, []string) {

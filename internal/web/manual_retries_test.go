@@ -12,10 +12,13 @@ func TestManualRetriesRenderCopyOnlyInTargetTab(t *testing.T) {
 	pr := release.Target{Repo: s.Config.ACS().Repo, PR: 7}
 	s.Choices.PRs[pr] = release.Included
 	rc := s.Candidate().Target
+	const delegated = "stackrox/stackrox / red-hat-konflux / main-on-push · Handled by konflux-retest"
+	const unknown = "stackrox/stackrox / github-actions / .github/workflows/new.yml / test · Unknown check — patch ci-retest to classify it"
 	s.ManualRetries = []release.ManualRetryReport{
 		{Target: pr, SHA: "reviewed", URL: "https://github.com/" + pr.Repo + "/pull/7", Prow: []release.ProwRetry{{Context: "ci/prow/test", Command: "/test test"}, {Context: "ci/prow/build", Command: "/test build"}}, Warnings: []string{"Actions read unavailable"}},
 		{Target: rc, SHA: s.Candidate().SHA, Jobs: []release.ManualJob{{ID: 99, Name: "Konflux: release-main", WorkflowName: "Scan images for vulnerabilities", URL: "https://github.com/" + rc.Repo + "/actions/runs/22/job/99"}}},
 	}
+	s.ManualRetries[1].OtherChecks = []string{delegated, unknown}
 	for name, mode := range map[string]struct{ writes, interactive bool }{"read only": {false, true}, "writes with confirmation": {true, true}, "automatic writes": {true, false}} {
 		t.Run(name, func(t *testing.T) {
 			s.WritesEnabled, s.Interactive = mode.writes, mode.interactive
@@ -23,7 +26,7 @@ func TestManualRetriesRenderCopyOnlyInTargetTab(t *testing.T) {
 			body := newBrowser(t, f).getBody(t)
 			for tab, want := range map[string][]string{
 				"acs-prs": {"ci/prow/test", "<pre><code>/test test\n/test build</code></pre>", s.ManualRetries[0].URL + "#new_comment_field", "Copy comment", "Actions read unavailable"},
-				"acs-rcs": {"Scan images for vulnerabilities / Konflux: release-main", s.ManualRetries[1].Jobs[0].URL, "gh api --method POST repos/" + rc.Repo + "/actions/jobs/99/rerun", "Copy command"},
+				"acs-rcs": {"Scan images for vulnerabilities / Konflux: release-main", s.ManualRetries[1].Jobs[0].URL, "gh api --method POST repos/" + rc.Repo + "/actions/jobs/99/rerun", "Copy command", delegated, unknown},
 			} {
 				start := `aria-label="Manual CI retries"`
 				if tab == "acs-prs" {

@@ -55,6 +55,7 @@ func (s *Session) currentManualRetries(repo release.Repository) []release.Manual
 		r.Jobs = slices.Clone(r.Jobs)
 		r.Prow = slices.Clone(r.Prow)
 		r.Warnings = slices.Clone(r.Warnings)
+		r.OtherChecks = slices.Clone(r.OtherChecks)
 		reports = append(reports, r)
 	}
 	return reports
@@ -84,14 +85,14 @@ func (s *Session) refreshManualRetries(ctx context.Context, generation, revision
 		}
 		if report.Target != target || report.SHA != sha {
 			// Diagnostics may describe an unavailable read; commands always require a matching revision.
-			report.Jobs, report.Prow = nil, nil
+			report.Jobs, report.Prow, report.OtherChecks = nil, nil, nil
 			report.Target, report.SHA = target, sha
 			report.Incomplete = true
 			if err == nil {
 				report.Warnings = append(report.Warnings, "The target revision changed during the manual retry check.")
 			}
 		}
-		if target == repo.Candidate.Target || (source.Name == "acs" && target.PR > 0) || len(report.Jobs)+len(report.Prow)+len(report.Warnings) > 0 {
+		if target == repo.Candidate.Target || (source.Name == "acs" && target.PR > 0) || len(report.Jobs)+len(report.Prow)+len(report.Warnings)+len(report.OtherChecks) > 0 {
 			reports[target] = report
 		}
 	}

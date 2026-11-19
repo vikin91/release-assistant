@@ -36,5 +36,6 @@
       <div class="copy-text-actions"><button type="button" data-copy-text>Copy comment</button><span role="status" data-copy-status data-live-preserve></span></div>
     </div>
   {{end}}
+  {{if .OtherChecks}}<ol>{{range .OtherChecks}}<li>{{.}}</li>{{end}}</ol>{{end}}
   {{if .Warnings}}<details data-fold-key="manual-ci-warnings:{{.Target}}"><summary>Retry diagnostics</summary><ol>{{range .Warnings}}<li>{{.}}</li>{{end}}</ol></details>{{end}}
 {{end}}
