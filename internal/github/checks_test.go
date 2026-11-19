@@ -99,6 +99,8 @@ func TestPRCheckResultsStayCurrentWhenRequiredSettingsAreUnavailable(t *testing.
 			writeCheckFixture(t, w, `{"total_count":1,"check_runs":[{"id":1,"name":"GitHub Actions tests","status":"completed","conclusion":"failure","app":{"slug":"github-actions"}}]}`)
 		case strings.HasSuffix(r.URL.Path, "/statuses"):
 			writeCheckFixture(t, w, `[{"context":"external CI","state":"failure"}]`)
+		case strings.Contains(r.URL.Path, "/rules/branches/"):
+			_, _ = w.Write([]byte(`[]`))
 		case strings.HasSuffix(r.URL.Path, "/required_status_checks"):
 			w.WriteHeader(http.StatusForbidden)
 		default:
@@ -108,7 +110,7 @@ func TestPRCheckResultsStayCurrentWhenRequiredSettingsAreUnavailable(t *testing.
 	}))
 	c := New(server.URL, "", server.Client())
 	pr := release.PR{SHA: "head"}
-	c.readChecks(t.Context(), release.Source{Repo: "stackrox/stackrox", Branch: "release-5.0"}, &pr)
+	c.readChecks(t.Context(), release.Source{Repo: "stackrox/stackrox", Branch: "release-5.0"}, &pr, "")
 	if !pr.CheckResultsEvidence.Fresh() || pr.ChecksEvidence.Fresh() ||
 		!strings.Contains(pr.ChecksEvidence.Error, "Required-check settings") || len(pr.Checks) != 2 {
 		t.Fatalf("check availability or required settings were mislabeled: %+v", pr)

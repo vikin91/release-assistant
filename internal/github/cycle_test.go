@@ -35,7 +35,7 @@ func TestDiscoverDeduplicatesOnlyWithinOneCycle(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if protectionReads != cycle || counts["commit_metadata"] != 1 || counts["checks"] != 3 || counts["statuses"] != 3 {
+		if protectionReads != cycle || counts["rules"] != 1 || counts["commit_metadata"] != 1 || counts["checks"] != 3 || counts["statuses"] != 3 {
 			t.Fatalf("protection=%d cycle=%d requests=%v", protectionReads, cycle, counts)
 		}
 		for _, pr := range repo.PRs {

@@ -74,6 +74,8 @@ func discoveryFixture(t testing.TB, tags, merged, open int) (*Client, app.Discov
 			kind, body = "checks", map[string]any{"total_count": 0, "check_runs": []any{}}
 		case strings.HasSuffix(path, "/statuses"):
 			kind, body = "statuses", []any{}
+		case strings.Contains(path, "/rules/branches/"):
+			kind, body = "rules", []any{}
 		case strings.HasSuffix(path, "/required_status_checks"):
 			kind, body = "protection", map[string]any{"contexts": []string{}}
 		case strings.Contains(path, "/compare/"):

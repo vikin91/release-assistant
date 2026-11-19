@@ -40,6 +40,7 @@ type (
 		PinningPR                                                *prModel
 		PinningCanGrant                                          bool
 		PinningHealth                                            release.Truth
+		PinningReportedPassed                                    bool
 		PinningFailures                                          []release.Check
 		PinningRetests                                           []release.Proposal
 		PinningPending                                           int
@@ -213,6 +214,7 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 	if model.PinningPR != nil {
 		p := model.PinningPR.PR
 		model.PinningHealth = p.ChecksStatus()
+		model.PinningReportedPassed = p.Evidence.Fresh() && p.CheckResultsEvidence.Fresh() && len(p.Checks) > 0 && !slices.ContainsFunc(p.Checks, func(check release.Check) bool { return check.Result() != release.Yes })
 		for _, check := range p.Checks {
 			if check.Required == release.No {
 				continue

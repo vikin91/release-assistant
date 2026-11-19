@@ -44,6 +44,7 @@ func cacheableObservation(endpoint string) bool {
 	resource := parts[4]
 	return strings.HasPrefix(resource, "commits/") ||
 		strings.HasPrefix(resource, "contents/") ||
+		strings.HasPrefix(resource, "rules/branches/") ||
 		(strings.HasPrefix(resource, "branches/") && strings.HasSuffix(resource, "/protection/required_status_checks"))
 }
 

@@ -42,6 +42,8 @@ type (
 		Evidence                                       Evidence
 		Checks                                         []Check
 		ChecksEvidence                                 Evidence
+		// RequiredChecksError describes incomplete discovery of the branch's required checks.
+		RequiredChecksError string
 		// CheckResultsEvidence describes check runs and commit statuses independently of branch protection.
 		CheckResultsEvidence Evidence
 	}

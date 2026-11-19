@@ -35,7 +35,7 @@ func TestConfiguredPinningPRMonitoringAndGrant(t *testing.T) {
 	body := b.getBody(t)
 	section := pinningSection(t, body)
 	for _, want := range []string{
-		"Pin release components", "Unable to get current checks from pinning PR #481", "one check source failed",
+		"Pin release components", "Unable to read all check results for pinning PR #481", "one check source failed",
 	} {
 		if !strings.Contains(section, want) {
 			t.Errorf("pinning PR section omitted %q", want)
@@ -264,6 +264,23 @@ func TestPinningPRShowsNextActionInsteadOfCheckInventory(t *testing.T) {
 			}
 			if tc.proposal && !strings.Contains(retries, "/konflux-retest failing-build") {
 				t.Error("exact retest comment missing")
+			}
+		})
+	}
+}
+
+func TestPinningPRShowsCurrentResultsWithIncompleteRequirements(t *testing.T) {
+	config := validACS5Config()
+	config.PinningPR = 484
+	fresh := release.Evidence{At: time.Now(), Known: true}
+	for status, want := range map[string]string{"success": "All reported checks passed.", "failure": "Review the failed checks."} {
+		t.Run(status, func(t *testing.T) {
+			pr := release.PR{Target: config.PinningTarget(), SHA: "head", State: "open", Base: config.Branch, Evidence: fresh, CheckResultsEvidence: fresh,
+				RequiredChecksError: "Branch rulesets: access denied.", ChecksEvidence: release.Evidence{At: fresh.At, Known: true, Error: "Required-check settings: Branch rulesets: access denied."}, Checks: []release.Check{{Name: "build", Status: status}}}
+			body := newBrowser(t, &fakeApplication{snapshot: app.Snapshot{Config: config, Repositories: []release.Repository{{Source: config.ACS(), PinningPR: &pr}}}}).getBody(t)
+			section := pinningSection(t, body)
+			if !strings.Contains(section, want) || !strings.Contains(section, "Unable to verify all required checks") || strings.Contains(section, "last observed") || strings.Contains(section, "Unable to read all check results") || strings.Contains(section, "Required checks passed.") {
+				t.Fatalf("misleading pinning checks: %s", section)
 			}
 		})
 	}

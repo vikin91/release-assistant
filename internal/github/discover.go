@@ -20,6 +20,11 @@ import (
 
 type (
 	branchResponse struct {
+		Protection struct {
+			RequiredStatusChecks struct {
+				EnforcementLevel string `json:"enforcement_level"`
+			} `json:"required_status_checks"`
+		} `json:"protection"`
 		Commit struct {
 			SHA string `json:"sha"`
 		} `json:"commit"`
@@ -95,10 +100,12 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 	var issues []error
 	base := repoPath(req.Source.Repo)
 	var branch branchResponse
+	var classicEnforcement string
 	if err := c.get(ctx, base+"/branches/"+segment(req.Source.Branch), &branch); err != nil {
 		issues = append(issues, err)
 		result.Evidence = release.Evidence{At: time.Now(), Error: requestProblem(err)}
 	} else {
+		classicEnforcement = branch.Protection.RequiredStatusChecks.EnforcementLevel
 		result.Head = branch.Commit.SHA
 		result.Evidence = release.Evidence{At: time.Now(), URL: "https://github.com/" + req.Source.Repo + "/tree/" + req.Source.Branch, Known: true}
 	}
@@ -199,7 +206,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 			continue
 		}
 		if p.State == "open" && req.Reads(app.ReadChecks) && (req.Scope == app.ReadAll || tracked[p.Target.PR] || p.Target.PR == req.PinningPR) {
-			c.readChecks(ctx, source, &p)
+			c.readChecks(ctx, source, &p, classicEnforcement)
 		}
 		result.PRs = append(result.PRs, p)
 	}
@@ -214,7 +221,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		}
 		p := convertPR(req.Source.Repo, raw)
 		if p.State == "open" && req.Reads(app.ReadChecks) {
-			c.readChecks(ctx, source, &p)
+			c.readChecks(ctx, source, &p, classicEnforcement)
 		}
 		result.PRs = append(result.PRs, p)
 	}
@@ -280,9 +287,10 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 					if existing := findPR(result.PRs, p.Target.PR); existing != nil && existing.SHA == p.SHA && !existing.ChecksEvidence.At.IsZero() {
 						p.Checks = existing.Checks
 						p.ChecksEvidence = existing.ChecksEvidence
+						p.RequiredChecksError = existing.RequiredChecksError
 						p.CheckResultsEvidence = existing.CheckResultsEvidence
 					} else {
-						c.readChecks(ctx, source, &p)
+						c.readChecks(ctx, source, &p, classicEnforcement)
 					}
 				}
 				if findPR(result.PRs, p.Target.PR) != nil || eligible {
@@ -524,49 +532,55 @@ func (c *Client) searchMerged(ctx context.Context, endpoint string, src release.
 	return fmt.Errorf("merged pull request search exceeded GitHub's 1,000 result limit")
 }
 
-func (c *Client) readChecks(ctx context.Context, src release.Source, p *release.PR) {
+func (c *Client) readChecks(ctx context.Context, src release.Source, p *release.PR, classicEnforcement string) {
 	p.ChecksEvidence = release.Evidence{At: time.Now(), URL: p.URL, Known: true}
-	base := repoPath(src.Repo)
+
 	var problems []string
 	runs, runsErr := c.readCommitCheckRuns(ctx, src.Repo, p.SHA)
-	for _, run := range runs {
-		p.Checks = append(p.Checks, run.check())
-	}
 	if runsErr != nil {
 		problems = append(problems, "Check runs: "+requestProblem(runsErr))
 	}
 	statuses, statusesErr := c.readCommitStatuses(ctx, src.Repo, p.SHA)
-	for _, status := range statuses {
-		if !slices.ContainsFunc(p.Checks, func(check release.Check) bool { return check.Name == status.Context }) {
-			p.Checks = append(p.Checks, release.Check{Name: status.Context, Status: status.State, URL: status.URL})
-		}
-	}
 	if statusesErr != nil {
 		problems = append(problems, "Commit statuses: "+requestProblem(statusesErr))
 	}
 	p.CheckResultsEvidence = release.Evidence{
 		At: p.ChecksEvidence.At, URL: p.URL, Error: strings.Join(problems, " "),
-		Known: runsErr == nil || statusesErr == nil || len(p.Checks) > 0,
+		Known: runsErr == nil || statusesErr == nil || len(runs) > 0 || len(statuses) > 0,
 	}
-	var required branchProtectionResponse
-	if err := c.get(ctx, base+"/branches/"+segment(src.Branch)+"/protection/required_status_checks", &required); err != nil {
-		problems = append(problems, "Required-check settings: "+requestProblem(err))
-	} else {
-		requiredNames := required.Contexts
-		for _, check := range required.Checks {
-			requiredNames = append(requiredNames, check.Context)
+	required, problem := c.requiredChecks(ctx, src, classicEnforcement)
+	p.RequiredChecksError = problem
+	if problem != "" {
+		problems = append(problems, "Required-check settings: "+problem)
+	}
+	matched := make(map[requiredCheck]bool)
+	addResult := func(check release.Check, appID int64) {
+		if problem == "" {
+			check.Required = release.No
 		}
-		for i := range p.Checks {
-			if slices.Contains(requiredNames, p.Checks[i].Name) {
-				p.Checks[i].Required = release.Yes
-			} else {
-				p.Checks[i].Required = release.No
+		for _, rule := range required {
+			if rule.context == check.Name && (rule.appID == 0 || rule.appID == appID) {
+				check.Required = release.Yes
+				matched[rule] = true
 			}
 		}
-		for _, name := range requiredNames {
-			if !slices.ContainsFunc(p.Checks, func(check release.Check) bool { return check.Name == name }) {
-				p.Checks = append(p.Checks, release.Check{Name: name, Status: "pending", Required: release.Yes})
-			}
+		p.Checks = append(p.Checks, check)
+	}
+	for _, run := range runs {
+		addResult(run.check(), run.App.ID)
+	}
+	// Commit statuses arrive newest first and do not identify their GitHub App.
+	// A status and a check run with the same name can both be required.
+	seenStatuses := make(map[string]bool)
+	for _, status := range statuses {
+		if !seenStatuses[status.Context] {
+			seenStatuses[status.Context] = true
+			addResult(release.Check{Name: status.Context, Status: status.State, URL: status.URL}, 0)
+		}
+	}
+	for _, rule := range required {
+		if !matched[rule] {
+			p.Checks = append(p.Checks, release.Check{Name: rule.context, Status: "pending", Required: release.Yes})
 		}
 	}
 	if len(problems) > 0 {

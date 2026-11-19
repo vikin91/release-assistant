@@ -84,6 +84,8 @@ func TestDiscoverMonitorsSuppliedOpenPinningPR(t *testing.T) {
 					_ = json.NewEncoder(w).Encode(map[string]any{"total_count": 1, "check_runs": []map[string]string{{"name": "build", "status": "completed", "conclusion": "success"}}})
 				case strings.HasSuffix(r.URL.Path, "/statuses"):
 					_, _ = w.Write([]byte(`[]`))
+				case strings.Contains(r.URL.Path, "/rules/branches/"):
+					_, _ = w.Write([]byte(`[]`))
 				case strings.HasSuffix(r.URL.Path, "/required_status_checks"):
 					_, _ = w.Write([]byte(`{"contexts":["build"]}`))
 				default:
@@ -151,6 +153,8 @@ func TestDiscoverPreservesPartialPinningPRChecks(t *testing.T) {
 			_, _ = w.Write([]byte(`{"total_count":1,"check_runs":[{"name":"build","status":"completed","conclusion":"success"}]}`))
 		case strings.HasSuffix(r.URL.Path, "/statuses"):
 			http.Error(w, "private API response", http.StatusForbidden)
+		case strings.Contains(r.URL.Path, "/rules/branches/"):
+			_, _ = w.Write([]byte(`[]`))
 		case strings.HasSuffix(r.URL.Path, "/required_status_checks"):
 			_, _ = w.Write([]byte(`{"contexts":["build"]}`))
 		default:
@@ -183,6 +187,8 @@ func TestPinningHealthUsesLatestStatusesAndWaitsForMissingRequiredChecks(t *test
 			_, _ = w.Write([]byte(`{"total_count":0,"check_runs":[]}`))
 		case strings.HasSuffix(r.URL.Path, "/statuses"):
 			_, _ = w.Write([]byte(`[{"context":"build","state":"success"},{"context":"build","state":"failure"}]`))
+		case strings.Contains(r.URL.Path, "/rules/branches/"):
+			_, _ = w.Write([]byte(`[]`))
 		case strings.HasSuffix(r.URL.Path, "/required_status_checks"):
 			_, _ = w.Write([]byte(`{"contexts":["build","not-yet-reported"]}`))
 		default:
@@ -190,7 +196,7 @@ func TestPinningHealthUsesLatestStatusesAndWaitsForMissingRequiredChecks(t *test
 		}
 	}))
 	pr := release.PR{SHA: "head", Evidence: release.Evidence{Known: true, At: time.Now()}}
-	New(srv.URL, "", srv.Client()).readChecks(t.Context(), release.Source{Repo: "acme/acs", Branch: "release"}, &pr)
+	New(srv.URL, "", srv.Client()).readChecks(t.Context(), release.Source{Repo: "acme/acs", Branch: "release"}, &pr, "")
 	if len(pr.Checks) != 2 || pr.Checks[0].Status != "success" || pr.Checks[1].Name != "not-yet-reported" || pr.Checks[1].Required != release.Yes || pr.ChecksStatus() != "" {
 		t.Fatalf("incorrect health evidence: %+v", pr)
 	}

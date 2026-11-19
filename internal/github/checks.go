@@ -23,6 +23,7 @@ type (
 		URL        string `json:"html_url"`
 		HeadSHA    string `json:"head_sha"`
 		App        struct {
+			ID   int64  `json:"id"`
 			Slug string `json:"slug"`
 		} `json:"app"`
 		Suite struct {

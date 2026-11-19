@@ -353,6 +353,8 @@ func TestReadChecksPaginatesRunsAndReadsRequiredStatuses(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"total_count": 101, "check_runs": runs})
 		case strings.HasSuffix(r.URL.Path, "/statuses"):
 			_ = json.NewEncoder(w).Encode([]map[string]string{{"context": "legacy-check", "state": "success", "target_url": "https://checks.test/legacy"}})
+		case strings.Contains(r.URL.Path, "/rules/branches/"):
+			_, _ = w.Write([]byte(`[]`))
 		case strings.HasSuffix(r.URL.Path, "/required_status_checks"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"contexts": []string{"required-check"}})
 		default:
@@ -361,7 +363,7 @@ func TestReadChecksPaginatesRunsAndReadsRequiredStatuses(t *testing.T) {
 	}))
 	c := New(srv.URL, "", srv.Client())
 	pr := release.PR{SHA: "head-sha"}
-	c.readChecks(context.Background(), release.Source{Repo: "acme/rox", Branch: "release"}, &pr)
+	c.readChecks(context.Background(), release.Source{Repo: "acme/rox", Branch: "release"}, &pr, "")
 	if requests != 2 || len(pr.Checks) != 102 || pr.Evidence.Error != "" {
 		t.Fatalf("requests=%d checks=%d evidence=%+v", requests, len(pr.Checks), pr.Evidence)
 	}

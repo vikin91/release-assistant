@@ -140,7 +140,7 @@ func summarizePRChecks(pr release.PR) prCheckSummary {
 	}
 	summary.Available = true
 	summary.Partial = !results.Fresh()
-	summary.RequiredKnown = true
+	summary.RequiredKnown = pr.RequiredChecksError == ""
 	for _, check := range pr.Checks {
 		if check.Result() == release.No {
 			summary.Failed++
