@@ -8,7 +8,11 @@
     <p class="creation-failure-intro">Open the source check and look for a newer run. If the failure recurs, the cluster name and check link give the Konflux team a starting point.</p>
     {{range .StartFailureReports}}
       <div data-live-key="creation-report:{{.Key}}">
-        {{if .Target.PR}}<h3 class="creation-failure-pr" title="PR monitored when these checks were fetched"><a aria-describedby="new-tab-description" href="https://github.com/{{.Target.Repo}}/pull/{{.Target.PR}}" target="_blank" rel="noreferrer">{{.Target}}</a></h3>{{end}}
+        {{if .Target.PR}}
+          <header class="build-retry-pr-heading creation-failure-pr" title="PR monitored when these checks were fetched">
+            {{template "pr-title-and-link" .}}
+          </header>
+        {{end}}
         {{if .Current}}
           {{template "start-failure-clusters" .Current}}
         {{else}}

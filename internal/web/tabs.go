@@ -98,7 +98,7 @@ func tabPage(page pageModel, tab string) pageModel {
 			page.ManualRetries = append(page.ManualRetries, report)
 		}
 	}
-	page.StartFailureReports = startFailureReports(plans, tab)
+	page.StartFailureReports = startFailureReports(plans, tab, page.acsPRTitles)
 	authority := make([]authorityModel, 0, len(page.Authority))
 	for _, view := range page.Authority {
 		if matchesTarget(view.View.Target) {

@@ -13,7 +13,7 @@ import (
 
 type (
 	startFailureReport struct {
-		Key              string
+		Key, Title       string
 		Target           release.Target
 		Current, Earlier []startFailureCluster
 	}
@@ -35,7 +35,7 @@ type (
 )
 
 // startFailureReports keeps observations of a shared commit scoped to each monitored ACS PR.
-func startFailureReports(plans []planModel, tab string) []startFailureReport {
+func startFailureReports(plans []planModel, tab string, prTitles map[release.Target]string) []startFailureReport {
 	if tab != "acs-prs" {
 		current, earlier := groupStartFailures(plans, tab, false)
 		if len(current)+len(earlier) == 0 {
@@ -54,7 +54,7 @@ func startFailureReports(plans []planModel, tab string) []startFailureReport {
 	for target, observations := range byPR {
 		key := fmt.Sprintf("%s-%d", tab, target.PR)
 		current, earlier := groupStartFailures(observations, key, true)
-		reports = append(reports, startFailureReport{Key: key, Target: target, Current: current, Earlier: earlier})
+		reports = append(reports, startFailureReport{Key: key, Target: target, Title: prTitles[target], Current: current, Earlier: earlier})
 	}
 	slices.SortFunc(reports, func(a, b startFailureReport) int { return cmp.Compare(a.Target.PR, b.Target.PR) })
 	return reports

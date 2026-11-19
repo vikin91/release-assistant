@@ -37,6 +37,7 @@ type (
 		ReleaseImages                                            componentImagesModel
 		RC                                                       rcModel
 		ACS                                                      *release.Repository
+		acsPRTitles                                              map[release.Target]string
 		PinPRState                                               string
 		PinningPR                                                *prModel
 		PinningCanGrant                                          bool
@@ -195,6 +196,13 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 	for _, repo := range snapshot.Repositories {
 		if repo.Source.Name == "acs" {
 			model.ACS = new(repo)
+			model.acsPRTitles = make(map[release.Target]string, len(repo.PRs))
+			for _, pr := range repo.PRs {
+				model.acsPRTitles[pr.Target] = pr.Title
+			}
+			if pr := repo.PinningPR; pr != nil && pr.Title != "" {
+				model.acsPRTitles[pr.Target] = pr.Title
+			}
 			if repo.PinningPR != nil && repo.PinningPR.Target == pinTarget {
 				model.PinningPR = &prModel{PR: *repo.PinningPR, Choice: snapshot.Choices.PRs[pinTarget]}
 				if repo.PinningPR.State != "open" || repo.PinningPR.Merged || repo.PinningPR.Base != snapshot.Config.Branch {

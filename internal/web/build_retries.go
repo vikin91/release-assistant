@@ -43,7 +43,7 @@ func (p pageModel) BuildRetries() []*buildRetryTarget {
 	targetGroup := func(target release.Target) *buildRetryTarget {
 		group := byTarget[target]
 		if group == nil {
-			group = &buildRetryTarget{Target: target}
+			group = &buildRetryTarget{Target: target, Title: p.acsPRTitles[target]}
 			byTarget[target] = group
 			targets = append(targets, group)
 		}
@@ -107,9 +107,6 @@ func (p pageModel) BuildRetries() []*buildRetryTarget {
 }
 
 func (g *buildRetryTarget) setPRDetails(pr release.PR) {
-	if pr.Title != "" {
-		g.Title = pr.Title
-	}
 	if pr.Merged || pr.State == "merged" {
 		g.ClosedState = "Merged"
 	} else if pr.State == "closed" {

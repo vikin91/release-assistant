@@ -64,6 +64,10 @@ func TestACSStartFailuresGroupedByMonitoredPR(t *testing.T) {
 	application := &fakeApplication{snapshot: app.Snapshot{
 		Config:  config,
 		Choices: release.Choices{PRs: map[release.Target]release.Choice{first: release.Included, second: release.Included}},
+		Repositories: []release.Repository{{
+			Source: config.ACS(),
+			PRs:    []release.PR{{Target: first, Title: "Update component versions"}},
+		}},
 		Plans: []release.Plan{
 			{Target: second, SHA: "second-sha", StartFailures: []release.StartFailure{old}},
 			{Target: first, SHA: "first-sha", StartFailures: []release.StartFailure{shared, shared, other}},
@@ -73,12 +77,22 @@ func TestACSStartFailuresGroupedByMonitoredPR(t *testing.T) {
 	section := between(t, panel, `id="acs-prs-start-failures-panel"`, "</section>")
 	firstGroup := between(t, section, `data-live-key="creation-report:acs-prs-9"`, `data-live-key="creation-report:acs-prs-101"`)
 	_, secondGroup, _ := strings.Cut(section, `data-live-key="creation-report:acs-prs-101"`)
-	if strings.Count(firstGroup, first.String()) != 1 || strings.Count(firstGroup, "shared failure") != 1 ||
+	firstHeading := between(t, firstGroup, "<header", "</header>")
+	secondHeading := between(t, secondGroup, "<header", "</header>")
+	if !strings.Contains(firstHeading, "<h3>Update component versions</h3>") ||
+		!strings.Contains(firstHeading, `href="https://github.com/`+first.Repo+`/pull/9"`) ||
+		!strings.Contains(firstHeading, ">"+first.String()+"</a>") {
+		t.Errorf("unexpected PR title and link: %s", firstHeading)
+	}
+	if !strings.Contains(secondHeading, "<h3>"+second.String()+"</h3>") || !strings.Contains(secondHeading, ">Open PR</a>") {
+		t.Errorf("unexpected heading for a PR without a title: %s", secondHeading)
+	}
+	if strings.Count(firstGroup, "shared failure") != 1 ||
 		!strings.Contains(firstGroup, "collector failure") || !strings.Contains(firstGroup, "second-cluster") ||
 		strings.Contains(firstGroup, "Earlier creation attempts") || strings.Contains(firstGroup, "second-sha") {
 		t.Fatalf("wrong current failures for %s: %s", first, firstGroup)
 	}
-	if strings.Count(secondGroup, second.String()) != 1 || !strings.Contains(secondGroup, "Earlier creation attempts") ||
+	if !strings.Contains(secondGroup, "Earlier creation attempts") ||
 		!strings.Contains(secondGroup, "<pre><code>shared failure</code></pre>") || strings.Contains(secondGroup, "first-sha") ||
 		strings.Contains(section, ">PR:</dt>") {
 		t.Fatalf("wrong earlier failure or repeated PR label: %s", secondGroup)

@@ -6,8 +6,7 @@
         <article class="build-retry-target" {{if .Target.PR}}id="acs-pr-retries-{{.Target.PR}}" {{end}}data-live-key="build-retries:{{.Target}}">
           {{if .Target.PR}}
             <header class="build-retry-pr-heading">
-              <h3>{{if .Title}}{{.Title}}{{else}}{{.Target}}{{end}}</h3>
-              <a aria-label="Open {{.Target}} on GitHub" aria-describedby="new-tab-description" href="https://github.com/{{.Target.Repo}}/pull/{{.Target.PR}}" target="_blank" rel="noreferrer">{{if .Title}}{{.Target}}{{else}}Open PR{{end}}</a>
+              {{template "pr-title-and-link" .}}
               {{if eq .Target $.Snapshot.Config.PinningTarget}}<span class="pill">Pinning PR</span>{{end}}
               {{if .ClosedState}}<span class="pill{{if eq .ClosedState "Merged"}} yes{{end}}">{{.ClosedState}}</span>{{end}}
             </header>
@@ -52,4 +51,9 @@
       {{end}}
     </details>
   </section>
+{{end}}
+
+{{define "pr-title-and-link"}}
+  <h3>{{if .Title}}{{.Title}}{{else}}{{.Target}}{{end}}</h3>
+  <a aria-label="Open {{.Target}} on GitHub" aria-describedby="new-tab-description" href="https://github.com/{{.Target.Repo}}/pull/{{.Target.PR}}" target="_blank" rel="noreferrer">{{if .Title}}{{.Target}}{{else}}Open PR{{end}}</a>
 {{end}}
