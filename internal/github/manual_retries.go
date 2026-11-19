@@ -30,8 +30,9 @@ type (
 	}
 	// ManualJob identifies the Actions job for a manual rerun on GitHub or with the CLI.
 	ManualJob struct {
-		ID        int64
-		Name, URL string
+		ID           int64
+		Name, URL    string
+		WorkflowName string
 	}
 
 	retryBranch struct {
@@ -313,6 +314,10 @@ func (c *Client) retryRunJobs(ctx context.Context, t release.Target, pr retryPR,
 			return nil, "tag trigger unproven", err
 		}
 	}
+	workflowName := current.Name
+	if t.Tag != "" {
+		workflowName = strings.TrimSuffix(workflowName, " ("+t.Tag+")")
+	}
 	var offers []ManualJob
 	var missing []string
 	for _, check := range checks {
@@ -329,9 +334,10 @@ func (c *Client) retryRunJobs(ctx context.Context, t release.Target, pr retryPR,
 		}
 		jobID := matches[0].ID
 		offers = append(offers, ManualJob{
-			ID:   jobID,
-			Name: check.Name,
-			URL:  fmt.Sprintf("https://github.com/%s/actions/runs/%d/job/%d", t.Repo, run.ID, jobID),
+			ID:           jobID,
+			Name:         check.Name,
+			WorkflowName: workflowName,
+			URL:          fmt.Sprintf("https://github.com/%s/actions/runs/%d/job/%d", t.Repo, run.ID, jobID),
 		})
 	}
 	if len(missing) > 0 {

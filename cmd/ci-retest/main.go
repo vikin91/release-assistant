@@ -148,7 +148,10 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader 
 			if j > 0 {
 				fmt.Fprintln(out)
 			}
-			fmt.Fprintf(out, "Open job and choose Re-run (includes dependent jobs): %s\n%s\n", job.Name, job.URL)
+			if job.WorkflowName != "" {
+				fmt.Fprintf(out, "%s / ", job.WorkflowName)
+			}
+			fmt.Fprintf(out, "%s\n%s\n", job.Name, job.URL)
 			fmt.Fprintf(out, "gh api --method POST repos/%s/actions/jobs/%d/rerun\n", t.Repo, job.ID)
 		}
 		if len(report.Prow) > 0 {

@@ -48,18 +48,19 @@ func TestCLIReports(t *testing.T) {
 	const pr = `{"state":"open","number":7,"base":{"ref":"master","repo":{"id":1}},"head":{"sha":"` + sha + `","repo":{"id":2}}}`
 	const statuses = `[{"context":"ci/prow/build","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/build/123"},{"context":"ci/prow/test","state":"pending"},{"context":"ci/prow/test","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/test/345"}]`
 	const checks = `{"total_count":2,"check_runs":[
-		{"id":41,"name":"matrix build","status":"completed","conclusion":"failure","head_sha":"` + sha + `","app":{"slug":"github-actions"},"check_suite":{"id":11}},
+		{"id":41,"name":"Konflux: release-central-db:rc","status":"completed","conclusion":"failure","head_sha":"` + sha + `","app":{"slug":"github-actions"},"check_suite":{"id":11}},
 		{"id":42,"name":"unit tests","status":"completed","conclusion":"failure","head_sha":"` + sha + `","app":{"slug":"github-actions"},"check_suite":{"id":11}}
 	]}`
 	const jobs = `{"total_count":2,"jobs":[
 		{"id":99,"status":"completed","conclusion":"failure","check_run_url":"https://api.github.com/repos/stackrox/stackrox/check-runs/41"},
 		{"id":101,"status":"completed","conclusion":"failure","check_run_url":"https://api.github.com/repos/stackrox/stackrox/check-runs/42"}
 	]}`
-	const jobOutput = `Open job and choose Re-run (includes dependent jobs): matrix build
+	const jobOutput = `
+Scan images for vulnerabilities / Konflux: release-central-db:rc
 https://github.com/stackrox/stackrox/actions/runs/22/job/99
 gh api --method POST repos/stackrox/stackrox/actions/jobs/99/rerun
 
-Open job and choose Re-run (includes dependent jobs): unit tests
+Scan images for vulnerabilities / unit tests
 https://github.com/stackrox/stackrox/actions/runs/22/job/101
 gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 
@@ -81,10 +82,12 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 		t.Run(name, func(t *testing.T) {
 			reads := 0
 			event, ref := "pull_request", "feature"
+			workflowName := "Scan images for vulnerabilities"
 			if tc.args[0] == "--tags" {
 				event, ref = "push", "rc"
+				workflowName += " (rc)"
 			}
-			runData := fmt.Sprintf(`{"id":22,"name":"Build","path":".github/workflows/ci.yml","workflow_id":33,"check_suite_id":11,"head_sha":%q,"head_branch":%q,"event":%q,"run_attempt":1,"run_number":2,"status":"completed","created_at":%q,"pull_requests":[%s],"referenced_workflows":[{"path":"stackrox/stackrox/.github/workflows/build.yml@%s","ref":%q,"sha":%q}]}`, sha, ref, event, time.Now().UTC().Format(time.RFC3339), pr, sha, tc.ref, sha)
+			runData := fmt.Sprintf(`{"id":22,"name":%q,"path":".github/workflows/ci.yml","workflow_id":33,"check_suite_id":11,"head_sha":%q,"head_branch":%q,"event":%q,"run_attempt":1,"run_number":2,"status":"completed","created_at":%q,"pull_requests":[%s],"referenced_workflows":[{"path":"stackrox/stackrox/.github/workflows/build.yml@%s","ref":%q,"sha":%q}]}`, workflowName, sha, ref, event, time.Now().UTC().Format(time.RFC3339), pr, sha, tc.ref, sha)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != "GET" {
 					t.Errorf("unexpected method %s", r.Method)
