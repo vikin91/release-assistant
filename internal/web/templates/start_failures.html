@@ -50,7 +50,7 @@
               {{if not .Failure.Evidence.Fresh}}<span class="unknown">Retained evidence · current read unavailable</span>{{end}}
             </div>
             <dl class="creation-failure-facts">
-              <div class="creation-failure-message"><dt>Failure:</dt> <dd class="creation-failure-reason">{{if .Failure.Reason}}{{.Failure.Reason}}{{else}}No failure reason was reported.{{end}}</dd></div>
+              <div class="creation-failure-message"><dt>Failure:</dt> <dd>{{if .Failure.Reason}}<pre><code>{{.Failure.Reason}}</code></pre>{{else}}No failure reason was reported.{{end}}</dd></div>
               {{range .Targets}}
                 {{if .PR}}<div><dt title="PR monitored when this check was fetched">PR:</dt> <dd><code>{{$row.RepoName}}#{{.PR}}</code></dd></div>
                 {{else}}<div><dt title="Tag monitored when this check was fetched">Tag:</dt> <dd><code>{{$row.RepoName}}@{{.Tag}}</code></dd></div>{{end}}

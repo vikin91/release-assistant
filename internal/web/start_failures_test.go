@@ -19,7 +19,8 @@ func TestCreationFailuresShowTypedCommitEvidenceWithoutGrantingRetries(t *testin
 	failure := release.StartFailure{
 		CheckID: 731, Job: "fact-build", Cluster: "konflux.example", Category: "admission_policy",
 		ExternalID: "fact-build-<check>", CheckStartedAt: startedAt,
-		Reason:   `creating pipelinerun fact-build- in namespace test-tenant has failed: admission webhook denied <script>alert("x")</script>`,
+		Reason: `creating pipelinerun fact-build- in namespace test-tenant has failed:
+admission webhook denied <script>alert("x")</script>`,
 		Evidence: release.Evidence{Known: true, At: readAt, URL: "https://github.com/acme/fact/runs/731"},
 	}
 	application := &fakeApplication{snapshot: app.Snapshot{
@@ -32,7 +33,8 @@ func TestCreationFailuresShowTypedCommitEvidenceWithoutGrantingRetries(t *testin
 	section := between(t, panel, `<section class="panel" id="component-prs-start-failures-panel">`, `</section>`)
 	for _, want := range []string{
 		"Reported build creation failures", "konflux.example", "1 reported check", "fact-build", "Stopped before build could run.",
-		`creating pipelinerun fact-build- in namespace test-tenant has failed: admission webhook denied &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;`,
+		`<pre><code>creating pipelinerun fact-build- in namespace test-tenant has failed:
+admission webhook denied &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;</code></pre>`,
 		"Check #731 on GitHub", `href="https://github.com/acme/fact/runs/731"`,
 		`href="https://github.com/acme/fact/commit/fetched-sha"`, "<code>fetched-sha</code></a>",
 		"<dt>Last update:</dt>", formatTime(readAt), "<dt>Failure:</dt>", "<code>fact#41</code>",

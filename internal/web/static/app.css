@@ -180,8 +180,8 @@ legend { padding: 0 .35rem; font-weight: var(--emphasis-weight); }
 .creation-failure-facts > div { min-width: 0; }
 .creation-failure-facts dt, .creation-failure-facts dd { display: inline; margin: 0; }
 .creation-failure-facts dt { font-weight: var(--emphasis-weight); }
-.creation-failure-message { flex-basis: 100%; }
-.creation-failure-reason { white-space: pre-wrap; }
+.creation-failure-message { flex-basis: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: .4rem; }
+.creation-failure-message pre { margin: 0; padding: .2rem .45rem; background: var(--canvas); }
 
 button[aria-pressed=true], .config-grid button[type=submit] { color: var(--canvas); font-weight: var(--emphasis-weight); border-color: var(--accent); background: var(--accent); }
 .pr-repo { margin-top: 1rem; padding-top: .75rem; border-top: 1px solid var(--line); }
