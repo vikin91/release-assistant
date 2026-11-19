@@ -16,6 +16,10 @@ active login to that cluster is enough. GitHub and Quay can run without it.
 
 ```sh
 oc login https://api.stone-prd-rh01.pg1f.p1.openshiftapps.com --token='YOUR_OPENSHIFT_TOKEN'
+
+# or
+
+oc login --web https://api.stone-prd-rh01.pg1f.p1.openshiftapps.com:6443/
 ```
 
 From the repository root, replace the credential placeholders and start
