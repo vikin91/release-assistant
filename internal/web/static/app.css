@@ -173,15 +173,15 @@ legend { padding: 0 .35rem; font-weight: var(--emphasis-weight); }
 .creation-failure-cluster h3 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
 .creation-failure-cluster h3 .summary-detail { display: inline-block; }
 .creation-failures { margin: .45rem 0 0; padding-inline-start: 1.6rem; }
-.creation-failure { padding: .55rem 0; border-top: 1px solid var(--line); }
-.creation-failure-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: .25rem .55rem; margin-bottom: .35rem; }
-.creation-failure-title h4 { margin: 0; overflow-wrap: anywhere; }
-.creation-failure p { margin: 0 0 .4rem; }
-.creation-failure-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .22rem .6rem; margin: .45rem 0; font-size: .88rem; }
+.creation-failure { padding: .3rem 0; border-top: 1px solid var(--line); font-size: .88rem; line-height: 1.35; overflow-wrap: anywhere; }
+.creation-failure-title, .creation-failure-facts { display: flex; align-items: baseline; flex-wrap: wrap; gap: .1rem .85rem; }
+.creation-failure-title h4 { margin: 0; font-size: 1rem; }
+.creation-failure p, .creation-failure-facts { margin: .1rem 0 0; }
+.creation-failure-facts > div { min-width: 0; }
+.creation-failure-facts dt, .creation-failure-facts dd { display: inline; margin: 0; }
 .creation-failure-facts dt { font-weight: var(--emphasis-weight); }
-.creation-failure-facts dd { margin: 0; overflow-wrap: anywhere; }
+.creation-failure-message { flex-basis: 100%; }
 .creation-failure-reason { white-space: pre-wrap; }
-.creation-failure-source { font-size: .88rem; }
 
 button[aria-pressed=true], .config-grid button[type=submit] { color: var(--canvas); font-weight: var(--emphasis-weight); border-color: var(--accent); background: var(--accent); }
 .pr-repo { margin-top: 1rem; padding-top: .75rem; border-top: 1px solid var(--line); }

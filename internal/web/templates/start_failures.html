@@ -41,23 +41,22 @@
           <li class="creation-failure" data-live-key="start-failure:{{.Key}}">
             <div class="creation-failure-title">
               <h4>{{if .Failure.Job}}Job <code>{{.Failure.Job}}</code>{{else}}Job not reported{{end}}</h4>
+              <span class="muted">Stopped before build could run.</span>
+              <span>{{if url .Failure.Evidence.URL}}
+                <a aria-describedby="new-tab-description" href="{{url .Failure.Evidence.URL}}" target="_blank" rel="noreferrer">Check{{if gt .Failure.CheckID 0}} #{{.Failure.CheckID}}{{end}} on GitHub</a>
+              {{else if gt .Failure.CheckID 0}}Check #{{.Failure.CheckID}} · link unavailable
+              {{else}}Check link unavailable{{end}}</span>
               {{if .Failure.Superseded}}<span class="muted">Newer verified run observed</span>{{end}}
               {{if not .Failure.Evidence.Fresh}}<span class="unknown">Retained evidence · current read unavailable</span>{{end}}
             </div>
-            <p>Stopped before build could run.</p>
-            <p class="creation-failure-source">{{if url .Failure.Evidence.URL}}
-              <a aria-describedby="new-tab-description" href="{{url .Failure.Evidence.URL}}" target="_blank" rel="noreferrer">Check{{if gt .Failure.CheckID 0}} #{{.Failure.CheckID}}{{end}} on GitHub</a>
-            {{else if gt .Failure.CheckID 0}}Check #{{.Failure.CheckID}} · link unavailable
-            {{else}}Check link unavailable{{end}}</p>
             <dl class="creation-failure-facts">
+              <div class="creation-failure-message"><dt>Failure:</dt> <dd class="creation-failure-reason">{{if .Failure.Reason}}{{.Failure.Reason}}{{else}}No failure reason was reported.{{end}}</dd></div>
               {{range .Targets}}
-                {{if .PR}}<dt title="PR monitored when this check was fetched">PR:</dt><dd><code>{{$row.RepoName}}#{{.PR}}</code></dd>
-                {{else}}<dt title="Tag monitored when this check was fetched">Tag:</dt><dd><code>{{$row.RepoName}}@{{.Tag}}</code></dd>{{end}}
+                {{if .PR}}<div><dt title="PR monitored when this check was fetched">PR:</dt> <dd><code>{{$row.RepoName}}#{{.PR}}</code></dd></div>
+                {{else}}<div><dt title="Tag monitored when this check was fetched">Tag:</dt> <dd><code>{{$row.RepoName}}@{{.Tag}}</code></dd></div>{{end}}
               {{end}}
-              <dt>Last update:</dt><dd>{{when .Failure.Evidence.At}}</dd>
-              <dt>Failure:</dt><dd class="creation-failure-reason">{{if .Failure.Reason}}{{.Failure.Reason}}{{else}}No failure reason was reported.{{end}}</dd>
-              <dt>Source commit{{if gt (len .Commits) 1}}s{{end}}:</dt>
-              <dd>{{range $i, $sha := .Commits}}{{if $i}}, {{end}}<a aria-describedby="new-tab-description" href="https://github.com/{{$row.Repo}}/commit/{{$sha}}" target="_blank" rel="noreferrer"><code>{{$sha}}</code></a>{{else}}Unknown{{end}}</dd>
+              <div><dt>Last update:</dt> <dd>{{when .Failure.Evidence.At}}</dd></div>
+              <div><dt>Source commit{{if gt (len .Commits) 1}}s{{end}}:</dt> <dd>{{range $i, $sha := .Commits}}{{if $i}}, {{end}}<a aria-describedby="new-tab-description" href="https://github.com/{{$row.Repo}}/commit/{{$sha}}" target="_blank" rel="noreferrer"><code>{{$sha}}</code></a>{{else}}Unknown{{end}}</dd></div>
             </dl>
             {{if .Failure.Evidence.Error}}<p class="error-text">{{.Failure.Evidence.Error}}</p>{{end}}
           </li>
