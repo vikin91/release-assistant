@@ -307,6 +307,7 @@ body { display: grid; grid-template: auto 1fr / 220px minmax(0, 1fr); min-height
 .setup-state { color: var(--amber); font-size: 12px; line-height: 1.3; }
 .workflow-tabs .tab-status, .setup-state { margin-left: auto; }
 #dashboard-refresh-status { margin: auto 10px 0; padding-top: 24px; font-size: 12px; }
+#release-loading { margin: 4px 10px 0; font-size: 12px; }
 .phase-legend { margin: 8px 10px 0; border-top: 1px solid var(--line); padding-top: 8px; font-size: 12px; }
 .phase-legend h2 { margin: 0 0 6px; font: var(--emphasis-weight) 12px/1.6 var(--body-font); }
 .phase-legend dl { display: grid; gap: 6px; margin: 0; }

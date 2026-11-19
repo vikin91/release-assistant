@@ -34,6 +34,7 @@
     {{end}}{{end}}
   </nav>
   <p id="dashboard-refresh-status" class="muted" role="status" data-live-preserve>Waiting for release updates.</p>
+  {{if and .Configured .Snapshot.Loading}}<p id="release-loading" class="muted" role="status">Loading release data…</p>{{end}}
   <section class="phase-legend" aria-labelledby="phase-legend-title">
     <h2 id="phase-legend-title">Phase icons</h2>
     <dl>{{range .PhaseLegend}}
@@ -43,7 +44,6 @@
 </aside>
 <main>
   <div id="form-error" class="notice error" role="alert" data-live-preserve{{if not .Error}} hidden{{end}}>{{.Error}}</div>
-  {{if and .Configured .Snapshot.Loading}}<p id="release-loading" class="notice" role="status">Loading release data… Results appear as each repository finishes.</p>{{end}}
   {{if .Configured}}
   {{range $tab := (slice "component-prs" "component-releases" "acs-prs" "acs-rcs")}}
   <section id="panel-{{$tab}}" class="workflow-panel" role="tabpanel" aria-labelledby="tab-{{$tab}}" data-workflow-panel="{{$tab}}" tabindex="0"{{if ne $.Tab $tab}} hidden{{end}}>
