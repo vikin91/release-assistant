@@ -27,7 +27,9 @@
     {{else}}
     <details id="{{.Tab}}-next-steps" open><summary class="section-summary">Recommended next steps</summary>
     {{end}}
-    {{if .Guidance}}<ol>{{range .Guidance}}<li>{{.}}</li>{{end}}</ol>{{else}}<p class="muted">Waiting for the first observations for this activity.</p>{{end}}
+    {{if and (eq .Tab "component-prs") (eq (index .TabStatuses .Tab).Class "complete")}}
+    <p>All steps in this phase are complete.</p>
+    {{else if .Guidance}}<ol>{{range .Guidance}}<li>{{.}}</li>{{end}}</ol>{{else}}<p class="muted">Waiting for the first observations for this activity.</p>{{end}}
     {{if .Problems}}<details id="{{.Tab}}-readiness-details" class="readiness-details" open><summary>Checks that need attention</summary><ol>{{range .Problems}}<li>{{.Reason}}{{range .Evidence}}{{if .Error}} · {{.Error}}{{end}}{{end}}</li>{{end}}</ol></details>{{end}}
     {{if and (eq .Tab "acs-prs") .Snapshot.Assessment.Commands}}
       <h3>Pinning commands</h3>
