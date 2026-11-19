@@ -68,7 +68,8 @@ func (s *Session) refreshManualRetries(ctx context.Context, generation, revision
 		s.mu.Unlock()
 		return
 	}
-	heads := s.manualRetryHeads(s.repos[source.Name])
+	repo := s.repos[source.Name]
+	heads := s.manualRetryHeads(repo)
 	s.mu.Unlock()
 	ctx = githubread.WithPriority(ctx, githubread.Background, source.Repo)
 	reports := make(map[release.Target]release.ManualRetryReport)
@@ -85,7 +86,7 @@ func (s *Session) refreshManualRetries(ctx context.Context, generation, revision
 				report.Warnings = append(report.Warnings, "The target revision changed during the manual retry check.")
 			}
 		}
-		if len(report.Jobs)+len(report.Prow)+len(report.Warnings) > 0 {
+		if target == repo.Candidate.Target || len(report.Jobs)+len(report.Prow)+len(report.Warnings) > 0 {
 			reports[target] = report
 		}
 	}

@@ -1,7 +1,7 @@
 {{define "manual-ci-retries"}}
 <section class="panel" aria-label="Manual CI retries">
   <h3 class="section-summary">Manual CI retries</h3>
-  {{range $report := .}}
+  {{range $report := .ManualRetries}}
     <article class="build-retry-target" data-live-key="manual-ci:{{.Target}}">
       <h4>{{.Target}}</h4>
       {{if or .Jobs .Prow}}<p class="muted">Available retries for commit <code>{{.SHA}}</code>. {{manualRetryWarning}}</p>{{end}}
@@ -23,8 +23,13 @@
           <div class="copy-text-actions"><button type="button" data-copy-text>Copy comment</button><span role="status" data-copy-status data-live-preserve></span></div>
         </div>
       {{end}}
+      {{if and (eq $.Tab "acs-rcs") (not (or .Jobs .Prow))}}
+        <p class="muted">{{if .Warnings}}No verified retry commands. See retry diagnostics.{{else}}No manual CI retries available for this RC.{{end}}</p>
+      {{end}}
       {{if .Warnings}}<details data-fold-key="manual-ci-warnings:{{.Target}}"><summary>Retry diagnostics</summary><ol>{{range .Warnings}}<li>{{.}}</li>{{end}}</ol></details>{{end}}
     </article>
+  {{else}}
+    <p class="muted">{{if .RC.Candidate.Evidence.Error}}Unavailable · The current RC could not be verified.{{else}}Pending · {{with .Snapshot.RCImageWaitReason}}{{.}}{{else}}Waiting for CI retry checks.{{end}}{{end}}</p>
   {{end}}
 </section>
 {{end}}

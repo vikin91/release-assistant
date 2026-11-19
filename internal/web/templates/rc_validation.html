@@ -6,7 +6,39 @@
         <a aria-describedby="new-tab-description" href="{{url .RC.CommitURL}}" target="_blank" rel="noreferrer">Commit <code>{{.RC.Plan.Plan.SHA}}</code></a>
         <a aria-describedby="new-tab-description" href="{{url .RC.ChecksURL}}" target="_blank" rel="noreferrer">All checks on GitHub</a>
       </div>
-      {{if .RC.ImagesAvailable}}{{with .RC.Permission}}{{template "tag-comment-permission" .}}{{end}}{{end}}
+    {{else}}
+      <p class="muted">Commit and check links · Waiting for verified RC build checks.</p>
+    {{end}}
+    {{with .RC.Permission}}{{template "tag-comment-permission" .}}{{else}}
+      <label class="check disabled-control"><input type="checkbox" disabled> {{retryCommentPermissionLabel}}</label>
+    {{end}}
+    {{if .RC.ValidationRows}}{{template "rc-validation-status" .}}{{end}}
+    <div class="component-image-table-scroll" role="region" aria-label="RC validation checks" tabindex="0">
+      <table class="rc-validation-checks" aria-labelledby="rc-validation-heading">
+        <thead><tr><th scope="col">Check</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
+        <tbody>
+          {{range .RC.ValidationRows}}
+            <tr data-live-key="rc-validation:{{.Key}}">
+              <th scope="row">{{if .WorkflowName}}{{.WorkflowName}} / {{end}}{{.Name}}</th>
+              <td><span class="pill component-image-status {{.Class}}">{{.Status}}</span></td>
+              <td>
+                <div class="rc-row-links">
+                  <a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">{{.LinkLabel}}</a>
+                </div>
+                {{with .Retry}}{{template "rc-retry" .}}{{end}}
+              </td>
+            </tr>
+          {{else}}
+            <tr><td colspan="3">{{template "rc-validation-status" .}}</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{{end}}
+
+{{define "rc-validation-status"}}
+    {{if .RC.CommitURL}}
       {{with .RC.Plan.Plan.Validation}}
         {{if .Evidence.Error}}
           <details class="rc-diagnostics" data-fold-key="rc-validation-diagnostics"><summary>Some check evidence is unavailable</summary><p>{{.Evidence.Error}}</p></details>
@@ -14,31 +46,9 @@
         {{else if not $.RC.ValidationObserved}}<p class="muted"><span class="pill">Pending</span> No validation checks have been reported for this commit yet.</p>
         {{else if not $.RC.ValidationRows}}<p class="muted">No failed, canceled, or running validation checks in the current results.</p>{{end}}
       {{end}}
-      {{if .RC.ValidationRows}}
-        <div class="component-image-table-scroll" role="region" aria-label="RC validation checks" tabindex="0">
-          <table class="rc-validation-checks" aria-labelledby="rc-validation-heading">
-            <thead><tr><th scope="col">Check</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
-            <tbody>
-              {{range .RC.ValidationRows}}
-                <tr data-live-key="rc-validation:{{.Key}}">
-                  <th scope="row">{{if .WorkflowName}}{{.WorkflowName}} / {{end}}{{.Name}}</th>
-                  <td><span class="pill component-image-status {{.Class}}">{{.Status}}</span></td>
-                  <td>
-                    <div class="rc-row-links">
-                      <a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">{{.LinkLabel}}</a>
-                    </div>
-                    {{with .Retry}}{{template "rc-retry" .}}{{end}}
-                  </td>
-                </tr>
-              {{end}}
-            </tbody>
-          </table>
-        </div>
-      {{end}}
-    {{else if and .RC.Plan .RC.Plan.Plan.Evidence.Error}}
+    {{else if or .RC.Candidate.Evidence.Error (and .RC.Plan .RC.Plan.Plan.Evidence.Error)}}
       <p class="muted"><span class="pill">Unavailable</span> The candidate commit checks are unavailable.</p>
     {{else}}
       <p class="muted"><span class="pill">Pending</span> {{with .Snapshot.RCImageWaitReason}}{{.}}{{else}}Waiting for RC build checks.{{end}}</p>
     {{end}}
-  </section>
 {{end}}

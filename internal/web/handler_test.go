@@ -915,7 +915,7 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 	components := between(t, body, `id="component-images-panel"`, `</section>`)
 	releaseImages := between(t, body, `id="release-images-panel"`, `</section>`)
 	if strings.Count(components, `scope="row"`) != 2 || strings.Contains(components, "5.0.1-rc.0") ||
-		strings.Count(releaseImages, `scope="row"`) != 2 || strings.Contains(releaseImages, "3.25.4-fast") {
+		!strings.Contains(releaseImages, "<code>operator-index</code></th>") || strings.Contains(releaseImages, "3.25.4-fast") {
 		t.Fatal("component prerequisites and later ACS RC.0 images are mixed")
 	}
 	rcHeading := between(t, releaseImages, `id="release-images-heading"`, `</h3>`)

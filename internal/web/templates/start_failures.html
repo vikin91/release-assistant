@@ -1,8 +1,9 @@
 {{define "start-failures"}}
-{{if or .StartFailureClusters .EarlierStartFailureClusters}}
+{{if or (eq .Tab "acs-rcs") .StartFailureClusters .EarlierStartFailureClusters}}
 <section class="panel" id="{{.Tab}}-start-failures-panel">
   <details id="{{.Tab}}-start-failures" open>
     <summary class="section-summary">Reported build creation failures</summary>
+    {{if or .StartFailureClusters .EarlierStartFailureClusters}}
     <p class="creation-failure-intro">GitHub checks reported failed attempts to create Tekton PipelineRuns. Current cluster availability is unknown.</p>
     {{if .StartFailureClusters}}
       <p class="creation-failure-intro">Open the source check and look for a newer run. If the failure recurs, the cluster name and check link give the Konflux team a starting point.</p>
@@ -15,6 +16,13 @@
         <summary>Earlier creation attempts</summary>
         {{template "start-failure-clusters" .EarlierStartFailureClusters}}
       </details>
+    {{end}}
+    {{else if or .RC.Candidate.Evidence.Error (and .RC.Plan .RC.Plan.Plan.Evidence.Error)}}
+      <p class="muted">Unavailable · RC build creation checks could not be verified.</p>
+    {{else if and .RC.CommitURL .RC.Plan.Plan.Evidence.Fresh}}
+      <p class="muted">No build creation failures reported for this RC.</p>
+    {{else}}
+      <p class="muted">Pending · Waiting for RC build creation checks.</p>
     {{end}}
   </details>
 </section>

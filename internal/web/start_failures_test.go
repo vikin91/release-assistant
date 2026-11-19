@@ -146,8 +146,9 @@ func TestCreationFailureScopeFollowsIncludedPRsSelectedTagsAndPinning(t *testing
 	if !strings.Contains(pinningSection(t, body), `href="/?tab=acs-prs#acs-prs-start-failures"`) {
 		t.Fatal("pinning PR has no path to its creation-attempt evidence")
 	}
-	if strings.Contains(activityPanel(t, body, "acs-rcs"), "start-failures-panel") {
-		t.Fatal("RC image-only view gained creation-failure diagnostics")
+	rcPanel := activityPanel(t, body, "acs-rcs")
+	if !strings.Contains(rcPanel, "Waiting for RC build creation checks.") || strings.Contains(rcPanel, "pinning-creation-report") {
+		t.Fatal("RC creation failures should wait for RC-specific evidence")
 	}
 }
 

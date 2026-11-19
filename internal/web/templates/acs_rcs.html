@@ -4,7 +4,7 @@
       <h3 id="release-images-heading" class="section-summary">ACS {{.Snapshot.Config.Version}} {{if .RC.TagURL}}RC.{{.RC.Candidate.Number}}{{else}}RC{{end}} images
         {{if .RC.KonfluxMissing}}
           <span class="component-image-counts">{{.RC.KonfluxMissing}} Konflux {{if eq .RC.KonfluxMissing 1}}image{{else}}images{{end}} missing</span>
-        {{else}}{{template "image-counts" .ReleaseImages}}{{end}}
+        {{else if .ReleaseImages.Total}}{{template "image-counts" .ReleaseImages}}{{else}}<span class="component-image-counts">Pending registry checks</span>{{end}}
       </h3>
       {{with .RC.Candidate}}
         {{if $.RC.TagURL}}
@@ -28,6 +28,7 @@
           <p class="muted">Waiting to discover release candidate tags.</p>
         {{end}}
       {{end}}
+      {{if not .RC.TagURL}}<p class="muted">Commits since RC · Waiting for a verified tag.</p>{{end}}
       {{if and .RC.TagURL (not .Snapshot.RCImageWaitReason)}}
         {{if and .RC.KonfluxMissing (or .RC.CITotal (eq .RC.MissingAfterBuild .RC.KonfluxMissing))}}
           <div class="rc-summary">
@@ -42,7 +43,6 @@
           </div>
         {{end}}
         {{if .RC.ChecksURL}}
-          {{if not .RC.ImagesAvailable}}{{with .RC.Permission}}{{template "tag-comment-permission" .}}{{end}}{{end}}
           {{with .RC.Plan}}
             {{if not .Plan.Runs}}
               {{if .Plan.Evidence.Error}}<p class="muted">Unable to load Konflux build checks.</p>
@@ -60,16 +60,16 @@
       {{end}}
       {{with .RC.Plan}}
         {{template "last-verified-builds" .Plan.Runs}}
-        {{if or .Plan.Evidence.Error .Plan.Warnings}}
-          <details class="rc-diagnostics" data-fold-key="rc-build-diagnostics">
-            <summary>{{with $.RC.UnverifiedJobs}}{{len .}} {{if $.ReleaseImages.Total}}additional {{end}}{{if eq (len .) 1}}job{{else}}jobs{{end}} could not be verified{{else}}Build check diagnostics{{end}}</summary>
-            {{if $.RC.LookupTimedOut}}<p class="muted">A Konflux lookup timed out while verifying build checks.</p>{{end}}
-            {{with $.RC.UnverifiedJobs}}<ol>{{range .}}<li><code>{{.Job}}</code>{{if url .URL}} · <a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">Open check in Konflux</a>{{end}}</li>{{end}}</ol>{{end}}
-            {{if .Plan.Evidence.Error}}<pre>{{.Plan.Evidence.Error}}</pre>
-            {{else}}<ol>{{range .Plan.Warnings}}<li>{{.}}</li>{{end}}</ol>{{end}}
-          </details>
-        {{end}}
       {{end}}
+      <details class="rc-diagnostics" data-fold-key="rc-build-diagnostics">
+        <summary>{{with .RC.UnverifiedJobs}}{{len .}} {{if $.ReleaseImages.Total}}additional {{end}}{{if eq (len .) 1}}job{{else}}jobs{{end}} could not be verified{{else}}Build check diagnostics{{end}}</summary>
+        {{if .RC.LookupTimedOut}}<p class="muted">A Konflux lookup timed out while verifying build checks.</p>{{end}}
+        {{with .RC.UnverifiedJobs}}<ol>{{range .}}<li><code>{{.Job}}</code>{{if url .URL}} · <a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">Open check in Konflux</a>{{end}}</li>{{end}}</ol>{{end}}
+        {{if and .RC.Plan .RC.Plan.Plan.Evidence.Error}}<pre>{{.RC.Plan.Plan.Evidence.Error}}</pre>
+        {{else if and .RC.Plan .RC.Plan.Plan.Warnings}}<ol>{{range .RC.Plan.Plan.Warnings}}<li>{{.}}</li>{{end}}</ol>
+        {{else if and .RC.CommitURL .RC.Plan.Plan.Evidence.Fresh}}<p class="muted">No build check diagnostics reported.</p>
+        {{else}}<p class="muted">Waiting for RC build checks.</p>{{end}}
+      </details>
     </div>
   </section>
   {{template "rc-validation" .}}
@@ -97,7 +97,7 @@
               {{template "rc-ci-cell" (.CIIn "stackrox-io")}}
               <td>{{with .Konflux}}{{template "rc-build-cell" .RCBuild}}{{else}}<span title="No Konflux build configured">—</span>{{end}}</td>
               <td>{{with .Konflux}}{{template "rc-image-reference" .}}{{else}}<span title="No Konflux image configured">—</span>{{end}}</td>
-              {{with .LastChecked}}<td>{{if .IsZero}}<span title="No registry check timestamp">—</span>{{else}}<time datetime="{{.UTC.Format "2006-01-02T15:04:05Z"}}" title="{{when .}}">{{.Local.Format "Jan 2 15:04"}}</time>{{end}}</td>{{end}}
+              {{with .LastChecked}}<td>{{if .IsZero}}<span class="muted">Pending</span>{{else}}<time datetime="{{.UTC.Format "2006-01-02T15:04:05Z"}}" title="{{when .}}">{{.Local.Format "Jan 2 15:04"}}</time>{{end}}</td>{{end}}
             </tr>
           {{end}}
         </tbody>
@@ -112,6 +112,7 @@
 {{end}}
 
 {{define "rc-image-reference"}}
+  {{if .Pending}}<span class="muted">Pending</span>{{else}}
   {{$status := truth .Check.Status}}
   {{$label := "Unable to check"}}
   {{if eq $status "yes"}}{{$label = "Available"}}{{else if eq $status "no"}}{{$label = "Tag missing"}}{{end}}
@@ -124,6 +125,7 @@
   </span>
   {{if .Check.Image.Evidence.Error}}<div class="component-image-note error-text">{{.Check.Image.Evidence.Error}}</div>
   {{else if and (eq $status "unknown") .Check.Reason}}<div class="component-image-note">{{.Check.Reason}}</div>{{end}}
+  {{end}}
 {{end}}
 
 {{define "rc-build-cell"}}
@@ -131,7 +133,7 @@
     {{if url .Link}}<a aria-describedby="new-tab-description" class="rc-build-status {{.Class}}" href="{{url .Link}}" target="_blank" rel="noreferrer" title="{{.LinkLabel}}" aria-label="{{.Status}} · {{.LinkLabel}}">{{.Status}}</a>
     {{else}}<span class="rc-build-status {{.Class}}">{{.Status}}</span>{{end}}
     {{with .Retry}}{{template "rc-retry" .}}{{end}}
-  {{else}}<span title="No build result yet">—</span>{{end}}
+  {{else}}<span class="muted">Pending</span>{{end}}
 {{end}}
 
 {{define "rc-retry"}}

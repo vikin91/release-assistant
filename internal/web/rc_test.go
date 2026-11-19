@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"release-assistant/internal/app"
 	"release-assistant/internal/dispatch"
 	"release-assistant/internal/release"
 )
@@ -83,12 +84,12 @@ func TestRCTabShowsBuildActionsBesideMissingImages(t *testing.T) {
 func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 	s := workflowStatusSnapshot()
 	target := s.Candidate().Target
-	const message = "PipelineRun identity verification failed: retag-fact: context deadline exceeded"
+	const message = "PipelineRun identity verification failed: extra-retag-job: context deadline exceeded"
 	const digest = "quay.io/rhacs-eng/release-main@sha256:example"
 	plan := release.Plan{
 		Target: target, SHA: "rc-commit", Message: "No build retests needed.", Action: "None",
 		Evidence: release.Evidence{At: s.Inventory.Evidence.At, Error: message},
-		Runs:     []release.Run{{Job: "retag-fact", Status: "unknown", URL: "https://konflux.example.com/retag-fact"}},
+		Runs:     []release.Run{{Job: "extra-retag-job", Status: "unknown", URL: "https://konflux.example.com/extra-retag-job"}},
 	}
 	for i := range s.Inventory.ReleaseImages {
 		image := &s.Inventory.ReleaseImages[i]
@@ -152,7 +153,7 @@ func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 			t.Errorf("missing %q in collapsed diagnostics", want)
 		}
 	}
-	if strings.Contains(table, "retag-fact") || strings.Count(panel, message) != 1 {
+	if strings.Contains(table, "extra-retag-job") || strings.Count(panel, message) != 1 {
 		t.Error("auxiliary check diagnostics leaked into the image rows")
 	}
 
@@ -165,14 +166,14 @@ func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 	}
 
 	s.Inventory.ReleaseImages = append(s.Inventory.ReleaseImages, release.Image{
-		Component: "acs", Family: "konflux", Name: "fact", BuildJob: "retag-fact",
+		Component: "acs", Family: "konflux", Name: "fact", BuildJob: "extra-retag-job",
 		Reference: "quay.io/rhacs-eng/release-fact:" + target.Tag,
 		Evidence:  s.Inventory.Evidence, Present: release.No,
 	})
 	assessWorkflow(&s)
 	panel = render()
 	fact := between(t, panel, "<code>fact</code></th>", "</tr>")
-	if !strings.Contains(fact, "Build unverified") || !strings.Contains(fact, "https://konflux.example.com/retag-fact") ||
+	if !strings.Contains(fact, "Build unverified") || !strings.Contains(fact, "https://konflux.example.com/extra-retag-job") ||
 		strings.Contains(panel, "additional job could not be verified") {
 		t.Error("the retag check should appear beside its configured RC image")
 	}
@@ -223,6 +224,56 @@ func TestRCTabShowsPostCandidateCommitsAndPRsWithoutPinning(t *testing.T) {
 			for _, want := range append(tc.want, "Open RC.2 tag") {
 				if !strings.Contains(panel, want) {
 					t.Errorf("missing %q", want)
+				}
+			}
+		})
+	}
+}
+
+func TestRCFieldsRemainVisibleAcrossObservations(t *testing.T) {
+	observed := workflowStatusSnapshot()
+	rc := observed.Candidate()
+	observed.Plans = []release.Plan{{Target: rc.Target, SHA: rc.SHA, Evidence: rc.Evidence}}
+	observed.ManualRetries = []release.ManualRetryReport{{Target: rc.Target, SHA: rc.SHA}}
+	assessWorkflow(&observed)
+	pending := app.Snapshot{Config: observed.Config}
+	unavailable := pending
+	unavailable.Repositories = []release.Repository{{Source: pending.Config.ACS(), Candidate: release.Candidate{
+		Evidence: release.Evidence{Error: "GitHub unavailable"},
+	}}}
+	for name, tc := range map[string]struct {
+		snapshot app.Snapshot
+		want     []string
+	}{
+		"before first poll":      {pending, []string{"Waiting to discover release candidate tags", "Waiting for RC build creation checks", "Waiting for GitHub to verify the current RC tag", "Pending registry checks"}},
+		"discovery failed":       {unavailable, []string{"GitHub unavailable", "Unavailable · RC build creation checks", "Unavailable · The current RC could not be verified"}},
+		"no failures or retries": {observed, []string{"No build creation failures reported for this RC", "No manual CI retries available for this RC"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: tc.snapshot}).getBody(t), "acs-rcs")
+			rest := panel
+			for _, field := range []string{`id="release-images-panel"`, `class="rc-image-table"`, `id="rc-validation"`, `class="rc-validation-checks"`, `id="acs-rcs-start-failures-panel"`, `aria-label="Manual CI retries"`} {
+				var ok bool
+				_, rest, ok = strings.Cut(rest, field)
+				if !ok {
+					t.Fatalf("missing or misplaced %s", field)
+				}
+			}
+			if !strings.Contains(panel, "<code>operator-index</code></th>") {
+				t.Error("expected image disappeared")
+			}
+			for _, message := range tc.want {
+				if !strings.Contains(panel, message) {
+					t.Errorf("missing %q", message)
+				}
+			}
+			if !tc.snapshot.Candidate().Target.Valid() {
+				row := between(t, panel, "<code>main</code></th>", "</tr>")
+				if strings.Count(row, ">Pending</span>") != 5 || strings.Contains(row, "href=") {
+					t.Errorf("unobserved image row: %s", row)
+				}
+				if strings.Contains(panel, "actions/jobs/") || strings.Contains(panel, `value="send"`) {
+					t.Fatal("pending fields offer an action")
 				}
 			}
 		})

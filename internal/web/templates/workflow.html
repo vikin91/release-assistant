@@ -42,5 +42,5 @@
   </section>
   {{end}}
   {{if eq .Tab "acs-rcs"}}{{template "acs-rcs" .}}{{else}}{{template "start-failures" .}}{{template "retries" .}}{{end}}
-  {{with .ManualRetries}}{{template "manual-ci-retries" .}}{{end}}
+  {{if or (eq .Tab "acs-rcs") .ManualRetries}}{{template "manual-ci-retries" .}}{{end}}
 {{end}}

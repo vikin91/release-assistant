@@ -8,8 +8,13 @@ import (
 	"release-assistant/internal/release"
 )
 
+// ExpectedRCImages lists the registry checks for an ACS major version without performing any reads.
+func ExpectedRCImages(major int, tag string) []release.Image {
+	return append(rcCIImages(major, tag), rcKonfluxImages(major, tag)...)
+}
+
 func inspectRC(ctx context.Context, inspector *Inspector, major int, tag string, now time.Time) []release.Image {
-	rows := append(rcCIImages(major, tag), rcKonfluxImages(major, tag)...)
+	rows := ExpectedRCImages(major, tag)
 	for i := range rows {
 		image := &rows[i]
 		image.Evidence = release.Evidence{At: now, URL: sourceURL(image.Reference)}

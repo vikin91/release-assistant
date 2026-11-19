@@ -17,7 +17,6 @@ type (
 		Plan                              *planModel
 		Permission                        *tagModel
 		ValidationRows                    []rcValidationRow
-		ImagesAvailable                   bool
 		ValidationObserved                bool
 		UnverifiedJobs                    []release.Run
 		LookupTimedOut                    bool
@@ -59,7 +58,6 @@ func (p *pageModel) prepareRC() {
 			}
 		}
 	}
-	p.RC.ImagesAvailable = p.ReleaseImages.Total > 0 && p.ReleaseImages.Available == p.ReleaseImages.Total
 	groups := p.BuildRetries()
 	if len(groups) == 0 || groups[0].Plan == nil {
 		return
@@ -80,10 +78,7 @@ func (p *pageModel) prepareRC() {
 		p.RC.Permission = &tagModel{
 			Tag: release.Tag{Name: target.Tag, SHA: plan.SHA}, Repo: target.Repo,
 			Authority: group.Authority, WritesEnabled: p.Snapshot.WritesEnabled,
-			Tab: p.Tab, CSRF: p.CSRF, Generation: p.Snapshot.Generation,
-		}
-		if p.RC.ImagesAvailable {
-			p.RC.Permission.GrantAnchor = "rc-validation"
+			Tab: p.Tab, CSRF: p.CSRF, Generation: p.Snapshot.Generation, GrantAnchor: "rc-validation",
 		}
 	}
 	runs := make(map[string]release.Run, len(plan.Runs))

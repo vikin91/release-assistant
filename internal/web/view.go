@@ -10,6 +10,7 @@ import (
 
 	"release-assistant/internal/app"
 	"release-assistant/internal/dispatch"
+	"release-assistant/internal/images"
 	"release-assistant/internal/release"
 )
 
@@ -99,6 +100,7 @@ type (
 		Check                     release.ImageStatus
 		Name, Tag, URL, Namespace string
 		RCBuild                   *rcBuildModel
+		Pending                   bool
 	}
 	componentImagesModel struct {
 		Groups                             []componentImageGroup
@@ -363,29 +365,17 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 	if snapshot.Assessment.Pins.PROpen && snapshot.Assessment.Pins.PRStatus == release.No {
 		model.PinPRState = "Needs update"
 	}
+	var rcImages []imageModel
 	for _, check := range snapshot.Assessment.Images {
-		row := imageModel{Check: check, Name: check.Image.Name}
-		if index := strings.LastIndexByte(check.Image.Reference, ':'); index >= 0 {
-			row.Tag = check.Image.Reference[index+1:]
-			repository := check.Image.Reference[:index]
-			if check.Image.Component == "acs" && check.Image.Family == "ci" {
-				if path, ok := strings.CutPrefix(repository, "quay.io/"); ok {
-					row.Namespace, _, _ = strings.Cut(path, "/")
-				}
-			}
-			if row.Name == "" {
-				row.Name = repository[strings.LastIndexByte(repository, '/')+1:]
-			}
-			link, err := url.Parse(check.Image.Evidence.URL)
-			if err == nil && link.Host == "quay.io" && strings.HasPrefix(link.Path, "/repository/") && link.Query().Get("tag") == row.Tag {
-				row.URL = link.String()
-			}
-		}
+		row := newImageModel(check)
 		if check.Image.Component == "acs" {
-			model.ReleaseImages.add(row, "")
+			rcImages = append(rcImages, row)
 		} else {
 			model.ComponentImages.add(row, snapshot.Choices.Tags[check.Image.Component])
 		}
+	}
+	if model.Configured {
+		model.ReleaseImages = rcImageFields(snapshot, rcImages)
 	}
 	for _, plan := range snapshot.Plans {
 		if plan.Target == pinTarget && model.PinningPR != nil {
@@ -454,15 +444,70 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 	return model
 }
 
+// rcImageFields fills the version's catalog in display order, including cells without observations.
+func rcImageFields(snapshot app.Snapshot, observed []imageModel) componentImagesModel {
+	type slot struct{ name, family, namespace string }
+	bySlot := make(map[slot][]imageModel, len(observed))
+	for _, row := range observed {
+		key := slot{row.Name, row.Check.Image.Family, row.Namespace}
+		bySlot[key] = append(bySlot[key], row)
+	}
+	var fields componentImagesModel
+	major, _, _, _ := release.Version(snapshot.Config.Version)
+	tag := strings.TrimPrefix(snapshot.Candidate().Target.Tag, "v")
+	for _, image := range images.ExpectedRCImages(major, tag) {
+		field := newImageModel(release.ImageStatus{Image: image})
+		key := slot{field.Name, image.Family, field.Namespace}
+		if results := bySlot[key]; len(results) > 0 {
+			for _, row := range results {
+				fields.add(row, "")
+			}
+			delete(bySlot, key)
+		} else {
+			field.Pending = true
+			fields.add(field, "")
+		}
+	}
+	for _, row := range observed {
+		if _, extra := bySlot[slot{row.Name, row.Check.Image.Family, row.Namespace}]; extra {
+			fields.add(row, "")
+		}
+	}
+	return fields
+}
+
+func newImageModel(check release.ImageStatus) imageModel {
+	row := imageModel{Check: check, Name: check.Image.Name}
+	if index := strings.LastIndexByte(check.Image.Reference, ':'); index >= 0 {
+		row.Tag = check.Image.Reference[index+1:]
+		repository := check.Image.Reference[:index]
+		if check.Image.Component == "acs" && check.Image.Family == "ci" {
+			if path, ok := strings.CutPrefix(repository, "quay.io/"); ok {
+				row.Namespace, _, _ = strings.Cut(path, "/")
+			}
+		}
+		if row.Name == "" {
+			row.Name = repository[strings.LastIndexByte(repository, '/')+1:]
+		}
+		link, err := url.Parse(check.Image.Evidence.URL)
+		if err == nil && link.Host == "quay.io" && strings.HasPrefix(link.Path, "/repository/") && link.Query().Get("tag") == row.Tag {
+			row.URL = link.String()
+		}
+	}
+	return row
+}
+
 func (m *componentImagesModel) add(image imageModel, selectedTag string) {
-	m.Total++
-	switch image.Check.Status {
-	case release.Yes:
-		m.Available++
-	case release.No:
-		m.Missing++
-	default:
-		m.Unknown++
+	if !image.Pending {
+		m.Total++
+		switch image.Check.Status {
+		case release.Yes:
+			m.Available++
+		case release.No:
+			m.Missing++
+		default:
+			m.Unknown++
+		}
 	}
 
 	component := image.Check.Image.Component

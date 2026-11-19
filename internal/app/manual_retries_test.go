@@ -92,6 +92,15 @@ func TestManualRetriesFollowCurrentRC(t *testing.T) {
 	if got := s.Snapshot().ManualRetries; len(got) != 1 || got[0].Jobs[0].ID != 88 {
 		t.Fatalf("missing RC job: %+v", got)
 	}
+	s.options.ManualRetries = manualReaderFunc(func(_ context.Context, target release.Target) (release.ManualRetryReport, error) {
+		return release.ManualRetryReport{Target: target, SHA: rc.SHA}, nil
+	})
+	if err := s.refreshPlanned(t.Context(), s.generation, source, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Snapshot().ManualRetries; len(got) != 1 || got[0].SHA != rc.SHA || len(got[0].Jobs) != 0 {
+		t.Fatalf("successful empty RC retry report: %+v", got)
+	}
 	repo := s.repos[source.Name]
 	repo.Candidate.SHA = "new-head"
 	s.repos[source.Name] = repo
