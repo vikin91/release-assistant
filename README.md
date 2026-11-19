@@ -172,13 +172,17 @@ On the **ACS PRs** tab, **Checks of Included PRs** groups Konflux retry comments
 
 Use `ci-retest` to check GitHub Actions jobs and OpenShift CI presubmits independently of the dashboard. It accepts the same target lists and GitHub credentials as `konflux-retest`.
 
-The CLI and dashboard share hardcoded [retry allow and deny lists](internal/github/ci_retest_config.go). To classify an unknown check, patch that file and add a regression case. Verify the repository, the reporting provider, and the caller workflow path and job name from the Actions run. For Prow, verify the context in the repository’s OpenShift CI presubmit configuration. Use a whole-workflow rule only when every job has the same retry owner.
+The CLI and dashboard use the PR base branch’s classic protection and active rulesets to identify merge-required checks. For Actions, they follow direct and transitive `needs` at the PR workflow revision, including local reusable workflows. Dependencies inside external reusable workflows or job names that cannot be mapped to a workflow job are outside prerequisite discovery. An unrelated failure produces no retry or unsupported-check warning. If GitHub returns partial branch settings, the report shows the read error and uses the requirements it could verify.
 
-For each target, `konflux-retest` runs first. Post each suggested comment separately on the linked PR or tagged commit. The CI check then silently skips deny-listed jobs, including collector and FACT’s `Test Konflux builds` workflows. An allow-listed failure gets a command only after the usual target, revision, and job checks pass. Unlisted failures appear as **Unknown check — patch ci-retest to classify it**.
+Pass `--optional` to include failures from the hardcoded `retryOptionalList`. A listed job also appears by default when the branch requires it or a required check depends on it. Tags have no PR merge requirements, so their manual Actions retries require `--optional`. Konflux continues to select its own jobs and prerequisites for PRs and tags.
+
+The CLI and dashboard share hardcoded [retry ownership and optional-job lists](internal/github/ci_retest_config.go). To classify an unknown check, patch that file and add a regression case. Verify the repository, the reporting provider, and the caller workflow path and job name from the Actions run. For Prow, verify the context in the repository’s OpenShift CI presubmit configuration. Use a whole-workflow rule only when every job has the same retry owner.
+
+For each target, `konflux-retest` runs first. Post each suggested comment separately on the linked PR or tagged commit. The CI check then silently skips deny-listed jobs, including collector and FACT’s `Test Konflux builds` workflows. An allow-listed failure gets a command only after the usual target, revision, and job checks pass. Unlisted failures in the merge scope appear as **Unknown check — patch ci-retest to classify it**.
 
 ```sh
 go run ./cmd/ci-retest --allow-konflux-lookup "${APP_ID},api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant" --repo stackrox --prs 24136 24135
-go run ./cmd/ci-retest --allow-konflux-lookup "${APP_ID},api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant" --repo stackrox --tags 4.11.8-rc.0,5.0.0-rc.0
+go run ./cmd/ci-retest --optional --allow-konflux-lookup "${APP_ID},api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant" --repo stackrox --tags 4.11.8-rc.0,5.0.0-rc.0
 ```
 
 Open an offered Actions job link and select the job rerun control on GitHub. For Prow, post the printed comment on the linked PR. It contains one configured `/test <job>` line per verified failed presubmit. Prow evaluates the PR when it processes the comment. The CLI performs only reads. Each target gets a separate report, including warnings when the run, tag trigger or current attempt cannot be verified. Run `go run ./cmd/ci-retest --help` for authentication and input details.

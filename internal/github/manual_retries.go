@@ -34,6 +34,7 @@ type (
 	retryPR struct {
 		Number     int
 		State      string
+		MergeSHA   string `json:"merge_commit_sha"`
 		Base, Head retryBranch
 	}
 	retryRun struct {
@@ -88,6 +89,12 @@ func (c *Client) retryTarget(ctx context.Context, t release.Target) (retryPR, er
 // ManualRetries classifies failed checks and offers verified Actions and Prow retries.
 // Read errors can accompany independent offers for the same verified target.
 func (c *Client) ManualRetries(ctx context.Context, t release.Target) (ManualRetryReport, error) {
+	return c.ManualRetriesWithOptional(ctx, t, false)
+}
+
+// ManualRetriesWithOptional includes configured optional CI jobs when requested.
+// A tag has no merge base branch and therefore has no required merge checks.
+func (c *Client) ManualRetriesWithOptional(ctx context.Context, t release.Target, optional bool) (ManualRetryReport, error) {
 	report := ManualRetryReport{Target: t}
 	if !release.ValidRepo(t.Repo) || !(t.PR > 0 && t.Tag == "" || t.PR == 0 && ValidRetryTag(t.Tag)) {
 		return report, errors.New("invalid retry target")
@@ -108,13 +115,28 @@ func (c *Client) ManualRetries(ctx context.Context, t release.Target) (ManualRet
 		return report, nil
 	}
 	report.SHA = pr.Head.SHA
+	scope := retryScope{optional: optional}
+	var policyErr error
+	if t.PR > 0 {
+		var branch branchResponse
+		// The enforcement level disambiguates a 404 from the classic protection API.
+		_ = c.get(ctx, repoPath(t.Repo)+"/branches/"+segment(pr.Base.Ref), &branch)
+		var problem string
+		scope.required, problem = c.requiredChecks(ctx, release.Source{Repo: t.Repo, Branch: pr.Base.Ref}, branch.Protection.RequiredStatusChecks.EnforcementLevel)
+		if problem != "" {
+			policyErr = fmt.Errorf("required checks for %s: %s", pr.Base.Ref, problem)
+		}
+	}
+	if len(scope.required) == 0 && !optional {
+		return report, policyErr
+	}
 	statuses, prowErr := c.readCommitStatuses(ctx, t.Repo, pr.Head.SHA)
 	if prowErr == nil {
-		prowErr = c.prowRetries(ctx, &report, pr.Base.Ref, statuses)
+		prowErr = c.prowRetries(ctx, &report, pr.Base.Ref, statuses, scope)
 	}
 	checks, actionsErr := c.readCommitCheckRuns(ctx, t.Repo, pr.Head.SHA)
 	if actionsErr == nil {
-		actionsErr = c.manualActions(ctx, t, pr, checks, &report)
+		actionsErr = c.manualActions(ctx, t, pr, checks, &report, scope)
 	}
 	slices.Sort(report.OtherChecks)
 	if len(report.Jobs)+len(report.Prow)+len(report.OtherChecks) > 0 {
@@ -122,13 +144,13 @@ func (c *Client) ManualRetries(ctx context.Context, t release.Target) (ManualRet
 		if err != nil || current != pr {
 			report.SHA = ""
 			report.Jobs, report.Prow, report.OtherChecks = nil, nil, nil
-			return report, errors.Join(prowErr, actionsErr, err, errors.New("target identity could not be reconfirmed"))
+			return report, errors.Join(policyErr, prowErr, actionsErr, err, errors.New("target identity could not be reconfirmed"))
 		}
 	}
-	return report, errors.Join(prowErr, actionsErr)
+	return report, errors.Join(policyErr, prowErr, actionsErr)
 }
 
-func failedPresubmits(report *ManualRetryReport, statuses []commitStatus) map[string]string {
+func failedPresubmits(report *ManualRetryReport, statuses []commitStatus, scope retryScope) map[string]string {
 	t := report.Target
 	failed := make(map[string]string)
 	// The statuses API returns newest first. Another reporter can supersede the failure.
@@ -141,6 +163,11 @@ func failedPresubmits(report *ManualRetryReport, statuses []commitStatus) map[st
 		}
 		seen[key] = true
 		if s.State != "failure" && s.State != "error" {
+			continue
+		}
+		source := retrySource{strings.ToLower(t.Repo), "Prow", ""}
+		optional := s.Creator.ID == openshiftCIReporterID && scope.includesOptional(source, s.Context)
+		if !scope.matches(s.Context, 0) && !optional {
 			continue
 		}
 		if s.Creator.ID != openshiftCIReporterID {
@@ -210,14 +237,16 @@ func retryPages[T any](ctx context.Context, c *Client, endpoint, key string, lim
 	return nil, fmt.Errorf("incomplete %s pagination", key)
 }
 
-func (c *Client) manualActions(ctx context.Context, t release.Target, pr retryPR, checks []commitCheckRun, report *ManualRetryReport) error {
+func (c *Client) manualActions(ctx context.Context, t release.Target, pr retryPR, checks []commitCheckRun, report *ManualRetryReport, scope retryScope) error {
 	failed := make(map[int64][]commitCheckRun)
 	for _, check := range checks {
 		if check.HeadSHA != pr.Head.SHA || check.Status != "completed" || check.check().Result() != release.No {
 			continue
 		}
 		if check.App.Slug != "github-actions" {
-			classifyRetry(report, cmp.Or(check.App.Slug, "unknown reporter"), "", check.Name)
+			if scope.matches(check.Name, check.App.ID) {
+				classifyRetry(report, cmp.Or(check.App.Slug, "unknown reporter"), "", check.Name)
+			}
 			continue
 		}
 		failed[check.Suite.ID] = append(failed[check.Suite.ID], check)
@@ -244,6 +273,16 @@ func (c *Client) manualActions(ctx context.Context, t release.Target, pr retryPR
 			continue
 		}
 		delete(failed, run.SuiteID)
+		if run.targetProblem(t, pr) != "" {
+			continue
+		}
+		selected, scopeErr := c.scopedRunChecks(ctx, t, pr, run, scope, selected, checks)
+		if scopeErr != nil {
+			problems = append(problems, scopeErr)
+		}
+		if len(selected) == 0 {
+			continue
+		}
 		jobs, reason, err := c.retryRunJobs(ctx, report, pr, run, runs, selected)
 		report.Jobs = append(report.Jobs, jobs...)
 		if reason != "" {
@@ -255,6 +294,9 @@ func (c *Client) manualActions(ctx context.Context, t release.Target, pr retryPR
 	}
 	for _, group := range failed {
 		for _, check := range group {
+			if !scope.matches(check.Name, check.App.ID) {
+				continue
+			}
 			classifyRetry(report, check.App.Slug, "", check.Name)
 			report.Warnings = append(report.Warnings, check.Name+": no unique matching Actions run")
 		}
@@ -285,31 +327,17 @@ func (run retryRun) targetProblem(t release.Target, pr retryPR) string {
 
 func (c *Client) retryRunJobs(ctx context.Context, report *ManualRetryReport, pr retryPR, run retryRun, runs []retryRun, checks []commitCheckRun) ([]ManualJob, string, error) {
 	t := report.Target
-	// A shared commit may contain runs from other refs. Classify the suite
-	// first, then publish its unknown checks only if the target matches.
-	suite := ManualRetryReport{Target: t}
 	var allowed []commitCheckRun
 	for _, check := range checks {
-		if !classifyRetry(&suite, check.App.Slug, run.Path, check.Name) {
+		if !classifyRetry(report, check.App.Slug, run.Path, check.Name) {
 			continue
 		}
 		if check.Conclusion != "failure" {
-			suite.Warnings = append(suite.Warnings, check.Name+": ineligible Actions conclusion "+check.Conclusion)
+			report.Warnings = append(report.Warnings, check.Name+": ineligible Actions conclusion "+check.Conclusion)
 			continue
 		}
 		allowed = append(allowed, check)
 	}
-	if len(allowed)+len(suite.OtherChecks)+len(suite.Warnings) == 0 {
-		return nil, "", nil
-	}
-	if reason := run.targetProblem(t, pr); reason != "" {
-		if len(allowed) > 0 {
-			return nil, reason, nil
-		}
-		return nil, "", nil
-	}
-	report.OtherChecks = append(report.OtherChecks, suite.OtherChecks...)
-	report.Warnings = append(report.Warnings, suite.Warnings...)
 	if len(allowed) == 0 {
 		return nil, "", nil
 	}

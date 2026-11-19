@@ -9,15 +9,17 @@ import (
 )
 
 func TestRetryListsDoNotOverlap(t *testing.T) {
-	for source, allowed := range retryAllowList {
-		denied, ok := retryDenyList[source]
-		if !ok {
-			continue
-		}
-		if allowed == nil || denied == nil || slices.ContainsFunc(allowed, func(job string) bool {
-			return slices.Contains(denied, job)
-		}) {
-			t.Errorf("overlapping retry rules for %+v: allowed %v, denied %v", source, allowed, denied)
+	for name, list := range map[string]retryList{"merge": retryAllowList, "optional": retryOptionalList} {
+		for source, allowed := range list {
+			denied, ok := retryDenyList[source]
+			if !ok {
+				continue
+			}
+			if allowed == nil || denied == nil || slices.ContainsFunc(allowed, func(job string) bool {
+				return slices.Contains(denied, job)
+			}) {
+				t.Errorf("%s and deny lists overlap for %+v: allowed %v, denied %v", name, source, allowed, denied)
+			}
 		}
 	}
 }
@@ -38,7 +40,7 @@ func TestFailedPresubmitOwnership(t *testing.T) {
 			report := ManualRetryReport{Target: release.Target{Repo: tc.repo, PR: 7}}
 			status := commitStatus{State: "failure", Context: tc.context, URL: "https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/" + strings.ToLower(strings.ReplaceAll(tc.repo, "/", "_")) + "/7/job/123"}
 			status.Creator.ID = tc.reporter
-			failed := failedPresubmits(&report, []commitStatus{status})
+			failed := failedPresubmits(&report, []commitStatus{status}, retryScope{required: []requiredCheck{{context: tc.context}}})
 			if tc.wantAllowed {
 				if failed[tc.context] != "job" || len(report.OtherChecks) != 0 {
 					t.Fatalf("failed = %v, other checks = %v", failed, report.OtherChecks)

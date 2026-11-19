@@ -16,7 +16,15 @@ type (
 )
 
 var (
+	// retryAllowList supports required jobs and their prerequisites in these CI workflows.
 	retryAllowList = retryList{
+		{"stackrox/stackrox", "github-actions", ".github/workflows/build.yaml"}: nil,
+		{"stackrox/collector", "github-actions", ".github/workflows/main.yml"}:  nil,
+		{"stackrox/fact", "github-actions", ".github/workflows/ci.yml"}:         nil,
+	}
+	// retryOptionalList also permits these jobs when the CLI includes optional checks.
+	// A branch rule or prerequisite can bring any of them into the default report.
+	retryOptionalList = retryList{
 		{"stackrox/collector", "github-actions", ".github/workflows/main.yml"}: {
 			"integration-tests / amd64-integration-tests (rhel) / Testing rhel",
 			"integration-tests / arm64-integration-tests (rhel-arm64) / Testing rhel-arm64",
@@ -111,7 +119,7 @@ func classifyRetry(report *release.ManualRetryReport, provider, workflow, job st
 	switch {
 	case retryDenyList.matches(source, job):
 		return false
-	case retryAllowList.matches(source, job):
+	case retryAllowList.matches(source, job), retryOptionalList.matches(source, job):
 		return true
 	}
 	label := report.Target.Repo + " / " + provider

@@ -34,8 +34,8 @@ type (
 var singleTestCommand = regexp.MustCompile(`^/test [A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
 // prowRetries checks the complete comment against the applicable presubmit triggers.
-func (c *Client) prowRetries(ctx context.Context, report *ManualRetryReport, branch string, statuses []commitStatus) error {
-	failed := failedPresubmits(report, statuses)
+func (c *Client) prowRetries(ctx context.Context, report *ManualRetryReport, branch string, statuses []commitStatus, scope retryScope) error {
+	failed := failedPresubmits(report, statuses, scope)
 	if len(failed) == 0 {
 		return nil
 	}
