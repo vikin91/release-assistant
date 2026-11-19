@@ -132,6 +132,8 @@ type (
 		PROpen bool
 		// PRProblems lists version mismatches, missing inputs, or failed PR requests.
 		PRProblems []string
+		// onlyMissingTags marks a PR comparison blocked solely by unselected component tags.
+		onlyMissingTags bool
 	}
 	// Inventory binds image observations to the ACS release and confirmed component versions.
 	Inventory struct {

@@ -44,7 +44,7 @@ func tabStep(tab string) string {
 func tabHelp(tab string) string {
 	switch tab {
 	case "acs-prs":
-		return "Pin the selected component versions and merge ACS backports and dependency updates. Keep adding PRs after pinning is green or merged."
+		return "Choose component versions in the Component releases tab, then use the pinning details here to verify which versions will ship. Review open pull requests targeting the ACS release branch. Include PRs that belong in this patch and exclude those that can wait for the next one. Follow the CI and Konflux checks on included PRs and use the available retry commands to rerun failed jobs. Once the required checks pass, merge the PRs in GitHub."
 	case "acs-rcs":
 		return "Follow the current RC builds and verify their published images."
 	default:

@@ -8,7 +8,7 @@
         {{$source := .Repository.Source}}
         <article class="component-tag-row" data-live-key="tag-repo:{{$source.Name}}:{{$source.Repo}}">
           <h3>{{title $source.Name}} · <code>{{$source.Branch}}</code></h3>
-          {{if not .CurrentTag}}<p class="tag-prompt">Choose a release tag for {{title $source.Name}}.</p>{{end}}
+          {{if not .CurrentTag}}<p class="tag-prompt">Choose which {{title $source.Name}} version should be included in ACS {{$.Snapshot.Config.Version}}.</p>{{end}}
           {{if .CurrentTag}}
           <table class="tag-options" aria-label="{{title $source.Name}} release tags">
             <thead><tr><th scope="col">Tag</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>

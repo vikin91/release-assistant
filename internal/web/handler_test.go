@@ -402,7 +402,7 @@ func TestRecommendedTagConfirmationIsSeparateFromPRSelection(t *testing.T) {
 		Config: validACS5Config(), Generation: 17,
 		Assessment: release.Assessment{ProposedTags: map[string]string{"fact": "3.25.9"}},
 		Repositories: []release.Repository{
-			{Source: release.Source{Name: "acs", Repo: "acme/rox"}, Tags: []release.Tag{{Name: "5.0.1"}}},
+			{Source: release.Source{Name: "acs", Repo: "acme/rox"}, Tags: []release.Tag{{Name: "5.0.0"}}},
 			{Source: release.Source{Name: "fact", Repo: "acme/fact", Stream: "3.25"},
 				PRs: []release.PR{{Target: release.Target{Repo: "acme/fact", PR: 9}, Title: "A selectable change", State: "open"}},
 				Tags: []release.Tag{
@@ -423,7 +423,10 @@ func TestRecommendedTagConfirmationIsSeparateFromPRSelection(t *testing.T) {
 	if strings.Contains(body, "finish-selection") {
 		t.Fatal("individual PR choices must not require extra confirmation")
 	}
-	if strings.Contains(tags, "5.0.1") {
+	if !strings.Contains(tags, "Choose which Fact version should be included in ACS 5.0.1.") {
+		t.Fatal("component selection prompt must identify the component and target ACS release")
+	}
+	if strings.Contains(tags, "5.0.0") {
 		t.Fatal("ACS release tags must not be offered as component tags")
 	}
 	if strings.Contains(tags, `<details class="other-tags"`) || strings.Contains(tags, `<details class="component-tag-chooser"`) {

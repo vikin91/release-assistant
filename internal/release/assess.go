@@ -72,7 +72,7 @@ func Assess(in Input) Assessment {
 		}
 	}
 	if len(a.ComponentPRRecommendations) == 0 {
-		a.ComponentPRRecommendations = append(a.ComponentPRRecommendations, "Review component PRs for this patch and include the changes you want to merge. Tags can be selected later; an empty PR selection is valid.")
+		a.ComponentPRRecommendations = append(a.ComponentPRRecommendations, "Review component PRs for this patch and include the changes you want to merge into the release. Empty PR selection is valid.")
 	}
 
 	chosenVersions := make(map[string]string, len(in.Config.Components))
@@ -141,7 +141,7 @@ func Assess(in Input) Assessment {
 		missingTags = missingTags || in.Choices.Tags[source.Name] == ""
 	}
 	if missingTags {
-		a.ACSRecommendations = append(a.ACSRecommendations, "Select component tags in Component releases when ready to prepare pinning. ACS PR work can continue while you prepare component releases.")
+		a.ACSRecommendations = append(a.ACSRecommendations, `Select component tags in "Component releases" tab.`)
 	}
 	if a.Pins.BranchStatus == No && !a.Pins.PROpen {
 		a.ACSRecommendations = append(a.ACSRecommendations, "Review ACS release branch pins: "+strings.TrimSuffix(a.Pins.BranchReason, ".")+".")
@@ -389,7 +389,7 @@ func assessImages(a *Assessment, in Input, versions map[string]string) (Truth, [
 		globalProblem = bindingProblem
 	}
 	if globalProblem == "" && !in.Inventory.Evidence.Fresh() {
-		globalProblem = "Some component image tags have not been selected or checked; see the affected images below."
+		globalProblem = "Component image checks do not have up-to-date results."
 	}
 	a.ImageProblem = globalProblem
 	evidence := []Evidence{in.Inventory.Evidence}
@@ -459,7 +459,11 @@ func assessImages(a *Assessment, in Input, versions map[string]string) (Truth, [
 		status.Required = false
 		a.Images = append(a.Images, status)
 	}
+	selected := 0
 	for _, source := range in.Config.Components {
+		if in.Choices.Tags[source.Name] != "" {
+			selected++
+		}
 		for _, family := range []string{imageCI, imageKonflux} {
 			if len(matchingImages(in.Inventory.Images, source.Name, family)) == 0 {
 				a.ImageProblem = "One or more expected component image observations are missing."
@@ -476,6 +480,9 @@ func assessImages(a *Assessment, in Input, versions map[string]string) (Truth, [
 	}
 	if len(in.Inventory.Images) == 0 && globalProblem == "" {
 		a.ImageProblem = "Expected component image observations are missing."
+	}
+	if missing := len(in.Config.Components) - selected; missing > 0 {
+		a.ImageProblem = fmt.Sprintf("Select component tags first. %d selected, %d missing.", selected, missing)
 	}
 	if globalProblem != "" {
 		allPresent = false
@@ -773,7 +780,7 @@ func assessPinSummary(in Input, repos map[string]Repository, versions map[string
 		if missing := missingVersionFiles(acs.PinningPins, in.Config.Components); missing != "" {
 			summary.PRSummary = fmt.Sprintf("Unable to get %s from pinning PR #%d", missing, pr.Target.PR)
 		}
-		summary.PRProblems = missingPinProblems(acs.PinningPins, in.Config.Components, comparisonVersions, in.Choices.Tags)
+		summary.PRProblems, summary.onlyMissingTags = missingPinProblems(acs.PinningPins, in.Config.Components, comparisonVersions, in.Choices.Tags)
 		summary.PRReason = strings.Join(summary.PRProblems, "; ")
 		return summary
 	}
@@ -803,7 +810,7 @@ func unreadPinFiles(pins Pins, sources []Source) string {
 	return strings.Join(names, ", ")
 }
 
-func missingPinProblems(pins Pins, sources []Source, selected, choices map[string]string) []string {
+func missingPinProblems(pins Pins, sources []Source, selected, choices map[string]string) ([]string, bool) {
 	problems := []string{}
 	missingTags := []string{}
 	for _, source := range sources {
@@ -823,9 +830,9 @@ func missingPinProblems(pins Pins, sources []Source, selected, choices map[strin
 		}
 	}
 	if len(missingTags) > 0 {
-		problems = append([]string{"Choose " + joinComponentTitles(missingTags) + " tags"}, problems...)
+		return append([]string{"Choose " + joinComponentTitles(missingTags) + " tags"}, problems...), len(problems) == 0
 	}
-	return problems
+	return problems, false
 }
 
 func pinReadProblems(pins Pins, sources []Source) []string {
@@ -920,6 +927,9 @@ func assessPinningPR(a *Assessment, in Input, versions map[string]string, tagCov
 		return
 	}
 	if strings.EqualFold(pr.State, "open") && !pr.Merged {
+		if a.Pins.onlyMissingTags {
+			return
+		}
 		a.ACSRecommendations = append(a.ACSRecommendations, prProblem)
 		if !a.Pins.PROpen || !acs.PinningPins.Evidence.Fresh() {
 			return
@@ -973,7 +983,7 @@ func addTagRecommendations(a *Assessment, in Input, included []Target, prStates 
 		}
 		if coverage.Status == "" {
 			if confirmed == "" && proposed != "" {
-				a.ComponentReleaseRecommendations = append(a.ComponentReleaseRecommendations, tagProposalText(source, proposed, proposalStatus))
+				a.ComponentReleaseRecommendations = append(a.ComponentReleaseRecommendations, tagProposalText(source, proposed, proposalStatus, in.Config.Version))
 			} else if confirmed == "" {
 				a.ComponentReleaseRecommendations = append(a.ComponentReleaseRecommendations, fmt.Sprintf("No %s tag is selected yet. After reviewing component PRs, select a suitable existing %s-stream tag or cut a new tag and trigger its component release using the release guide.", source.Name, source.Stream))
 			} else {
@@ -986,7 +996,7 @@ func addTagRecommendations(a *Assessment, in Input, included []Target, prStates 
 		case proposed != "" && proposed != confirmed && proposalStatus == Yes:
 			recommendation += fmt.Sprintf(" Review and confirm eligible tag %s.", proposed)
 		case proposed != "" && proposed != confirmed:
-			recommendation += " " + tagProposalText(source, proposed, proposalStatus)
+			recommendation += " " + tagProposalText(source, proposed, proposalStatus, in.Config.Version)
 		default:
 			recommendation += fmt.Sprintf(" Cut a covering tag on %s and trigger its component release using the release guide, then select the new tag.", source.Branch)
 		}
@@ -994,10 +1004,10 @@ func addTagRecommendations(a *Assessment, in Input, included []Target, prStates 
 	}
 }
 
-func tagProposalText(source Source, tag string, suitability Truth) string {
+func tagProposalText(source Source, tag string, suitability Truth, acsVersion string) string {
 	switch suitability {
 	case Yes:
-		return fmt.Sprintf("Existing %s tag %s covers the selected merged changes. Select it to use that version, or prepare a newer tag and trigger its component release using the release guide.", source.Name, tag)
+		return fmt.Sprintf("Select %s tag to include in ACS %s.", componentTitle(source.Name), acsVersion)
 	case No:
 		return fmt.Sprintf("Tag %s is the highest final %s-stream tag observed on the branch, but it does not cover the selected merged changes. Cut a covering tag on %s and trigger its component release using the release guide, then select it at https://github.com/%s/tags.", tag, source.Name, source.Branch, source.Repo)
 	default:

@@ -2,7 +2,7 @@
 <tr data-live-key="tag:{{.Component}}:{{.Repo}}@{{.Tag.Name}}:{{.Tag.SHA}}">
   <th scope="row"><a href="https://github.com/{{.Repo}}/tree/refs/tags/{{.Tag.Name}}" target="_blank" rel="noreferrer"><code>{{.Tag.Name}}</code></a></th>
   <td>
-    {{if .Proposed}}<strong>Recommended candidate</strong>{{end}}
+    {{if .Proposed}}<strong title="Highest verified version in this component’s release stream on the configured branch">Newest tag</strong>{{end}}
     {{if not .Tag.Evidence.Fresh}}<span class="unknown">Evidence unverified</span>
     {{else if eq (truth .Tag.Belongs) "no"}}<span class="no">Outside configured branch</span>
     {{else if ne (truth .Tag.Belongs) "yes"}}<span class="unknown">Branch membership unverified</span>{{end}}

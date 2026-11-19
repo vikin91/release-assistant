@@ -193,7 +193,7 @@ func TestComponentReleaseNextStepsFollowTagSelections(t *testing.T) {
 			collectorTag: "3.25.5", collectorAncestor: release.Yes,
 		},
 		"should prompt for the missing selection": {
-			collectorAncestor: release.Yes, wantGuidance: "Existing collector tag 3.25.5 covers the selected merged changes.",
+			collectorAncestor: release.Yes, wantGuidance: "Select Collector tag to include in ACS 5.0.1.",
 		},
 		"should explain why a selected tag is unsuitable": {
 			collectorTag: "3.25.5", collectorAncestor: release.No,
