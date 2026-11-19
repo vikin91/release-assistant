@@ -46,7 +46,7 @@ func TestCLIReports(t *testing.T) {
 	const root = "/repos/stackrox/stackrox"
 	const sha = "1111111111111111111111111111111111111111"
 	const pr = `{"state":"open","number":7,"base":{"ref":"master","repo":{"id":1}},"head":{"sha":"` + sha + `","repo":{"id":2}}}`
-	const statuses = `[{"context":"ci/prow/build","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/build/123"},{"context":"ci/prow/test","state":"pending"},{"context":"ci/prow/test","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/test/345"}]`
+	const statuses = `[{"context":"ci/prow/Green","state":"success"},{"context":"ci/prow/green","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/green/111"},{"context":"ci/prow/build","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/build/123"},{"context":"ci/prow/test","state":"pending"},{"context":"ci/prow/test","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/test/345"}]`
 	const checks = `{"total_count":2,"check_runs":[
 		{"id":41,"name":"Konflux: release-central-db:rc","status":"completed","conclusion":"failure","head_sha":"` + sha + `","app":{"slug":"github-actions"},"check_suite":{"id":11}},
 		{"id":42,"name":"unit tests","status":"completed","conclusion":"failure","head_sha":"` + sha + `","app":{"slug":"github-actions"},"check_suite":{"id":11}}
@@ -66,18 +66,19 @@ https://github.com/stackrox/stackrox/actions/runs/22/job/101
 gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 
 	for name, tc := range map[string]struct {
-		args              []string
-		workflow, ref     string
-		moved, otherCheck bool
-		want, absent      []string
-		code              int
+		args                             []string
+		workflow, ref                    string
+		moved, otherCheck, missingConfig bool
+		want, absent                     []string
+		code                             int
 	}{
-		"PR reports both actions and continues past missing target": {args: []string{"--prs", "8,7", "7"}, want: []string{"HTTP 404", jobOutput + "\n\nFailed Prow checks:", "Post once on https://github.com/stackrox/stackrox/pull/7", "\n/retest\n"}, absent: []string{"ci/prow/test"}, code: 1},
-		"PR head moved after observation":                           {args: []string{"--prs", "7"}, moved: true, want: []string{"target identity could not be reconfirmed"}, absent: []string{"/job/99", "\n/retest\n"}, code: 1},
-		"job for different check":                                   {args: []string{"--prs", "7"}, otherCheck: true, want: []string{"no unique failed job", "\n/retest\n"}, absent: []string{"/job/99"}},
+		"PR reports both actions and continues past missing target": {args: []string{"--prs", "8,7", "7"}, want: []string{"HTTP 404", jobOutput + "\n\nFailed Prow checks:", "Failed Prow checks: post this comment on https://github.com/stackrox/stackrox/pull/7", "\n/test build-job\n"}, absent: []string{"ci/prow/test", "/test green", "/test pending", "\n/retest\n"}, code: 1},
+		"Prow config unavailable preserves Actions offers":          {args: []string{"--prs", "7"}, missingConfig: true, want: []string{jobOutput, "reading OpenShift CI presubmits"}, absent: []string{"Failed Prow checks:", "/test build-job", "\n/retest\n"}, code: 1},
+		"PR head moved after observation":                           {args: []string{"--prs", "7"}, moved: true, want: []string{"target identity could not be reconfirmed"}, absent: []string{"/job/99", "\n/retest\n", "/test build-job"}, code: 1},
+		"job for different check":                                   {args: []string{"--prs", "7"}, otherCheck: true, want: []string{"no unique failed job", "\n/test build-job\n"}, absent: []string{"/job/99"}},
 		"tag only push":                                             {args: []string{"--tags", "rc"}, workflow: "on:\n  push:\n    tags: ['*']\n", want: []string{"Tag: rc", "/commit/" + sha, jobOutput + "\n\nWarnings:\nThis tool cannot tell flakes from true failures. Inspect each failure before retrying.\n"}, absent: []string{"\n/retest\n"}},
 		"tag proven by local workflow":                              {args: []string{"--tags", "rc"}, workflow: "jobs:\n  build:\n    uses: ./.github/workflows/build.yml\n", ref: "refs/tags/rc", want: []string{"/job/99"}},
-		"same name branch push":                                     {args: []string{"--tags", "rc"}, workflow: "jobs:\n  build:\n    uses: ./.github/workflows/build.yml\n", ref: "refs/heads/rc", want: []string{"tag trigger unproven"}, absent: []string{"/job/99", "\n/retest\n"}},
+		"same name branch push":                                     {args: []string{"--tags", "rc"}, workflow: "jobs:\n  build:\n    uses: ./.github/workflows/build.yml\n", ref: "refs/heads/rc", want: []string{"tag trigger unproven"}, absent: []string{"/job/99", "\n/retest\n", "/test build-job"}},
 		"separately pinned reusable workflow":                       {args: []string{"--tags", "rc"}, workflow: "jobs:\n  build:\n    uses: stackrox/stackrox/.github/workflows/build.yml@rc\n", ref: "refs/tags/rc", want: []string{"tag trigger unproven"}, absent: []string{"/job/99"}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -94,6 +95,36 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 					t.Errorf("unexpected method %s", r.Method)
 				}
 				switch strings.TrimPrefix(r.URL.Path, root) {
+				case "/repos/openshift/release/contents/ci-operator/jobs/stackrox/stackrox":
+					fmt.Fprint(w, `[{"type":"file","name":"stackrox-stackrox-presubmits.yaml","sha":"config"}]`)
+				case "/repos/openshift/release/git/blobs/config":
+					if tc.missingConfig {
+						http.NotFound(w, r)
+						return
+					}
+					const config = `presubmits:
+  stackrox/stackrox:
+  - name: build
+    branches: [^master$]
+    context: ci/prow/build
+    rerun_command: /test build-job
+    trigger: '(?m)^/test build-job$'
+  - name: release-build
+    branches: [^release-5$]
+    context: ci/prow/release
+    rerun_command: /test build-job
+    trigger: '(?m)^/test build-job$'
+  - name: green
+    context: ci/prow/green
+    rerun_command: /test green
+    trigger: '(?m)^/test green$'
+  - name: test
+    context: ci/prow/test
+    rerun_command: /test pending
+    trigger: '(?m)^/test pending$'
+`
+					fmt.Fprintf(w, `{"encoding":"base64","content":%q}`, base64.StdEncoding.EncodeToString([]byte(config)))
+
 				case "/pulls/8":
 					http.NotFound(w, r)
 				case "/pulls/7":

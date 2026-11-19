@@ -30,6 +30,7 @@ type (
 		backoff      readBackoff
 		inventories  sync.Map
 		candidatePRs sync.Map
+		prowFiles    sync.Map // configuration path to latest parsed presubmit blob
 		windowCache  *CommitWindowCache
 	}
 	// requestError separates safe UI causes from endpoint diagnostics.

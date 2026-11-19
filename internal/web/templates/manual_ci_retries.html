@@ -16,10 +16,10 @@
         </div>
       {{end}}
       {{if .Prow}}
-        <p>Failed Prow checks: {{range $i, $name := .Prow}}{{if $i}}, {{end}}{{$name}}{{end}}</p>
-        <p>Post this comment once on <a aria-describedby="new-tab-description" href="{{url .URL}}#new_comment_field" target="_blank" rel="noreferrer">PR #{{.Target.PR}}</a>. It applies to the whole PR and can also trigger Actions retries.</p>
+        <p>Failed Prow checks: {{range $i, $job := .Prow}}{{if $i}}, {{end}}{{$job.Context}}{{end}}</p>
+        <p>Retry the listed checks by posting this comment on <a aria-describedby="new-tab-description" href="{{url .URL}}#new_comment_field" target="_blank" rel="noreferrer">PR #{{.Target.PR}}</a>.</p>
         <div class="copyable-text">
-          <pre><code>{{prowRetryComment}}</code></pre>
+          <pre><code>{{.ProwComment}}</code></pre>
           <div class="copy-text-actions"><button type="button" data-copy-text>Copy comment</button><span role="status" data-copy-status data-live-preserve></span></div>
         </div>
       {{end}}

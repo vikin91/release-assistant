@@ -39,7 +39,7 @@ func TestMonitorManualRetries(t *testing.T) {
 		if target == selectedTag {
 			return release.ManualRetryReport{Target: target, SHA: tag.SHA, Jobs: []release.ManualJob{{ID: 42}}}, nil
 		}
-		return release.ManualRetryReport{Target: target, SHA: reportSHA, Prow: []string{"ci/prow/test"}}, errors.New("Actions jobs unavailable")
+		return release.ManualRetryReport{Target: target, SHA: reportSHA, Prow: []release.ProwRetry{{Context: "ci/prow/test", Command: "/test test"}}}, errors.New("Actions jobs unavailable")
 	})
 	refresh := func() Snapshot {
 		t.Helper()
@@ -52,7 +52,7 @@ func TestMonitorManualRetries(t *testing.T) {
 	if len(calls) != 2 || calls[pr] != 1 || calls[selectedTag] != 1 || len(snap.ManualRetries) != 2 {
 		t.Fatalf("selected targets %v, reports %+v", calls, snap.ManualRetries)
 	}
-	if got := snap.ManualRetries[0]; got.Target != pr || !slices.Equal(got.Prow, []string{"ci/prow/test"}) || !slices.Contains(got.Warnings, "Actions jobs unavailable") {
+	if got := snap.ManualRetries[0]; got.Target != pr || !slices.Equal(got.Prow, []release.ProwRetry{{Context: "ci/prow/test", Command: "/test test"}}) || !slices.Contains(got.Warnings, "Actions jobs unavailable") {
 		t.Fatalf("partial report: %+v", got)
 	}
 	for _, v := range snap.Authority {

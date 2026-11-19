@@ -85,7 +85,7 @@ func (c *Client) retryTarget(ctx context.Context, t release.Target) (retryPR, er
 	return pr, err
 }
 
-// ManualRetries collects Actions job links and the failed presubmits covered by one PR-wide comment.
+// ManualRetries collects Actions job links and targeted commands for failed Prow presubmits.
 // Read errors can accompany independent offers for the same verified target.
 func (c *Client) ManualRetries(ctx context.Context, t release.Target) (ManualRetryReport, error) {
 	report := ManualRetryReport{Target: t}
@@ -113,7 +113,7 @@ func (c *Client) ManualRetries(ctx context.Context, t release.Target) (ManualRet
 		var statuses []commitStatus
 		statuses, prowErr = c.readCommitStatuses(ctx, t.Repo, pr.Head.SHA)
 		if prowErr == nil {
-			report.Prow, report.Warnings = failedPresubmits(t, statuses)
+			report.Prow, report.Warnings, prowErr = c.prowRetries(ctx, t, pr.Base.Ref, statuses)
 		}
 	}
 	checks, actionsErr := c.readCommitCheckRuns(ctx, t.Repo, pr.Head.SHA)
@@ -130,15 +130,18 @@ func (c *Client) ManualRetries(ctx context.Context, t release.Target) (ManualRet
 	return report, errors.Join(prowErr, actionsErr)
 }
 
-func failedPresubmits(t release.Target, statuses []commitStatus) (failed, warnings []string) {
+func failedPresubmits(t release.Target, statuses []commitStatus) (map[string]string, []string) {
+	failed := make(map[string]string)
+	var warnings []string
 	// The statuses API returns newest first. Another reporter can supersede the failure.
 	seen := make(map[string]bool)
 	prefix := fmt.Sprintf("/view/gs/test-platform-results-public/pr-logs/pull/%s/%d/", strings.ReplaceAll(strings.ToLower(t.Repo), "/", "_"), t.PR)
 	for _, s := range statuses {
-		if seen[s.Context] {
+		key := strings.ToLower(s.Context)
+		if seen[key] {
 			continue
 		}
-		seen[s.Context] = true
+		seen[key] = true
 		if s.State != "failure" || !strings.HasPrefix(s.Context, "ci/prow/") {
 			continue
 		}
@@ -146,25 +149,28 @@ func failedPresubmits(t release.Target, statuses []commitStatus) (failed, warnin
 			warnings = append(warnings, s.Context+": Prow reporter unverified")
 			continue
 		}
-		if !prowBuildURL(s.URL, prefix) {
+		job := prowBuildJob(s.URL, prefix)
+		if job == "" {
 			warnings = append(warnings, s.Context+": build URL does not identify this PR")
 			continue
 		}
-		failed = append(failed, s.Context)
+		failed[s.Context] = job
 	}
-	slices.Sort(failed)
 	slices.Sort(warnings)
 	return failed, warnings
 }
 
-func prowBuildURL(raw, prefix string) bool {
+func prowBuildJob(raw, prefix string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.Host != "prow.ci.openshift.org" || !strings.HasPrefix(u.Path, prefix) {
-		return false
+		return ""
 	}
 	job, build, ok := strings.Cut(strings.TrimPrefix(u.Path, prefix), "/")
 	id, err := strconv.ParseUint(build, 10, 64)
-	return ok && job != "" && err == nil && id > 0
+	if ok && err == nil && id > 0 {
+		return job
+	}
+	return ""
 }
 
 // retryPages requires every page before using a collection to resolve a job or superseding run.

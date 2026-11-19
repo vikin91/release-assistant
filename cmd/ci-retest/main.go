@@ -54,7 +54,7 @@ func targets(args []string, diagnostics io.Writer) ([]release.Target, error) {
 
 Choose one list and put it last. Spaces and commas are accepted. Short
 repository names use the stackrox owner. Default: stackrox/stackrox.
-Prints job rerun links, gh api commands, and a PR-wide /retest comment for failed
+Prints job rerun links, gh api commands, and targeted /test commands for failed
 OpenShift CI presubmits. Only reads GitHub. Authentication: GH_TOKEN,
 GITHUB_TOKEN, or a saved gh login. Read access to Actions, checks,
 commit statuses, contents and pull requests is needed.`)
@@ -158,7 +158,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader 
 			if len(report.Jobs) > 0 {
 				fmt.Fprintln(out)
 			}
-			fmt.Fprintf(out, "Failed Prow checks: %s\nPost once on %s (PR-wide; other CI may also respond):\n%s\n", strings.Join(report.Prow, ", "), report.URL, release.ProwRetryComment)
+			fmt.Fprintf(out, "Failed Prow checks: post this comment on %s\n%s\n", report.URL, report.ProwComment())
 		}
 		fmt.Fprintln(out, "\nWarnings:")
 		for _, w := range report.Warnings {

@@ -51,7 +51,6 @@ func New(application Application) (http.Handler, error) {
 	}
 	page, err := template.New("index.html").Funcs(template.FuncMap{
 		"manualRetryWarning":          func() string { return release.ManualRetryWarning },
-		"prowRetryComment":            func() string { return release.ProwRetryComment },
 		"retryCommentPermissionLabel": func() string { return retryCommentPermissionLabel },
 		"pinVersion":                  pinVersion, "pinDiffers": pinDiffers,
 		"tabPage": tabPage, "tabTitle": tabTitle, "tabHelp": tabHelp, "tabStep": tabStep,

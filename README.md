@@ -162,7 +162,7 @@ A PR head or target branch change revokes its grant. The `no-release-assistant` 
 
 Before sending, the assistant rechecks the target, current permission, eligible run, and exact comment. By default, it waits at least one minute between comments on a target. After ten distinct consecutive unsuccessful eligible runs for a job on the same target and commit, it waits at least an hour between comments for that job. Repeated polls do not increase the failure count. If delivery is uncertain, the assistant records it and waits for the cooldown before reconsidering.
 
-The **Manual CI retries** section on each workflow tab shows GitHub Actions job links and copyable `gh api` commands for monitored targets. For failed Prow presubmits, copy `/retest` and post it once on the linked PR. This PR-wide comment can also trigger Actions retries. These options are available in read-only mode.
+The **Manual CI retries** section on each workflow tab shows GitHub Actions job links and copyable `gh api` commands for monitored targets. For failed Prow presubmits, copy the listed `/test <job>` commands and post them together on the linked PR. These options are available in read-only mode.
 
 ## Standalone CI retry CLI
 
@@ -173,7 +173,7 @@ go run ./cmd/ci-retest --repo stackrox --prs 24136 24135
 go run ./cmd/ci-retest --repo stackrox --tags 4.11.8-rc.0,5.0.0-rc.0
 ```
 
-Open an offered Actions job link and select the job rerun control on GitHub. For Prow, post the printed `/retest` comment once on the linked PR. This command applies to the PR at processing time and can also trigger StackRox Actions retries. The CLI performs only reads. Each target gets a separate report, including warnings when the run, tag trigger or current attempt cannot be verified. Run `go run ./cmd/ci-retest --help` for authentication and input details.
+Open an offered Actions job link and select the job rerun control on GitHub. For Prow, post the printed comment on the linked PR. It contains one configured `/test <job>` line per verified failed presubmit. Prow evaluates the PR when it processes the comment. The CLI performs only reads. Each target gets a separate report, including warnings when the run, tag trigger or current attempt cannot be verified. Run `go run ./cmd/ci-retest --help` for authentication and input details.
 
 ## Monitoring and logs
 
