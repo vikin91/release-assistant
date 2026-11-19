@@ -61,12 +61,35 @@ func (s *Session) inspectPinningImages(ctx context.Context, generation uint64, p
 	return err
 }
 
+// includePinningPR preserves the ordinary choice so clearing the pinning role restores it.
+func (s *Session) includePinningPR() {
+	t := s.config.PinningTarget()
+	if t.PR == 0 {
+		return
+	}
+	s.priorPinChoice = s.choices.PRs[t]
+	s.choices.PRs[t] = release.Included
+	if s.priorPinChoice == release.Ignored || s.priorPinChoice == release.Excluded {
+		s.dispatcher.Ignore(t, false)
+	}
+}
+
 // clearPinningSelection drops evidence and grants associated with the outgoing selection.
 // The caller holds the session lock.
 func (s *Session) clearPinningSelection() {
 	s.clearRCPlan()
 	if s.config.PinningPR > 0 {
-		_ = s.dispatcher.Grant(s.config.PinningTarget(), "", false)
+		t := s.config.PinningTarget()
+		_ = s.dispatcher.Grant(t, "", false)
+		if s.priorPinChoice == "" {
+			delete(s.choices.PRs, t)
+		} else {
+			s.choices.PRs[t] = s.priorPinChoice
+		}
+		if s.priorPinChoice == release.Ignored || s.priorPinChoice == release.Excluded {
+			s.dispatcher.Ignore(t, true)
+			delete(s.plans, t)
+		}
 	}
 	repo, exists := s.repos["acs"]
 	if !exists {
@@ -117,6 +140,7 @@ func (s *Session) confirmPinningPR(ctx context.Context, a Action) error {
 	}
 	s.clearPinningSelection()
 	s.config.PinningPR = a.Target.PR
+	s.includePinningPR()
 	s.config.DetectPinningPR = false
 	s.config.ManualPinningPR = 0
 	s.generation++

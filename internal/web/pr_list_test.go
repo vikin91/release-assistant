@@ -268,3 +268,26 @@ func TestPinDetectionSetting(t *testing.T) {
 		t.Fatalf("restoring manual selection: %+v %v", a, err)
 	}
 }
+
+func TestIncludedPinningPRHasNoChoiceControls(t *testing.T) {
+	for name, merged := range map[string]bool{"awaiting merge": false, "merged": true} {
+		t.Run(name, func(t *testing.T) {
+			c := validACS5Config()
+			c.PinningPR = 19
+			pr := release.PR{Target: c.PinningTarget(), Base: c.Branch, State: "open", Merged: merged, Title: "Release pins", Evidence: release.Evidence{Known: true, At: time.Now()}}
+			if merged {
+				pr.State = "merged"
+			}
+			snapshot := app.Snapshot{Config: c, Choices: release.Choices{PRs: map[release.Target]release.Choice{pr.Target: release.Included}}, Repositories: []release.Repository{{Source: c.ACS(), PRs: []release.PR{pr}, PinningPR: &pr}}}
+			page := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t), "acs-prs")
+			list := between(t, page, `id="acs-prs-pr-selection-panel"`, "</section>")
+			count := "1 awaiting merge"
+			if merged {
+				count = "1 included and merged"
+			}
+			if !strings.Contains(list, count) || strings.Count(list, "Confirmed pinning PR") != 1 || strings.Contains(list, `name="kind" value="choice"`) {
+				t.Fatal("incorrect pinning PR controls or count", list)
+			}
+		})
+	}
+}

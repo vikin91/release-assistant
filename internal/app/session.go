@@ -75,6 +75,7 @@ type (
 		tagInitialized  map[string]bool
 		nextSourceCheck map[string]time.Time
 		initiallyLoaded map[string]bool
+		priorPinChoice  release.Choice
 		workRevision    uint64
 		readErrors      map[string]string
 		generation      uint64
@@ -111,6 +112,8 @@ func New(d Discoverer, p Planner, i Inspector, dispatcher *dispatch.Dispatcher, 
 	if o.Initial.Version != "" {
 		if err := o.Initial.Validate(); err != nil {
 			s.errorText = err.Error()
+		} else {
+			s.includePinningPR()
 		}
 	}
 	return s
@@ -199,8 +202,9 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			return err
 		}
 		sameContext := s.config.Version == a.Config.Version && s.config.Branch == a.Config.Branch && slices.Equal(s.config.Components, a.Config.Components)
+		pinChanged := !sameContext || s.config.PinningPR != a.Config.PinningPR
 		if sameContext {
-			if s.config.PinningPR != a.Config.PinningPR {
+			if pinChanged {
 				s.clearPinningSelection()
 			}
 			s.generation++
@@ -209,6 +213,9 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			s.reset()
 		}
 		s.config = a.Config
+		if pinChanged {
+			s.includePinningPR()
+		}
 		s.config.Components = slices.Clone(a.Config.Components)
 		s.nextSourceCheck = map[string]time.Time{}
 		s.initiallyLoaded = map[string]bool{}
@@ -223,6 +230,9 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		if a.Kind == "choice" {
 			if a.Choice != "" && a.Choice != release.Included && a.Choice != release.Excluded && a.Choice != release.Ignored {
 				return fmt.Errorf("invalid inclusion choice")
+			}
+			if a.Target.PR > 0 && a.Target == s.config.PinningTarget() {
+				return fmt.Errorf("the confirmed pinning PR is always included")
 			}
 			if !s.hasTarget(a.Target) {
 				return fmt.Errorf("unknown target")
@@ -601,6 +611,9 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	}
 	revision := s.workRevision
 	for t, choice := range s.choices.PRs {
+		if t == c.PinningTarget() && source.Name == "acs" && request.Reads(ReadPins) {
+			continue
+		}
 		if t.Repo == source.Repo {
 			if choice == release.Ignored || choice == release.Excluded {
 				request.Ignored = append(request.Ignored, t)

@@ -53,8 +53,8 @@
               </div>
               {{if eq .Choice "included"}}{{template "pr-list-checks" $row.Checks}}{{end}}
             </div>
-            <div class="control-row">
-              {{if and (not $component) (ne $row.PinRole "Confirmed pinning PR") .PR.Evidence.Fresh .PR.SHA (eq .PR.State "open") (eq .PR.Base $.Snapshot.Config.Branch)}}
+            {{if ne $row.PinRole "Confirmed pinning PR"}}<div class="control-row">
+              {{if and (not $component) .PR.Evidence.Fresh .PR.SHA (eq .PR.State "open") (eq .PR.Base $.Snapshot.Config.Branch)}}
               <form method="post" action="/action#{{$.PRSection}}" class="inline-form">
                 <input type="hidden" name="kind" value="use-pinning-pr"><input type="hidden" name="tab" value="{{$.Tab}}">
                 <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}">
@@ -66,7 +66,7 @@
                 <button type="submit" name="choice" value="excluded" aria-pressed="{{if eq .Choice "excluded"}}true{{else}}false{{end}}">Exclude</button>
                 {{if ne .Choice "ignored"}}<button type="submit" name="choice" value="ignored">Ignore &amp; hide</button>{{end}}
               </form>
-            </div>
+            </div>{{end}}
             {{if ne .Choice "ignored"}}<div class="pr-list-disclosures">
               <form method="post" action="/action#{{$.PRSection}}" class="inline-form grant-form" data-autosubmit><input type="hidden" name="tab" value="{{$.Tab}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="grant"><input type="hidden" name="repo" value="{{.PR.Target.Repo}}"><input type="hidden" name="pr" value="{{.PR.Target.PR}}"><input type="hidden" name="sha" value="{{.PR.SHA}}"><input type="hidden" name="enabled" value="false"><label class="check{{if not .CanGrant}} disabled-control{{end}}" title="Saves immediately"><input type="checkbox" name="enabled" value="true" {{if and .Authority .Authority.Granted}}checked{{end}}{{if not .CanGrant}} disabled{{end}}> Allow retry comments</label><noscript><button type="submit"{{if not .CanGrant}} disabled{{end}}>Apply RW permission</button></noscript>{{if .PR.OptOut}}<span class="error-text">Writes disabled by opt-out label</span>{{end}}</form>
               {{$target := .PR.Target}}

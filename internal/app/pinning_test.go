@@ -62,13 +62,13 @@ func newPinningSession(t *testing.T) (*Session, *pinningServices, release.Config
 	return s, f, config
 }
 
-func TestConfiguredPinningPRIsObservedWithoutImplicitInclusionOrRW(t *testing.T) {
+func TestConfiguredPinningPRIsIncludedWithoutWritePermission(t *testing.T) {
 	s, f, config := newPinningSession(t)
 	if err := s.Refresh(t.Context(), s.Snapshot().Generation, config.ACS(), true); err != nil {
 		t.Fatal(err)
 	}
 	x := s.Snapshot()
-	if len(x.Plans) != 1 || x.Plans[0].Target != config.PinningTarget() || x.Choices.PRs[config.PinningTarget()] != "" {
+	if len(x.Plans) != 1 || x.Plans[0].Target != config.PinningTarget() || x.Choices.PRs[config.PinningTarget()] != release.Included {
 		t.Fatalf("pinning monitoring changed release inclusion: %+v", x.Choices)
 	}
 	if len(f.refs) != 1 || f.refs[0] != f.plan.Runs[0].Image.Reference || x.Plans[0].Runs[0].Image.Present != release.Yes {
@@ -274,7 +274,7 @@ func TestPinningSelection(t *testing.T) {
 				t.Fatalf("confirmation: %v", err)
 			}
 			if tc.success {
-				if s.config.PinningTarget() != target || s.choices.PRs[target] != "" {
+				if s.config.PinningTarget() != target || s.choices.PRs[target] != release.Included {
 					t.Fatal("selection did not independently set the monitoring target")
 				}
 				repo.PinningPR = &repo.PRs[tc.chosen-123]
@@ -300,5 +300,27 @@ func TestPinningSelection(t *testing.T) {
 			}
 			assertNoWrite()
 		})
+	}
+}
+
+func TestClearingPinningRoleRestoresOrdinaryChoice(t *testing.T) {
+	s, _, config := newPinningSession(t)
+	target := config.PinningTarget()
+	config.PinningPR = 0
+	apply(t, s, Action{Kind: "configure", Config: config})
+	refreshAll(t, s)
+	apply(t, s, Action{Kind: "choice", Target: target, Choice: release.Excluded})
+	config.PinningPR = target.PR
+	apply(t, s, Action{Kind: "configure", Config: config})
+	if err := s.Apply(t.Context(), Action{Kind: "choice", Target: target, Generation: s.generation, Choice: release.Ignored}); err == nil {
+		t.Fatal("accepted a choice for the confirmed pinning PR")
+	}
+	if s.Snapshot().Choices.PRs[target] != release.Included {
+		t.Fatal("pinning role did not include the PR")
+	}
+	config.PinningPR = 0
+	apply(t, s, Action{Kind: "configure", Config: config})
+	if s.Snapshot().Choices.PRs[target] != release.Excluded {
+		t.Fatal("lost ordinary PR decision")
 	}
 }
