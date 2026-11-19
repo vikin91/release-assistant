@@ -318,7 +318,8 @@ a { color: var(--accent); }
 .tab-status.action-needed { color: light-dark(#6942a1, #c9a9f7); }
 .tab-status.needs-attention { color: light-dark(#8a5600, #ffbf54); }
 .workflow-tabs a:focus-visible, .workflow-panel:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-.workflow-help, #retry-permissions { font-size: .86rem; }
+.workflow-help > p { line-height: 1.45; margin-block: .4rem; }
+.workflow-help > p, #retry-permissions { font-size: .86rem; }
 .workflow-heading { padding: .8rem .1rem .1rem; max-width: 54rem; }
 .workflow-heading h2 { margin-bottom: .3rem; }
 .workflow-heading p:last-child { margin-bottom: .5rem; }
