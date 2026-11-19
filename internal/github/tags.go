@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"release-assistant/internal/app"
 	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
 )
@@ -37,7 +38,7 @@ func (c *Client) tagBatch(ctx context.Context, src release.Source, head string, 
 		inventory.complete = false
 	}
 	cycle := ctx.Value(discoveryCycleKey{}).(*discoveryCycle)
-	stopAt := cycle.remaining - 32
+	stopAt := cycle.remaining - app.TagBatchRequests
 	for cycle.remaining-max(stopAt, 0) >= 8 {
 		if inventory.items == nil {
 			var items []tagResponse

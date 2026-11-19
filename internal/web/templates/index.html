@@ -95,7 +95,7 @@
     </form>
   </section>
 
-  {{if or .Configured .Snapshot.CacheAvailable}}
+  {{if or .Configured .Snapshot.CacheAvailable .Snapshot.StartupReadLimit}}
   <section class="panel" id="retry-settings" aria-labelledby="application-settings-heading">
     <h3 id="application-settings-heading">Application settings</h3>
     <form method="post" action="/action">
@@ -104,6 +104,11 @@
       <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
       <table class="application-settings" aria-labelledby="application-settings-heading">
         <tbody>
+          {{if .Snapshot.StartupReadLimit}}<tr><td>
+            <label>Concurrent GitHub reads during startup
+              <input type="number" name="startup_read_limit" min="1" max="5" required value="{{.Snapshot.StartupReadLimit}}" aria-describedby="startup-read-help">
+            </label>
+          </td><td id="startup-read-help" class="muted">For the first five minutes of release monitoring. After that, GitHub reads run one at a time.</td></tr>{{end}}
           {{if .Configured}}<tr><td>
             {{if .Snapshot.WritesEnabled}}<input type="hidden" name="interactive" value="false">{{end}}
             <label class="check{{if not .Snapshot.WritesEnabled}} disabled-control{{end}}">
@@ -122,7 +127,7 @@
           </td><td id="discovery-cache-help" class="muted">The cache is enabled at startup. Disabling it empties it for this session.</td></tr>{{end}}
         </tbody>
       </table>
-      <button type="submit" name="kind" value="application-settings"{{if not (or .Snapshot.CacheAvailable .Snapshot.WritesEnabled)}} disabled{{end}}>Save</button>
+      <button type="submit" name="kind" value="application-settings"{{if not (or .Snapshot.CacheAvailable .Snapshot.WritesEnabled .Snapshot.StartupReadLimit)}} disabled{{end}}>Save</button>
     </form>
     {{if .Snapshot.CacheAvailable}}<form id="clear-cache-form" method="post" action="/action">
       <input type="hidden" name="kind" value="clear-cache">

@@ -10,6 +10,8 @@ type Candidate struct {
 	// CompareURL identifies the exact commit range used to count post-RC commits.
 	CompareURL string
 	PRs        []CandidatePR
+	// PRsPending indicates that the verified commit range is still being checked for associated PRs.
+	PRsPending bool
 	// PRError indicates that the count is verified but the PR list may be incomplete.
 	PRError string
 }

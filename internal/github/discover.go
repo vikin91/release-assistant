@@ -11,10 +11,12 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"release-assistant/internal/app"
 	"release-assistant/internal/dispatch"
+	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
 )
 
@@ -103,7 +105,11 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 	base := repoPath(req.Source.Repo)
 	var branch branchResponse
 	var classicEnforcement string
-	if err := c.get(ctx, base+"/branches/"+segment(req.Source.Branch), &branch); err != nil {
+	branchCtx := ctx
+	if req.CandidateProgress != nil {
+		branchCtx = githubread.WithPriority(ctx, githubread.Tags, req.Source.Repo)
+	}
+	if err := c.get(branchCtx, base+"/branches/"+segment(req.Source.Branch), &branch); err != nil {
 		issues = append(issues, err)
 		result.Evidence = release.Evidence{At: time.Now(), Error: requestProblem(err)}
 	} else {
@@ -127,6 +133,15 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		}
 	}
 	result.Source = source
+	readRC := source.Name == "acs" && req.Reads(app.ReadRC)
+	var rc release.Candidate
+	var rcRead sync.WaitGroup
+	if readRC && req.CandidateProgress != nil {
+		head := result.Head
+		rcRead.Go(func() {
+			rc = c.readCandidate(githubread.WithPriority(ctx, githubread.Tags, source.Repo), req, head)
+		})
+	}
 	if req.Reads(app.ReadTags) {
 		publish := func(tags []resolvedTag) {
 			if req.Progress == nil {
@@ -335,10 +350,13 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		result.Evidence.Known = false
 	}
 	result, err := finishDiscovery(result, issues, cycle)
-	if source.Name == "acs" && req.Reads(app.ReadRC) {
-		rcCycle := &discoveryCycle{reads: map[string]cachedRead{}, limit: maxCandidateRequests, remaining: maxCandidateRequests}
-		rcCtx := context.WithValue(ctx, discoveryCycleKey{}, rcCycle)
-		result.Candidate = c.readCandidate(rcCtx, source, req.Version, result.Head)
+	if readRC {
+		if req.CandidateProgress == nil {
+			rc = c.readCandidate(ctx, req, result.Head)
+		} else {
+			rcRead.Wait()
+		}
+		result.Candidate = rc
 	}
 	if source.Name == "acs" && req.DetectPinningPR && req.Reads(app.ReadPRs) {
 		result.PinDiscovery = c.discoverPinFiles(ctx, req, prs, prErr, result.Head)

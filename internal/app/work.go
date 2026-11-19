@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 
 	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
@@ -83,13 +84,22 @@ func (s *Session) refreshPlanned(ctx context.Context, generation uint64, source 
 	s.mu.Lock()
 	work := s.work(source, discover)
 	work.revision = s.workRevision
+	startupTags := s.duringStartup() && source.Name != "acs" && s.choices.Tags[source.Name] == "" && (discover || s.repos[source.Name].TagsPending)
 	s.mu.Unlock()
 	priority := githubread.Builds
 	if discover {
 		priority = githubread.PRs
 	}
 	ctx = githubread.WithPriority(ctx, priority, source.Repo)
-	ctx, _ = githubread.Track(ctx, 80)
+	ctx, usage := githubread.Track(ctx, 80)
+	if startupTags {
+		var tags sync.WaitGroup
+		var tagErr error
+		tags.Go(func() { tagErr = s.readStartupTags(ctx, generation, work.revision, source, usage) })
+		err := s.refresh(ctx, generation, source, true, work)
+		tags.Wait()
+		return errors.Join(err, tagErr)
+	}
 	err := s.refresh(ctx, generation, source, true, work)
 	if !discover || source.Name == "acs" || ctx.Err() != nil {
 		return err
@@ -104,7 +114,7 @@ func (s *Session) refreshPlanned(ctx context.Context, generation uint64, source 
 	return errors.Join(err, tagErr)
 }
 
-func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) release.Repository {
+func mergeTags(old release.Repository, latest *release.Repository, request DiscoveryRequest) {
 	if !request.Reads(ReadCoverage) {
 		for i := range latest.Tags {
 			for _, tag := range old.Tags {
@@ -136,6 +146,10 @@ func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) re
 	if !readsTagInventory && latest.Source.Name != "acs" {
 		latest.TagsPending = latest.TagsPending || old.TagsPending || old.Head != latest.Head
 	}
+}
+
+func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) release.Repository {
+	mergeTags(old, &latest, request)
 	if !request.Reads(ReadChecks) {
 		for i := range latest.PRs {
 			latest.PRs[i].ChecksEvidence.Known = false

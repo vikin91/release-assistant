@@ -321,6 +321,16 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 			return a, fmt.Errorf("grant requires the displayed SHA")
 		}
 	case "application-settings":
+		if values, ok := r.PostForm["startup_read_limit"]; ok {
+			if len(values) != 1 {
+				return a, fmt.Errorf("submit one startup read limit")
+			}
+			limit, err := strconv.Atoi(values[0])
+			if err != nil {
+				return a, fmt.Errorf("startup read limit must be a whole number between 1 and 5")
+			}
+			a.StartupReadLimit = &limit
+		}
 		a.Interactive, err = checkboxSetting(r.PostForm, "interactive")
 		if err != nil {
 			return a, err

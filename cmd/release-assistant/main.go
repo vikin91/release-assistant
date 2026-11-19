@@ -77,7 +77,8 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	credentials := loadCredentials(ctx)
-	client := &http.Client{Transport: githubread.New(nil), Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	options.GitHubReads = githubread.New(nil)
+	client := &http.Client{Transport: options.GitHubReads, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	log := app.NewLog(os.Stdout)
 	windowCache := github.NewCommitWindowCache(log.CommitWindowCacheHits)
 	gh := github.New("", credentials.github, client).WithCommitWindowCache(windowCache)

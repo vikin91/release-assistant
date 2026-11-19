@@ -13,6 +13,7 @@ import (
 )
 
 func TestDiscoverCandidateUsesHighestReachableRCAndLinksItsMergedPRs(t *testing.T) {
+	published := false
 	client := New("https://api.github.test", "", &http.Client{Transport: fakeTransport{handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch path := strings.TrimPrefix(r.URL.Path, "/repos/stackrox/stackrox"); path {
 		case "/branches/release-5.0":
@@ -32,6 +33,9 @@ func TestDiscoverCandidateUsesHighestReachableRCAndLinksItsMergedPRs(t *testing.
 		case "/compare/candidate...head":
 			fmt.Fprint(w, `{"status":"ahead","ahead_by":2,"commits":[{"sha":"first"},{"sha":"second"}]}`)
 		case "/commits/first/pulls":
+			if !published {
+				t.Error("post-RC PR lookup delayed the first verified RC")
+			}
 			fmt.Fprint(w, `[
 				{"number":41,"title":"Backport one","base":{"ref":"release-5.0"},"merged_at":"2026-11-17T12:00:00Z"},
 				{"number":42,"base":{"ref":"master"},"merged_at":"2026-11-17T12:00:00Z"},
@@ -50,6 +54,9 @@ func TestDiscoverCandidateUsesHighestReachableRCAndLinksItsMergedPRs(t *testing.
 	result, err := client.Discover(t.Context(), app.DiscoveryRequest{
 		Source:  release.Source{Name: "acs", Repo: "stackrox/stackrox", Branch: "release-5.0"},
 		Version: "5.0.1", Scope: app.ReadRC,
+		CandidateProgress: func(head string, rc release.Candidate) {
+			published = head == "head" && rc.SHA == "candidate" && rc.Evidence.Fresh() && rc.PRsPending && rc.Ahead == 2
+		},
 	})
 	rc := result.Candidate
 	if err != nil || !rc.Evidence.Fresh() || rc.Target.Tag != "v5.0.1-rc.10" || rc.Number != 10 || rc.SHA != "candidate" || rc.Ahead != 2 || rc.PRError != "" {

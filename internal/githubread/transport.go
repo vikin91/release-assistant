@@ -34,17 +34,19 @@ type (
 	}
 	// Transport schedules GitHub GETs fairly within each priority and caps hourly spending.
 	Transport struct {
-		base      http.RoundTripper
-		mu        sync.Mutex
-		pending   []*http.Request
-		changed   chan struct{}
-		busy      bool
-		last      string
-		calls     []time.Time
-		allowance int
-		until     time.Time
-		blocked   string
-		now       func() time.Time
+		base         http.RoundTripper
+		mu           sync.Mutex
+		pending      []*http.Request
+		changed      chan struct{}
+		active       int
+		startupLimit int
+		startupUntil time.Time
+		last         string
+		calls        []time.Time
+		allowance    int
+		until        time.Time
+		blocked      string
+		now          func() time.Time
 	}
 	releaseBody struct {
 		io.ReadCloser
@@ -54,7 +56,7 @@ type (
 )
 
 const (
-	// Tags prioritizes component selection.
+	// Tags prioritizes component and RC selection.
 	Tags Priority = iota
 	// PRs prioritizes PR inventory during scope selection.
 	PRs
@@ -71,6 +73,9 @@ func (e *DeferredError) Error() string {
 
 // Calls excludes cached, deferred, and non-GitHub observations.
 func (u *Usage) Calls() int64 { return u.calls.Load() }
+
+// Remaining returns the unused allowance of a bounded source cycle.
+func (u *Usage) Remaining() int64 { return int64(u.limit) - u.Calls() }
 
 // Track shares a source-cycle cap across all HTTP clients using the returned context.
 func Track(ctx context.Context, limit int) (context.Context, *Usage) {
@@ -89,7 +94,43 @@ func New(base http.RoundTripper) *Transport {
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	return &Transport{base: base, changed: make(chan struct{}), allowance: 3000, now: time.Now}
+	return &Transport{base: base, startupLimit: 3, changed: make(chan struct{}), allowance: 3000, now: time.Now}
+}
+
+// StartMonitoring opens the five-minute startup window once per process.
+func (t *Transport) StartMonitoring() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.startupUntil.IsZero() {
+		t.startupUntil = t.now().Add(5 * time.Minute)
+		t.signal()
+	}
+}
+
+// DuringStartup reports whether discovery can prioritize initial release choices.
+func (t *Transport) DuringStartup() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.now().Before(t.startupUntil)
+}
+
+// StartupLimit returns the configured maximum number of simultaneous startup reads.
+func (t *Transport) StartupLimit() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.startupLimit
+}
+
+// SetStartupLimit changes admission for queued reads without interrupting active requests.
+func (t *Transport) SetStartupLimit(limit int) error {
+	if limit < 1 || limit > 5 {
+		return fmt.Errorf("concurrent GitHub reads during startup must be between 1 and 5")
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.startupLimit = limit
+	t.signal()
+	return nil
 }
 
 func class(req *http.Request) requestClass {
@@ -150,7 +191,11 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			t.mu.Unlock()
 			return nil, deferred
 		}
-		if !t.busy && t.chosen() == req {
+		limit := 1
+		if now.Before(t.startupUntil) {
+			limit = t.startupLimit
+		}
+		if t.active < limit && t.chosen() == req {
 			break
 		}
 		changed := t.changed
@@ -162,14 +207,14 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		t.mu.Lock()
 	}
 	remove()
-	t.busy = true
+	t.active++
 	t.last = class(req).source
 	t.calls = append(t.calls, t.now())
 	if usage != nil {
 		usage.calls.Add(1)
 	}
 	t.mu.Unlock()
-	finish := func() { t.mu.Lock(); defer t.mu.Unlock(); t.busy = false; t.signal() }
+	finish := func() { t.mu.Lock(); defer t.mu.Unlock(); t.active--; t.signal() }
 	resp, err := t.base.RoundTrip(req)
 	if err != nil {
 		finish()
@@ -214,5 +259,6 @@ func (t *Transport) record(resp *http.Response) {
 	if until.After(t.until) {
 		t.until = until
 		t.blocked = fmt.Sprintf("GitHub reads deferred after rate limit (HTTP %d)", resp.StatusCode)
+		t.signal()
 	}
 }

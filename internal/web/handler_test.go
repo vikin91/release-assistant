@@ -18,6 +18,7 @@ import (
 	"release-assistant/internal/app"
 	"release-assistant/internal/dispatch"
 	"release-assistant/internal/github"
+	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
 )
 
@@ -1058,5 +1059,33 @@ func TestPartialTagInventoryShowsVerifiedChoicesImmediately(t *testing.T) {
 	body := b.getBody(t)
 	if !strings.Contains(body, "Confirm "+source.Name+" "+tag.Name) {
 		t.Fatal("early verified tag cannot be selected")
+	}
+}
+
+func TestStartupReadSetting(t *testing.T) {
+	reads := githubread.New(nil)
+	cache := github.NewCommitWindowCache(nil)
+	session := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{}), nil, app.Options{GitHubReads: reads, Cache: cache})
+	b := newBrowser(t, session)
+	field := func(value int) string {
+		return fmt.Sprintf(`name="startup_read_limit" min="1" max="5" required value="%d"`, value)
+	}
+	if !strings.Contains(b.getBody(t), field(3)) {
+		t.Fatal("default startup read limit missing before release configuration")
+	}
+	values := url.Values{"kind": {"application-settings"}, "tab": {"settings"}, "generation": {fmt.Sprint(session.Snapshot().Generation)}, "startup_read_limit": {"5"}}
+	if response := b.post(values); response.Code != http.StatusSeeOther || reads.StartupLimit() != 5 || !strings.Contains(b.getBody(t), field(5)) {
+		t.Fatal("saving the startup read limit in read-only mode failed")
+	}
+	values.Set("cache", "false")
+	for _, invalid := range [][]string{{"0"}, {"6"}, {""}, {"2.5"}, {"1", "4"}} {
+		values["startup_read_limit"] = invalid
+		if response := b.post(values); response.Code < 400 || reads.StartupLimit() != 5 || !cache.Enabled() {
+			t.Fatalf("invalid startup limit %q applied settings", invalid)
+		}
+	}
+	values.Del("startup_read_limit")
+	if response := b.post(values); response.Code != http.StatusSeeOther || reads.StartupLimit() != 5 || cache.Enabled() {
+		t.Fatal("omitted startup limit changed the saved value")
 	}
 }

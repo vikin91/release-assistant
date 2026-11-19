@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"release-assistant/internal/app"
 	"release-assistant/internal/release"
 )
 
@@ -35,7 +36,10 @@ type (
 	}
 )
 
-func (c *Client) readCandidate(ctx context.Context, src release.Source, version, head string) release.Candidate {
+func (c *Client) readCandidate(ctx context.Context, req app.DiscoveryRequest, head string) release.Candidate {
+	src, version := req.Source, req.Version
+	cycle := &discoveryCycle{reads: map[string]cachedRead{}, limit: maxCandidateRequests, remaining: maxCandidateRequests}
+	ctx = context.WithValue(ctx, discoveryCycleKey{}, cycle)
 	if _, _, _, ok := release.Version(version); !ok {
 		return release.Candidate{}
 	}
@@ -80,6 +84,11 @@ func (c *Client) readCandidate(ctx context.Context, src release.Source, version,
 			Target: release.Target{Repo: src.Repo, Tag: tag.name}, SHA: tag.sha, Number: tag.number,
 			Evidence: release.Evidence{At: time.Now(), Known: true}, Ahead: comparison.Ahead,
 			CompareURL: "https://github.com/" + src.Repo + "/compare/" + tag.sha + "..." + head,
+		}
+		if req.CandidateProgress != nil {
+			partial := candidate
+			partial.PRsPending = partial.Ahead > 0
+			req.CandidateProgress(head, partial)
 		}
 		if err := c.readCandidatePRs(ctx, src, endpoint, comparison, &candidate); err != nil {
 			candidate.PRError = requestProblem(err)

@@ -130,7 +130,7 @@ func TestPriorityFairnessAndCancellation(t *testing.T) {
 				t.Fatalf("got %s want %s", got, want)
 			}
 		}
-		if len(limiter.pending) != 0 || limiter.busy {
+		if len(limiter.pending) != 0 || limiter.active != 0 {
 			t.Fatal("request slot leaked")
 		}
 	})
@@ -153,4 +153,65 @@ func TestOtherServicesAndWritesBypassReadAllowance(t *testing.T) {
 	if calls != 2 {
 		t.Fatal("non-GitHub reads or writes were blocked")
 	}
+}
+
+func TestStartupReadLimitAppliesToQueuedReads(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		transport := New(roundTripFunc(func(*http.Request) (*http.Response, error) { return response(), nil }))
+		responses := make(chan *http.Response, 8)
+		for range cap(responses) {
+			go func() {
+				resp, err := startRead(t, transport, t.Context(), "discovery")
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				responses <- resp
+			}()
+		}
+		check := func(want int) {
+			t.Helper()
+			synctest.Wait()
+			if got := len(responses); got != want {
+				t.Fatalf("open response bodies = %d, want %d", got, want)
+			}
+		}
+		closeOne := func() {
+			t.Helper()
+			if err := (<-responses).Body.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		check(1)
+		transport.StartMonitoring()
+		check(3)
+		if err := transport.SetStartupLimit(5); err != nil {
+			t.Fatal(err)
+		}
+		check(5)
+		if err := transport.SetStartupLimit(1); err != nil {
+			t.Fatal(err)
+		}
+		closeOne()
+		check(4)
+		time.Sleep(4 * time.Minute)
+		transport.StartMonitoring()
+		time.Sleep(time.Minute)
+		if transport.DuringStartup() {
+			t.Fatal("monitor restart extended the startup window")
+		}
+		if err := transport.SetStartupLimit(5); err != nil {
+			t.Fatal(err)
+		}
+		for want := 3; want >= 1; want-- {
+			closeOne()
+			check(want)
+		}
+		for range 3 {
+			closeOne()
+			check(1)
+		}
+		closeOne()
+		check(0)
+	})
 }

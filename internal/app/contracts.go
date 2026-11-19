@@ -21,6 +21,8 @@ type (
 		Scope            DiscoveryScope
 		// Progress publishes verified tags while the remaining inventory is still loading.
 		Progress func(release.Repository)
+		// CandidateProgress publishes verified ancestry before post-RC PR and pin reads finish.
+		CandidateProgress func(head string, candidate release.Candidate)
 	}
 	// Discoverer returns partial observations alongside errors safe for diagnostic display.
 	Discoverer interface {
@@ -75,6 +77,9 @@ const (
 	ReadPreviousPins
 	// ReadRC observes ACS candidate tags and commits since the current candidate.
 	ReadRC
+
+	// TagBatchRequests bounds the inventory work after resolving the branch head.
+	TagBatchRequests = 32
 )
 
 // Reads distinguishes omitted work from a requested observation.

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"release-assistant/internal/dispatch"
+	"release-assistant/internal/githubread"
 	"release-assistant/internal/konflux"
 	"release-assistant/internal/release"
 )
@@ -21,6 +22,7 @@ type (
 		Poll, Discovery, BackoffCap, Timeout time.Duration
 		Initial                              release.Config
 		Cache                                DiscoveryCache
+		GitHubReads                          *githubread.Transport
 		ManualRetries                        ManualRetryReader
 	}
 	// Cycle retains observed builds and images when a confirmed component tag changes.
@@ -42,6 +44,7 @@ type (
 		Authority                    []dispatch.View
 		Interactive                  bool
 		CacheAvailable, CacheEnabled bool
+		StartupReadLimit             int
 		// WritesEnabled reports startup permission; target grants remain independent.
 		WritesEnabled   bool
 		Error, LogError string
@@ -52,7 +55,7 @@ type (
 		KonfluxReadIssues []konflux.ReadIssue
 		// NextSourceCheck records scheduled monitoring times by repository.
 		NextSourceCheck map[string]time.Time
-		// Loading remains true until every source completes its first refresh attempt.
+		// Loading keeps the dashboard refreshing while initial reads or startup tag batches are pending.
 		Loading bool
 	}
 	// Action is a typed browser or CLI session decision.
@@ -65,6 +68,7 @@ type (
 		Enabled                 bool
 		// Nil settings are omitted from the submitted form.
 		Interactive, CacheEnabled *bool
+		StartupReadLimit          *int
 		Generation                uint64
 	}
 	// Session owns release observations. Dispatcher alone owns write grants.
@@ -263,13 +267,19 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		if a.CacheEnabled != nil && s.options.Cache == nil {
 			return fmt.Errorf("discovery cache is unavailable")
 		}
-		if a.Interactive != nil {
-			if !s.dispatcher.WritesEnabled() || s.config.Validate() != nil {
-				return fmt.Errorf("confirmation mode is unavailable")
+		if a.Interactive != nil && (!s.dispatcher.WritesEnabled() || s.config.Validate() != nil) {
+			return fmt.Errorf("confirmation mode is unavailable")
+		}
+		if a.StartupReadLimit != nil {
+			if s.options.GitHubReads == nil {
+				return fmt.Errorf("GitHub read settings are unavailable")
 			}
-			if s.dispatcher.IsInteractive() != *a.Interactive {
-				s.dispatcher.Interactive(*a.Interactive)
+			if err := s.options.GitHubReads.SetStartupLimit(*a.StartupReadLimit); err != nil {
+				return err
 			}
+		}
+		if a.Interactive != nil && s.dispatcher.IsInteractive() != *a.Interactive {
+			s.dispatcher.Interactive(*a.Interactive)
 		}
 		if a.CacheEnabled != nil {
 			s.options.Cache.SetEnabled(*a.CacheEnabled)
@@ -448,6 +458,9 @@ func (s *Session) Snapshot() Snapshot {
 		Interactive: s.dispatcher.IsInteractive(), WritesEnabled: s.dispatcher.WritesEnabled(),
 		Authority: s.dispatcher.Views(), NextSourceCheck: maps.Clone(s.nextSourceCheck),
 	}
+	if s.options.GitHubReads != nil {
+		x.StartupReadLimit = s.options.GitHubReads.StartupLimit()
+	}
 	if planner, ok := s.planner.(interface{ ReadIssues() []konflux.ReadIssue }); ok {
 		x.KonfluxReadIssues = planner.ReadIssues()
 	}
@@ -457,7 +470,7 @@ func (s *Session) Snapshot() Snapshot {
 	}
 	if c.Validate() == nil {
 		for _, source := range append([]release.Source{c.ACS()}, c.Components...) {
-			if !s.initiallyLoaded[source.Name] {
+			if !s.initiallyLoaded[source.Name] || (s.repos[source.Name].TagsPending && s.choices.Tags[source.Name] == "" && s.duringStartup()) {
 				x.Loading = true
 				break
 			}
@@ -632,6 +645,17 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	if source.Name == "acs" && c.PinningPR == 0 {
 		request.DetectPinningPR = true
 		request.PreviousPinFiles = s.repos["acs"].PinDiscovery.Files
+	}
+	if source.Name == "acs" && work.scope != ReadAll && s.duringStartup() && s.repos[source.Name].Candidate.Target.Tag == "" {
+		request.CandidateProgress = func(head string, candidate release.Candidate) {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			old := s.repos[source.Name]
+			if generation == s.generation && work.revision == s.workRevision && ctx.Err() == nil && old.Candidate.Target.Tag == "" && (old.Head == "" || old.Head == head) {
+				old.Source, old.Head, old.Candidate = source, head, candidate
+				s.repos[source.Name] = old
+			}
+		}
 	}
 	if work.tagInventory {
 		request.ConfirmedTag = ""

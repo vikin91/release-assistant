@@ -16,6 +16,7 @@
           {{else}}
             <p><a aria-describedby="new-tab-description" href="{{url .CompareURL}}" target="_blank" rel="noreferrer">{{.Ahead}} {{if eq .Ahead 1}}commit{{else}}commits{{end}}</a> landed on the release branch since RC.{{.Number}}.</p>
             {{if .PRs}}<ol>{{range .PRs}}<li><a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">#{{.Number}} {{.Title}}</a></li>{{end}}</ol>
+            {{else if .PRsPending}}<p class="muted">Checking for associated merged PRs.</p>
             {{else if not .PRError}}<p class="muted">GitHub reported no associated merged PRs.</p>{{end}}
             {{if .PRError}}<p class="muted">Some PR links are unavailable. {{.PRError}}</p>{{end}}
           {{end}}
