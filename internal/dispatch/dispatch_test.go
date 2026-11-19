@@ -92,6 +92,9 @@ func TestSingleUseCooldownAndDuplicateSubmission(t *testing.T) {
 	if f.writes.Load() != 1 {
 		t.Fatal(f.writes.Load())
 	}
+	if !d.Views()[0].Offers[0].CommentSent {
+		t.Fatal("successful delivery missing from the offer")
+	}
 	if d.Views()[0].Offers[0].WaitingUntil.IsZero() {
 		t.Fatal("cooldown not visible")
 	}

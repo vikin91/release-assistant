@@ -1,11 +1,12 @@
 {{define "build-retries"}}
   <section class="panel" id="{{.RetrySection}}">
     <details id="{{.RetryDetails}}" open>
-      <summary class="section-summary">Build retries</summary>
+      <summary class="section-summary">Konflux check retries</summary>
       {{range .BuildRetries}}
         <article class="build-retry-target" {{if .Target.PR}}id="acs-pr-retries-{{.Target.PR}}" {{end}}data-live-key="build-retries:{{.Target}}">
           <h3>{{.Target}}{{if eq .Target $.Snapshot.Config.PinningTarget}} <span class="pill">Pinning PR</span>{{end}}</h3>
           {{with .Authority}}{{if .Message}}<p class="build-retry-note">{{.Message}}</p>{{end}}{{end}}
+          <p class="build-retry-note"><strong>Next action:</strong> {{.NextAction}}</p>
           {{range .Candidates}}
             <details class="build-retry-row" data-fold-key="build-retry:{{.Key}}">
               <summary>
@@ -17,18 +18,10 @@
               {{template "manual-comment" .Proposal}}
               {{with .Offer}}{{template "retry-offer-actions" ($.RetryOfferActions .)}}{{end}}
             </details>
-          {{else}}
-            <p class="build-retry-note">
-              {{- if and .Plan .Plan.Plan.Message}}{{.Plan.Plan.Message}}
-              {{- else if and .Plan .Plan.Plan.Evidence.Error}}Build evidence unavailable.
-              {{- else}}No retry candidates observed yet.{{end -}}
-            </p>
           {{end}}
           <details class="build-retry-evidence" data-fold-key="build-retry-evidence:{{.Target}}">
-            <summary>Build evidence</summary>
+            <summary>Check details</summary>
             {{if .Plan}}
-              {{if .Plan.Plan.Action}}<p>Build recommendation <strong>{{.Plan.Plan.Action}}</strong></p>{{end}}
-              {{if .Candidates}}{{if .Plan.Plan.Message}}<p>{{.Plan.Plan.Message}}</p>{{end}}{{end}}
               {{template "retry-plan-evidence" ($.RetryPlanEvidence .Plan)}}
             {{else}}<p>No build observations are available for this target.</p>{{end}}
             {{with .Authority}}

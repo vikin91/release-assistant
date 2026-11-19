@@ -34,8 +34,9 @@ type (
 		id       uint64
 		deadline time.Time
 	}
-	deferredReadKey struct{}
-	readBackoff     struct {
+	planReadsKey struct{}
+	planReads    struct{ unavailable, deferred atomic.Bool }
+	readBackoff  struct {
 		base          http.RoundTripper
 		now           func() time.Time
 		mu            sync.Mutex
@@ -103,11 +104,12 @@ func (t *readBackoff) RoundTrip(req *http.Request) (*http.Response, error) {
 		state = &endpointBackoff{ReadIssue: ReadIssue{Cluster: cluster, Endpoint: endpoint}}
 		t.endpoints[host] = state
 	}
+	reads, _ := ctx.Value(planReadsKey{}).(*planReads)
 	probe := state.pause > 0
 	if probe && (state.Probing || now.Before(state.RetryAt) || !enoughTime) {
 		t.mu.Unlock()
-		if deferred, ok := ctx.Value(deferredReadKey{}).(*atomic.Bool); ok {
-			deferred.Store(true)
+		if reads != nil {
+			reads.deferred.Store(true)
 		}
 		return nil, errors.New("read deferred by endpoint backoff")
 	}
@@ -129,6 +131,9 @@ func (t *readBackoff) RoundTrip(req *http.Request) (*http.Response, error) {
 			callerExpired := !cycle.deadline.IsZero() && !time.Now().Before(cycle.deadline)
 			switch {
 			case status >= 500 || status == http.StatusTooManyRequests:
+				if reads != nil {
+					reads.unavailable.Store(true)
+				}
 				t.observe(state, cycle.id, epoch, now, fmt.Sprintf("HTTP %d", status), false)
 			case err == nil:
 				t.observe(state, cycle.id, epoch, now, "", true)
@@ -143,6 +148,9 @@ func (t *readBackoff) RoundTrip(req *http.Request) (*http.Response, error) {
 					}
 				} else if errors.Is(err, io.ErrUnexpectedEOF) {
 					reason = "response ended early"
+				}
+				if reads != nil && reason != "" {
+					reads.unavailable.Store(true)
 				}
 				t.observe(state, cycle.id, epoch, now, reason, false)
 			}

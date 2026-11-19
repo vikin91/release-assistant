@@ -149,6 +149,9 @@ func TestAdapterDefersLiveLookupsButStillReadsGitHubAndArchive(t *testing.T) {
 		if err == nil || plan.SHA != "head" || len(plan.Runs) != 1 || plan.Runs[0].ID != "" || plan.Runs[0].CheckID != 17 || len(plan.Proposals) != 0 {
 			t.Fatalf("unverified lookup %d unexpectedly produced verified evidence: %+v, %v", i, plan, err)
 		}
+		if !plan.KonfluxAPIUnavailable {
+			t.Fatal("missing target API outage")
+		}
 		if i == 2 && !strings.Contains(plan.Evidence.Error, "deferred by endpoint backoff") {
 			t.Fatalf("deferred read not explained: %s", plan.Evidence.Error)
 		}

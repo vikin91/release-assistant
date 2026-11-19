@@ -46,7 +46,7 @@ func TestBuildRetriesMergeOnlyExactComments(t *testing.T) {
 			b := newBrowser(t, application)
 			retrySection := "<section class=\"panel\" id=\"" + tab + "-retry\">"
 			body := between(t, activityPanel(t, b.getBody(t), tab), retrySection, "</section>")
-			for _, want := range []string{"Build retries", "Build evidence", "A run observation is incomplete"} {
+			for _, want := range []string{"Konflux check retries", "Next action:", "Check details", "A run observation is incomplete"} {
 				if !strings.Contains(body, want) {
 					t.Errorf("Build retries missing %q", want)
 				}
@@ -80,5 +80,29 @@ func TestBuildRetriesMergeOnlyExactComments(t *testing.T) {
 				t.Fatal("automatic mode should explain that an eligible retry can run automatically")
 			}
 		})
+	}
+}
+
+func TestKonfluxRetryNextAction(t *testing.T) {
+	evidence := release.Evidence{Known: true, At: time.Now()}
+	for name, tc := range map[string]struct {
+		plan release.Plan
+		want string
+	}{
+		"admission denied":     {release.Plan{Action: "Wait", StartFailures: []release.StartFailure{{Category: "admission_policy", Evidence: evidence}}}, "Investigate the admission policy"},
+		"endpoint unavailable": {release.Plan{KonfluxAPIUnavailable: true}, "Wait for the Konflux API to recover"},
+		"waiting for check":    {release.Plan{Action: "Wait", Runs: []release.Run{{ID: "123", Job: "main", Status: "in_progress"}}}, "Wait for the main check to finish"},
+		"no matching run":      {release.Plan{Action: "Wait", Message: "No verified build checks match the requested tag or PR."}, "Wait for a matching Konflux build check"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			g := buildRetryTarget{Plan: &planModel{Plan: tc.plan}}
+			if got := g.nextAction(true); !strings.HasPrefix(got, tc.want) {
+				t.Errorf("next action = %q, want %q", got, tc.want)
+			}
+		})
+	}
+	group := buildRetryTarget{Candidates: []*buildRetryCandidate{{Offer: &dispatch.Offer{CommentSent: true}}}}
+	if got := group.nextAction(true); !strings.Contains(got, "after the retry comment") {
+		t.Errorf("next action after delivery = %q", got)
 	}
 }

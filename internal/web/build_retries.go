@@ -11,6 +11,7 @@ type (
 		Plan       *planModel
 		Authority  *dispatch.View
 		Candidates []*buildRetryCandidate
+		NextAction string
 	}
 	buildRetryCandidate struct {
 		Key      string
@@ -68,7 +69,73 @@ func (p pageModel) BuildRetries() []*buildRetryTarget {
 			row.Status = p.retryStatus(&offer)
 		}
 	}
+	for _, group := range targets {
+		group.NextAction = group.nextAction(p.Snapshot.Interactive)
+	}
 	return targets
+}
+
+// nextAction describes the next step supported by this target's observations.
+func (g buildRetryTarget) nextAction(interactive bool) string {
+	if len(g.Candidates) > 0 {
+		sent := 0
+		for _, candidate := range g.Candidates {
+			offer := candidate.Offer
+			if offer == nil {
+				continue
+			}
+			if offer.CommentSent {
+				sent++
+			} else if offer.CanApprove {
+				if interactive {
+					return "Review the proposed retry comment."
+				}
+				return "Wait for the automatic retry comment to be posted."
+			}
+		}
+		if sent == len(g.Candidates) {
+			return "Wait for Konflux to start a new run after the retry comment."
+		}
+		return "Review the retry status for each job below."
+	}
+	if g.Plan == nil {
+		return "Wait for the first Konflux check observation."
+	}
+	plan := g.Plan.Plan
+	if plan.KonfluxAPIUnavailable {
+		return "Wait for the Konflux API to recover. It was unavailable at the last check."
+	}
+	for _, failure := range plan.StartFailures {
+		if !failure.Superseded && failure.Evidence.Fresh() {
+			if failure.Category == "admission_policy" {
+				return "Investigate the admission policy that blocked pipeline creation."
+			}
+			return "Investigate the reported pipeline creation failure."
+		}
+	}
+	if plan.Evidence.Error != "" {
+		return "Review the observation error in Check details."
+	}
+	if plan.Action == "Wait" {
+		for _, run := range plan.Runs {
+			if run.ID != "" && (run.Status == "in_progress" || run.Status == "queued") {
+				return "Wait for the " + run.Job + " check to finish."
+			}
+		}
+	}
+	switch plan.Message {
+	case "No verified build checks match the requested tag or PR.", "GitHub returned no check runs for this commit.":
+		return "Wait for a matching Konflux build check to appear on this commit."
+	case "Waiting for usable input images.":
+		return "Wait for the input images to become available."
+	case "":
+		if plan.Action == "None" {
+			return "No retry needed."
+		}
+		return "Wait for the next Konflux check observation."
+	default:
+		return plan.Message
+	}
 }
 
 func (p pageModel) retryStatus(offer *dispatch.Offer) string {

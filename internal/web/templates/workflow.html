@@ -12,7 +12,7 @@
         <p>With writes enabled, select <strong>{{retryCommentPermissionLabel}}</strong> on an included PR to let the assistant post <code>/konflux-retest &lt;job&gt;</code> on GitHub to rerun an eligible Konflux job. In interactive mode, you approve each comment. In automatic mode, the assistant rechecks permission and eligibility before posting on its own.</p>
       {{else if eq .Tab "component-releases"}}
         <p>Select the release tag for each component. If you need a new tag, follow the component’s release guide to create it and start the release, then select it here. Check that the tag covers the included PRs, follow its build status, and use <strong>Component images</strong> to see whether the CI and Konflux images have been published.</p>
-        <p>Under <strong>Build retries</strong>, you can review and copy the proposed retry comment in read-only mode. With writes enabled and permission granted for the selected tag, the assistant can post <code>/retest &lt;job&gt; tag:&lt;tag&gt;</code> on the tag’s commit in GitHub to retry an eligible Konflux build. In interactive mode, you approve each comment. In automatic mode, the assistant rechecks permission and eligibility before posting.</p>
+        <p>Under <strong>Konflux check retries</strong>, you can review and copy the proposed retry comment in read-only mode. With writes enabled and permission granted for the selected tag, the assistant can post <code>/retest &lt;job&gt; tag:&lt;tag&gt;</code> on the tag’s commit in GitHub to retry an eligible Konflux build. In interactive mode, you approve each comment. In automatic mode, the assistant rechecks permission and eligibility before posting.</p>
       {{else}}<p>{{tabHelp .Tab}}</p>{{end}}
     </details>
   </div>

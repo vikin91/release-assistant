@@ -207,6 +207,8 @@ type (
 		StartFailures        []StartFailure
 		Evidence             Evidence
 		Validation           Validation
+		// KonfluxAPIUnavailable records an observation error accompanied by a failed or deferred Konflux endpoint read.
+		KonfluxAPIUnavailable bool
 	}
 	// Choices contains only session release decisions.
 	Choices struct {

@@ -32,8 +32,10 @@ type (
 		Proposal                      release.Proposal
 		Allowed, CanApprove, Rejected bool
 		Failures                      int
-		WaitingUntil                  time.Time
-		Reason                        string
+		// CommentSent reports successful delivery of this exact proposal.
+		CommentSent  bool
+		WaitingUntil time.Time
+		Reason       string
 	}
 	// View exposes authority separately from release inclusion.
 	View struct {
@@ -66,9 +68,10 @@ type (
 		message                    string
 	}
 	jobState struct {
-		seen  map[string]bool
-		count int
-		last  time.Time
+		lastSentID string
+		seen       map[string]bool
+		count      int
+		last       time.Time
 	}
 )
 
@@ -242,6 +245,7 @@ func (d *Dispatcher) offer(s *targetState, p release.Proposal) Offer {
 	j := s.jobs[p.Job]
 	if j != nil {
 		o.Failures = j.count
+		o.CommentSent = j.lastSentID == o.ID
 	}
 	switch {
 	case d.stopped:
@@ -408,6 +412,9 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 	defer d.mu.Unlock()
 	if !slices.Contains([]string{"sent", "failed", "uncertain"}, result.Status) {
 		result.Status = "uncertain"
+	}
+	if result.Status == "sent" {
+		j.lastSentID = id
 	}
 	s.message = "Delivery: " + result.Status
 	if result.URL != "" {

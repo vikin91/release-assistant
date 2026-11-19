@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"release-assistant/internal/release"
@@ -76,8 +75,8 @@ func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, err
 	if ctx.Value(readCycleKey{}) == nil {
 		ctx = WithReadCycle(ctx)
 	}
-	var deferred atomic.Bool
-	ctx = context.WithValue(ctx, deferredReadKey{}, &deferred)
+	var reads planReads
+	ctx = context.WithValue(ctx, planReadsKey{}, &reads)
 	var r retry.Result
 	var err error
 	if t.PR > 0 {
@@ -91,7 +90,8 @@ func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, err
 	}
 	if err != nil {
 		p.Evidence.Error = observationProblem(err.Error(), a.config)
-		if deferred.Load() {
+		p.KonfluxAPIUnavailable = reads.unavailable.Load() || reads.deferred.Load()
+		if reads.deferred.Load() {
 			p.Evidence.Error += "\nSome Konflux reads were deferred by endpoint backoff."
 		}
 		err = &observationError{message: p.Evidence.Error, cause: err}
