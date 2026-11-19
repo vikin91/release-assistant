@@ -140,8 +140,20 @@ func TestConfigureForACS5OmitsScannerAndForwardsFields(t *testing.T) {
 	appFake := &fakeApplication{}
 	b := newBrowser(t, appFake)
 	form := url.Values{"kind": {"configure"}, "version": {"5.0.1"}, "branch": {"release-5.0"}, "fact_repo": {"acme/fact"}, "fact_branch": {"release-3.25"}, "fact_stream": {"3.25"}, "collector_repo": {"acme/collector"}, "collector_branch": {"release-3.25"}, "collector_stream": {"3.25"}, "scanner_repo": {"acme/scanner"}, "scanner_branch": {"release-4.8"}, "scanner_stream": {"4.8"}, "pinning_pr": {"41"}}
-	if w := b.post(form); w.Code != http.StatusSeeOther {
+	w := b.post(form)
+	if w.Code != http.StatusSeeOther {
 		t.Fatalf("configure status=%d body=%s", w.Code, w.Body.String())
+	}
+	location := w.Header().Get("Location")
+	if location != "/?tab=settings&saved=configuration" {
+		t.Fatalf("unexpected save redirect %q", location)
+	}
+	appFake.snapshot.Config = appFake.actions[0].Config
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080"+location, nil)
+	result := httptest.NewRecorder()
+	b.handler.ServeHTTP(result, r)
+	if !strings.Contains(result.Body.String(), "Configuration saved.") || strings.Contains(b.getBody(t), "Configuration saved.") {
+		t.Fatal("expected save confirmation only on the successful redirect")
 	}
 	if len(appFake.actions) != 1 {
 		t.Fatalf("actions=%+v", appFake.actions)

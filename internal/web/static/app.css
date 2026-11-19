@@ -41,7 +41,8 @@ fieldset { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:
 legend { padding: 0 .35rem; font-weight: 700; }
 .config-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: .85rem; margin-top: 1rem; }
 .config-grid fieldset { grid-column: 1 / -1; }
-.config-grid > button { justify-self: start; }
+.config-grid > .control-row { grid-column: span 2; }
+@media (max-width: 760px) { .config-grid > .control-row { grid-column: 1; } }
 .control-row, .inline-form { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
 .inline-form { margin: .25rem 0; }
 .grant-form { margin-top: .6rem; }

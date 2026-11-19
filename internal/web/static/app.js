@@ -211,6 +211,11 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   const configForm = document.querySelector(".config-grid");
+  const confirmation = document.getElementById("configuration-saved");
+  if (confirmation && configForm) {
+    window.history.replaceState(null, "", "/?tab=settings");
+    configForm.addEventListener("input", () => confirmation.remove(), { once: true });
+  }
   const setupState = document.getElementById("setup-state");
   if (configForm && setupState && document.body.dataset.configured === "true") {
     const saved = new URLSearchParams(configForm.dataset.savedConfig);

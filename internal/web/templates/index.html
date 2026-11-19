@@ -85,7 +85,10 @@
         <label>Release branch<input name="scanner_branch" data-release-branch readonly value="{{.ConfigForm.Get "scanner_branch"}}"></label>
       </fieldset>
       <p class="muted">Scanner values are used for ACS 4.x and omitted automatically for ACS 5.x.</p>
-      <button type="submit">Save configuration</button>
+      <div class="control-row">
+        <button type="submit">Save configuration</button>
+        {{if .ConfigSaved}}<span id="configuration-saved" role="status">Configuration saved.</span>{{end}}
+      </div>
     </form>
   </section>
 

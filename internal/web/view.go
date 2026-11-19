@@ -49,7 +49,7 @@ type (
 		History                                                  []historyModel
 		ConfigForm                                               url.Values
 		SavedConfigForm                                          string
-		ConfigRejected                                           bool
+		ConfigRejected, ConfigSaved                              bool
 		ConfiguredSources                                        map[string]release.Source
 		ACS4                                                     bool
 	}

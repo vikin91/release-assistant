@@ -151,6 +151,7 @@ func (s *server) get(w http.ResponseWriter, r *http.Request) {
 	if !page.Configured && page.Tab != "activity" {
 		page.Tab = "settings"
 	}
+	page.ConfigSaved = page.Configured && page.Tab == "settings" && r.URL.Query().Get("saved") == "configuration"
 	if err := s.template.Execute(w, page); err != nil {
 		http.Error(w, "page rendering failed", http.StatusInternalServerError)
 	}
@@ -202,7 +203,9 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 	destination := "/"
 	if tab := r.PostForm.Get("tab"); tab != "" {
 		destination = "/?tab=" + validTab(tab)
-
+	}
+	if action.Kind == "configure" {
+		destination = "/?tab=settings&saved=configuration"
 	}
 	http.Redirect(w, r, destination, http.StatusSeeOther)
 }
