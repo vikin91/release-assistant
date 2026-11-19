@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	imageCI      = "ci"
-	imageKonflux = "konflux"
+	imageCI         = "ci"
+	imageKonflux    = "konflux"
+	openACSPRReason = "Included PR is open; review its checks and merge it into the ACS release branch"
 )
 
 var pinValueRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
@@ -53,6 +54,7 @@ func Assess(in Input) Assessment {
 
 	included := includedTargets(in.Choices.PRs)
 	prStates := make(map[Target]Truth, len(included))
+	var awaitingACSMerge bool
 	for _, target := range included {
 		pr, repo, found := findPR(repos, prSources, target)
 		status, reason := assessIncludedPR(in.Config, target, pr, repo, found)
@@ -61,7 +63,12 @@ func Assess(in Input) Assessment {
 		if found {
 			evidence = []Evidence{repo.Evidence, pr.Evidence}
 		}
-		add("included PR "+target.String(), status, reason, evidence...)
+		condition := Condition{Name: "included PR " + target.String(), Status: status, Reason: reason, Evidence: evidence}
+		addCondition(condition)
+		if condition.AwaitsACSMerge() {
+			awaitingACSMerge = true
+			continue
+		}
 		if status != Yes {
 			recommendation := includedPRRecommendation(target, pr, status, reason)
 			if target.Repo == in.Config.ACS().Repo {
@@ -70,6 +77,9 @@ func Assess(in Input) Assessment {
 				a.ComponentPRRecommendations = append(a.ComponentPRRecommendations, recommendation)
 			}
 		}
+	}
+	if awaitingACSMerge {
+		a.ACSRecommendations = append(a.ACSRecommendations, "Merge included PRs and cut new RC.")
 	}
 	if len(a.ComponentPRRecommendations) == 0 {
 		a.ComponentPRRecommendations = append(a.ComponentPRRecommendations, "Review component PRs for this patch and include the changes you want to merge into the release. Empty PR selection is valid.")
@@ -174,6 +184,11 @@ func Assess(in Input) Assessment {
 	return a
 }
 
+// AwaitsACSMerge reports whether this condition is covered by the shared ACS merge recommendation.
+func (c Condition) AwaitsACSMerge() bool {
+	return c.Status == No && c.Reason == openACSPRReason
+}
+
 func includedPRRecommendation(target Target, pr PR, status Truth, reason string) string {
 	if status == "" {
 		return fmt.Sprintf("Refresh the evidence for included PR %s: %s.", target, reason)
@@ -263,7 +278,7 @@ func assessIncludedPR(config Config, target Target, pr PR, repo Repository, foun
 	}
 	if strings.EqualFold(pr.State, "open") {
 		if target.Repo == acs.Repo {
-			return No, "Included PR is open; review its checks and merge it into the ACS release branch"
+			return No, openACSPRReason
 		}
 		return No, "Included PR is open; wait for its merge and a tag covering the merge"
 	}

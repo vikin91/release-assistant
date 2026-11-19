@@ -349,12 +349,14 @@ func TestAssessActivityGuidance(t *testing.T) {
 			mutate: func(in *Input) {
 				in.Choices.Tags = nil
 				pr := PR{Target: Target{Repo: in.Config.ACS().Repo, PR: 41}, Base: in.Config.Branch, State: "open", Evidence: freshEvidence()}
-				in.Repositories[0].PRs = []PR{pr}
-				in.Choices.PRs[pr.Target] = Included
+				second := pr
+				second.Target.PR++
+				in.Repositories[0].PRs = []PR{pr, second}
+				in.Choices.PRs[pr.Target], in.Choices.PRs[second.Target] = Included, Included
 			},
 			check: func(t *testing.T, a Assessment) {
 				acs := strings.Join(a.ACSRecommendations, " ")
-				if !strings.Contains(acs, "Review the checks for included PR stackrox/stackrox#41 and merge it into release-5.0") {
+				if strings.Count(acs, "Merge included PRs and cut new RC.") != 1 || strings.Contains(acs, "Review the checks for included PR") {
 					t.Fatalf("ACS merge guidance missing: %s", acs)
 				}
 				if !strings.Contains(acs, `Select component tags in "Component releases" tab.`) || strings.Contains(acs, "pin discovery") || strings.Contains(acs, "..") {

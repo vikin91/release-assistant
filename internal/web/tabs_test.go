@@ -87,6 +87,22 @@ func TestActivityTabsWorkWithoutComponentTags(t *testing.T) {
 	}
 }
 
+func TestACSNextStepsSummarizeOpenPRs(t *testing.T) {
+	s := workflowStatusSnapshot()
+	repo := &s.Repositories[len(s.Repositories)-1]
+	for _, n := range []int{41, 42} {
+		target := release.Target{Repo: repo.Source.Repo, PR: n}
+		repo.PRs = append(repo.PRs, release.PR{Target: target, State: "open", Base: s.Config.Branch, Evidence: repo.Evidence})
+		s.Choices.PRs[target] = release.Included
+	}
+	assessWorkflow(&s)
+	panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-prs")
+	steps := between(t, panel, `id="acs-prs-next-steps-panel"`, "</section>")
+	if !strings.Contains(steps, "<p>Merge included PRs and cut new RC.</p>") || strings.Contains(steps, "Checks that need attention") {
+		t.Fatalf("unexpected ACS merge guidance: %s", steps)
+	}
+}
+
 func TestTagPreparationKeepsExistingCandidatesAndReturnsToActivity(t *testing.T) {
 	config := validACS5Config()
 	source := config.Components[0]
