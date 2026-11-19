@@ -174,11 +174,11 @@ Use `ci-retest` to check GitHub Actions jobs and OpenShift CI presubmits indepen
 
 The CLI and dashboard share hardcoded [retry allow and deny lists](internal/github/ci_retest_config.go). To classify an unknown check, patch that file and add a regression case. Verify the repository, the reporting provider, and the caller workflow path and job name from the Actions run. For Prow, verify the context in the repository’s OpenShift CI presubmit configuration. Use a whole-workflow rule only when every job has the same retry owner.
 
-The deny-list delegates Konflux builds to `konflux-retest`, including collector and FACT’s `Test Konflux builds` workflows. An allow-listed failure gets a command only after the usual target, revision, and job checks pass. Unlisted failures appear as **Unknown check — patch ci-retest to classify it**.
+For each target, `konflux-retest` runs first. Post each suggested comment separately on the linked PR or tagged commit. The CI check then silently skips deny-listed jobs, including collector and FACT’s `Test Konflux builds` workflows. An allow-listed failure gets a command only after the usual target, revision, and job checks pass. Unlisted failures appear as **Unknown check — patch ci-retest to classify it**.
 
 ```sh
-go run ./cmd/ci-retest --repo stackrox --prs 24136 24135
-go run ./cmd/ci-retest --repo stackrox --tags 4.11.8-rc.0,5.0.0-rc.0
+go run ./cmd/ci-retest --allow-konflux-lookup "${APP_ID},api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant" --repo stackrox --prs 24136 24135
+go run ./cmd/ci-retest --allow-konflux-lookup "${APP_ID},api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant" --repo stackrox --tags 4.11.8-rc.0,5.0.0-rc.0
 ```
 
 Open an offered Actions job link and select the job rerun control on GitHub. For Prow, post the printed comment on the linked PR. It contains one configured `/test <job>` line per verified failed presubmit. Prow evaluates the PR when it processes the comment. The CLI performs only reads. Each target gets a separate report, including warnings when the run, tag trigger or current attempt cannot be verified. Run `go run ./cmd/ci-retest --help` for authentication and input details.

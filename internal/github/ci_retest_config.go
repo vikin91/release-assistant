@@ -105,14 +105,12 @@ func (l retryList) matches(source retrySource, job string) bool {
 	return ok && (jobs == nil || slices.Contains(jobs, job))
 }
 
-// classifyRetry records the ownership of a failed check when ci-retest must
-// withhold a command. Callers still verify eligibility for allowed checks.
+// classifyRetry warns about unlisted checks and leaves deny-listed checks to Konflux.
 func classifyRetry(report *release.ManualRetryReport, provider, workflow, job string) bool {
 	source := retrySource{strings.ToLower(report.Target.Repo), provider, workflow}
-	reason := "Unknown check — patch ci-retest to classify it"
 	switch {
 	case retryDenyList.matches(source, job):
-		reason = "Handled by konflux-retest"
+		return false
 	case retryAllowList.matches(source, job):
 		return true
 	}
@@ -120,6 +118,6 @@ func classifyRetry(report *release.ManualRetryReport, provider, workflow, job st
 	if workflow != "" {
 		label += " / " + workflow
 	}
-	report.OtherChecks = append(report.OtherChecks, label+" / "+job+" · "+reason)
+	report.OtherChecks = append(report.OtherChecks, label+" / "+job+" · Unknown check — patch ci-retest to classify it")
 	return false
 }

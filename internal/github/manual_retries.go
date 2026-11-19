@@ -101,13 +101,13 @@ func (c *Client) ManualRetries(ctx context.Context, t release.Target) (ManualRet
 	if err != nil {
 		return report, err
 	}
-	report.SHA = pr.Head.SHA
 	if t.Tag != "" {
 		report.URL = base + "/commit/" + pr.Head.SHA
 	} else if pr.State != "open" {
 		report.Warnings = append(report.Warnings, "PR is not open")
 		return report, nil
 	}
+	report.SHA = pr.Head.SHA
 	statuses, prowErr := c.readCommitStatuses(ctx, t.Repo, pr.Head.SHA)
 	if prowErr == nil {
 		prowErr = c.prowRetries(ctx, &report, pr.Base.Ref, statuses)
@@ -120,6 +120,7 @@ func (c *Client) ManualRetries(ctx context.Context, t release.Target) (ManualRet
 	if len(report.Jobs)+len(report.Prow)+len(report.OtherChecks) > 0 {
 		current, err := c.retryTarget(ctx, t)
 		if err != nil || current != pr {
+			report.SHA = ""
 			report.Jobs, report.Prow, report.OtherChecks = nil, nil, nil
 			return report, errors.Join(prowErr, actionsErr, err, errors.New("target identity could not be reconfirmed"))
 		}
@@ -269,28 +270,46 @@ func associatedPR(run retryRun, pr retryPR) bool {
 	})
 }
 
-func (c *Client) retryRunJobs(ctx context.Context, report *ManualRetryReport, pr retryPR, run retryRun, runs []retryRun, checks []commitCheckRun) ([]ManualJob, string, error) {
-	t := report.Target
+func (run retryRun) targetProblem(t release.Target, pr retryPR) string {
 	if run.SHA != pr.Head.SHA || run.ID <= 0 || run.WorkflowID <= 0 || run.Number <= 0 {
-		return nil, "missing run identity", nil
+		return "missing run identity"
 	}
 	if t.PR > 0 && !associatedPR(run, pr) {
-		return nil, "PR association unproven", nil
+		return "PR association unproven"
 	}
 	if t.Tag != "" && (run.Event != "push" || run.Ref != t.Tag) {
-		return nil, "run belongs to another ref or event", nil
+		return "run belongs to another ref or event"
 	}
+	return ""
+}
+
+func (c *Client) retryRunJobs(ctx context.Context, report *ManualRetryReport, pr retryPR, run retryRun, runs []retryRun, checks []commitCheckRun) ([]ManualJob, string, error) {
+	t := report.Target
+	// A shared commit may contain runs from other refs. Classify the suite
+	// first, then publish its unknown checks only if the target matches.
+	suite := ManualRetryReport{Target: t}
 	var allowed []commitCheckRun
 	for _, check := range checks {
-		if !classifyRetry(report, check.App.Slug, run.Path, check.Name) {
+		if !classifyRetry(&suite, check.App.Slug, run.Path, check.Name) {
 			continue
 		}
 		if check.Conclusion != "failure" {
-			report.Warnings = append(report.Warnings, check.Name+": ineligible Actions conclusion "+check.Conclusion)
+			suite.Warnings = append(suite.Warnings, check.Name+": ineligible Actions conclusion "+check.Conclusion)
 			continue
 		}
 		allowed = append(allowed, check)
 	}
+	if len(allowed)+len(suite.OtherChecks)+len(suite.Warnings) == 0 {
+		return nil, "", nil
+	}
+	if reason := run.targetProblem(t, pr); reason != "" {
+		if len(allowed) > 0 {
+			return nil, reason, nil
+		}
+		return nil, "", nil
+	}
+	report.OtherChecks = append(report.OtherChecks, suite.OtherChecks...)
+	report.Warnings = append(report.Warnings, suite.Warnings...)
 	if len(allowed) == 0 {
 		return nil, "", nil
 	}

@@ -1,4 +1,4 @@
-// Command ci-retest prints GitHub Actions rerun links and commands, and Prow retry comments.
+// Command ci-retest prints Konflux retry comments followed by supported Actions and Prow retries.
 package main
 
 import (
@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"unicode"
 
 	"release-assistant/internal/github"
+	"release-assistant/internal/konflux"
 	"release-assistant/internal/release"
 )
 
@@ -27,24 +27,27 @@ func main() {
 	os.Exit(code)
 }
 
-func newReader(ctx context.Context) (*github.Client, error) {
-	token := strings.TrimSpace(os.Getenv("GH_TOKEN"))
-	if token == "" {
-		token = strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
-	}
-	if token == "" {
-		data, err := exec.CommandContext(ctx, "gh", "auth", "token", "--hostname", "github.com").Output()
-		if err != nil || strings.TrimSpace(string(data)) == "" {
-			return nil, errors.New("set GH_TOKEN or GITHUB_TOKEN, or sign in with gh auth login --hostname github.com")
-		}
-		token = strings.TrimSpace(string(data))
-	}
-	return github.New("", token, &http.Client{Timeout: 30 * time.Second}), nil
+type readers struct {
+	konfluxPlan   func(context.Context, release.Target) (release.Plan, error)
+	manualRetries func(context.Context, release.Target) (release.ManualRetryReport, error)
 }
 
-func targets(args []string, diagnostics io.Writer) ([]release.Target, error) {
+func newReader(ctx context.Context, lookups konflux.Lookups) (readers, error) {
+	config := konflux.StartupConfig(ctx, lookups)
+	if config.GitHubToken == "" {
+		return readers{}, errors.New("set GH_TOKEN or GITHUB_TOKEN, or sign in with gh auth login --hostname github.com")
+	}
+	config.HTTPClient = &http.Client{Timeout: 30 * time.Second}
+	return readers{
+		konfluxPlan:   konflux.New(config).Plan,
+		manualRetries: github.New("", config.GitHubToken, config.HTTPClient).ManualRetries,
+	}, nil
+}
+
+func targets(args []string, diagnostics io.Writer, lookups konflux.Lookups) ([]release.Target, error) {
 	fs := flag.NewFlagSet("ci-retest", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
+	fs.Func("allow-konflux-lookup", "allow a Konflux lookup for APP_ID,API_HOST,NAMESPACE (repeatable)", lookups.Add)
 	repo := fs.String("repo", "stackrox", "repository")
 	prs := fs.String("prs", "", "PR numbers")
 	tags := fs.String("tags", "", "tag names")
@@ -54,8 +57,10 @@ func targets(args []string, diagnostics io.Writer) ([]release.Target, error) {
 
 Choose one list and put it last. Spaces and commas are accepted. Short
 repository names use the stackrox owner. Default: stackrox/stackrox.
-Prints job rerun links, gh api commands, and targeted /test commands for failed
-OpenShift CI presubmits. Only reads GitHub. Authentication: GH_TOKEN,
+Prints eligible Konflux retry comments first, then supported Actions reruns and
+Prow comments. For verified Konflux reads, use the active oc login and pass
+--allow-konflux-lookup APP_ID,API_HOST,NAMESPACE before the target list.
+GitHub authentication: GH_TOKEN,
 GITHUB_TOKEN, or a saved gh login. Read access to Actions, checks,
 commit statuses, contents and pull requests is needed.`)
 	}
@@ -108,8 +113,9 @@ commit statuses, contents and pull requests is needed.`)
 	return result, nil
 }
 
-func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader func(context.Context) (*github.Client, error)) int {
-	targets, err := targets(args, diagnostics)
+func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader func(context.Context, konflux.Lookups) (readers, error)) int {
+	lookups := make(konflux.Lookups)
+	targets, err := targets(args, diagnostics, lookups)
 	if errors.Is(err, flag.ErrHelp) {
 		return 0
 	}
@@ -117,7 +123,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader 
 		fmt.Fprintln(diagnostics, err)
 		return 2
 	}
-	c, err := reader(ctx)
+	c, err := reader(ctx, lookups)
 	if err != nil {
 		fmt.Fprintln(diagnostics, err)
 		return 1
@@ -127,9 +133,19 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader 
 		if i > 0 {
 			fmt.Fprintln(out)
 		}
-		report, err := c.ManualRetries(ctx, t)
+		plan, planErr := c.konfluxPlan(ctx, t)
+		report, err := c.manualRetries(ctx, t)
+		if planErr != nil {
+			report.Warnings = append(report.Warnings, "Konflux: "+planErr.Error())
+			code = 1
+		}
 		if err != nil {
 			report.Warnings = append(report.Warnings, err.Error())
+			code = 1
+		}
+		if len(plan.Proposals) > 0 && (plan.SHA == "" || plan.Target != t || report.SHA != plan.SHA) {
+			report.Warnings = append(report.Warnings, "The Konflux and CI checks could not confirm the same target revision. Run ci-retest again.")
+			plan.Proposals = nil
 			code = 1
 		}
 		fmt.Fprintf(out, "---\n%s\n", report.URL)
@@ -137,12 +153,15 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader 
 			fmt.Fprintf(out, "Tag: %s\n", t.Tag)
 		}
 		switch {
-		case len(report.Jobs)+len(report.Prow) > 0:
+		case len(plan.Proposals)+len(report.Jobs)+len(report.Prow) > 0:
 			fmt.Fprintln(out, "\nAvailable retries")
 		case len(report.OtherChecks)+len(report.Warnings) > 0:
 			fmt.Fprintln(out, "\nNext action: Investigate")
 		default:
 			fmt.Fprintln(out, "\nNext action: None")
+		}
+		for _, proposal := range plan.Proposals {
+			fmt.Fprintf(out, "Post this Konflux comment on %s (commit %s)\n%s\n\n", plan.Evidence.URL, proposal.SHA, proposal.Payload)
 		}
 		for j, job := range report.Jobs {
 			if j > 0 {
@@ -161,16 +180,20 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader 
 			fmt.Fprintf(out, "Failed Prow checks: post this comment on %s\n%s\n", report.URL, report.ProwComment())
 		}
 		if len(report.OtherChecks) > 0 {
-			fmt.Fprintln(out, "\nOther failed checks")
+			fmt.Fprintln(out, "\nUnsupported checks")
 			for _, check := range report.OtherChecks {
 				fmt.Fprintln(out, check)
 			}
 		}
-		fmt.Fprintln(out, "\nWarnings:")
-		for _, w := range report.Warnings {
-			fmt.Fprintln(out, w)
+		if len(report.Jobs)+len(report.Prow) > 0 {
+			report.Warnings = append(report.Warnings, release.ManualRetryWarning)
 		}
-		fmt.Fprintln(out, release.ManualRetryWarning)
+		if len(report.Warnings) > 0 {
+			fmt.Fprintln(out, "\nWarnings:")
+			for _, w := range report.Warnings {
+				fmt.Fprintln(out, w)
+			}
+		}
 		if ctx.Err() != nil {
 			return 1
 		}

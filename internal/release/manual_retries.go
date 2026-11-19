@@ -16,7 +16,7 @@ type (
 		Jobs     []ManualJob
 		Prow     []ProwRetry
 		Warnings []string
-		// OtherChecks explains ownership of failed checks handled outside ci-retest.
+		// OtherChecks lists failed checks missing from both ci-retest ownership lists.
 		OtherChecks []string
 		// Pending marks a revision awaiting its first retry report.
 		Pending bool
