@@ -154,6 +154,9 @@ legend { padding: 0 .35rem; font-weight: var(--emphasis-weight); }
 .component-tag-images-link { margin: .65rem 0 0; font-size: .88rem; }
 .build-retry-target { margin-top: .4rem; padding: .6rem .2rem; border-top: 1px solid var(--line); }
 .build-retry-target h3 { font-size: 1rem; }
+.build-retry-pr-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .65rem; margin-bottom: .4rem; overflow-wrap: anywhere; }
+.build-retry-pr-heading h3 { margin: 0; font-size: 1.15rem; }
+.build-retry-pr-heading a { font-size: .88rem; }
 .build-retry-row { padding: .3rem 0; border-bottom: 1px solid var(--line); }
 .build-retry-row summary, .build-retry-evidence { overflow-wrap: anywhere; }
 .build-retry-row summary > span { margin-inline-start: .35rem; }

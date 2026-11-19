@@ -118,7 +118,10 @@ func TestACSChecksGroupActionsByIncludedPR(t *testing.T) {
 	for _, n := range []int{42, 41, 7} {
 		s.Choices.PRs[target(n)] = release.Included
 	}
-	acs.PRs = []release.PR{{Target: target(7), State: "closed", Merged: true}, {Target: target(41), State: "open"}}
+	acs.PRs = []release.PR{
+		{Target: target(7), State: "closed", Merged: true},
+		{Target: target(41), State: "open", Title: "Update release images"},
+	}
 	s.Choices.PRs[target(43)] = release.Excluded
 	s.Plans = []release.Plan{{Target: target(41), Proposals: []release.Proposal{
 		{Target: target(41), SHA: "head", RunID: "2", Job: "build", Payload: "/konflux-retest build"},
@@ -134,6 +137,12 @@ func TestACSChecksGroupActionsByIncludedPR(t *testing.T) {
 		t.Fatalf("unexpected ACS check groups: %s", checks)
 	}
 	active := between(t, checks, `id="acs-pr-retries-41"`, "</article>")
+	heading := between(t, active, "<header", "</header>")
+	if !strings.Contains(heading, "<h3>Update release images</h3>") ||
+		!strings.Contains(heading, `href="https://github.com/`+target(41).Repo+`/pull/41"`) ||
+		!strings.Contains(heading, ">"+target(41).String()+"</a>") {
+		t.Errorf("unexpected PR heading: %s", heading)
+	}
 	for _, action := range []string{"/konflux-retest build", "actions/jobs/201/rerun", "/test unit"} {
 		if strings.Count(active, action) != 1 || strings.Count(checks, action) != 1 {
 			t.Errorf("expected %q only under PR 41", action)
@@ -141,7 +150,10 @@ func TestACSChecksGroupActionsByIncludedPR(t *testing.T) {
 	}
 	merged := between(t, checks, `id="acs-pr-retries-7"`, "</article>")
 	pending := between(t, checks, `id="acs-pr-retries-42"`, "</article>")
-	if !strings.Contains(merged, ">Merged<") || !strings.Contains(pending, "Wait for the first Konflux check observation") {
+	if !strings.Contains(pending, "<h3>"+target(42).String()+"</h3>") || !strings.Contains(pending, ">Open PR</a>") {
+		t.Errorf("missing fallback PR heading: %s", pending)
+	}
+	if !strings.Contains(merged, `<span class="pill yes">Merged</span>`) || !strings.Contains(pending, "Wait for the first Konflux check observation") {
 		t.Fatal("missing merged or pending PR status")
 	}
 }

@@ -11,6 +11,7 @@ import (
 type (
 	buildRetryTarget struct {
 		Target      release.Target
+		Title       string
 		Plan        *planModel
 		Authority   *dispatch.View
 		Candidates  []*buildRetryCandidate
@@ -88,11 +89,11 @@ func (p pageModel) BuildRetries() []*buildRetryTarget {
 		if p.ACS != nil {
 			for _, pr := range p.ACS.PRs {
 				if group := byTarget[pr.Target]; group != nil {
-					group.setPRState(pr)
+					group.setPRDetails(pr)
 				}
 			}
 			if pr := p.ACS.PinningPR; pr != nil && byTarget[pr.Target] != nil {
-				byTarget[pr.Target].setPRState(*pr)
+				byTarget[pr.Target].setPRDetails(*pr)
 			}
 		}
 		slices.SortFunc(targets, func(a, b *buildRetryTarget) int {
@@ -105,7 +106,10 @@ func (p pageModel) BuildRetries() []*buildRetryTarget {
 	return targets
 }
 
-func (g *buildRetryTarget) setPRState(pr release.PR) {
+func (g *buildRetryTarget) setPRDetails(pr release.PR) {
+	if pr.Title != "" {
+		g.Title = pr.Title
+	}
 	if pr.Merged || pr.State == "merged" {
 		g.ClosedState = "Merged"
 	} else if pr.State == "closed" {
