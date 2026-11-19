@@ -1062,30 +1062,57 @@ func TestPartialTagInventoryShowsVerifiedChoicesImmediately(t *testing.T) {
 	}
 }
 
-func TestStartupReadSetting(t *testing.T) {
+func TestGitHubReadLimitSettings(t *testing.T) {
 	reads := githubread.New(nil)
 	cache := github.NewCommitWindowCache(nil)
 	session := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{}), nil, app.Options{GitHubReads: reads, Cache: cache})
 	b := newBrowser(t, session)
-	field := func(value int) string {
-		return fmt.Sprintf(`name="startup_read_limit" min="1" max="5" required value="%d"`, value)
-	}
-	if !strings.Contains(b.getBody(t), field(3)) {
-		t.Fatal("default startup read limit missing before release configuration")
-	}
-	values := url.Values{"kind": {"application-settings"}, "tab": {"settings"}, "generation": {fmt.Sprint(session.Snapshot().Generation)}, "startup_read_limit": {"5"}}
-	if response := b.post(values); response.Code != http.StatusSeeOther || reads.StartupLimit() != 5 || !strings.Contains(b.getBody(t), field(5)) {
-		t.Fatal("saving the startup read limit in read-only mode failed")
-	}
-	values.Set("cache", "false")
-	for _, invalid := range [][]string{{"0"}, {"6"}, {""}, {"2.5"}, {"1", "4"}} {
-		values["startup_read_limit"] = invalid
-		if response := b.post(values); response.Code < 400 || reads.StartupLimit() != 5 || !cache.Enabled() {
-			t.Fatalf("invalid startup limit %q applied settings", invalid)
+	checkLimits := func(startup, ongoing int) {
+		t.Helper()
+		if gotStartup, gotOngoing := reads.ReadLimits(); gotStartup != startup || gotOngoing != ongoing {
+			t.Fatalf("transport limits = %d, %d, want %d, %d", gotStartup, gotOngoing, startup, ongoing)
+		}
+		body := b.getBody(t)
+		for _, field := range []string{
+			fmt.Sprintf(`name="startup_read_limit" min="1" max="5" required value="%d"`, startup),
+			fmt.Sprintf(`name="ongoing_read_limit" min="1" max="3" required value="%d"`, ongoing),
+		} {
+			if !strings.Contains(body, field) {
+				t.Errorf("settings form missing %s", field)
+			}
 		}
 	}
-	values.Del("startup_read_limit")
-	if response := b.post(values); response.Code != http.StatusSeeOther || reads.StartupLimit() != 5 || cache.Enabled() {
-		t.Fatal("omitted startup limit changed the saved value")
+	checkLimits(3, 1)
+	values := url.Values{"kind": {"application-settings"}, "tab": {"settings"}, "generation": {fmt.Sprint(session.Snapshot().Generation)}}
+	save := func() {
+		t.Helper()
+		if response := b.post(values); response.Code != http.StatusSeeOther {
+			t.Fatalf("save settings: HTTP %d", response.Code)
+		}
 	}
+	values.Set("startup_read_limit", "5")
+	save()
+	checkLimits(5, 1)
+	values.Del("startup_read_limit")
+	values.Set("ongoing_read_limit", "3")
+	save()
+	checkLimits(5, 3)
+
+	values.Set("cache", "false")
+	for _, tc := range []struct{ startup, ongoing []string }{
+		{[]string{"0"}, []string{"1"}}, {[]string{"6"}, []string{"1"}},
+		{[]string{"1"}, []string{"0"}}, {[]string{"1"}, []string{"4"}},
+		{[]string{"1"}, []string{""}}, {[]string{"2.5"}, []string{"2"}},
+		{[]string{"1"}, []string{"1", "2"}},
+	} {
+		values["startup_read_limit"], values["ongoing_read_limit"] = tc.startup, tc.ongoing
+		if response := b.post(values); response.Code < 400 || !cache.Enabled() {
+			t.Fatalf("invalid limits %+v applied settings", tc)
+		}
+		checkLimits(5, 3)
+	}
+	values.Set("startup_read_limit", "1")
+	values.Set("ongoing_read_limit", "2")
+	save()
+	checkLimits(1, 2)
 }

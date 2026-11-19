@@ -45,6 +45,7 @@ type (
 		Interactive                  bool
 		CacheAvailable, CacheEnabled bool
 		StartupReadLimit             int
+		OngoingReadLimit             int
 		// WritesEnabled reports startup permission; target grants remain independent.
 		WritesEnabled   bool
 		Error, LogError string
@@ -69,6 +70,7 @@ type (
 		// Nil settings are omitted from the submitted form.
 		Interactive, CacheEnabled *bool
 		StartupReadLimit          *int
+		OngoingReadLimit          *int
 		Generation                uint64
 	}
 	// Session owns release observations. Dispatcher alone owns write grants.
@@ -270,11 +272,11 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		if a.Interactive != nil && (!s.dispatcher.WritesEnabled() || s.config.Validate() != nil) {
 			return fmt.Errorf("confirmation mode is unavailable")
 		}
-		if a.StartupReadLimit != nil {
+		if a.StartupReadLimit != nil || a.OngoingReadLimit != nil {
 			if s.options.GitHubReads == nil {
 				return fmt.Errorf("GitHub read settings are unavailable")
 			}
-			if err := s.options.GitHubReads.SetStartupLimit(*a.StartupReadLimit); err != nil {
+			if err := s.options.GitHubReads.SetReadLimits(a.StartupReadLimit, a.OngoingReadLimit); err != nil {
 				return err
 			}
 		}
@@ -459,7 +461,7 @@ func (s *Session) Snapshot() Snapshot {
 		Authority: s.dispatcher.Views(), NextSourceCheck: maps.Clone(s.nextSourceCheck),
 	}
 	if s.options.GitHubReads != nil {
-		x.StartupReadLimit = s.options.GitHubReads.StartupLimit()
+		x.StartupReadLimit, x.OngoingReadLimit = s.options.GitHubReads.ReadLimits()
 	}
 	if planner, ok := s.planner.(interface{ ReadIssues() []konflux.ReadIssue }); ok {
 		x.KonfluxReadIssues = planner.ReadIssues()

@@ -40,6 +40,7 @@ type (
 		changed      chan struct{}
 		active       int
 		startupLimit int
+		ongoingLimit int
 		startupUntil time.Time
 		last         string
 		calls        []time.Time
@@ -94,7 +95,7 @@ func New(base http.RoundTripper) *Transport {
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	return &Transport{base: base, startupLimit: 3, changed: make(chan struct{}), allowance: 3000, now: time.Now}
+	return &Transport{base: base, startupLimit: 3, ongoingLimit: 1, changed: make(chan struct{}), allowance: 3000, now: time.Now}
 }
 
 // StartMonitoring opens the five-minute startup window once per process.
@@ -102,7 +103,14 @@ func (t *Transport) StartMonitoring() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.startupUntil.IsZero() {
-		t.startupUntil = t.now().Add(5 * time.Minute)
+		const startupDuration = 5 * time.Minute
+		t.startupUntil = t.now().Add(startupDuration)
+		// A higher ongoing limit can admit queued reads while every startup slot is occupied.
+		time.AfterFunc(startupDuration, func() {
+			t.mu.Lock()
+			defer t.mu.Unlock()
+			t.signal()
+		})
 		t.signal()
 	}
 }
@@ -114,21 +122,29 @@ func (t *Transport) DuringStartup() bool {
 	return t.now().Before(t.startupUntil)
 }
 
-// StartupLimit returns the configured maximum number of simultaneous startup reads.
-func (t *Transport) StartupLimit() int {
+// ReadLimits returns the configured concurrency limits during and after startup.
+func (t *Transport) ReadLimits() (startup, ongoing int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.startupLimit
+	return t.startupLimit, t.ongoingLimit
 }
 
-// SetStartupLimit changes admission for queued reads without interrupting active requests.
-func (t *Transport) SetStartupLimit(limit int) error {
-	if limit < 1 || limit > 5 {
+// SetReadLimits applies the supplied limits together. A nil argument keeps its current value.
+func (t *Transport) SetReadLimits(startup, ongoing *int) error {
+	if startup != nil && (*startup < 1 || *startup > 5) {
 		return fmt.Errorf("concurrent GitHub reads during startup must be between 1 and 5")
+	}
+	if ongoing != nil && (*ongoing < 1 || *ongoing > 3) {
+		return fmt.Errorf("concurrent GitHub reads after startup must be between 1 and 3")
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.startupLimit = limit
+	if startup != nil {
+		t.startupLimit = *startup
+	}
+	if ongoing != nil {
+		t.ongoingLimit = *ongoing
+	}
 	t.signal()
 	return nil
 }
@@ -194,6 +210,8 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		limit := 1
 		if now.Before(t.startupUntil) {
 			limit = t.startupLimit
+		} else if !t.startupUntil.IsZero() {
+			limit = t.ongoingLimit
 		}
 		if t.active < limit && t.chosen() == req {
 			break

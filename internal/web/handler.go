@@ -321,15 +321,13 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 			return a, fmt.Errorf("grant requires the displayed SHA")
 		}
 	case "application-settings":
-		if values, ok := r.PostForm["startup_read_limit"]; ok {
-			if len(values) != 1 {
-				return a, fmt.Errorf("submit one startup read limit")
-			}
-			limit, err := strconv.Atoi(values[0])
-			if err != nil {
-				return a, fmt.Errorf("startup read limit must be a whole number between 1 and 5")
-			}
-			a.StartupReadLimit = &limit
+		a.StartupReadLimit, err = readLimitSetting(r.PostForm, "startup_read_limit")
+		if err != nil {
+			return a, err
+		}
+		a.OngoingReadLimit, err = readLimitSetting(r.PostForm, "ongoing_read_limit")
+		if err != nil {
+			return a, err
 		}
 		a.Interactive, err = checkboxSetting(r.PostForm, "interactive")
 		if err != nil {
@@ -377,6 +375,21 @@ func truthLabel(value release.Truth) string {
 		return "unknown"
 	}
 	return string(value)
+}
+
+func readLimitSetting(form url.Values, field string) (*int, error) {
+	values, ok := form[field]
+	if !ok {
+		return nil, nil
+	}
+	if len(values) != 1 {
+		return nil, fmt.Errorf("submit one value for each GitHub read limit")
+	}
+	limit, err := strconv.Atoi(values[0])
+	if err != nil {
+		return nil, fmt.Errorf("GitHub read limits must be whole numbers")
+	}
+	return &limit, nil
 }
 
 func checkboxSetting(form url.Values, field string) (*bool, error) {

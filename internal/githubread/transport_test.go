@@ -185,11 +185,11 @@ func TestStartupReadLimitAppliesToQueuedReads(t *testing.T) {
 		check(1)
 		transport.StartMonitoring()
 		check(3)
-		if err := transport.SetStartupLimit(5); err != nil {
+		if err := transport.SetReadLimits(new(5), nil); err != nil {
 			t.Fatal(err)
 		}
 		check(5)
-		if err := transport.SetStartupLimit(1); err != nil {
+		if err := transport.SetReadLimits(new(1), nil); err != nil {
 			t.Fatal(err)
 		}
 		closeOne()
@@ -200,7 +200,7 @@ func TestStartupReadLimitAppliesToQueuedReads(t *testing.T) {
 		if transport.DuringStartup() {
 			t.Fatal("monitor restart extended the startup window")
 		}
-		if err := transport.SetStartupLimit(5); err != nil {
+		if err := transport.SetReadLimits(new(5), nil); err != nil {
 			t.Fatal(err)
 		}
 		for want := 3; want >= 1; want-- {
@@ -213,5 +213,46 @@ func TestStartupReadLimitAppliesToQueuedReads(t *testing.T) {
 		}
 		closeOne()
 		check(0)
+	})
+}
+
+func TestHigherOngoingLimitWakesQueuedReadsAtCutoff(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		transport := New(roundTripFunc(func(*http.Request) (*http.Response, error) { return response(), nil }))
+		if err := transport.SetReadLimits(new(1), new(2)); err != nil {
+			t.Fatal(err)
+		}
+		transport.StartMonitoring()
+		responses := make(chan *http.Response, 4)
+		for range cap(responses) {
+			go func() {
+				resp, err := startRead(t, transport, t.Context(), "queued")
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				responses <- resp
+			}()
+		}
+		check := func(want int) {
+			t.Helper()
+			synctest.Wait()
+			if got := len(responses); got != want {
+				t.Fatalf("open response bodies = %d, want %d", got, want)
+			}
+		}
+		time.Sleep(5*time.Minute - time.Nanosecond)
+		check(1)
+		time.Sleep(time.Nanosecond)
+		check(2)
+		if err := transport.SetReadLimits(nil, new(3)); err != nil {
+			t.Fatal(err)
+		}
+		check(3)
+		for range cap(responses) {
+			if err := (<-responses).Body.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}
 	})
 }

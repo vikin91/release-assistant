@@ -179,7 +179,7 @@ Open an offered Actions job link and select the job rerun control on GitHub. For
 
 The server listens on loopback. It polls active checks every minute and discovers PRs and tags every five minutes by default. Failed reads can leave the last results visible with their age while current evidence remains unverified. Browser refresh runs separately and preserves open panels and unsaved form input.
 
-Under **Application settings**, **Concurrent GitHub reads during startup** accepts 1–5 and defaults to 3. The five-minute window starts when the first configured release begins monitoring. Save a new limit to apply it to queued reads. After the window, GitHub reads run one at a time. The hourly read budget and GitHub rate-limit backoff apply throughout.
+Under **Application settings**, **Concurrent GitHub reads during startup** accepts 1–5 and defaults to 3. The five-minute window starts when the first configured release begins monitoring. **Concurrent GitHub reads after startup** accepts 1–3 and defaults to 1 for the rest of the session. Saving either limit updates how queued reads are admitted. The hourly read budget and GitHub rate-limit backoff apply throughout.
 
 **Log** shows the latest 1,000 events and refreshes every two seconds. The terminal prints timestamped activity to stdout, including discovery, check status changes, retry decisions, and Konflux read pauses and recovery. Redirect stdout if you need to retain the log.
 
