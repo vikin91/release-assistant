@@ -56,6 +56,7 @@ func TestCLIReports(t *testing.T) {
 		{"id":101,"status":"completed","conclusion":"failure","check_run_url":"https://api.github.com/repos/stackrox/stackrox/check-runs/42"}
 	]}`
 	const jobOutput = `
+Available retries
 Scan images for vulnerabilities / Konflux: release-central-db:rc
 https://github.com/stackrox/stackrox/actions/runs/22/job/99
 gh api --method POST repos/stackrox/stackrox/actions/jobs/99/rerun
@@ -74,7 +75,7 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 		"PR reports both actions and continues past missing target": {args: []string{"--prs", "8,7", "7"}, want: []string{"HTTP 404", jobOutput + "\n\nFailed Prow checks:", "Post once on https://github.com/stackrox/stackrox/pull/7", "\n/retest\n"}, absent: []string{"ci/prow/test"}, code: 1},
 		"PR head moved after observation":                           {args: []string{"--prs", "7"}, moved: true, want: []string{"target identity could not be reconfirmed"}, absent: []string{"/job/99", "\n/retest\n"}, code: 1},
 		"job for different check":                                   {args: []string{"--prs", "7"}, otherCheck: true, want: []string{"no unique failed job", "\n/retest\n"}, absent: []string{"/job/99"}},
-		"tag only push":                                             {args: []string{"--tags", "rc"}, workflow: "on:\n  push:\n    tags: ['*']\n", want: []string{"Tag: rc", "/commit/" + sha, jobOutput + "\n\nWarnings:"}, absent: []string{"\n/retest\n"}},
+		"tag only push":                                             {args: []string{"--tags", "rc"}, workflow: "on:\n  push:\n    tags: ['*']\n", want: []string{"Tag: rc", "/commit/" + sha, jobOutput + "\n\nWarnings:\nThis tool cannot tell flakes from true failures. Inspect each failure before retrying.\n"}, absent: []string{"\n/retest\n"}},
 		"tag proven by local workflow":                              {args: []string{"--tags", "rc"}, workflow: "jobs:\n  build:\n    uses: ./.github/workflows/build.yml\n", ref: "refs/tags/rc", want: []string{"/job/99"}},
 		"same name branch push":                                     {args: []string{"--tags", "rc"}, workflow: "jobs:\n  build:\n    uses: ./.github/workflows/build.yml\n", ref: "refs/heads/rc", want: []string{"tag trigger unproven"}, absent: []string{"/job/99", "\n/retest\n"}},
 		"separately pinned reusable workflow":                       {args: []string{"--tags", "rc"}, workflow: "jobs:\n  build:\n    uses: stackrox/stackrox/.github/workflows/build.yml@rc\n", ref: "refs/tags/rc", want: []string{"tag trigger unproven"}, absent: []string{"/job/99"}},

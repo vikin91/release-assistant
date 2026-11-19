@@ -138,7 +138,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader 
 		}
 		switch {
 		case len(report.Jobs)+len(report.Prow) > 0:
-			fmt.Fprintln(out, "\nNext action: Retest")
+			fmt.Fprintln(out, "\nAvailable retries")
 		case len(report.Warnings) > 0:
 			fmt.Fprintln(out, "\nNext action: Investigate")
 		default:
@@ -161,12 +161,10 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader 
 			fmt.Fprintf(out, "Failed Prow checks: %s\nPost once on %s (PR-wide; other CI may also respond):\n/retest\n", strings.Join(report.Prow, ", "), report.URL)
 		}
 		fmt.Fprintln(out, "\nWarnings:")
-		if len(report.Warnings) == 0 {
-			fmt.Fprintln(out, "None.")
-		}
 		for _, w := range report.Warnings {
 			fmt.Fprintln(out, w)
 		}
+		fmt.Fprintln(out, "This tool cannot tell flakes from true failures. Inspect each failure before retrying.")
 		if ctx.Err() != nil {
 			return 1
 		}
