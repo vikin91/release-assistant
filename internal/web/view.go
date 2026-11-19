@@ -30,8 +30,7 @@ type (
 		Plans                                                    []planModel
 		ManualRetries                                            []release.ManualRetryReport
 		KonfluxStatus                                            []konfluxClusterStatus
-		StartFailureClusters                                     []startFailureCluster
-		EarlierStartFailureClusters                              []startFailureCluster
+		StartFailureReports                                      []startFailureReport
 		PinningStartFailures                                     bool
 		Authority                                                []authorityModel
 		ComponentImages                                          componentImagesModel

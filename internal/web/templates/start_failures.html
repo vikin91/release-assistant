@@ -1,21 +1,26 @@
 {{define "start-failures"}}
-{{if or (eq .Tab "acs-rcs") .StartFailureClusters .EarlierStartFailureClusters}}
+{{if or (eq .Tab "acs-rcs") .StartFailureReports}}
 <section class="panel" id="{{.Tab}}-start-failures-panel">
   <details id="{{.Tab}}-start-failures" open>
     <summary class="section-summary">Reported build creation failures</summary>
-    {{if or .StartFailureClusters .EarlierStartFailureClusters}}
+    {{if .StartFailureReports}}
     <p class="creation-failure-intro">GitHub checks reported failed attempts to create Tekton PipelineRuns. Current cluster availability is unknown.</p>
-    {{if .StartFailureClusters}}
-      <p class="creation-failure-intro">Open the source check and look for a newer run. If the failure recurs, the cluster name and check link give the Konflux team a starting point.</p>
-      {{template "start-failure-clusters" .StartFailureClusters}}
-    {{else}}
-      <p class="creation-failure-intro muted">All reports below have a newer verified run.</p>
-    {{end}}
-    {{if .EarlierStartFailureClusters}}
-      <details id="{{.Tab}}-earlier-start-failures" open>
-        <summary>Earlier creation attempts</summary>
-        {{template "start-failure-clusters" .EarlierStartFailureClusters}}
-      </details>
+    <p class="creation-failure-intro">Open the source check and look for a newer run. If the failure recurs, the cluster name and check link give the Konflux team a starting point.</p>
+    {{range .StartFailureReports}}
+      <div data-live-key="creation-report:{{.Key}}">
+        {{if .Target.PR}}<h3 class="creation-failure-pr" title="PR monitored when these checks were fetched"><a aria-describedby="new-tab-description" href="https://github.com/{{.Target.Repo}}/pull/{{.Target.PR}}" target="_blank" rel="noreferrer">{{.Target}}</a></h3>{{end}}
+        {{if .Current}}
+          {{template "start-failure-clusters" .Current}}
+        {{else}}
+          <p class="creation-failure-intro muted">All reports below have a newer verified run.</p>
+        {{end}}
+        {{if .Earlier}}
+          <details id="{{.Key}}-earlier-start-failures" open>
+            <summary>Earlier creation attempts</summary>
+            {{template "start-failure-clusters" .Earlier}}
+          </details>
+        {{end}}
+      </div>
     {{end}}
     {{else if or .RC.Candidate.Evidence.Error (and .RC.Plan .RC.Plan.Plan.Evidence.Error)}}
       <p class="muted">Unavailable · RC build creation checks could not be verified.</p>

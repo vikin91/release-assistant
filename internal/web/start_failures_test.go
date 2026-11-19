@@ -53,6 +53,38 @@ admission webhook denied &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;</code><
 	}
 }
 
+func TestACSStartFailuresGroupedByMonitoredPR(t *testing.T) {
+	config := validACS5Config()
+	first := release.Target{Repo: config.ACS().Repo, PR: 9}
+	second := release.Target{Repo: first.Repo, PR: 101}
+	shared := release.StartFailure{Job: "retag-fact", CheckID: 15, Cluster: "shared-cluster", Reason: "shared failure"}
+	old := shared
+	old.Superseded = true
+	other := release.StartFailure{Job: "retag-collector", CheckID: 16, Cluster: "second-cluster", Reason: "collector failure"}
+	application := &fakeApplication{snapshot: app.Snapshot{
+		Config:  config,
+		Choices: release.Choices{PRs: map[release.Target]release.Choice{first: release.Included, second: release.Included}},
+		Plans: []release.Plan{
+			{Target: second, SHA: "second-sha", StartFailures: []release.StartFailure{old}},
+			{Target: first, SHA: "first-sha", StartFailures: []release.StartFailure{shared, shared, other}},
+		},
+	}}
+	panel := activityPanel(t, newBrowser(t, application).getBody(t), "acs-prs")
+	section := between(t, panel, `id="acs-prs-start-failures-panel"`, "</section>")
+	firstGroup := between(t, section, `data-live-key="creation-report:acs-prs-9"`, `data-live-key="creation-report:acs-prs-101"`)
+	_, secondGroup, _ := strings.Cut(section, `data-live-key="creation-report:acs-prs-101"`)
+	if strings.Count(firstGroup, first.String()) != 1 || strings.Count(firstGroup, "shared failure") != 1 ||
+		!strings.Contains(firstGroup, "collector failure") || !strings.Contains(firstGroup, "second-cluster") ||
+		strings.Contains(firstGroup, "Earlier creation attempts") || strings.Contains(firstGroup, "second-sha") {
+		t.Fatalf("wrong current failures for %s: %s", first, firstGroup)
+	}
+	if strings.Count(secondGroup, second.String()) != 1 || !strings.Contains(secondGroup, "Earlier creation attempts") ||
+		!strings.Contains(secondGroup, "<pre><code>shared failure</code></pre>") || strings.Contains(secondGroup, "first-sha") ||
+		strings.Contains(section, ">PR:</dt>") {
+		t.Fatalf("wrong earlier failure or repeated PR label: %s", secondGroup)
+	}
+}
+
 func TestCreationFailuresDeduplicateChecksWithinTheActivity(t *testing.T) {
 	config := validACS5Config()
 	source := config.Components[0]
@@ -79,11 +111,11 @@ func TestCreationFailuresDeduplicateChecksWithinTheActivity(t *testing.T) {
 	if before.StartFailures[0] != failure {
 		t.Fatal("view grouping mutated the source observation")
 	}
-	groups, _ := groupStartFailures([]planModel{{Plan: before}}, "component-prs")
+	groups, _ := groupStartFailures([]planModel{{Plan: before}}, "component-prs", false)
 	key := groups[0].Failures[0].Key
 	before.StartFailures = []release.StartFailure{failure}
 	before.StartFailures[0].Evidence.At = observed.At.Add(time.Hour)
-	refreshed, _ := groupStartFailures([]planModel{{Plan: before}}, "component-prs")
+	refreshed, _ := groupStartFailures([]planModel{{Plan: before}}, "component-prs", false)
 	if refreshed[0].Failures[0].Key != key {
 		t.Fatal("rereading the same check changed its fold identity")
 	}
@@ -181,12 +213,12 @@ func TestOnlyExplicitSupersessionMovesCreationFailuresToEarlierAttempts(t *testi
 		Plans: []release.Plan{{Target: target, SHA: "commit", StartFailures: []release.StartFailure{failure}, Runs: []release.Run{{Job: "build", Status: "completed", Outcome: "success"}}}},
 	}}
 	model := tabPage(makePage(application.snapshot, "csrf", ""), "component-prs")
-	if len(model.StartFailureClusters) != 1 || len(model.EarlierStartFailureClusters) != 0 {
+	if len(model.StartFailureReports[0].Current) != 1 || len(model.StartFailureReports[0].Earlier) != 0 {
 		t.Fatal("a successful run without typed supersession hid the failure")
 	}
 	application.snapshot.Plans[0].StartFailures[0].Superseded = true
 	model = tabPage(makePage(application.snapshot, "csrf", ""), "component-prs")
-	if len(model.StartFailureClusters) != 0 || len(model.EarlierStartFailureClusters) != 1 {
+	if len(model.StartFailureReports[0].Current) != 0 || len(model.StartFailureReports[0].Earlier) != 1 {
 		t.Fatal("verified supersession did not separate earlier-attempt evidence")
 	}
 	body := newBrowser(t, application).getBody(t)
@@ -232,7 +264,7 @@ func TestCreationFailureGroupingKeepsUnresolvedTargetEvidence(t *testing.T) {
 					StartFailures: []release.StartFailure{{CheckID: 736, Job: "build", Cluster: "konflux.example", Superseded: superseded}},
 				}})
 			}
-			reported, earlier := groupStartFailures(plans, "component-prs")
+			reported, earlier := groupStartFailures(plans, "component-prs", false)
 			if states[0] && states[1] {
 				if len(reported) != 0 || len(earlier) != 1 {
 					t.Fatal("all-target supersession did not move the check to earlier evidence")
@@ -253,7 +285,7 @@ func TestCreationFailureGroupingPrefersFreshReadBeforeObservationTime(t *testing
 		for i, failure := range observations {
 			plans = append(plans, planModel{Plan: release.Plan{Target: release.Target{Repo: "acme/fact", PR: i + 1}, SHA: "commit", StartFailures: []release.StartFailure{failure}}})
 		}
-		reported, _ := groupStartFailures(plans, "component-prs")
+		reported, _ := groupStartFailures(plans, "component-prs", false)
 		if len(reported) != 1 || len(reported[0].Failures) != 1 || reported[0].Failures[0].Failure.Reason != fresh.Reason || !reported[0].Failures[0].Failure.Evidence.Fresh() {
 			t.Fatal("a newer failed read displaced positive check evidence")
 		}
@@ -270,7 +302,7 @@ func TestCreationFailureGroupingDoesNotMergeDifferentSourceChecks(t *testing.T) 
 		{Plan: release.Plan{Target: release.Target{Repo: "acme/fact", PR: 1}, StartFailures: []release.StartFailure{base, otherCluster, unknownOne, unknownTwo}}},
 		{Plan: release.Plan{Target: release.Target{Repo: "acme/collector", PR: 1}, StartFailures: []release.StartFailure{base}}},
 	}
-	reported, _ := groupStartFailures(plans, "component-prs")
+	reported, _ := groupStartFailures(plans, "component-prs", false)
 	count := 0
 	keys := map[string]bool{}
 	for _, cluster := range reported {

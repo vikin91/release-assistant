@@ -169,6 +169,8 @@ legend { padding: 0 .35rem; font-weight: var(--emphasis-weight); }
 [data-copy-enabled] [data-copy-text] { display: inline-block; }
 [data-copy-status] { font-size: .86rem; }
 .creation-failure-intro { margin-bottom: .5rem; }
+.creation-failure-pr { margin: 1rem 0 .25rem; }
+.creation-failure-pr + .creation-failure-cluster { margin-top: 0; }
 .creation-failure-cluster { margin-top: .75rem; padding: .65rem .8rem; border: 1px solid var(--line); border-radius: .55rem; }
 .creation-failure-cluster h3 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
 .creation-failure-cluster h3 .summary-detail { display: inline-block; }

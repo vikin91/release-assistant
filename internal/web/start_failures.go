@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"fmt"
 	"path"
@@ -11,6 +12,11 @@ import (
 )
 
 type (
+	startFailureReport struct {
+		Key              string
+		Target           release.Target
+		Current, Earlier []startFailureCluster
+	}
 	startFailureCluster struct {
 		Name     string
 		Failures []startFailureModel
@@ -28,8 +34,34 @@ type (
 	}
 )
 
+// startFailureReports keeps observations of a shared commit scoped to each monitored ACS PR.
+func startFailureReports(plans []planModel, tab string) []startFailureReport {
+	if tab != "acs-prs" {
+		current, earlier := groupStartFailures(plans, tab, false)
+		if len(current)+len(earlier) == 0 {
+			return nil
+		}
+		return []startFailureReport{{Key: tab, Current: current, Earlier: earlier}}
+	}
+	byPR := make(map[release.Target][]planModel)
+	for _, plan := range plans {
+		if len(plan.Plan.StartFailures) > 0 {
+			target := plan.Plan.Target
+			byPR[target] = append(byPR[target], plan)
+		}
+	}
+	var reports []startFailureReport
+	for target, observations := range byPR {
+		key := fmt.Sprintf("%s-%d", tab, target.PR)
+		current, earlier := groupStartFailures(observations, key, true)
+		reports = append(reports, startFailureReport{Key: key, Target: target, Current: current, Earlier: earlier})
+	}
+	slices.SortFunc(reports, func(a, b startFailureReport) int { return cmp.Compare(a.Target.PR, b.Target.PR) })
+	return reports
+}
+
 // groupStartFailures deduplicates check evidence across the activity's monitored targets.
-func groupStartFailures(plans []planModel, tab string) (reported, earlier []startFailureCluster) {
+func groupStartFailures(plans []planModel, scope string, groupedByPR bool) (reported, earlier []startFailureCluster) {
 	groups := make(map[string][]startFailureModel)
 	positions := make(map[startFailureKey]int)
 	for _, plan := range plans {
@@ -45,7 +77,7 @@ func groupStartFailures(plans []planModel, tab string) (reported, earlier []star
 				index = len(rows)
 				positions[key] = index
 				rows = append(rows, startFailureModel{
-					Key: fmt.Sprintf("%s:%s:%d:%x", tab, key.repo, key.checkID, sha256.Sum256([]byte(cluster+"\x00"+key.fallback))), Repo: key.repo,
+					Key: fmt.Sprintf("%s:%s:%d:%x", scope, key.repo, key.checkID, sha256.Sum256([]byte(cluster+"\x00"+key.fallback))), Repo: key.repo,
 					Failure: failure,
 				})
 			}
@@ -59,7 +91,7 @@ func groupStartFailures(plans []planModel, tab string) (reported, earlier []star
 			if plan.Plan.SHA != "" && !slices.Contains(row.Commits, plan.Plan.SHA) {
 				row.Commits = append(row.Commits, plan.Plan.SHA)
 			}
-			if !slices.Contains(row.Targets, plan.Plan.Target) {
+			if !groupedByPR && !slices.Contains(row.Targets, plan.Plan.Target) {
 				row.Targets = append(row.Targets, plan.Plan.Target)
 			}
 			groups[cluster] = rows
