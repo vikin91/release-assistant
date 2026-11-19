@@ -34,9 +34,8 @@ head. Use the README and current code for the workflow. The RC.0 sections in
 
 ## Development
 
-Use the Go version in `go.mod`. It replaces `konflux-retest` with a local
-checkout. If the checkout is missing, report the setup issue before changing
-dependency resolution.
+Use the Go version in `go.mod`. Go downloads the pinned
+`github.com/vikin91/konflux-retest` module.
 
 Run `go test ./...` and `go vet ./...`. Run `go test -race ./...` for polling
 or session changes and `node --test internal/web/app_js_test.js` for browser
