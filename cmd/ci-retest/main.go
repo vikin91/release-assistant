@@ -1,4 +1,4 @@
-// Command ci-retest prints manual GitHub Actions rerun links and Prow retry comments.
+// Command ci-retest prints GitHub Actions rerun links and commands, and Prow retry comments.
 package main
 
 import (
@@ -54,7 +54,7 @@ func targets(args []string, diagnostics io.Writer) ([]release.Target, error) {
 
 Choose one list and put it last. Spaces and commas are accepted. Short
 repository names use the stackrox owner. Default: stackrox/stackrox.
-Prints manual job rerun links and a PR-wide /retest comment for failed
+Prints job rerun links, gh api commands, and a PR-wide /retest comment for failed
 OpenShift CI presubmits. Only reads GitHub. Authentication: GH_TOKEN,
 GITHUB_TOKEN, or a saved gh login. Read access to Actions, checks,
 commit statuses, contents and pull requests is needed.`)
@@ -144,10 +144,17 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader 
 		default:
 			fmt.Fprintln(out, "\nNext action: None")
 		}
-		for _, job := range report.Jobs {
+		for j, job := range report.Jobs {
+			if j > 0 {
+				fmt.Fprintln(out)
+			}
 			fmt.Fprintf(out, "Open job and choose Re-run (includes dependent jobs): %s\n%s\n", job.Name, job.URL)
+			fmt.Fprintf(out, "gh api --method POST repos/%s/actions/jobs/%d/rerun\n", t.Repo, job.ID)
 		}
 		if len(report.Prow) > 0 {
+			if len(report.Jobs) > 0 {
+				fmt.Fprintln(out)
+			}
 			fmt.Fprintf(out, "Failed Prow checks: %s\nPost once on %s (PR-wide; other CI may also respond):\n/retest\n", strings.Join(report.Prow, ", "), report.URL)
 		}
 		fmt.Fprintln(out, "\nWarnings:")

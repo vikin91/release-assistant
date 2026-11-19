@@ -28,8 +28,11 @@ type (
 		Jobs           []ManualJob
 		Prow, Warnings []string
 	}
-	// ManualJob links to the exact Actions job whose rerun control the engineer can use.
-	ManualJob struct{ Name, URL string }
+	// ManualJob identifies the Actions job for a manual rerun on GitHub or with the CLI.
+	ManualJob struct {
+		ID        int64
+		Name, URL string
+	}
 
 	retryBranch struct {
 		SHA, Ref string
@@ -324,7 +327,12 @@ func (c *Client) retryRunJobs(ctx context.Context, t release.Target, pr retryPR,
 			missing = append(missing, check.Name)
 			continue
 		}
-		offers = append(offers, ManualJob{check.Name, fmt.Sprintf("https://github.com/%s/actions/runs/%d/job/%d", t.Repo, run.ID, matches[0].ID)})
+		jobID := matches[0].ID
+		offers = append(offers, ManualJob{
+			ID:   jobID,
+			Name: check.Name,
+			URL:  fmt.Sprintf("https://github.com/%s/actions/runs/%d/job/%d", t.Repo, run.ID, jobID),
+		})
 	}
 	if len(missing) > 0 {
 		return offers, "no unique failed job in current attempt for " + strings.Join(missing, ", "), nil

@@ -47,8 +47,22 @@ func TestCLIReports(t *testing.T) {
 	const sha = "1111111111111111111111111111111111111111"
 	const pr = `{"state":"open","number":7,"base":{"ref":"master","repo":{"id":1}},"head":{"sha":"` + sha + `","repo":{"id":2}}}`
 	const statuses = `[{"context":"ci/prow/build","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/build/123"},{"context":"ci/prow/test","state":"pending"},{"context":"ci/prow/test","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/test/345"}]`
-	const checks = `{"total_count":1,"check_runs":[{"id":41,"name":"matrix build","status":"completed","conclusion":"failure","head_sha":"` + sha + `","app":{"slug":"github-actions"},"check_suite":{"id":11}}]}`
-	const jobs = `{"total_count":1,"jobs":[{"id":99,"status":"completed","conclusion":"failure","check_run_url":"https://api.github.com/repos/stackrox/stackrox/check-runs/41"}]}`
+	const checks = `{"total_count":2,"check_runs":[
+		{"id":41,"name":"matrix build","status":"completed","conclusion":"failure","head_sha":"` + sha + `","app":{"slug":"github-actions"},"check_suite":{"id":11}},
+		{"id":42,"name":"unit tests","status":"completed","conclusion":"failure","head_sha":"` + sha + `","app":{"slug":"github-actions"},"check_suite":{"id":11}}
+	]}`
+	const jobs = `{"total_count":2,"jobs":[
+		{"id":99,"status":"completed","conclusion":"failure","check_run_url":"https://api.github.com/repos/stackrox/stackrox/check-runs/41"},
+		{"id":101,"status":"completed","conclusion":"failure","check_run_url":"https://api.github.com/repos/stackrox/stackrox/check-runs/42"}
+	]}`
+	const jobOutput = `Open job and choose Re-run (includes dependent jobs): matrix build
+https://github.com/stackrox/stackrox/actions/runs/22/job/99
+gh api --method POST repos/stackrox/stackrox/actions/jobs/99/rerun
+
+Open job and choose Re-run (includes dependent jobs): unit tests
+https://github.com/stackrox/stackrox/actions/runs/22/job/101
+gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
+
 	for name, tc := range map[string]struct {
 		args              []string
 		workflow, ref     string
@@ -56,10 +70,10 @@ func TestCLIReports(t *testing.T) {
 		want, absent      []string
 		code              int
 	}{
-		"PR reports both actions and continues past missing target": {args: []string{"--prs", "8,7", "7"}, want: []string{"HTTP 404", "https://github.com/stackrox/stackrox/actions/runs/22/job/99", "Post once on https://github.com/stackrox/stackrox/pull/7", "\n/retest\n"}, absent: []string{"ci/prow/test"}, code: 1},
+		"PR reports both actions and continues past missing target": {args: []string{"--prs", "8,7", "7"}, want: []string{"HTTP 404", jobOutput + "\n\nFailed Prow checks:", "Post once on https://github.com/stackrox/stackrox/pull/7", "\n/retest\n"}, absent: []string{"ci/prow/test"}, code: 1},
 		"PR head moved after observation":                           {args: []string{"--prs", "7"}, moved: true, want: []string{"target identity could not be reconfirmed"}, absent: []string{"/job/99", "\n/retest\n"}, code: 1},
 		"job for different check":                                   {args: []string{"--prs", "7"}, otherCheck: true, want: []string{"no unique failed job", "\n/retest\n"}, absent: []string{"/job/99"}},
-		"tag only push":                                             {args: []string{"--tags", "rc"}, workflow: "on:\n  push:\n    tags: ['*']\n", want: []string{"Tag: rc", "/commit/" + sha, "/job/99"}, absent: []string{"\n/retest\n"}},
+		"tag only push":                                             {args: []string{"--tags", "rc"}, workflow: "on:\n  push:\n    tags: ['*']\n", want: []string{"Tag: rc", "/commit/" + sha, jobOutput + "\n\nWarnings:"}, absent: []string{"\n/retest\n"}},
 		"tag proven by local workflow":                              {args: []string{"--tags", "rc"}, workflow: "jobs:\n  build:\n    uses: ./.github/workflows/build.yml\n", ref: "refs/tags/rc", want: []string{"/job/99"}},
 		"same name branch push":                                     {args: []string{"--tags", "rc"}, workflow: "jobs:\n  build:\n    uses: ./.github/workflows/build.yml\n", ref: "refs/heads/rc", want: []string{"tag trigger unproven"}, absent: []string{"/job/99", "\n/retest\n"}},
 		"separately pinned reusable workflow":                       {args: []string{"--tags", "rc"}, workflow: "jobs:\n  build:\n    uses: stackrox/stackrox/.github/workflows/build.yml@rc\n", ref: "refs/tags/rc", want: []string{"tag trigger unproven"}, absent: []string{"/job/99"}},
@@ -104,7 +118,7 @@ func TestCLIReports(t *testing.T) {
 					fmt.Fprint(w, `{"state":"active"}`)
 				case "/actions/runs/22/attempts/1/jobs":
 					if tc.otherCheck {
-						fmt.Fprint(w, strings.ReplaceAll(jobs, "check-runs/41", "check-runs/99"))
+						fmt.Fprint(w, strings.ReplaceAll(jobs, "check-runs/4", "check-runs/9"))
 						return
 					}
 					fmt.Fprint(w, jobs)
