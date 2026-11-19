@@ -61,6 +61,11 @@ func TestRCValidationShowsExceptionsAndReusesExactTagRetest(t *testing.T) {
 			if strings.Index(panel, `id="release-images-panel"`) > strings.Index(panel, `id="rc-validation"`) {
 				t.Fatal("the image summary should appear above validation when the images are available")
 			}
+			for _, label := range []string{"Release candidate image checks", "RC validation checks"} {
+				if !strings.Contains(panel, `class="component-image-table-scroll" role="region" aria-label="`+label+`" tabindex="0"`) {
+					t.Errorf("missing keyboard-focusable scroll region for %q", label)
+				}
+			}
 			validation := between(t, panel, `id="rc-validation"`, "</section>")
 			table := between(t, validation, `<table class="rc-validation-checks"`, "</table>")
 			if strings.Count(table, `<tr data-live-key="rc-validation:`) != 6 ||
