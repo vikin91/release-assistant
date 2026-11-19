@@ -169,12 +169,14 @@ func (d *Dispatcher) Ignore(t release.Target, ignored bool) {
 func (d *Dispatcher) Interactive(on bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.interactive = on
+	if d.interactive != on {
+		d.interactive = on
+		d.event(release.Target{}, "", "interactive", "", fmt.Sprint(on), "user")
+	}
 	for _, s := range d.targets {
 		clear(s.approved)
 		s.epoch++
 	}
-	d.event(release.Target{}, "", "interactive", "", fmt.Sprint(on), "user")
 }
 
 // WritesEnabled reports the immutable startup permission for grants and dispatch.

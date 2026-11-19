@@ -204,6 +204,16 @@ func discoverySummary(request DiscoveryRequest, repo release.Repository, incompl
 	return message
 }
 
+func settingChangeMessage[T int | bool](name string, before, after T) string {
+	return fmt.Sprintf("Setting changed: %q from '%v' to '%v'.", name, before, after)
+}
+
+func recordSettingChange[T int | bool](s *Session, name string, before T, after *T) {
+	if after != nil && before != *after {
+		s.record(release.Target{}, "", "setting-changed", "", settingChangeMessage(name, before, *after), "user")
+	}
+}
+
 // recordMessage translates audit decisions into sentences for the CLI.
 func recordMessage(r Record) string {
 	if r.message != "" {
@@ -254,10 +264,8 @@ func recordMessage(r Record) string {
 		}
 		return fmt.Sprintf("Considering retry suggestions in %s.", target)
 	case "interactive":
-		if r.Result == "true" {
-			return "Retry comments require confirmation."
-		}
-		return "Retry comments no longer require confirmation. Permission is still required for each target."
+		on := r.Result == "true"
+		return settingChangeMessage("Confirm each retry comment", !on, on)
 	case "revoked":
 		return fmt.Sprintf("Revoked permission to post retry comments in %s because the target changed or no longer allows writes.", target)
 	case "reject":

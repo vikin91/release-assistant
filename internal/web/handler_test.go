@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"net/url"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -160,6 +162,52 @@ func TestSaveApplicationSettingsTogether(t *testing.T) {
 	if resp := b.post(fields); resp.Code != http.StatusSeeOther || !session.Snapshot().Interactive || !cache.Enabled() {
 		t.Fatal("save did not apply both checked settings")
 	}
+}
+
+func TestSettingsSaveLogsOnlyCommittedChanges(t *testing.T) {
+	var output bytes.Buffer
+	log := app.NewLog(&output)
+	session := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{EnableWrites: true}), log, app.Options{
+		Initial: validACS5Config(), GitHubReads: githubread.New(nil), Cache: github.NewCommitWindowCache(nil),
+	})
+	b := newBrowser(t, session)
+	values := url.Values{
+		"kind": {"application-settings"}, "generation": {fmt.Sprint(session.Snapshot().Generation)},
+		"startup_read_limit": {"5"}, "ongoing_read_limit": {"2"}, "interactive": {"false"}, "cache": {"false"},
+	}
+	checkSave := func(status int, want ...string) {
+		t.Helper()
+		output.Reset()
+		offset := len(log.Recent())
+		if response := b.post(values); response.Code != status {
+			t.Fatalf("save returned HTTP %d, want %d", response.Code, status)
+		}
+		var got []string
+		for _, entry := range log.Recent()[offset:] {
+			got = append(got, entry.Message())
+			if entry.Level() != "Info" || !strings.Contains(output.String(), " Info: "+entry.Message()+"\n") {
+				t.Errorf("missing console Info line for %q", entry.Message())
+			}
+		}
+		slices.Sort(got)
+		slices.Sort(want)
+		if !slices.Equal(got, want) || strings.Count(output.String(), "\n") != len(want) {
+			t.Fatalf("activity = %q, console = %q, want %q", got, output.String(), want)
+		}
+	}
+	checkSave(http.StatusSeeOther,
+		`Setting changed: "Concurrent GitHub reads (first 5 minutes)" from '3' to '5'.`,
+		`Setting changed: "Concurrent GitHub reads (after 5 minutes)" from '1' to '2'.`,
+		`Setting changed: "Confirm each retry comment" from 'true' to 'false'.`,
+		`Setting changed: "Reuse GitHub commit history in memory" from 'true' to 'false'.`,
+	)
+	checkSave(http.StatusSeeOther)
+	values.Del("startup_read_limit")
+	values.Set("interactive", "true")
+	values.Set("ongoing_read_limit", "4")
+	checkSave(http.StatusConflict)
+	values.Set("ongoing_read_limit", "2")
+	checkSave(http.StatusSeeOther, `Setting changed: "Confirm each retry comment" from 'false' to 'true'.`)
 }
 
 func TestGETDoesNotMutateAndRendersIndependentPRControls(t *testing.T) {

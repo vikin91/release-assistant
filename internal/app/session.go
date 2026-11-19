@@ -276,15 +276,20 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			if s.options.GitHubReads == nil {
 				return fmt.Errorf("GitHub read settings are unavailable")
 			}
+			startup, ongoing := s.options.GitHubReads.ReadLimits()
 			if err := s.options.GitHubReads.SetReadLimits(a.StartupReadLimit, a.OngoingReadLimit); err != nil {
 				return err
 			}
+			recordSettingChange(s, "Concurrent GitHub reads (first 5 minutes)", startup, a.StartupReadLimit)
+			recordSettingChange(s, "Concurrent GitHub reads (after 5 minutes)", ongoing, a.OngoingReadLimit)
 		}
 		if a.Interactive != nil && s.dispatcher.IsInteractive() != *a.Interactive {
 			s.dispatcher.Interactive(*a.Interactive)
 		}
 		if a.CacheEnabled != nil {
+			previous := s.options.Cache.Enabled()
 			s.options.Cache.SetEnabled(*a.CacheEnabled)
+			recordSettingChange(s, "Reuse GitHub commit history in memory", previous, a.CacheEnabled)
 		}
 		s.drain()
 		return nil
