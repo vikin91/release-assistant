@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -68,6 +69,7 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 	for name, tc := range map[string]struct {
 		args                             []string
 		workflow, ref                    string
+		workflowName, workflowPath       string
 		moved, otherCheck, missingConfig bool
 		want, absent                     []string
 		code                             int
@@ -80,16 +82,20 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 		"tag proven by local workflow":                              {args: []string{"--tags", "rc"}, workflow: "jobs:\n  build:\n    uses: ./.github/workflows/build.yml\n", ref: "refs/tags/rc", want: []string{"/job/99"}},
 		"same name branch push":                                     {args: []string{"--tags", "rc"}, workflow: "jobs:\n  build:\n    uses: ./.github/workflows/build.yml\n", ref: "refs/heads/rc", want: []string{"tag trigger unproven"}, absent: []string{"/job/99", "\n/retest\n", "/test build-job"}},
 		"separately pinned reusable workflow":                       {args: []string{"--tags", "rc"}, workflow: "jobs:\n  build:\n    uses: stackrox/stackrox/.github/workflows/build.yml@rc\n", ref: "refs/tags/rc", want: []string{"tag trigger unproven"}, absent: []string{"/job/99"}},
+		"Konflux image wait on a tag":                               {args: []string{"--tags", "rc"}, workflowName: "Test Konflux builds", workflowPath: ".github/workflows/konflux.yml", workflow: "on:\n  push:\n    tags: ['*']\n", want: []string{"konflux-retest"}, absent: []string{"gh api --method POST"}},
+		"Konflux tests with a renamed workflow on a PR":             {args: []string{"--prs", "7"}, workflowName: "Image checks", workflowPath: ".github/workflows/konflux-tests.yml", want: []string{"konflux-retest", "/test build-job"}, absent: []string{"gh api --method POST"}},
+		"Konflux tests with a renamed workflow file":                {args: []string{"--prs", "7"}, workflowName: "Test Konflux builds", want: []string{"konflux-retest"}, absent: []string{"gh api --method POST"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			reads := 0
 			event, ref := "pull_request", "feature"
-			workflowName := "Scan images for vulnerabilities"
+			workflowName := cmp.Or(tc.workflowName, "Scan images for vulnerabilities")
+			workflowPath := cmp.Or(tc.workflowPath, ".github/workflows/ci.yml")
 			if tc.args[0] == "--tags" {
 				event, ref = "push", "rc"
 				workflowName += " (rc)"
 			}
-			runData := fmt.Sprintf(`{"id":22,"name":%q,"path":".github/workflows/ci.yml","workflow_id":33,"check_suite_id":11,"head_sha":%q,"head_branch":%q,"event":%q,"run_attempt":1,"run_number":2,"status":"completed","created_at":%q,"pull_requests":[%s],"referenced_workflows":[{"path":"stackrox/stackrox/.github/workflows/build.yml@%s","ref":%q,"sha":%q}]}`, workflowName, sha, ref, event, time.Now().UTC().Format(time.RFC3339), pr, sha, tc.ref, sha)
+			runData := fmt.Sprintf(`{"id":22,"name":%q,"path":%q,"workflow_id":33,"check_suite_id":11,"head_sha":%q,"head_branch":%q,"event":%q,"run_attempt":1,"run_number":2,"status":"completed","created_at":%q,"pull_requests":[%s],"referenced_workflows":[{"path":"stackrox/stackrox/.github/workflows/build.yml@%s","ref":%q,"sha":%q}]}`, workflowName, workflowPath, sha, ref, event, time.Now().UTC().Format(time.RFC3339), pr, sha, tc.ref, sha)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != "GET" {
 					t.Errorf("unexpected method %s", r.Method)
@@ -142,12 +148,16 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 					}
 					fmt.Fprint(w, statuses)
 				case "/commits/" + sha + "/check-runs":
+					if tc.workflowName != "" {
+						fmt.Fprint(w, strings.NewReplacer("Konflux: release-central-db:rc", "wait-for-images", "unit tests", "run-konflux-tests / integration-tests (fedora-coreos)").Replace(checks))
+						return
+					}
 					fmt.Fprint(w, checks)
 				case "/actions/runs":
 					fmt.Fprintf(w, `{"total_count":1,"workflow_runs":[%s]}`, runData)
 				case "/actions/runs/22":
 					fmt.Fprint(w, runData)
-				case "/contents/.github/workflows/ci.yml":
+				case "/contents/" + workflowPath:
 					fmt.Fprintf(w, `{"encoding":"base64","content":%q}`, base64.StdEncoding.EncodeToString([]byte(tc.workflow)))
 				case "/actions/workflows/33":
 					fmt.Fprint(w, `{"state":"active"}`)

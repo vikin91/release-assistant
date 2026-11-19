@@ -267,6 +267,12 @@ func (c *Client) retryRunJobs(ctx context.Context, t release.Target, pr retryPR,
 	if t.Tag != "" && (run.Event != "push" || run.Ref != t.Tag) {
 		return nil, "run belongs to another ref or event", nil
 	}
+	// Collector and FACT use Actions to wait for and test images built by Konflux.
+	// Only the Konflux planner can identify a build eligible for a retry comment.
+	if strings.EqualFold(strings.TrimSuffix(run.Name, " ("+t.Tag+")"), "Test Konflux builds") ||
+		run.Path == ".github/workflows/konflux.yml" || run.Path == ".github/workflows/konflux-tests.yml" {
+		return nil, "Use konflux-retest to check the underlying build for an eligible retry comment.", nil
+	}
 	if run.Status != "completed" {
 		return nil, "run is still active", nil
 	}
