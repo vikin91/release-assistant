@@ -50,6 +50,8 @@ func New(application Application) (http.Handler, error) {
 		return nil, errors.New("web application is required")
 	}
 	page, err := template.New("index.html").Funcs(template.FuncMap{
+		"manualRetryWarning":          func() string { return release.ManualRetryWarning },
+		"prowRetryComment":            func() string { return release.ProwRetryComment },
 		"retryCommentPermissionLabel": func() string { return retryCommentPermissionLabel },
 		"pinVersion":                  pinVersion, "pinDiffers": pinDiffers,
 		"tabPage": tabPage, "tabTitle": tabTitle, "tabHelp": tabHelp, "tabStep": tabStep,

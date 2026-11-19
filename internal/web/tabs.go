@@ -93,6 +93,11 @@ func tabPage(page pageModel, tab string) pageModel {
 		}
 	}
 	page.Plans = plans
+	for _, report := range page.Snapshot.ManualRetries {
+		if matchesTarget(report.Target) {
+			page.ManualRetries = append(page.ManualRetries, report)
+		}
+	}
 	page.StartFailureClusters, page.EarlierStartFailureClusters = groupStartFailures(plans, tab)
 	authority := make([]authorityModel, 0, len(page.Authority))
 	for _, view := range page.Authority {

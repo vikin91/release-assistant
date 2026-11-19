@@ -162,6 +162,8 @@ A PR head or target branch change revokes its grant. The `no-release-assistant` 
 
 Before sending, the assistant rechecks the target, current permission, eligible run, and exact comment. By default, it waits at least one minute between comments on a target. After ten distinct consecutive unsuccessful eligible runs for a job on the same target and commit, it waits at least an hour between comments for that job. Repeated polls do not increase the failure count. If delivery is uncertain, the assistant records it and waits for the cooldown before reconsidering.
 
+The **Manual CI retries** section on each workflow tab shows GitHub Actions job links and copyable `gh api` commands for monitored targets. For failed Prow presubmits, copy `/retest` and post it once on the linked PR. This PR-wide comment can also trigger Actions retries. These options are available in read-only mode.
+
 ## Standalone CI retry CLI
 
 Use `ci-retest` to check GitHub Actions jobs and OpenShift CI presubmits independently of the dashboard. It accepts the same target lists and GitHub credentials as `konflux-retest`.

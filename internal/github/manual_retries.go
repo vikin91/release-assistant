@@ -23,17 +23,9 @@ const openshiftCIReporterID = 75433959
 
 type (
 	// ManualRetryReport holds human-executable offers for the observed target.
-	ManualRetryReport struct {
-		URL            string
-		Jobs           []ManualJob
-		Prow, Warnings []string
-	}
-	// ManualJob identifies the Actions job for a manual rerun on GitHub or with the CLI.
-	ManualJob struct {
-		ID           int64
-		Name, URL    string
-		WorkflowName string
-	}
+	ManualRetryReport = release.ManualRetryReport
+	// ManualJob identifies an Actions job for a manual rerun.
+	ManualJob = release.ManualJob
 
 	retryBranch struct {
 		SHA, Ref string
@@ -96,7 +88,7 @@ func (c *Client) retryTarget(ctx context.Context, t release.Target) (retryPR, er
 // ManualRetries collects Actions job links and the failed presubmits covered by one PR-wide comment.
 // Read errors can accompany independent offers for the same verified target.
 func (c *Client) ManualRetries(ctx context.Context, t release.Target) (ManualRetryReport, error) {
-	var report ManualRetryReport
+	report := ManualRetryReport{Target: t}
 	if !release.ValidRepo(t.Repo) || !(t.PR > 0 && t.Tag == "" || t.PR == 0 && ValidRetryTag(t.Tag)) {
 		return report, errors.New("invalid retry target")
 	}
@@ -109,6 +101,7 @@ func (c *Client) ManualRetries(ctx context.Context, t release.Target) (ManualRet
 	if err != nil {
 		return report, err
 	}
+	report.SHA = pr.Head.SHA
 	if t.Tag != "" {
 		report.URL = base + "/commit/" + pr.Head.SHA
 	} else if pr.State != "open" {

@@ -36,6 +36,10 @@ type (
 	Planner interface {
 		Plan(context.Context, release.Target) (release.Plan, error)
 	}
+	// ManualRetryReader discovers instructions that only the engineer can execute.
+	ManualRetryReader interface {
+		ManualRetries(context.Context, release.Target) (release.ManualRetryReport, error)
+	}
 	// RCCheckReader resolves the candidate tag and reads checks on its commit.
 	RCCheckReader interface {
 		ReadRCChecks(context.Context, release.Target) release.Validation

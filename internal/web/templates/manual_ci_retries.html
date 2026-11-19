@@ -1,0 +1,29 @@
+{{define "manual-ci-retries"}}
+<section class="panel" aria-label="Manual CI retries">
+  <h3 class="section-summary">Manual CI retries</h3>
+  {{range $report := .}}
+    <article class="build-retry-target" data-live-key="manual-ci:{{.Target}}">
+      <h4>{{.Target}}</h4>
+      {{if or .Jobs .Prow}}<p class="muted">Available retries for commit <code>{{.SHA}}</code>. {{manualRetryWarning}}</p>{{end}}
+      {{range .Jobs}}
+        <div class="proposal" data-live-key="manual-job:{{$report.Target}}:{{.ID}}">
+          <a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">{{if .WorkflowName}}{{.WorkflowName}} / {{end}}{{.Name}}</a>
+          <div class="copyable-text">
+            <pre><code>{{.RerunCommand $report.Target.Repo}}</code></pre>
+            <div class="copy-text-actions"><button type="button" data-copy-text>Copy command</button><span role="status" data-copy-status data-live-preserve></span></div>
+          </div>
+        </div>
+      {{end}}
+      {{if .Prow}}
+        <p>Failed Prow checks: {{range $i, $name := .Prow}}{{if $i}}, {{end}}{{$name}}{{end}}</p>
+        <p>Post this comment once on <a aria-describedby="new-tab-description" href="{{url .URL}}#new_comment_field" target="_blank" rel="noreferrer">PR #{{.Target.PR}}</a>. It applies to the whole PR and can also trigger Actions retries.</p>
+        <div class="copyable-text">
+          <pre><code>{{prowRetryComment}}</code></pre>
+          <div class="copy-text-actions"><button type="button" data-copy-text>Copy comment</button><span role="status" data-copy-status data-live-preserve></span></div>
+        </div>
+      {{end}}
+      {{if .Warnings}}<details data-fold-key="manual-ci-warnings:{{.Target}}"><summary>Retry diagnostics</summary><ol>{{range .Warnings}}<li>{{.}}</li>{{end}}</ol></details>{{end}}
+    </article>
+  {{end}}
+</section>
+{{end}}

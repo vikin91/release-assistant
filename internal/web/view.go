@@ -27,6 +27,7 @@ type (
 		TagCounts                                                tagSelectionCounts
 		Problems                                                 []release.Condition
 		Plans                                                    []planModel
+		ManualRetries                                            []release.ManualRetryReport
 		KonfluxStatus                                            []konfluxClusterStatus
 		StartFailureClusters                                     []startFailureCluster
 		EarlierStartFailureClusters                              []startFailureCluster

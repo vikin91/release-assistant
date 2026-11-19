@@ -21,6 +21,7 @@ type (
 		Poll, Discovery, BackoffCap, Timeout time.Duration
 		Initial                              release.Config
 		Cache                                DiscoveryCache
+		ManualRetries                        ManualRetryReader
 	}
 	// Cycle retains observed builds and images when a confirmed component tag changes.
 	Cycle struct {
@@ -36,6 +37,7 @@ type (
 		Repositories                 []release.Repository
 		Inventory                    release.Inventory
 		Plans                        []release.Plan
+		ManualRetries                []release.ManualRetryReport
 		Assessment                   release.Assessment
 		Authority                    []dispatch.View
 		Interactive                  bool
@@ -72,6 +74,7 @@ type (
 		choices         release.Choices
 		repos           map[string]release.Repository
 		plans           map[release.Target]release.Plan
+		manualRetries   map[release.Target]release.ManualRetryReport
 		inventory       release.Inventory
 		confirmedSHAs   map[string]string
 		tagInitialized  map[string]bool
@@ -124,6 +127,7 @@ func (s *Session) reset() {
 	s.choices = release.Choices{PRs: map[release.Target]release.Choice{}, Tags: map[string]string{}, Acknowledged: map[string]bool{}}
 	s.repos = map[string]release.Repository{}
 	s.plans = map[release.Target]release.Plan{}
+	s.manualRetries = map[release.Target]release.ManualRetryReport{}
 	s.confirmedSHAs = map[string]string{}
 	s.tagInitialized = map[string]bool{}
 	s.nextSourceCheck = map[string]time.Time{}
@@ -386,6 +390,7 @@ func (s *Session) archiveTag(component, repo string) {
 	s.history = append(s.history, cycle)
 	s.dispatcher.Ignore(target, true)
 	delete(s.plans, target)
+	delete(s.manualRetries, target)
 }
 
 func (s *Session) setPRChoice(target release.Target, sha string, choice release.Choice) {
@@ -394,6 +399,7 @@ func (s *Session) setPRChoice(target release.Target, sha string, choice release.
 	s.dispatcher.Ignore(target, ignored)
 	if ignored {
 		delete(s.plans, target)
+		delete(s.manualRetries, target)
 	}
 	s.record(target, sha, "inclusion", "", string(choice), "user")
 }
@@ -463,8 +469,10 @@ func (s *Session) Snapshot() Snapshot {
 		x.History = append(x.History, cycle)
 	}
 	for _, r := range s.repos {
+		x.ManualRetries = append(x.ManualRetries, s.currentManualRetries(r)...)
 		x.Repositories = append(x.Repositories, cloneRepository(r))
 	}
+	slices.SortFunc(x.ManualRetries, func(a, b release.ManualRetryReport) int { return strings.Compare(a.Target.String(), b.Target.String()) })
 	slices.SortFunc(x.Repositories, func(a, b release.Repository) int {
 		if a.Source.Name < b.Source.Name {
 			return -1
@@ -1003,6 +1011,9 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 				}
 			}
 		}
+	}
+	if work.plans {
+		s.refreshManualRetries(ctx, generation, revision, source)
 	}
 	s.mu.Lock()
 	if generation == s.generation && discover {

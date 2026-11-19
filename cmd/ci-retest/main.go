@@ -152,19 +152,19 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader 
 				fmt.Fprintf(out, "%s / ", job.WorkflowName)
 			}
 			fmt.Fprintf(out, "%s\n%s\n", job.Name, job.URL)
-			fmt.Fprintf(out, "gh api --method POST repos/%s/actions/jobs/%d/rerun\n", t.Repo, job.ID)
+			fmt.Fprintln(out, job.RerunCommand(t.Repo))
 		}
 		if len(report.Prow) > 0 {
 			if len(report.Jobs) > 0 {
 				fmt.Fprintln(out)
 			}
-			fmt.Fprintf(out, "Failed Prow checks: %s\nPost once on %s (PR-wide; other CI may also respond):\n/retest\n", strings.Join(report.Prow, ", "), report.URL)
+			fmt.Fprintf(out, "Failed Prow checks: %s\nPost once on %s (PR-wide; other CI may also respond):\n%s\n", strings.Join(report.Prow, ", "), report.URL, release.ProwRetryComment)
 		}
 		fmt.Fprintln(out, "\nWarnings:")
 		for _, w := range report.Warnings {
 			fmt.Fprintln(out, w)
 		}
-		fmt.Fprintln(out, "This tool cannot tell flakes from true failures. Inspect each failure before retrying.")
+		fmt.Fprintln(out, release.ManualRetryWarning)
 		if ctx.Err() != nil {
 			return 1
 		}

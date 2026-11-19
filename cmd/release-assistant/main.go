@@ -82,6 +82,7 @@ func run() error {
 	windowCache := github.NewCommitWindowCache(log.CommitWindowCacheHits)
 	gh := github.New("", credentials.github, client).WithCommitWindowCache(windowCache)
 	options.Cache = windowCache
+	options.ManualRetries = gh
 	planner := konflux.New(konflux.Config{
 		GitHubToken: credentials.github, QuayUsername: credentials.quayUser, QuayPassword: credentials.quayPassword,
 		HTTPClient: client, KonfluxToken: credentials.clusterToken, AllowKonfluxLookup: allowedLookups.allows,
