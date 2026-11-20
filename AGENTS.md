@@ -75,6 +75,28 @@ Run `go test ./...` and `go vet ./...`. Run `go test -race ./...` for polling
 or session changes and `node --test internal/web/app_js_test.js` for browser
 JavaScript changes. Use the README's fixture server for manual UI checks.
 
+### Run Go lint
+
+The `golangci-lint` on `PATH` is a StackRox wrapper that looks for
+`.gotools/bin/golangci-lint`. From the Release Assistant repository root, use
+the standalone v2 binary by absolute path. Put the caches in writable paths.
+
+```sh
+GOCACHE=/tmp/release-assistant-go-cache \
+GOLANGCI_LINT_CACHE=/tmp/release-assistant-lint-cache \
+  /tmp/acs-tools/golangci-lint run ./...
+```
+
+Check the build version with `/tmp/acs-tools/golangci-lint version`. If the
+binary is missing or its Go version is older than the version in `go.mod`,
+build it with a compatible Go toolchain. Then run the lint command above.
+
+```sh
+mkdir -p /tmp/acs-tools
+GOCACHE=/tmp/release-assistant-go-cache GOBIN=/tmp/acs-tools \
+  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+```
+
 ## Local commits
 
 Implementation requests in this repository authorize a local commit by default.
