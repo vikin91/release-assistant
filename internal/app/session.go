@@ -940,7 +940,8 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		if canceled(ctx) {
 			return ctx.Err()
 		}
-		if err != nil && (!isRC || work.scheduled) {
+		// Keep the normal cadence when the task contract mismatch is the only error.
+		if err != nil && (!isRC || work.scheduled) && (!work.scheduled || !konflux.IsUnsupportedRetagTask(err)) {
 			errs = append(errs, fmt.Errorf("reading build results for %s: %w", consoleRevision(target, plan.SHA), err))
 		}
 		s.mu.Lock()

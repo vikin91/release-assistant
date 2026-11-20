@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+	"errors"
+	"slices"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -9,6 +12,76 @@ import (
 	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
 )
+
+type buildPollPlanner func(context.Context, release.Target) (release.Plan, error)
+
+func (f buildPollPlanner) Plan(ctx context.Context, target release.Target) (release.Plan, error) {
+	return f(ctx, target)
+}
+
+func TestBuildPollBackoffDistinguishesUnsupportedRetagTasks(t *testing.T) {
+	contract := errors.New("invalid .tekton/retag-pipeline.yaml: unsupported pinned task implementation for determine-input-image-tag; update the consumer contract before suggesting a retest")
+	for name, readErr := range map[string]error{
+		"contract mismatch alone keeps the normal interval":    nil,
+		"contract mismatch with an unavailable read backs off": context.DeadlineExceeded,
+	} {
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				s, f := newFixture()
+				config := configuration()
+				source := config.ACS()
+				bad := release.Target{Repo: source.Repo, PR: 1}
+				good := release.Target{Repo: source.Repo, PR: 2}
+				repo := f.repos[source.Name]
+				repo.PRs = []release.PR{
+					{Target: bad, SHA: "bad-head", State: "open", Base: source.Branch, Evidence: observed()},
+					{Target: good, SHA: "good-head", State: "open", Base: source.Branch, Evidence: observed()},
+				}
+				f.repos[source.Name] = repo
+				apply(t, s, Action{Kind: "configure", Config: config})
+				if err := fetchSourcePolls(t, s, source, pollPRs); err != nil {
+					t.Fatal(err)
+				}
+				for _, target := range []release.Target{bad, good} {
+					apply(t, s, Action{Kind: "choice", Target: target, Choice: release.Included})
+				}
+
+				planErr := errors.Join(errors.Join(contract, contract), readErr)
+				healthyReads := 0
+				s.planner = buildPollPlanner(func(_ context.Context, target release.Target) (release.Plan, error) {
+					if target == bad {
+						return release.Plan{Target: target, SHA: "bad-head", Evidence: release.Evidence{At: time.Now(), Error: planErr.Error()}}, planErr
+					}
+					healthyReads++
+					return release.Plan{Target: target, SHA: "good-head", Evidence: observed()}, nil
+				})
+				s.options.RefreshIntervals[KonfluxBuilds] = time.Minute
+				jobs := s.pollJobs(source)
+				i := slices.IndexFunc(jobs, func(job pollJob) bool { return job.kind == pollBuilds })
+				if i < 0 {
+					t.Fatal("missing build poll for included PRs")
+				}
+				poll := func() {
+					ctx, usage := githubread.Track(t.Context(), 80)
+					s.runPoll(ctx, s.generation, s.workRevision, source, jobs[i], false, usage)
+				}
+				poll()
+				time.Sleep(time.Minute)
+				poll()
+				wantReads := 2
+				if readErr != nil {
+					wantReads = 1
+				}
+				if healthyReads != wantReads {
+					t.Fatalf("healthy PR received %d reads, want %d", healthyReads, wantReads)
+				}
+				if plan := s.plans[bad]; !strings.Contains(plan.Evidence.Error, contract.Error()) || plan.Evidence.Fresh() || len(plan.Proposals) != 0 {
+					t.Fatalf("unsupported retag diagnostic lost or became eligible: %+v", plan)
+				}
+			})
+		})
+	}
+}
 
 func pollCount(f *fixture, source string, scope DiscoveryScope) int {
 	f.mu.Lock()

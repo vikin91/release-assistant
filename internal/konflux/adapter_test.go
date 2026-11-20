@@ -189,6 +189,28 @@ func TestPublicAdapterPreservesActionableIdentityErrors(t *testing.T) {
 	}
 }
 
+func TestIsUnsupportedRetagTask(t *testing.T) {
+	contract := errors.New("invalid .tekton/retag-pipeline.yaml: unsupported pinned task implementation for determine-input-image-tag; update the consumer contract before suggesting a retest")
+	for name, tc := range map[string]struct {
+		err  error
+		want bool
+	}{
+		"joined duplicates in adapter diagnostic": {
+			&observationError{message: contract.Error() + "\nSome Konflux reads were deferred by endpoint backoff.", cause: errors.Join(errors.Join(contract, contract))},
+			true,
+		},
+		"a joined timeout still requires backoff": {errors.Join(contract, context.DeadlineExceeded), false},
+		"an error that quotes the diagnostic":     {errors.New("remote error: " + contract.Error()), false},
+		"no error":                                {nil, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := IsUnsupportedRetagTask(tc.err); got != tc.want {
+				t.Fatalf("IsUnsupportedRetagTask(%v) = %t, want %t", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestPublicAdapterFiltersChecksBeforeStartupPolicy(t *testing.T) {
 	for name, tc := range map[string]struct {
 		appField       string

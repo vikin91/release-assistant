@@ -42,6 +42,33 @@ func (e *observationError) Error() string { return e.message }
 
 func (e *observationError) Unwrap() error { return e.cause }
 
+// IsUnsupportedRetagTask reports whether every planner error is a rejected
+// retag task implementation. The pinned planner returns this diagnostic as text.
+func IsUnsupportedRetagTask(err error) bool {
+	switch e := err.(type) {
+	case *observationError:
+		return IsUnsupportedRetagTask(e.cause)
+	case interface{ Unwrap() []error }:
+		children := e.Unwrap()
+		for _, child := range children {
+			if !IsUnsupportedRetagTask(child) {
+				return false
+			}
+		}
+		return len(children) > 0
+	case nil:
+		return false
+	}
+	const prefix = "invalid .tekton/retag-pipeline.yaml: unsupported pinned task implementation for "
+	const suffix = "; update the consumer contract before suggesting a retest"
+	switch err.Error() {
+	case prefix + "determine-input-image-tag" + suffix, prefix + "wait-for-image" + suffix:
+		return true
+	default:
+		return false
+	}
+}
+
 // New constructs the retry boundary.
 func New(c Config) *Adapter {
 	client := http.Client{Timeout: 30 * time.Second}
