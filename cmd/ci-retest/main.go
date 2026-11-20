@@ -62,7 +62,7 @@ func targets(args []string, diagnostics io.Writer, options *cliOptions) ([]relea
 	fs.SetOutput(io.Discard)
 	fs.Func("allow-konflux-lookup", "allow a Konflux lookup for APP_ID,API_HOST,NAMESPACE (repeatable)", options.lookups.Add)
 	fs.BoolVar(&options.optional, "optional", false, "include configured optional CI jobs")
-	fs.BoolVar(&options.debugLog, "debug-log", false, "show Debug messages on stderr")
+	fs.BoolVar(&options.debugLog, "v", false, "show Debug messages on stderr")
 	repo := fs.String("repo", "stackrox", "repository")
 	prs := fs.String("prs", "", "PR numbers")
 	tags := fs.String("tags", "", "tag names")
@@ -75,7 +75,7 @@ repository names use the stackrox owner. Default: stackrox/stackrox.
 Prints eligible Konflux retry comments first, then supported Actions reruns and
 Prow comments. By default CI retries cover PR merge requirements and their
 prerequisites. Add --optional to include configured optional CI jobs on PRs or tags.
-Pass -debug-log before the target list to show Debug messages on stderr.
+Pass -v before the target list to show Debug messages on stderr.
 For verified Konflux reads, use the active oc login and pass
 --allow-konflux-lookup APP_ID,API_HOST,NAMESPACE before the target list.
 GitHub authentication: GH_TOKEN,

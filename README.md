@@ -195,7 +195,7 @@ Under **Application settings** → **Concurrent GitHub reads**, **First 5 minute
 
 **Log** shows the latest 1,000 events and refreshes every two seconds. The terminal prints timestamped activity to stdout, including discovery, check status changes, retry decisions, and Konflux read pauses and recovery. Redirect stdout if you need to retain the log.
 
-Pass `-debug-log` to show Debug messages in the terminal and the dashboard **Log** tab. Debug messages are hidden by default. With this flag, each outbound API request produces one line with the system, HTTP method, and resource path. The assistant omits query strings. For Quay storage redirects, it logs the original resource with a `(redirect)` suffix. For `ci-retest`, pass `-debug-log` before the target list to send these lines to stderr.
+Pass `-v` to show Debug messages in the terminal and the dashboard **Log** tab. Debug messages are hidden by default. With this flag, each outbound API request produces one line with the system, HTTP method, and resource path. The assistant omits query strings. For Quay storage redirects, it logs the original resource with a `(redirect)` suffix. For `ci-retest`, pass `-v` before the target list to send these lines to stderr.
 
 ```sh
 grep -F 'Debug: Calling API:' assistant.log

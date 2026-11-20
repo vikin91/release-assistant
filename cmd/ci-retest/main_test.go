@@ -54,7 +54,7 @@ func TestKonfluxCommentsPrecedeManualRetries(t *testing.T) {
 		url, comment, manualSHA string
 	}{
 		"PR comment":         {[]string{"--prs", "7"}, "https://github.com/" + repo + "/pull/7", "/konflux-retest central-db-on-push", sha},
-		"tag commit comment": {[]string{"-debug-log", "--tags", "5.0.1-rc.0"}, "https://github.com/" + repo + "/commit/" + sha, "/retest central-db-on-push tag:5.0.1-rc.0", sha},
+		"tag commit comment": {[]string{"-v", "--tags", "5.0.1-rc.0"}, "https://github.com/" + repo + "/commit/" + sha, "/retest central-db-on-push tag:5.0.1-rc.0", sha},
 		"moved PR":           {[]string{"--prs", "7"}, "https://github.com/" + repo + "/pull/7", "/konflux-retest central-db-on-push", "new-head"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -77,7 +77,7 @@ func TestKonfluxCommentsPrecedeManualRetries(t *testing.T) {
 				}, nil
 			}
 			code := run(t.Context(), tc.args, &out, &diagnostics, read)
-			if got := strings.Contains(diagnostics.String(), "Debug: Calling API:"); got != (tc.args[0] == "-debug-log") {
+			if got := strings.Contains(diagnostics.String(), "Debug: Calling API:"); got != (tc.args[0] == "-v") {
 				t.Fatalf("unexpected debug output for %v: %q", tc.args, diagnostics.String())
 			}
 			beforeCI, _, found := strings.Cut(out.String(), "gh api --method POST")

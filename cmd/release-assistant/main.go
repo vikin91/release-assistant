@@ -35,7 +35,7 @@ func run() error {
 	var options app.Options
 	var limits dispatch.Options
 	var port int
-	debugLog := flag.Bool("debug-log", false, "show Debug messages in the terminal and dashboard Log tab")
+	debugLog := flag.Bool("v", false, "show Debug messages in the terminal and dashboard Log tab")
 	allowedLookups := make(konflux.Lookups)
 	flag.StringVar(&config.Version, "version", "", "ACS patch version, e.g. 5.0.1")
 	flag.StringVar(&config.Branch, "branch", "", "explicit ACS target branch")
