@@ -51,6 +51,7 @@
             <div class="creation-failure-title">
               <h4>{{if .Failure.Job}}Job <code>{{.Failure.Job}}</code>{{else}}Job not reported{{end}}</h4>
               <span class="muted">Stopped before build could run.</span>
+              <span class="unknown">PR or tag unknown</span>
               <span>{{if url .Failure.Evidence.URL}}
                 <a aria-describedby="new-tab-description" href="{{url .Failure.Evidence.URL}}" target="_blank" rel="noreferrer">Check{{if gt .Failure.CheckID 0}} #{{.Failure.CheckID}}{{end}} on GitHub</a>
               {{else if gt .Failure.CheckID 0}}Check #{{.Failure.CheckID}} · link unavailable
@@ -61,8 +62,13 @@
             <dl class="creation-failure-facts">
               <div class="creation-failure-message"><dt>Failure:</dt> <dd>{{if .Failure.Reason}}<pre><code>{{.Failure.Reason}}</code></pre>{{else}}No failure reason was reported.{{end}}</dd></div>
               {{range .Targets}}
-                {{if .PR}}<div><dt title="PR monitored when this check was fetched">PR:</dt> <dd><code>{{$row.RepoName}}#{{.PR}}</code></dd></div>
-                {{else}}<div><dt title="Tag monitored when this check was fetched">Tag:</dt> <dd><code>{{$row.RepoName}}@{{.Tag}}</code></dd></div>{{end}}
+                <div><dt>{{if .PR}}Monitored PR{{else}}Monitored tag{{end}}</dt>
+                  <dd><code>{{$row.RepoName}}{{if .PR}}#{{.PR}}{{else}}@{{.Tag}}{{end}}</code>
+                    {{with .LastVerified}}{{if .ID}}
+                      <span class="muted">· Last verified run {{if url .URL}}<a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">#{{.ID}}</a>{{else}}#{{.ID}}{{end}} · {{.Status}}{{with .Outcome}} · {{.}}{{end}}</span>
+                    {{end}}{{end}}
+                  </dd>
+                </div>
               {{end}}
               <div><dt>Last update:</dt> <dd>{{when .Failure.Evidence.At}}</dd></div>
               <div><dt>Source commit{{if gt (len .Commits) 1}}s{{end}}:</dt> <dd>{{range $i, $sha := .Commits}}{{if $i}}, {{end}}<a aria-describedby="new-tab-description" href="https://github.com/{{$row.Repo}}/commit/{{$sha}}" target="_blank" rel="noreferrer"><code>{{$sha}}</code></a>{{else}}Unknown{{end}}</dd></div>

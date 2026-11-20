@@ -28,7 +28,7 @@ func TestReadTagChecksJoinsWorkflowTriggersAndKeepsLatestAttempts(t *testing.T) 
 				{"id":1,"name":"Upgrade","status":"completed","conclusion":"failure","app":{"slug":"github-actions"},"check_suite":{"id":101}},
 				{"id":2,"name":"Upgrade","status":"completed","conclusion":"success","app":{"slug":"github-actions"},"check_suite":{"id":102}},
 				{"id":3,"name":"Upgrade","status":"completed","conclusion":"cancelled","html_url":"https://github.com/stackrox/stackrox/actions/runs/303/job/3","app":{"slug":"github-actions"},"check_suite":{"id":103}},
-				{"id":4,"name":"Red Hat Konflux / acs-conforma-prod / main","status":"in_progress","app":{"slug":"red-hat-konflux"}}
+				{"id":4,"name":"Red Hat Konflux / acs-conforma-prod / main","status":"in_progress","app":{"id":296509,"slug":"red-hat-konflux"}}
 			]}`)
 		case "/commits/candidate-sha/statuses":
 			writeCheckFixture(t, w, `[{"context":"external CI","state":"failure"},{"context":"external CI","state":"pending"}]`)

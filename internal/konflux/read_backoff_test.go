@@ -189,7 +189,7 @@ func TestAdapterDefersLiveLookupsButStillReadsGitHubAndArchive(t *testing.T) {
 				body = `{"sha":"head"}`
 				if strings.HasSuffix(req.URL.Path, "/check-runs") {
 					checkReads++
-					body = `{"check_runs":[{"id":17,"name":"Red Hat Konflux / fact-on-push","status":"completed","conclusion":"failure","details_url":"https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelinerun/run"}]}`
+					body = `{"check_runs":[{"id":17,"name":"Red Hat Konflux / fact-on-push","app":{"id":296509},"status":"completed","conclusion":"failure","details_url":"https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelinerun/run"}]}`
 				}
 			default:
 				t.Fatalf("unexpected request %s", req.URL)

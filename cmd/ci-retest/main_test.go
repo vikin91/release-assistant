@@ -97,12 +97,31 @@ func TestKonfluxCommentsPrecedeManualRetries(t *testing.T) {
 	}
 }
 
+func TestKonfluxIdentityWarningWithoutPlannerError(t *testing.T) {
+	const warning = "identity unknown: PipelineRun event identity unavailable"
+	var out, diagnostics bytes.Buffer
+	code := run(t.Context(), []string{"--prs", "7"}, &out, &diagnostics, func(context.Context, konflux.Lookups, *app.Log) (readers, error) {
+		return readers{
+			konfluxPlan: func(_ context.Context, target release.Target) (release.Plan, error) {
+				return release.Plan{Target: target, SHA: "head", Action: "Wait", Warnings: []string{warning}}, nil
+			},
+			manualRetries: func(_ context.Context, target release.Target, _ bool) (release.ManualRetryReport, error) {
+				return release.ManualRetryReport{Target: target, SHA: "head", URL: "https://github.com/stackrox/stackrox/pull/7"}, nil
+			},
+		}, nil
+	})
+	if code != 0 || diagnostics.Len() != 0 || !strings.Contains(out.String(), "Next action: Investigate") ||
+		!strings.Contains(out.String(), "Konflux: "+warning) {
+		t.Fatalf("code=%d, output=%s, diagnostics=%s", code, &out, &diagnostics)
+	}
+}
+
 func TestCLIReports(t *testing.T) {
 	const sha = "1111111111111111111111111111111111111111"
 	const pr = `{"state":"open","number":7,"merge_commit_sha":"merge-revision","base":{"sha":"base","ref":"master","repo":{"id":1}},"head":{"sha":"` + sha + `","repo":{"id":2}}}`
 	const statuses = `[{"context":"ci/prow/Green","state":"success"},{"context":"ci/prow/green","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/green/111"},{"context":"ci/prow/gke-qa-e2e-tests","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/build/123"},{"context":"ci/prow/test","state":"pending"},{"context":"ci/prow/test","state":"failure","creator":{"id":75433959},"target_url":"https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/stackrox_stackrox/7/test/345"}]`
-	failedCheck := func(id int, name, app string) string {
-		return fmt.Sprintf(`{"id":%d,"name":%q,"status":"completed","conclusion":"failure","head_sha":%q,"app":{"slug":%q,"id":15368},"check_suite":{"id":11}}`, id, name, sha, app)
+	failedCheck := func(id int, name, app string, appID int) string {
+		return fmt.Sprintf(`{"id":%d,"name":%q,"status":"completed","conclusion":"failure","head_sha":%q,"app":{"slug":%q,"id":%d},"check_suite":{"id":11}}`, id, name, sha, app, appID)
 	}
 	const jobs = `{"total_count":2,"jobs":[
 		{"id":99,"status":"completed","conclusion":"failure","check_run_url":"https://api.github.com/repos/stackrox/stackrox/check-runs/41"},
@@ -200,12 +219,12 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 			if tc.mergeScope {
 				first, second = "compile", "integration-tests / amd64-integration-tests (rhel) / Testing rhel"
 			}
-			checks := []string{failedCheck(41, first, "github-actions"), failedCheck(42, second, "github-actions")}
+			checks := []string{failedCheck(41, first, "github-actions", 15368), failedCheck(42, second, "github-actions", 15368)}
 			if tc.greenGate {
-				checks = append(checks, strings.Replace(failedCheck(45, "merge gate", "github-actions"), `"conclusion":"failure"`, `"conclusion":"success"`, 1))
+				checks = append(checks, strings.Replace(failedCheck(45, "merge gate", "github-actions", 15368), `"conclusion":"failure"`, `"conclusion":"success"`, 1))
 			}
 			if tc.mixed {
-				checks = append(checks, failedCheck(43, "Red Hat Konflux / fact-on-push", "red-hat-konflux"))
+				checks = append(checks, failedCheck(43, "Red Hat Konflux / fact-on-push", "red-hat-konflux", 296509))
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != "GET" {

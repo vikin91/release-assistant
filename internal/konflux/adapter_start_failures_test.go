@@ -88,15 +88,15 @@ func TestPublicAdapterPreservesCreationFailuresAndConformaAdvisories(t *testing.
 				case strings.HasSuffix(req.URL.Path, "/check-runs"):
 					value = map[string]any{"check_runs": []any{
 						map[string]any{
-							"id": 42, "name": "Red Hat Konflux / fact-on-push", "status": "completed", "conclusion": "failure",
+							"id": 42, "name": "Red Hat Konflux / fact-on-push", "app": map[string]int{"id": 296509}, "status": "completed", "conclusion": "failure",
 							"details_url": "https://konflux-ui.apps.example.openshiftapps.com/",
 							"external_id": "fact-on-push-private-token", "started_at": startedAt,
 							"output": map[string]string{
 								"title": "pipelinerun start failure", "text": "ValidatingAdmissionPolicy denied request; token=private-token password=private-quay",
 							},
 						},
-						map[string]any{"id": 43, "name": "Red Hat Konflux / operator-on-push", "status": "completed", "conclusion": "startup_failure", "details_url": "https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelineruns", "output": map[string]string{"title": "pipelinerun start failure", "text": "PipelineRun quota exceeded"}},
-						map[string]any{"id": 44, "name": "Red Hat Konflux / acs-conforma-dev-4-10 / fact-4-10", "status": "completed", "conclusion": "failure", "details_url": "https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelinerun/conforma-dev"},
+						map[string]any{"id": 43, "name": "Red Hat Konflux / operator-on-push", "app": map[string]int{"id": 296509}, "status": "completed", "conclusion": "startup_failure", "details_url": "https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelineruns", "output": map[string]string{"title": "pipelinerun start failure", "text": "PipelineRun quota exceeded"}},
+						map[string]any{"id": 44, "name": "Red Hat Konflux / acs-conforma-dev-4-10 / fact-4-10", "app": map[string]int{"id": 296509}, "status": "completed", "conclusion": "failure", "details_url": "https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelinerun/conforma-dev"},
 					}}
 				default:
 					t.Fatalf("unexpected request %s", req.URL)

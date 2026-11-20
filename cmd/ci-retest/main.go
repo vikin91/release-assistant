@@ -153,6 +153,9 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader 
 		}
 		plan, planErr := c.konfluxPlan(ctx, t)
 		report, err := c.manualRetries(ctx, t, options.optional)
+		for _, warning := range plan.Warnings {
+			report.Warnings = append(report.Warnings, "Konflux: "+warning)
+		}
 		if planErr != nil {
 			report.Warnings = append(report.Warnings, "Konflux: "+planErr.Error())
 			code = 1

@@ -65,7 +65,7 @@ func TestPublicAdapterSuppressesActiveRunsAndScopesTags(t *testing.T) {
 				switch req.URL.Host {
 				case "api.github.com":
 					if strings.HasSuffix(req.URL.Path, "check-runs") {
-						value = map[string]any{"check_runs": []any{map[string]any{"id": 17, "name": "Red Hat Konflux / fact-on-push", "status": tc.status, "conclusion": tc.outcome, "details_url": "https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelinerun/run"}}}
+						value = map[string]any{"check_runs": []any{map[string]any{"id": 17, "name": "Red Hat Konflux / fact-on-push", "app": map[string]int{"id": 296509}, "status": tc.status, "conclusion": tc.outcome, "details_url": "https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelinerun/run"}}}
 					} else {
 						value = map[string]string{"sha": "head"}
 					}
@@ -161,7 +161,7 @@ func TestPublicAdapterPreservesActionableIdentityErrors(t *testing.T) {
 		case req.URL.Host == "api.github.com" && strings.HasSuffix(req.URL.Path, "/pulls/24065"):
 			body = `{"state":"open","head":{"sha":"head"}}`
 		case req.URL.Host == "api.github.com" && strings.HasSuffix(req.URL.Path, "/check-runs"):
-			data, _ := json.Marshal(map[string]any{"check_runs": []map[string]any{{"id": 17, "name": "Red Hat Konflux / main-on-push", "status": "completed", "conclusion": "failure", "details_url": checkURL}}})
+			data, _ := json.Marshal(map[string]any{"check_runs": []map[string]any{{"id": 17, "name": "Red Hat Konflux / main-on-push", "app": map[string]int{"id": 296509}, "status": "completed", "conclusion": "failure", "details_url": checkURL}}})
 			body = string(data)
 		case req.URL.Host == "api.example.openshiftapps.com":
 			status, body = http.StatusForbidden, `{"message":"User builder cannot get pipelineruns; cluster-secret"}`
@@ -189,23 +189,62 @@ func TestPublicAdapterPreservesActionableIdentityErrors(t *testing.T) {
 	}
 }
 
-func TestPublicAdapterKeepsDeniedRunUnverified(t *testing.T) {
-	transport := roundTrip(func(r *http.Request) (*http.Response, error) {
-		if r.URL.Host != "api.github.com" {
-			t.Fatalf("denied lookup contacted %s", r.URL.Host)
-		}
-		body := `{"state":"open","head":{"sha":"head"}}`
-		if strings.HasSuffix(r.URL.Path, "/check-runs") {
-			body = `{"check_runs":[{"id":17,"name":"Red Hat Konflux / fact-on-push","status":"completed","conclusion":"failure","details_url":"https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelinerun/run","app":{"id":42}}]}`
-		}
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))}, nil
-	})
-	a := New(Config{AllowKonfluxLookup: func(context.Context, int64, string, string) bool { return false }, HTTPClient: &http.Client{Transport: transport}, KonfluxToken: func(context.Context, string) (string, error) {
-		t.Fatal("denied lookup requested a token")
-		return "", nil
-	}})
-	p, err := a.Plan(t.Context(), release.Target{Repo: "stackrox/fact", PR: 1})
-	if err == nil || p.Evidence.Fresh() || p.SHA != "head" || p.Action != "Wait" || len(p.Warnings) == 0 || len(p.Proposals) != 0 || len(p.Runs) != 1 || p.Runs[0].Status != "unknown" || p.Runs[0].ID != "" || p.Runs[0].Eligible {
-		t.Fatalf("denied run was lost or became retryable: %+v (%v)", p, err)
+func TestPublicAdapterFiltersChecksBeforeStartupPolicy(t *testing.T) {
+	for name, tc := range map[string]struct {
+		appField       string
+		wantPolicyCall bool
+	}{
+		"Konflux check in a denied namespace": {`,"app":{"id":296509}`, true},
+		"check from another App":              {`,"app":{"id":42}`, false},
+		"check without an App":                {"", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			lookups := make(Lookups)
+			if err := lookups.Add("296509,api.example.openshiftapps.com,other-namespace"); err != nil {
+				t.Fatal(err)
+			}
+			transport := roundTrip(func(r *http.Request) (*http.Response, error) {
+				if r.URL.Host != "api.github.com" {
+					t.Errorf("denied lookup contacted %s", r.URL.Host)
+					return nil, errors.New("unexpected lookup")
+				}
+				body := `{"state":"open","head":{"sha":"head"}}`
+				if strings.HasSuffix(r.URL.Path, "/check-runs") {
+					if r.URL.Query().Get("app_id") != "296509" {
+						t.Error("check-runs request omitted the Konflux App filter")
+					}
+					body = `{"check_runs":[{"id":17,"name":"Red Hat Konflux / fact-on-push","status":"completed","conclusion":"failure","details_url":"https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelinerun/run"` + tc.appField + `}]}`
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))}, nil
+			})
+			policyCalled := false
+			a := New(Config{
+				HTTPClient: &http.Client{Transport: transport},
+				AllowKonfluxLookup: func(ctx context.Context, appID int64, host, namespace string) bool {
+					policyCalled = true
+					if appID != 296509 || host != "api.example.openshiftapps.com" || namespace != "builds" {
+						t.Errorf("unexpected lookup scope: %d %s %s", appID, host, namespace)
+					}
+					return lookups.allows(ctx, appID, host, namespace)
+				},
+				KonfluxToken: func(context.Context, string) (string, error) {
+					t.Error("denied lookup requested a token")
+					return "", errors.New("unexpected token request")
+				},
+			})
+			p, err := a.Plan(t.Context(), release.Target{Repo: "stackrox/fact", PR: 1})
+			if policyCalled != tc.wantPolicyCall || p.SHA != "head" || p.Action != "Wait" || len(p.Proposals) != 0 {
+				t.Fatalf("unexpected lookup or plan: policyCalled=%t plan=%+v error=%v", policyCalled, p, err)
+			}
+			if !tc.wantPolicyCall {
+				if err != nil || len(p.Runs) != 0 {
+					t.Fatalf("check from another App became Konflux evidence: %+v (%v)", p, err)
+				}
+				return
+			}
+			if err == nil || p.Evidence.Fresh() || len(p.Warnings) == 0 || len(p.Runs) != 1 || p.Runs[0].Status != "unknown" || p.Runs[0].ID != "" || p.Runs[0].Eligible {
+				t.Fatalf("denied run was lost or became retryable: %+v (%v)", p, err)
+			}
+		})
 	}
 }

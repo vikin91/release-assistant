@@ -133,7 +133,7 @@ func TestDeveloperConformaAdvisoryDoesNotBackOffMonitoring(t *testing.T) {
 			calls++
 			body := `{"state":"open","head":{"sha":"head"}}`
 			if strings.HasSuffix(req.URL.Path, "/check-runs") {
-				body = `{"check_runs":[{"id":44,"name":"Red Hat Konflux / acs-conforma-dev-4-10 / fact-4-10","status":"completed","conclusion":"failure","details_url":"https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelinerun/conforma-dev"}]}`
+				body = `{"check_runs":[{"id":44,"name":"Red Hat Konflux / acs-conforma-dev-4-10 / fact-4-10","app":{"id":296509},"status":"completed","conclusion":"failure","details_url":"https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelinerun/conforma-dev"}]}`
 			} else if !strings.HasSuffix(req.URL.Path, "/pulls/3") {
 				t.Fatalf("advisory triggered unexpected identity lookup: %s", req.URL)
 			}

@@ -32,12 +32,12 @@ admission webhook denied <script>alert("x")</script>`,
 	panel := activityPanel(t, body, "component-prs")
 	section := between(t, panel, `<section class="panel" id="component-prs-start-failures-panel">`, `</section>`)
 	for _, want := range []string{
-		"Reported build creation failures", "konflux.example", "1 reported check", "fact-build", "Stopped before build could run.",
+		"Reported build creation failures", "konflux.example", "1 reported check", "fact-build", "Stopped before build could run.", "PR or tag unknown",
 		`<pre><code>creating pipelinerun fact-build- in namespace test-tenant has failed:
 admission webhook denied &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;</code></pre>`,
 		"Check #731 on GitHub", `href="https://github.com/acme/fact/runs/731"`,
 		`href="https://github.com/acme/fact/commit/fetched-sha"`, "<code>fetched-sha</code></a>",
-		"<dt>Last update:</dt>", formatTime(readAt), "<dt>Failure:</dt>", "<code>fact#41</code>",
+		"<dt>Last update:</dt>", formatTime(readAt), "<dt>Failure:</dt>", "<dt>Monitored PR</dt>", "<code>fact#41</code>",
 	} {
 		if !strings.Contains(section, want) {
 			t.Errorf("creation evidence missing %q: %s", want, section)
@@ -93,9 +93,8 @@ func TestACSStartFailuresGroupedByMonitoredPR(t *testing.T) {
 		t.Fatalf("wrong current failures for %s: %s", first, firstGroup)
 	}
 	if !strings.Contains(secondGroup, "Earlier creation attempts") ||
-		!strings.Contains(secondGroup, "<pre><code>shared failure</code></pre>") || strings.Contains(secondGroup, "first-sha") ||
-		strings.Contains(section, ">PR:</dt>") {
-		t.Fatalf("wrong earlier failure or repeated PR label: %s", secondGroup)
+		!strings.Contains(secondGroup, "<pre><code>shared failure</code></pre>") || strings.Contains(secondGroup, "first-sha") {
+		t.Fatalf("wrong earlier failure: %s", secondGroup)
 	}
 }
 
@@ -106,11 +105,13 @@ func TestCreationFailuresDeduplicateChecksWithinTheActivity(t *testing.T) {
 	second := release.Target{Repo: source.Repo, PR: 43}
 	observed := release.Evidence{Known: true, At: time.Now()}
 	failure := release.StartFailure{CheckID: 732, Job: "shared-job", Cluster: "konflux.example", Category: "other", Reason: "creation transport failure", Evidence: observed}
+	verified := release.Run{ID: "731", CheckID: 731, Job: failure.Job, Status: "completed", Outcome: "success", URL: "https://example.com/verified-run"}
+	unverified := release.Run{CheckID: 730, Job: failure.Job, Status: "unknown"}
 	application := &fakeApplication{snapshot: app.Snapshot{
 		Config: config, Choices: release.Choices{PRs: map[release.Target]release.Choice{first: release.Included, second: release.Included}},
 		Plans: []release.Plan{
-			{Target: first, SHA: "shared-commit", StartFailures: []release.StartFailure{failure}},
-			{Target: second, SHA: "shared-commit", StartFailures: []release.StartFailure{failure}},
+			{Target: first, SHA: "shared-commit", StartFailures: []release.StartFailure{failure}, Runs: []release.Run{verified}},
+			{Target: second, SHA: "shared-commit", StartFailures: []release.StartFailure{failure}, Runs: []release.Run{unverified}},
 		},
 	}}
 	panel := activityPanel(t, newBrowser(t, application).getBody(t), "component-prs")
@@ -121,15 +122,20 @@ func TestCreationFailuresDeduplicateChecksWithinTheActivity(t *testing.T) {
 	if !strings.Contains(section, "fact#42") || !strings.Contains(section, "fact#43") {
 		t.Fatal("deduplication discarded fetched monitoring contexts")
 	}
+	firstContext := between(t, section, "<code>fact#42</code>", "</dd>")
+	if !strings.Contains(firstContext, "Last verified run") || !strings.Contains(firstContext, `href="https://example.com/verified-run"`) ||
+		!strings.Contains(firstContext, ">#731</a> · completed · success") || strings.Count(section, "Last verified run") != 1 {
+		t.Fatal("the last verified run was not tied to its monitored PR", section)
+	}
 	before := application.snapshot.Plans[0]
 	if before.StartFailures[0] != failure {
 		t.Fatal("view grouping mutated the source observation")
 	}
-	groups, _ := groupStartFailures([]planModel{{Plan: before}}, "component-prs", false)
+	groups, _ := groupStartFailures([]planModel{{Plan: before}}, "component-prs")
 	key := groups[0].Failures[0].Key
 	before.StartFailures = []release.StartFailure{failure}
 	before.StartFailures[0].Evidence.At = observed.At.Add(time.Hour)
-	refreshed, _ := groupStartFailures([]planModel{{Plan: before}}, "component-prs", false)
+	refreshed, _ := groupStartFailures([]planModel{{Plan: before}}, "component-prs")
 	if refreshed[0].Failures[0].Key != key {
 		t.Fatal("rereading the same check changed its fold identity")
 	}
@@ -178,7 +184,7 @@ func TestCreationFailureScopeFollowsIncludedPRsSelectedTagsAndPinning(t *testing
 		}
 	}
 	tagPanel := activityPanel(t, body, "component-releases")
-	if !strings.Contains(tagPanel, ">Tag:</dt>") || !strings.Contains(tagPanel, "<code>fact@3.25.8</code>") {
+	if !strings.Contains(tagPanel, "<dt>Monitored tag</dt>") || !strings.Contains(tagPanel, "<code>fact@3.25.8</code>") {
 		t.Error("tag failure should identify the monitored tag")
 	}
 	for _, hidden := range []string{"excluded-report", "undecided-report", "ignored-report", "closed-report", "old-tag-report"} {
@@ -278,7 +284,7 @@ func TestCreationFailureGroupingKeepsUnresolvedTargetEvidence(t *testing.T) {
 					StartFailures: []release.StartFailure{{CheckID: 736, Job: "build", Cluster: "konflux.example", Superseded: superseded}},
 				}})
 			}
-			reported, earlier := groupStartFailures(plans, "component-prs", false)
+			reported, earlier := groupStartFailures(plans, "component-prs")
 			if states[0] && states[1] {
 				if len(reported) != 0 || len(earlier) != 1 {
 					t.Fatal("all-target supersession did not move the check to earlier evidence")
@@ -299,7 +305,7 @@ func TestCreationFailureGroupingPrefersFreshReadBeforeObservationTime(t *testing
 		for i, failure := range observations {
 			plans = append(plans, planModel{Plan: release.Plan{Target: release.Target{Repo: "acme/fact", PR: i + 1}, SHA: "commit", StartFailures: []release.StartFailure{failure}}})
 		}
-		reported, _ := groupStartFailures(plans, "component-prs", false)
+		reported, _ := groupStartFailures(plans, "component-prs")
 		if len(reported) != 1 || len(reported[0].Failures) != 1 || reported[0].Failures[0].Failure.Reason != fresh.Reason || !reported[0].Failures[0].Failure.Evidence.Fresh() {
 			t.Fatal("a newer failed read displaced positive check evidence")
 		}
@@ -316,7 +322,7 @@ func TestCreationFailureGroupingDoesNotMergeDifferentSourceChecks(t *testing.T) 
 		{Plan: release.Plan{Target: release.Target{Repo: "acme/fact", PR: 1}, StartFailures: []release.StartFailure{base, otherCluster, unknownOne, unknownTwo}}},
 		{Plan: release.Plan{Target: release.Target{Repo: "acme/collector", PR: 1}, StartFailures: []release.StartFailure{base}}},
 	}
-	reported, _ := groupStartFailures(plans, "component-prs", false)
+	reported, _ := groupStartFailures(plans, "component-prs")
 	count := 0
 	keys := map[string]bool{}
 	for _, cluster := range reported {

@@ -25,7 +25,11 @@ type (
 		Key, Repo string
 		Failure   release.StartFailure
 		Commits   []string
-		Targets   []release.Target
+		Targets   []startFailureTarget
+	}
+	startFailureTarget struct {
+		release.Target
+		LastVerified release.Run
 	}
 	startFailureKey struct {
 		cluster, repo string
@@ -37,7 +41,7 @@ type (
 // startFailureReports keeps observations of a shared commit scoped to each monitored ACS PR.
 func startFailureReports(plans []planModel, tab string, prTitles map[release.Target]string) []startFailureReport {
 	if tab != "acs-prs" {
-		current, earlier := groupStartFailures(plans, tab, false)
+		current, earlier := groupStartFailures(plans, tab)
 		if len(current)+len(earlier) == 0 {
 			return nil
 		}
@@ -53,7 +57,7 @@ func startFailureReports(plans []planModel, tab string, prTitles map[release.Tar
 	var reports []startFailureReport
 	for target, observations := range byPR {
 		key := fmt.Sprintf("%s-%d", tab, target.PR)
-		current, earlier := groupStartFailures(observations, key, true)
+		current, earlier := groupStartFailures(observations, key)
 		reports = append(reports, startFailureReport{Key: key, Target: target, Title: prTitles[target], Current: current, Earlier: earlier})
 	}
 	slices.SortFunc(reports, func(a, b startFailureReport) int { return cmp.Compare(a.Target.PR, b.Target.PR) })
@@ -61,7 +65,7 @@ func startFailureReports(plans []planModel, tab string, prTitles map[release.Tar
 }
 
 // groupStartFailures deduplicates check evidence across the activity's monitored targets.
-func groupStartFailures(plans []planModel, scope string, groupedByPR bool) (reported, earlier []startFailureCluster) {
+func groupStartFailures(plans []planModel, scope string) (reported, earlier []startFailureCluster) {
 	groups := make(map[string][]startFailureModel)
 	positions := make(map[startFailureKey]int)
 	for _, plan := range plans {
@@ -91,8 +95,17 @@ func groupStartFailures(plans []planModel, scope string, groupedByPR bool) (repo
 			if plan.Plan.SHA != "" && !slices.Contains(row.Commits, plan.Plan.SHA) {
 				row.Commits = append(row.Commits, plan.Plan.SHA)
 			}
-			if !groupedByPR && !slices.Contains(row.Targets, plan.Plan.Target) {
-				row.Targets = append(row.Targets, plan.Plan.Target)
+			target := plan.Plan.Target
+			if !slices.ContainsFunc(row.Targets, func(item startFailureTarget) bool { return item.Target == target }) {
+				item := startFailureTarget{Target: target}
+				if !failure.Superseded {
+					for _, run := range plan.Plan.Runs {
+						if run.Job == failure.Job && run.ID != "" && run.CheckID > item.LastVerified.CheckID && run.CheckID < failure.CheckID {
+							item.LastVerified = run
+						}
+					}
+				}
+				row.Targets = append(row.Targets, item)
 			}
 			groups[cluster] = rows
 		}
@@ -103,7 +116,7 @@ func groupStartFailures(plans []planModel, scope string, groupedByPR bool) (repo
 		earlierGroup := startFailureCluster{Name: cluster}
 		for i := range failures {
 			slices.Sort(failures[i].Commits)
-			slices.SortFunc(failures[i].Targets, func(a, b release.Target) int { return strings.Compare(a.String(), b.String()) })
+			slices.SortFunc(failures[i].Targets, func(a, b startFailureTarget) int { return strings.Compare(a.String(), b.String()) })
 			if failures[i].Failure.Superseded {
 				earlierGroup.Failures = append(earlierGroup.Failures, failures[i])
 			} else {
