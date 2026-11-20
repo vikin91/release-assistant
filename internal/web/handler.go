@@ -51,6 +51,7 @@ func New(application Application) (http.Handler, error) {
 		return nil, errors.New("web application is required")
 	}
 	page, err := template.New("index.html").Funcs(template.FuncMap{
+		"prCommentLabel":              func() string { return release.PRCommentLabel },
 		"manualRetryWarning":          func() string { return release.ManualRetryWarning },
 		"retryCommentPermissionLabel": func() string { return retryCommentPermissionLabel },
 		"pinVersion":                  pinVersion, "pinDiffers": pinDiffers,
@@ -339,6 +340,10 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 			return a, err
 		}
 		a.Interactive, err = checkboxSetting(r.PostForm, "interactive")
+		if err != nil {
+			return a, err
+		}
+		a.RequirePRLabel, err = checkboxSetting(r.PostForm, "require_pr_label")
 		if err != nil {
 			return a, err
 		}

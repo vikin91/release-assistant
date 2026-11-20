@@ -671,8 +671,11 @@ func convertPR(repo string, p prResponse) release.PR {
 		Evidence:        release.Evidence{At: time.Now(), URL: p.HTMLURL, Known: p.Head.SHA != ""},
 	}
 	for _, l := range p.Labels {
-		if strings.EqualFold(l.Name, "no-release-assistant") {
+		switch {
+		case strings.EqualFold(l.Name, "no-release-assistant"):
 			r.OptOut = true
+		case l.Name == release.PRCommentLabel:
+			r.CommentLabel = true
 		}
 	}
 	return r
@@ -841,7 +844,7 @@ func (c *Client) previousPins(ctx context.Context, repo, version string) (releas
 	return pins, release.Yes
 }
 
-// ReadTarget returns fresh PR or tag identity and opt-out state.
+// ReadTarget returns fresh PR or tag identity and write-related labels.
 func (c *Client) ReadTarget(ctx context.Context, target release.Target) (dispatch.Identity, error) {
 	identity := dispatch.Identity{Target: target, Evidence: release.Evidence{At: time.Now()}}
 	if !target.Valid() {
@@ -852,15 +855,13 @@ func (c *Client) ReadTarget(ctx context.Context, target release.Target) (dispatc
 		if err := c.get(ctx, repoPath(target.Repo)+"/pulls/"+strconv.Itoa(target.PR), &p); err != nil {
 			return identity, err
 		}
-		identity.SHA = p.Head.SHA
-		identity.Base = p.Base.Ref
-		identity.Open = p.State == "open" && !p.Merged
-		for _, l := range p.Labels {
-			if strings.EqualFold(l.Name, "no-release-assistant") {
-				identity.OptOut = true
-			}
-		}
-		identity.Evidence.URL = p.HTMLURL
+		pr := convertPR(target.Repo, p)
+		identity.SHA = pr.SHA
+		identity.Base = pr.Base
+		identity.Open = pr.State == "open"
+		identity.OptOut = pr.OptOut
+		identity.CommentLabel = pr.CommentLabel
+		identity.Evidence.URL = pr.URL
 	} else {
 		var ref struct {
 			Object struct {

@@ -56,7 +56,7 @@ func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (
 				SHA:    "acs-tag", Evidence: observation(),
 			}
 		}
-		pr := release.PR{Target: release.Target{Repo: r.Source.Repo, PR: 201}, Title: "Fixture: ACS dependency backport", Author: "mintmaker", URL: "https://example.com/pr201", SHA: "acs-pr-head", State: "open", Base: r.Source.Branch, Evidence: observation(), ChecksEvidence: observation(), Checks: []release.Check{{Name: "CI build", Status: "completed", Conclusion: "failure", Required: release.Yes}}}
+		pr := release.PR{Target: release.Target{Repo: r.Source.Repo, PR: 201}, Title: "Fixture: ACS dependency backport", CommentLabel: true, Author: "mintmaker", URL: "https://example.com/pr201", SHA: "acs-pr-head", State: "open", Base: r.Source.Branch, Evidence: observation(), ChecksEvidence: observation(), Checks: []release.Check{{Name: "CI build", Status: "completed", Conclusion: "failure", Required: release.Yes}}}
 		if f.step >= 4 {
 			pr.State, pr.Merged, pr.MergeSHA = "merged", true, "acs-next"
 			repository.Head = "acs-next"
@@ -228,7 +228,7 @@ func (f *browserFixture) ReadTarget(ctx context.Context, t release.Target) (disp
 			open = f.step < 3 && os.Getenv("ACS_BROWSER_PINNING_OPEN") == "1"
 		}
 	}
-	return dispatch.Identity{Target: t, SHA: p.SHA, Base: base, Open: open, Evidence: observation()}, nil
+	return dispatch.Identity{Target: t, SHA: p.SHA, Base: base, Open: open, CommentLabel: t.Repo == "stackrox/stackrox" && t.PR == 201, Evidence: observation()}, nil
 }
 func (f *browserFixture) Write(context.Context, release.Proposal) (dispatch.Delivery, error) {
 	f.mu.Lock()

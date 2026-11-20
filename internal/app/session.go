@@ -44,7 +44,7 @@ type (
 		ManualRetries                []release.ManualRetryReport
 		Assessment                   release.Assessment
 		Authority                    []dispatch.View
-		Interactive                  bool
+		Interactive, RequirePRLabel  bool
 		CacheAvailable, CacheEnabled bool
 		StartupReadLimit             int
 		OngoingReadLimit             int
@@ -72,10 +72,10 @@ type (
 		Choice                  release.Choice
 		Enabled                 bool
 		// Nil settings are omitted from the submitted form.
-		Interactive, CacheEnabled *bool
-		StartupReadLimit          *int
-		OngoingReadLimit          *int
-		Generation                uint64
+		Interactive, RequirePRLabel, CacheEnabled *bool
+		StartupReadLimit                          *int
+		OngoingReadLimit                          *int
+		Generation                                uint64
 	}
 	// Session owns release observations. Dispatcher alone owns write grants.
 	Session struct {
@@ -287,8 +287,8 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		if a.CacheEnabled != nil && s.options.Cache == nil {
 			return fmt.Errorf("discovery cache is unavailable")
 		}
-		if a.Interactive != nil && (!s.dispatcher.WritesEnabled() || s.config.Validate() != nil) {
-			return fmt.Errorf("confirmation mode is unavailable")
+		if (a.Interactive != nil || a.RequirePRLabel != nil) && (!s.dispatcher.WritesEnabled() || s.config.Validate() != nil) {
+			return fmt.Errorf("GitHub write settings are unavailable")
 		}
 		if a.StartupReadLimit != nil || a.OngoingReadLimit != nil {
 			if s.options.GitHubReads == nil {
@@ -301,9 +301,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			recordSettingChange(s, "Concurrent GitHub reads (first 5 minutes)", startup, a.StartupReadLimit)
 			recordSettingChange(s, "Concurrent GitHub reads (after 5 minutes)", ongoing, a.OngoingReadLimit)
 		}
-		if a.Interactive != nil && s.dispatcher.IsInteractive() != *a.Interactive {
-			s.dispatcher.Interactive(*a.Interactive)
-		}
+		s.dispatcher.SetWriteMode(a.Interactive, a.RequirePRLabel)
 		if a.CacheEnabled != nil {
 			previous := s.options.Cache.Enabled()
 			s.options.Cache.SetEnabled(*a.CacheEnabled)
@@ -507,7 +505,7 @@ func (s *Session) Snapshot() Snapshot {
 	choices.Acknowledged = maps.Clone(choices.Acknowledged)
 	x := Snapshot{
 		RefreshIntervals: maps.Clone(s.options.RefreshIntervals), Config: c, Choices: choices, Error: s.errorText, Generation: s.generation,
-		Interactive: s.dispatcher.IsInteractive(), WritesEnabled: s.dispatcher.WritesEnabled(),
+		Interactive: s.dispatcher.IsInteractive(), RequirePRLabel: s.dispatcher.RequiresPRLabel(), WritesEnabled: s.dispatcher.WritesEnabled(),
 		Authority: s.dispatcher.Views(), NextSourceCheck: maps.Clone(s.nextSourceCheck),
 	}
 	if s.options.GitHubReads != nil {
@@ -833,7 +831,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 				plan.StartFailures = staleStartFailures(plan.StartFailures, "Current PR identity does not confirm the commit for these earlier check observations.")
 				s.plans[p.Target] = plan
 			}
-			s.dispatcher.ObserveIdentity(dispatch.Identity{Target: p.Target, SHA: p.SHA, Base: p.Base, Open: p.State == "open" && p.Base == source.Branch, OptOut: p.OptOut, Evidence: p.Evidence})
+			s.dispatcher.ObserveIdentity(dispatch.Identity{Target: p.Target, SHA: p.SHA, Base: p.Base, Open: p.State == "open" && p.Base == source.Branch, OptOut: p.OptOut, CommentLabel: p.CommentLabel, Evidence: p.Evidence})
 			if p.State != "open" {
 				if plan, exists := s.plans[p.Target]; exists {
 					plan.Proposals = nil

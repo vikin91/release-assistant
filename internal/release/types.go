@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+// PRCommentLabel is the GitHub label that permits a PR to pass the label gate.
+const PRCommentLabel = "allow-release-assistant"
+
 type (
 	// Truth distinguishes absent evidence from a positive or negative observation.
 	Truth string
@@ -39,6 +42,8 @@ type (
 	}
 	// PR includes historical merge identity for tag coverage.
 	PR struct {
+		// CommentLabel records whether GitHub reported the label required for labeled mode.
+		CommentLabel                                   bool
 		Target                                         Target
 		SHA, Title, Author, URL, State, Base, MergeSHA string
 		Merged, OptOut, Draft, ReviewRequested         bool

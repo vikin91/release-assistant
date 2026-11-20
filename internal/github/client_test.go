@@ -597,14 +597,14 @@ func TestWriterRequiresCompleteLogBeforePOST(t *testing.T) {
 	}
 }
 
-func TestReadTargetDetectsOptOutAndCurrentHead(t *testing.T) {
+func TestReadTargetDetectsLabelsAndCurrentHead(t *testing.T) {
 	srv := newFakeServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"number":4,"state":"open","html_url":"https://github.com/acme/rox/pull/4","head":{"sha":"fresh-head"},"labels":[{"name":"no-release-assistant"}]}`))
+		_, _ = w.Write([]byte(`{"number":4,"state":"open","html_url":"https://github.com/acme/rox/pull/4","head":{"sha":"fresh-head"},"labels":[{"name":"no-release-assistant"},{"name":"allow-release-assistant"}]}`))
 	}))
 	defer srv.Close()
 	c := New(srv.URL, "", srv.Client())
 	got, err := c.ReadTarget(context.Background(), release.Target{Repo: "acme/rox", PR: 4})
-	if err != nil || got.SHA != "fresh-head" || !got.Open || !got.OptOut {
+	if err != nil || got.SHA != "fresh-head" || !got.Open || !got.OptOut || !got.CommentLabel {
 		t.Fatalf("identity=%+v err=%v", got, err)
 	}
 }

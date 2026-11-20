@@ -16,6 +16,7 @@ type fake struct {
 	plan        release.Plan
 	readHook    func()
 	planErr     error
+	readErr     error
 	writes      atomic.Int32
 	writeStatus string
 	writeErr    error
@@ -25,7 +26,7 @@ func (f *fake) ReadTarget(context.Context, release.Target) (Identity, error) {
 	if f.readHook != nil {
 		f.readHook()
 	}
-	return f.identity, nil
+	return f.identity, f.readErr
 }
 func (f *fake) Plan(context.Context, release.Target) (release.Plan, error) { return f.plan, f.planErr }
 func (f *fake) Write(context.Context, release.Proposal) (Delivery, error) {
@@ -78,6 +79,50 @@ func TestDispatchWithholdsUnsafeWrites(t *testing.T) {
 		})
 	}
 }
+func TestPRCommentLabelGate(t *testing.T) {
+	for name, tc := range map[string]struct {
+		interactive, required, tag, observed, current, readError, optOut, wantWrite bool
+	}{
+		"label requirement off":       {wantWrite: true},
+		"automatic eligible PR":       {required: true, observed: true, current: true, wantWrite: true},
+		"unlabeled PR":                {required: true},
+		"label removed before write":  {required: true, observed: true},
+		"confirmed but label removed": {interactive: true, required: true, observed: true},
+		"label read failed":           {required: true, observed: true, current: true, readError: true},
+		"opt-out takes precedence":    {required: true, observed: true, current: true, optOut: true},
+		"tag needs no label":          {required: true, tag: true, wantWrite: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, f, _ := setup(t)
+			if tc.tag {
+				target := release.Target{Repo: f.identity.Target.Repo, Tag: "3.0.0"}
+				f.identity.Target, f.plan.Target, f.plan.Proposals[0].Target = target, target, target
+			}
+			d.SetWriteMode(&tc.interactive, &tc.required)
+			f.identity.CommentLabel = tc.observed
+			d.ObserveIdentity(f.identity)
+			d.ObservePlan(f.plan)
+			if err := d.Grant(f.identity.Target, f.identity.SHA, true); err != nil {
+				t.Fatal(err)
+			}
+			f.identity.CommentLabel = tc.current
+			f.identity.OptOut = tc.optOut
+			if tc.readError {
+				f.readErr = errors.New("GitHub unavailable")
+			}
+			p := f.plan.Proposals[0]
+			_, err := d.Send(t.Context(), p.Target, ID(p), tc.interactive)
+			if tc.wantWrite {
+				if err != nil || f.writes.Load() != 1 {
+					t.Fatalf("writes = %d, error = %v", f.writes.Load(), err)
+				}
+			} else if err == nil || f.writes.Load() != 0 {
+				t.Fatalf("expected denial, got writes = %d, error = %v", f.writes.Load(), err)
+			}
+		})
+	}
+}
+
 func TestSingleUseCooldownAndDuplicateSubmission(t *testing.T) {
 	d, f, now := setup(t)
 	p := f.plan.Proposals[0]

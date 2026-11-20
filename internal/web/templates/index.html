@@ -14,8 +14,17 @@
   <div class="release-identity"><h1>{{if .Configured}}ACS {{.Snapshot.Config.Version}}{{else}}{{.Title}}{{end}}</h1>{{if .Configured}}<code>{{.Snapshot.Config.Branch}}</code>{{end}}</div>
   {{template "konflux-status" .}}
   <details data-fold-key="write-mode" name="header-menu" class="header-menu">
-    <summary>Write mode · {{if not .Snapshot.WritesEnabled}}Read-only{{else if .Snapshot.Interactive}}Interactive{{else}}Automatic{{end}}</summary>
-    <div class="menu-content"><p>{{if not .Snapshot.WritesEnabled}}Restart with <code>--enable-writes</code> to allow GitHub retry comments for permitted targets.{{else if .Snapshot.Interactive}}You must confirm each eligible retry comment before the assistant posts it to a permitted PR or tag.{{else}}The assistant automatically posts eligible retry comments to GitHub for permitted PRs and tags.{{end}}</p></div>
+    <summary>Write mode · {{if not .Snapshot.WritesEnabled}}Read-only{{else if .Snapshot.Interactive}}Interactive{{if .Snapshot.RequirePRLabel}} · Only labeled{{end}}{{else if .Snapshot.RequirePRLabel}}Only labeled{{else}}Full auto{{end}}</summary>
+    <div class="menu-content write-mode-help">
+      <p>Each retry comment requires permission for its PR or tag. The label requirement applies only to PRs.</p>
+      <ol>
+        <li><strong>Read-only</strong>{{if not .Snapshot.WritesEnabled}} (active){{end}}. The assistant reads GitHub and posts no comments. Start the assistant without <code>--enable-writes</code>.</li>
+        <li><strong>Interactive</strong>{{if and .Snapshot.WritesEnabled .Snapshot.Interactive}} (active){{end}}. Confirm each eligible retry comment before the assistant posts it. If the label requirement is on, GitHub must also report the label for the PR. Select <b>Confirm each retry comment</b>.</li>
+        <li><strong>Only labeled</strong>{{if and .Snapshot.WritesEnabled .Snapshot.RequirePRLabel (not .Snapshot.Interactive)}} (active){{end}}. The assistant posts eligible retry comments automatically. It posts to a PR only if GitHub reports <code>{{prCommentLabel}}</code>. Clear <b>Confirm each retry comment</b>. Select <b>Require the label for PR comments</b>.</li>
+        <li><strong>Full auto</strong>{{if and .Snapshot.WritesEnabled (not .Snapshot.Interactive) (not .Snapshot.RequirePRLabel)}} (active){{end}}. The assistant posts eligible retry comments automatically. A PR can receive comments without the label. Clear both checkboxes.</li>
+      </ol>
+      <p>For a mode that posts comments, start with <code>--enable-writes</code>. Configure the release. Change the checkboxes in <a href="/?tab=settings#retry-settings" data-open-section>Application settings</a>. Select <b>Save settings</b>.</p>
+    </div>
   </details>
 </header>
 <div id="live-dashboard" class="workspace">
@@ -174,6 +183,14 @@
           <div>
             <label for="confirm-writes">Confirm each retry comment</label>
             <p id="retry-permissions" class="setting-help">{{if .Snapshot.WritesEnabled}}Automatic retries still require permission for each PR or tag.{{else}}Read-only mode is active. Restart with <code>--enable-writes</code> to change this setting.{{end}}</p>
+          </div>
+        </div>
+        <div class="setting-option">
+          {{if .Snapshot.WritesEnabled}}<input type="hidden" name="require_pr_label" value="false">{{end}}
+          <input type="checkbox" name="require_pr_label" value="true" id="require-pr-label" aria-describedby="pr-label-help" {{if .Snapshot.RequirePRLabel}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}>
+          <div>
+            <label for="require-pr-label">Require the label for PR comments</label>
+            <p id="pr-label-help" class="setting-help">Before posting to a PR, check that GitHub reports <code>{{prCommentLabel}}</code>. Comments on tags need no label.</p>
           </div>
         </div>
       </section>

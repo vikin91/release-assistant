@@ -18,6 +18,7 @@ type (
 		NextAction  string
 		Manual      *release.ManualRetryReport
 		ClosedState string
+		PR          release.PR
 	}
 	buildRetryCandidate struct {
 		Key      string
@@ -107,6 +108,7 @@ func (p pageModel) BuildRetries() []*buildRetryTarget {
 }
 
 func (g *buildRetryTarget) setPRDetails(pr release.PR) {
+	g.PR = pr
 	if pr.Merged || pr.State == "merged" {
 		g.ClosedState = "Merged"
 	} else if pr.State == "closed" {

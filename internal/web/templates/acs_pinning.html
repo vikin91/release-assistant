@@ -10,6 +10,7 @@
     {{if .PinningPR}}{{$pin := .PinningPR.PR}}
       <p class="control-row">
         <a aria-describedby="new-tab-description" href="{{url (or $pin.URL $.Snapshot.Assessment.Pins.PRURL)}}" target="_blank" rel="noreferrer"{{with $pin.Title}} title="{{.}}"{{end}}>Open pinning PR #{{$pin.Target.PR}}</a>
+        {{if .Snapshot.RequirePRLabel}}{{template "pr-label-badge" $pin}}{{end}}
         {{if not $pin.Evidence.Fresh}}<span class="pill unknown">Last observed: {{or $pin.State "unknown"}}</span>
         {{else if or $pin.Merged (eq $pin.State "merged")}}<span class="pill yes">Merged</span>
         {{else if eq $pin.State "closed"}}<span class="pill no">Closed without merging</span>

@@ -14,9 +14,11 @@ type (
 		// Base binds PR permission to its observed target branch; tags leave it empty.
 		Base         string
 		Open, OptOut bool
+		// CommentLabel is valid only with fresh PR identity evidence.
+		CommentLabel bool
 		Evidence     release.Evidence
 	}
-	// Reader verifies current target identity and opt-out status.
+	// Reader verifies current target identity and write-related labels.
 	Reader interface {
 		ReadTarget(context.Context, release.Target) (Identity, error)
 	}

@@ -43,6 +43,7 @@
             <div class="pr-summary">
               <div class="pr-title">
                 <a aria-describedby="new-tab-description" href="{{url .PR.URL}}" target="_blank" rel="noreferrer">#{{.PR.Target.PR}} {{.PR.Title}}</a>
+                {{if $.Snapshot.RequirePRLabel}}{{template "pr-label-badge" .PR}}{{end}}
                 <div class="pr-meta">{{template "pr-identity-summary" .PR}}</div>
               </div>
               <div class="pr-list-choice">
@@ -93,6 +94,10 @@
     {{else}}<p class="muted">No repository observations yet.</p>{{end}}
     {{if $component}}</div>{{else}}</details>{{end}}
   </section>
+{{end}}
+
+{{define "pr-label-badge"}}
+  {{if and .CommentLabel .Evidence.Fresh (not .OptOut) (eq .State "open")}}<span class="pill yes" title="{{prCommentLabel}}">Allowed by label</span>{{end}}
 {{end}}
 
 {{define "pr-identity-summary"}}

@@ -48,14 +48,14 @@ type (
 	}
 	// Dispatcher owns all local write authority and serializes attempt admission.
 	Dispatcher struct {
-		mu                   sync.Mutex
-		reader               Reader
-		planner              Planner
-		writer               Writer
-		options              Options
-		targets              map[release.Target]*targetState
-		interactive, stopped bool
-		events               []Event
+		mu                                   sync.Mutex
+		reader                               Reader
+		planner                              Planner
+		writer                               Writer
+		options                              Options
+		targets                              map[release.Target]*targetState
+		interactive, requirePRLabel, stopped bool
+		events                               []Event
 	}
 	targetState struct {
 		identity                   Identity
@@ -165,13 +165,24 @@ func (d *Dispatcher) Ignore(t release.Target, ignored bool) {
 	d.event(t, s.identity.SHA, "ignore", "", fmt.Sprint(ignored), "user")
 }
 
-// Interactive invalidates approvals whenever confirmation mode changes.
-func (d *Dispatcher) Interactive(on bool) {
+// Interactive sets confirmation mode without changing the PR label requirement.
+func (d *Dispatcher) Interactive(on bool) { d.SetWriteMode(&on, nil) }
+
+// SetWriteMode applies both settings together so automatic dispatch sees the new label policy.
+func (d *Dispatcher) SetWriteMode(interactive, requirePRLabel *bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.interactive != on {
-		d.interactive = on
-		d.event(release.Target{}, "", "interactive", "", fmt.Sprint(on), "user")
+	if (interactive == nil || d.interactive == *interactive) &&
+		(requirePRLabel == nil || d.requirePRLabel == *requirePRLabel) {
+		return
+	}
+	if interactive != nil && d.interactive != *interactive {
+		d.interactive = *interactive
+		d.event(release.Target{}, "", "interactive", "", fmt.Sprint(*interactive), "user")
+	}
+	if requirePRLabel != nil && d.requirePRLabel != *requirePRLabel {
+		d.requirePRLabel = *requirePRLabel
+		d.event(release.Target{}, "", "require-pr-label", "", fmt.Sprint(*requirePRLabel), "user")
 	}
 	for _, s := range d.targets {
 		clear(s.approved)
@@ -184,6 +195,13 @@ func (d *Dispatcher) WritesEnabled() bool { return d.options.EnableWrites }
 
 // IsInteractive reports the current mode.
 func (d *Dispatcher) IsInteractive() bool { d.mu.Lock(); defer d.mu.Unlock(); return d.interactive }
+
+// RequiresPRLabel reports whether PR comments require the GitHub label.
+func (d *Dispatcher) RequiresPRLabel() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.requirePRLabel
+}
 
 // Reset clears authority for a new configuration context.
 func (d *Dispatcher) Reset() {
@@ -260,6 +278,8 @@ func (d *Dispatcher) offer(s *targetState, p release.Proposal) Offer {
 		o.Reason = "no-release-assistant disables writes"
 	case !s.identity.Evidence.Fresh() || s.identity.SHA != p.SHA || !s.identity.Open:
 		o.Reason = "current target identity unknown or changed"
+	case d.requirePRLabel && p.Target.PR > 0 && !s.identity.CommentLabel:
+		o.Reason = "PR requires the " + release.PRCommentLabel + " label"
 	case p.RunID == "":
 		o.Reason = "stable run evidence unavailable; copy only"
 	case !s.granted:
@@ -371,8 +391,9 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 	}
 	d.mu.Unlock()
 	defer func() { d.mu.Lock(); s.inFlight = false; d.mu.Unlock() }()
+	// Partial planner errors do not invalidate independently approved, identified jobs.
+	fresh, _ := d.planner.Plan(ctx, t)
 	identity, readErr := d.reader.ReadTarget(ctx, t)
-	fresh, planErr := d.planner.Plan(ctx, t)
 	d.mu.Lock()
 	if d.targets[t] != s || s.epoch != epoch {
 		d.mu.Unlock()
@@ -387,12 +408,16 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 	if matches {
 		matches = slices.ContainsFunc(fresh.Proposals, func(p release.Proposal) bool { return ID(p) == id && p.RunID != "" })
 	}
-	// Partial planner errors do not invalidate independently approved, identified jobs.
-	_ = planErr
-	if !matches || s.epoch != epoch || !s.granted || s.ignored || d.stopped || !d.options.EnableWrites || (d.interactive && !s.approved[id]) || s.rejected[id] {
+	labelMissing := d.requirePRLabel && t.PR > 0 && !identity.CommentLabel
+	if !matches || labelMissing || s.epoch != epoch || !s.granted || s.ignored || d.stopped || !d.options.EnableWrites || (d.interactive && !s.approved[id]) || s.rejected[id] {
 		clear(s.approved)
 		s.message = "Approval became stale; refreshed evidence does not support dispatch"
-		d.event(t, proposal.SHA, "withheld", proposal.Payload, "stale", "system")
+		reason := "stale"
+		if labelMissing {
+			reason = "label-unverified"
+			s.message = "GitHub did not verify the " + release.PRCommentLabel + " label for this PR"
+		}
+		d.event(t, proposal.SHA, "withheld", proposal.Payload, reason, "system")
 		message := s.message
 		d.mu.Unlock()
 		return Delivery{}, fmt.Errorf("%s", message)

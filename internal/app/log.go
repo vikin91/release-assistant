@@ -302,6 +302,9 @@ func recordMessage(r Record) string {
 	case "interactive":
 		on := r.Result == "true"
 		return settingChangeMessage("Confirm each retry comment", !on, on)
+	case "require-pr-label":
+		on := r.Result == "true"
+		return settingChangeMessage("Require the label for PR comments", !on, on)
 	case "revoked":
 		return fmt.Sprintf("Revoked permission to post retry comments in %s because the target changed or no longer allows writes.", target)
 	case "reject":
@@ -312,6 +315,9 @@ func recordMessage(r Record) string {
 	case "approve":
 		return fmt.Sprintf("Approved one retry comment in %s.", target)
 	case "withheld":
+		if r.Result == "label-unverified" {
+			return fmt.Sprintf("Did not post a retry comment in %s because GitHub did not verify the %s label.", target, release.PRCommentLabel)
+		}
 		return fmt.Sprintf("Did not post a retry comment in %s because its approval is out of date.", target)
 	case "dispatch":
 		return fmt.Sprintf("Authorized a retry comment in %s.", target)

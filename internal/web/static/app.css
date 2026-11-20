@@ -346,6 +346,8 @@ body { display: grid; grid-template: auto 1fr / 220px minmax(0, 1fr); min-height
 .header-menu > .konflux-pill { display: flex; gap: 5px; align-items: center; border-color: currentColor; }
 .menu-content { position: absolute; top: 100%; right: 24px; width: min(30rem, calc(100% - 48px)); max-height: 65vh; overflow: auto; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 14px; }
 .menu-content p:last-child { margin-bottom: 0; }
+.write-mode-help ol { padding-inline-start: 1.5rem; }
+.write-mode-help li + li { margin-top: .65rem; }
 .workspace main { grid-column: 2; width: 100%; min-width: 0; padding: 24px; }
 .workflow-heading h2 {
   margin-bottom: 4px;

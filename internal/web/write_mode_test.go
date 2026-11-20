@@ -22,24 +22,28 @@ func TestWriteModeControls(t *testing.T) {
 		writesEnabled bool
 		interactive   bool
 		optOut        bool
-		wantReadOnly  bool
+		requireLabel  bool
+		missingLabel  bool
 		wantDisabled  bool
 
 		wantHeader string
 	}{
-		{name: "startup read-only", interactive: true, wantReadOnly: true, wantDisabled: true, wantHeader: "Read-only"},
+		{name: "startup read-only", interactive: true, wantDisabled: true, wantHeader: "Read-only"},
 		{name: "writes enabled", writesEnabled: true, interactive: true, wantHeader: "Interactive"},
-		{name: "automatic with opt-out", writesEnabled: true, optOut: true, wantDisabled: true, wantHeader: "Automatic"},
+		{name: "automatic with opt-out", writesEnabled: true, optOut: true, wantDisabled: true, wantHeader: "Full auto"},
+		{name: "only labeled", writesEnabled: true, requireLabel: true, wantHeader: "Only labeled"},
+		{name: "unlabeled PR", writesEnabled: true, requireLabel: true, missingLabel: true, wantHeader: "Only labeled"},
+		{name: "interactive and labeled", writesEnabled: true, interactive: true, requireLabel: true, wantHeader: "Interactive · Only labeled"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			application := &fakeApplication{snapshot: app.Snapshot{
-				Config: validACS5Config(), Generation: 9, WritesEnabled: tc.writesEnabled, Interactive: tc.interactive,
+				Config: validACS5Config(), Generation: 9, WritesEnabled: tc.writesEnabled, Interactive: tc.interactive, RequirePRLabel: tc.requireLabel,
 				Choices: release.Choices{
 					Tags: map[string]string{"fact": "3.25.7", "collector": "3.25.4"},
 					PRs:  map[release.Target]release.Choice{prTarget: release.Included},
 				},
 				Repositories: []release.Repository{
-					{Source: release.Source{Name: "acs", Repo: "acme/rox", Branch: "release-5.0"}, PRs: []release.PR{{Target: prTarget, SHA: "head-sha", Title: "Included PR", State: "open", Base: "release-5.0", OptOut: tc.optOut, Evidence: release.Evidence{Known: true, At: time.Now()}}}},
+					{Source: release.Source{Name: "acs", Repo: "acme/rox", Branch: "release-5.0"}, PRs: []release.PR{{Target: prTarget, SHA: "head-sha", Title: "Included PR", State: "open", Base: "release-5.0", OptOut: tc.optOut, CommentLabel: !tc.missingLabel, Evidence: release.Evidence{Known: true, At: time.Now()}}}},
 					{Source: release.Source{Name: "fact", Repo: "acme/fact", Branch: "release-3.25", Stream: "3.25"}, Tags: []release.Tag{
 						{Name: "3.25.7", SHA: "tag-sha", Belongs: release.Yes, Evidence: release.Evidence{Known: true, At: time.Now()}},
 						{Name: "3.25.8", SHA: "next-tag-sha", Belongs: release.Yes, Evidence: release.Evidence{Known: true, At: time.Now()}},
@@ -65,13 +69,18 @@ func TestWriteModeControls(t *testing.T) {
 			if !strings.Contains(header, "<summary>Write mode · "+tc.wantHeader+"</summary>") {
 				t.Errorf("header must display write mode %q", tc.wantHeader)
 			}
-			if got := strings.Contains(header, "<code>--enable-writes</code>"); got != tc.wantReadOnly {
-				t.Errorf("header restart hint present=%t, want %t", got, tc.wantReadOnly)
+			for _, mode := range []string{"Read-only", "Interactive", "Only labeled", "Full auto"} {
+				if !strings.Contains(header, "<strong>"+mode+"</strong>") {
+					t.Errorf("missing explanation of %s mode", mode)
+				}
 			}
 
 			prCard := prCardContaining(body, "Included PR")
 			if prCard == "" {
 				t.Fatal("included PR selection card missing")
+			}
+			if got := strings.Contains(prCard, "Allowed by label"); got != (tc.requireLabel && !tc.missingLabel) {
+				t.Errorf("label badge present = %t", got)
 			}
 			prGrant := grantForm(t, prCard)
 			assertCheckboxDisabled(t, "PR RW grant", prGrant, "enabled", tc.wantDisabled)
@@ -93,6 +102,7 @@ func TestWriteModeControls(t *testing.T) {
 			}
 			modeForm := formContaining(t, body, `value="application-settings"`)
 			assertCheckboxDisabled(t, "interactive confirmation", modeForm, "interactive", !tc.writesEnabled)
+			assertCheckboxDisabled(t, "PR label requirement", modeForm, "require_pr_label", !tc.writesEnabled)
 			assertButtonTextDisabled(t, "save settings", modeForm, "Save settings", !tc.writesEnabled)
 			if tc.writesEnabled && !strings.Contains(modeForm, `name="interactive" value="true"`) {
 				t.Error("interactive confirmation should be available when writes are enabled")

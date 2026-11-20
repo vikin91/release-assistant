@@ -7,6 +7,7 @@
           {{if .Target.PR}}
             <header class="build-retry-pr-heading">
               {{template "pr-title-and-link" .}}
+              {{if $.Snapshot.RequirePRLabel}}{{template "pr-label-badge" .PR}}{{end}}
               {{if eq .Target $.Snapshot.Config.PinningTarget}}<span class="pill">Pinning PR</span>{{end}}
               {{if .ClosedState}}<span class="pill{{if eq .ClosedState "Merged"}} yes{{end}}">{{.ClosedState}}</span>{{end}}
             </header>
