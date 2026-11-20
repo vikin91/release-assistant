@@ -15,6 +15,8 @@ import (
 	"time"
 	"unicode"
 
+	"release-assistant/internal/apilog"
+	"release-assistant/internal/app"
 	"release-assistant/internal/github"
 	"release-assistant/internal/konflux"
 	"release-assistant/internal/release"
@@ -44,7 +46,10 @@ func newReader(ctx context.Context, lookups konflux.Lookups) (readers, error) {
 	if config.GitHubToken == "" {
 		return readers{}, errors.New("set GH_TOKEN or GITHUB_TOKEN, or sign in with gh auth login --hostname github.com")
 	}
-	config.HTTPClient = &http.Client{Timeout: 30 * time.Second}
+	config.HTTPClient = &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: apilog.Transport{Base: http.DefaultTransport, Calling: app.NewLog(os.Stderr).CallingAPI},
+	}
 	return readers{
 		konfluxPlan:   konflux.New(config).Plan,
 		manualRetries: github.New("", config.GitHubToken, config.HTTPClient).ManualRetriesWithOptional,

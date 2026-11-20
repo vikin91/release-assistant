@@ -42,6 +42,14 @@ type (
 // NewLog writes audit records to w and retains recent activity for the UI.
 func NewLog(w io.Writer) *Log { return &Log{output: w} }
 
+// CallingAPI records an outbound HTTP attempt in the terminal and browser activity logs.
+func (l *Log) CallingAPI(system, method, resource string) {
+	l.Append(Record{
+		At: time.Now(), Decision: "api-call", Origin: "system",
+		message: fmt.Sprintf("Calling API: %s %s %s", system, method, resource),
+	})
+}
+
 // CommitWindowCacheHits records reused history once per discovery pass.
 func (l *Log) CommitWindowCacheHits(repo string, hits int) {
 	l.Append(Record{
@@ -329,7 +337,7 @@ func recordLevel(r Record) string {
 	case r.Decision == "github-checks-attention", r.Decision == "konflux-reads-paused",
 		r.Decision == "start-failures", r.Decision == "retry-wait", r.Decision == "tag-invalidated", r.Decision == "revoked", r.Decision == "withheld", r.Decision == "delivery" && r.Result == "uncertain":
 		return "Warn"
-	case r.Decision == "observation", r.Decision == "checks", r.Decision == "commit-window-cache-hit":
+	case r.Decision == "api-call", r.Decision == "observation", r.Decision == "checks", r.Decision == "commit-window-cache-hit":
 		return "Debug"
 	default:
 		return "Info"

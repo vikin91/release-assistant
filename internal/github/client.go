@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 
+	"release-assistant/internal/apilog"
 	"release-assistant/internal/githubread"
 )
 
@@ -170,21 +171,7 @@ func safeEndpoint(rawURL, token string) string {
 	if err != nil {
 		return "/"
 	}
-	path := parsed.EscapedPath()
-	if path == "" {
-		path = "/"
-	}
-	if token != "" {
-		path = strings.ReplaceAll(path, url.PathEscape(token), "[redacted]")
-		path = strings.ReplaceAll(path, token, "[redacted]")
-	}
-	lower := strings.ToLower(path)
-	for _, credential := range []string{"token", "secret", "password", "credential", "authorization", "api_key", "apikey"} {
-		if strings.Contains(lower, credential) {
-			return "/[redacted]"
-		}
-	}
-	return path
+	return apilog.Resource(parsed, token)
 }
 
 func httpStatusHint(resp *http.Response) string {

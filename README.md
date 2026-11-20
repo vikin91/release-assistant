@@ -195,6 +195,13 @@ Under **Application settings** → **Concurrent GitHub reads**, **First 5 minute
 
 **Log** shows the latest 1,000 events and refreshes every two seconds. The terminal prints timestamped activity to stdout, including discovery, check status changes, retry decisions, and Konflux read pauses and recovery. Redirect stdout if you need to retain the log.
 
+Each outbound API request produces one line with the system, HTTP method, and resource path. The assistant omits query strings. For Quay storage redirects, it logs the original resource with a `(redirect)` suffix. The standalone `ci-retest` command sends these lines to stderr.
+
+```sh
+grep -F 'Debug: Calling API:' assistant.log
+grep -F 'Debug: Calling API: GitHub GET /repos/stackrox/stackrox/pulls/23956' assistant.log
+```
+
 GitHub discovery reuses commit history in memory by default and logs cache hits at Debug level. In **Settings**, uncheck **Reuse GitHub commit history in memory** and select **Save settings** to turn it off and empty the cache. **Clear cache** empties it without changing the setting. A restart starts with an empty, enabled cache.
 
 Choices, grants, approvals, counters, and recent activity live in memory. Reloading the browser preserves the session. Restarting clears it, restores **Confirm each retry comment**, and rediscovers release work already completed in external systems.

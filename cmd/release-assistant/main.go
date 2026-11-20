@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"release-assistant/internal/apilog"
 	"release-assistant/internal/app"
 	"release-assistant/internal/dispatch"
 	"release-assistant/internal/github"
@@ -72,9 +73,9 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	plannerConfig := konflux.StartupConfig(ctx, allowedLookups)
-	options.GitHubReads = githubread.New(nil)
-	client := &http.Client{Transport: options.GitHubReads, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	log := app.NewLog(os.Stdout)
+	options.GitHubReads = githubread.New(apilog.Transport{Base: http.DefaultTransport, Calling: log.CallingAPI})
+	client := &http.Client{Transport: options.GitHubReads, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	windowCache := github.NewCommitWindowCache(log.CommitWindowCacheHits)
 	gh := github.New("", plannerConfig.GitHubToken, client).WithCommitWindowCache(windowCache)
 	options.Cache = windowCache
