@@ -46,6 +46,7 @@ type (
 		CacheAvailable, CacheEnabled bool
 		StartupReadLimit             int
 		OngoingReadLimit             int
+		GitHubReadBudget             githubread.Budget
 		// WritesEnabled reports startup permission; target grants remain independent.
 		WritesEnabled   bool
 		Error, LogError string
@@ -467,6 +468,7 @@ func (s *Session) Snapshot() Snapshot {
 	}
 	if s.options.GitHubReads != nil {
 		x.StartupReadLimit, x.OngoingReadLimit = s.options.GitHubReads.ReadLimits()
+		x.GitHubReadBudget = s.options.GitHubReads.Budget()
 	}
 	if planner, ok := s.planner.(interface{ ReadIssues() []konflux.ReadIssue }); ok {
 		x.KonfluxReadIssues = planner.ReadIssues()

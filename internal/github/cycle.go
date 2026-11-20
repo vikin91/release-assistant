@@ -51,7 +51,7 @@ func cacheableObservation(endpoint string) bool {
 func (d *discoveryCycle) take() error {
 	if d.remaining <= d.reserved {
 		if d.budgetErr == nil {
-			d.budgetErr = fmt.Errorf("GitHub discovery request budget limit reached (limit %d, %d reserved reads)", d.limit, d.reserved)
+			d.budgetErr = fmt.Errorf("internal discovery request budget limit reached (%d reads per cycle, %d reserved by Release Assistant)", d.limit, d.reserved)
 		}
 		return d.budgetErr
 	}

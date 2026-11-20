@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -51,8 +52,8 @@ func TestRollingAndSourceAllowancesShareActualReads(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := read(t, limiter, ctx, "planner"); err == nil {
-		t.Fatal("planner bypassed source allowance")
+	if err := read(t, limiter, ctx, "planner"); err == nil || !strings.Contains(err.Error(), "internal limit of 2 reads per cycle") {
+		t.Fatalf("source allowance: %v", err)
 	}
 	if usage.Calls() != 2 || calls.Load() != 2 {
 		t.Fatal("deferred reads consumed network calls")
@@ -64,12 +65,66 @@ func TestRollingAndSourceAllowancesShareActualReads(t *testing.T) {
 	if calls.Load() != 3 {
 		t.Fatal("new cycle reset hourly allowance")
 	}
+	budget := limiter.Budget()
+	if budget.Remaining != 0 || budget.Limit != 3 || !budget.NextSlot.Equal(now.Add(time.Hour)) {
+		t.Fatalf("exhausted budget = %+v", budget)
+	}
+	err := read(t, limiter, t.Context(), "deferred")
+	if err == nil || !strings.Contains(err.Error(), "before contacting GitHub. Its internal limit is 3 reads per rolling hour") {
+		t.Fatalf("hourly allowance: %v", err)
+	}
 	now = now.Add(time.Hour)
+	if got := limiter.Budget(); got.Remaining != 3 || !got.NextSlot.IsZero() {
+		t.Fatalf("idle budget after an hour = %+v", got)
+	}
 	if err := read(t, limiter, t.Context(), "later"); err != nil {
 		t.Fatal(err)
 	}
 	if calls.Load() != 4 {
 		t.Fatal("rolling allowance did not recover")
+	}
+}
+
+func TestBudgetUsesReportedCoreQuotaUntilReset(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	reset := now.Add(time.Hour)
+	headers := make(http.Header)
+	limiter := New(roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: headers.Clone()}, nil
+	}))
+	limiter.now = func() time.Time { return now }
+	if got := limiter.Budget(); got.Remaining != 3000 || !got.GitHub.ObservedAt.IsZero() {
+		t.Fatalf("initial budget = %+v", got)
+	}
+	check := func(want Quota) {
+		t.Helper()
+		if err := read(t, limiter, t.Context(), "repos/example/project"); err != nil {
+			t.Fatal(err)
+		}
+		if got := limiter.Budget().GitHub; got != want {
+			t.Fatalf("reported quota = %+v, want %+v", got, want)
+		}
+	}
+	headers.Set("X-RateLimit-Resource", "core")
+	headers.Set("X-RateLimit-Limit", "5000")
+	headers.Set("X-RateLimit-Remaining", "4123")
+	check(Quota{}) // An incomplete report cannot establish the quota.
+	headers.Set("X-RateLimit-Reset", strconv.FormatInt(reset.Unix(), 10))
+	want := Quota{Remaining: 4123, Limit: 5000, ObservedAt: now, ResetAt: reset}
+	check(want)
+	now = now.Add(time.Minute)
+	headers.Set("X-RateLimit-Resource", "search")
+	headers.Set("X-RateLimit-Remaining", "19")
+	check(want)
+	headers.Set("X-RateLimit-Resource", "core")
+	headers.Set("X-RateLimit-Remaining", "invalid")
+	check(want)
+	headers.Set("X-RateLimit-Remaining", "0")
+	want.Remaining, want.ObservedAt = 0, now
+	check(want)
+	now = reset
+	if got := limiter.Budget().GitHub; !got.ObservedAt.IsZero() {
+		t.Fatalf("expired quota = %+v", got)
 	}
 }
 
@@ -89,7 +144,7 @@ func TestRateLimitStopsOtherClientsUntilReset(t *testing.T) {
 	}
 	err := read(t, limiter, t.Context(), "discovery")
 	deferred, ok := errors.AsType[*DeferredError](err)
-	if !ok || !deferred.Until.Equal(now.Add(2*time.Minute)) || calls != 1 {
+	if !ok || !strings.Contains(deferred.Reason, "GitHub reported a rate limit") || !deferred.Until.Equal(now.Add(2*time.Minute)) || calls != 1 {
 		t.Fatalf("calls=%d error=%v", calls, err)
 	}
 	now = now.Add(2 * time.Minute)

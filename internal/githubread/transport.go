@@ -32,6 +32,17 @@ type (
 		Reason string
 		Until  time.Time
 	}
+	// Budget reports the assistant's rolling allowance and GitHub's last core REST quota.
+	Budget struct {
+		Remaining, Limit int
+		NextSlot         time.Time
+		GitHub           Quota
+	}
+	// Quota records GitHub's response headers. A zero ObservedAt means the quota is unknown.
+	Quota struct {
+		Remaining, Limit    int
+		ObservedAt, ResetAt time.Time
+	}
 	// Transport schedules GitHub GETs fairly within each priority and caps hourly spending.
 	Transport struct {
 		base         http.RoundTripper
@@ -45,6 +56,7 @@ type (
 		last         string
 		calls        []time.Time
 		allowance    int
+		quota        Quota
 		until        time.Time
 		blocked      string
 		now          func() time.Time
@@ -69,7 +81,7 @@ const (
 
 // Error preserves the scheduling reason and the earliest useful retry time.
 func (e *DeferredError) Error() string {
-	return fmt.Sprintf("%s; retry after %s", e.Reason, e.Until.UTC().Format(time.RFC3339))
+	return fmt.Sprintf("%s. Retry after %s", e.Reason, e.Until.UTC().Format(time.RFC3339))
 }
 
 // Calls excludes cached, deferred, and non-GitHub observations.
@@ -127,6 +139,30 @@ func (t *Transport) ReadLimits() (startup, ongoing int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.startupLimit, t.ongoingLimit
+}
+
+// Budget returns the available reads at the time of the call, including during idle periods.
+func (t *Transport) Budget() Budget {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := t.now()
+	t.expireCalls(now)
+	b := Budget{Remaining: t.allowance - len(t.calls), Limit: t.allowance}
+	if b.Remaining == 0 {
+		b.NextSlot = t.calls[0].Add(time.Hour)
+	}
+	if now.Before(t.quota.ResetAt) {
+		b.GitHub = t.quota
+	}
+	return b
+}
+
+// expireCalls removes reads outside the rolling hour. The caller holds t.mu.
+func (t *Transport) expireCalls(now time.Time) {
+	cutoff := now.Add(-time.Hour)
+	for len(t.calls) > 0 && !t.calls[0].After(cutoff) {
+		t.calls = t.calls[1:]
+	}
 }
 
 // SetReadLimits applies the supplied limits together. A nil argument keeps its current value.
@@ -190,17 +226,21 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return nil, err
 		}
 		now := t.now()
-		for len(t.calls) > 0 && !t.calls[0].After(now.Add(-time.Hour)) {
-			t.calls = t.calls[1:]
-		}
+		t.expireCalls(now)
 		var deferred *DeferredError
 		switch {
 		case now.Before(t.until):
 			deferred = &DeferredError{Reason: t.blocked, Until: t.until}
 		case len(t.calls) >= t.allowance:
-			deferred = &DeferredError{Reason: "shared GitHub hourly read allowance exhausted", Until: t.calls[0].Add(time.Hour)}
+			deferred = &DeferredError{
+				Reason: fmt.Sprintf("Release Assistant deferred this request before contacting GitHub. Its internal limit is %d reads per rolling hour", t.allowance),
+				Until:  t.calls[0].Add(time.Hour),
+			}
 		case usage != nil && usage.limit > 0 && usage.Calls() >= int64(usage.limit):
-			deferred = &DeferredError{Reason: "source-cycle GitHub read allowance exhausted", Until: now.Add(time.Minute)}
+			deferred = &DeferredError{
+				Reason: fmt.Sprintf("Release Assistant deferred this request before contacting GitHub. This source reached its internal limit of %d reads per cycle", usage.limit),
+				Until:  now.Add(time.Minute),
+			}
 		}
 		if deferred != nil {
 			remove()
@@ -253,11 +293,22 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 func (b *releaseBody) Close() error { defer b.once.Do(b.release); return b.ReadCloser.Close() }
 
 func (t *Transport) record(resp *http.Response) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := t.now()
+	if resp.Header.Get("X-RateLimit-Resource") == "core" {
+		limit, limitErr := strconv.Atoi(resp.Header.Get("X-RateLimit-Limit"))
+		remaining, remainingErr := strconv.Atoi(resp.Header.Get("X-RateLimit-Remaining"))
+		reset, resetErr := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64)
+		if limitErr == nil && remainingErr == nil && resetErr == nil && limit > 0 &&
+			remaining >= 0 && remaining <= limit && reset > now.Unix() {
+			t.quota = Quota{Remaining: remaining, Limit: limit, ObservedAt: now, ResetAt: time.Unix(reset, 0)}
+		}
+	}
 	limited := resp.StatusCode == 429 || resp.Header.Get("X-RateLimit-Remaining") == "0" || (resp.StatusCode == 403 && resp.Header.Get("Retry-After") != "")
 	if !limited {
 		return
 	}
-	now := t.now()
 	var until time.Time
 	if seconds, err := strconv.ParseUint(resp.Header.Get("Retry-After"), 10, 32); err == nil {
 		until = now.Add(time.Duration(seconds) * time.Second)
@@ -272,11 +323,9 @@ func (t *Transport) record(resp *http.Response) {
 	if !until.After(now) {
 		until = now.Add(time.Minute)
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
 	if until.After(t.until) {
 		t.until = until
-		t.blocked = fmt.Sprintf("GitHub reads deferred after rate limit (HTTP %d)", resp.StatusCode)
+		t.blocked = fmt.Sprintf("GitHub reported a rate limit (HTTP %d). Release Assistant paused GitHub reads", resp.StatusCode)
 		t.signal()
 	}
 }

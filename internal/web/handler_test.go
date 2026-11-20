@@ -1113,11 +1113,38 @@ func TestPartialTagInventoryShowsVerifiedChoicesImmediately(t *testing.T) {
 	}
 }
 
+func TestSidebarReadBudget(t *testing.T) {
+	now := time.Now()
+	nextSlot := now.Add(time.Minute)
+	reset := now.Add(time.Hour)
+	application := &fakeApplication{snapshot: app.Snapshot{GitHubReadBudget: githubread.Budget{
+		Limit: 3000, NextSlot: nextSlot,
+		GitHub: githubread.Quota{Remaining: 1812, Limit: 5000, ObservedAt: now, ResetAt: reset},
+	}}}
+	body := newBrowser(t, application).getBody(t)
+	_, after, found := strings.Cut(body, "<aside ")
+	sidebar, _, closed := strings.Cut(after, "</aside>")
+	if !found || !closed {
+		t.Fatal("missing sidebar")
+	}
+	for _, want := range []string{
+		"0 of 3000 reads left", "Next slot at " + formatTime(nextSlot),
+		"1812 of 5000 requests left", "Observed at " + formatTime(now), "Resets at " + formatTime(reset),
+	} {
+		if !strings.Contains(sidebar, want) {
+			t.Errorf("sidebar missing %q", want)
+		}
+	}
+}
+
 func TestGitHubReadLimitSettings(t *testing.T) {
 	reads := githubread.New(nil)
 	cache := github.NewCommitWindowCache(nil)
 	session := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{}), nil, app.Options{GitHubReads: reads, Cache: cache})
 	b := newBrowser(t, session)
+	if body := b.getBody(t); !strings.Contains(body, "3000 of 3000 reads left") || !strings.Contains(body, "<dd>Unknown</dd>") {
+		t.Fatal("sidebar should show the local allowance and an unknown GitHub quota before the first read")
+	}
 	checkLimits := func(startup, ongoing int) {
 		t.Helper()
 		if gotStartup, gotOngoing := reads.ReadLimits(); gotStartup != startup || gotOngoing != ongoing {

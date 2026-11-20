@@ -36,7 +36,22 @@
   </nav>
   <p id="dashboard-refresh-status" class="muted" role="status" data-live-preserve>Waiting for release updates.</p>
   {{if and .Configured .Snapshot.Loading}}<p id="release-loading" class="muted" role="status">Loading release data…</p>{{end}}
-  <section class="phase-legend" aria-labelledby="phase-legend-title">
+  {{with .Snapshot.GitHubReadBudget}}{{if .Limit}}
+  <section class="sidebar-summary" aria-labelledby="github-reads-heading">
+    <h2 id="github-reads-heading">GitHub reads</h2>
+    <dl>
+      <div><dt>Assistant allowance</dt><dd>{{.Remaining}} of {{.Limit}} reads left in the rolling hour</dd>
+        {{if not .NextSlot.IsZero}}<dd>Next slot at {{when .NextSlot}}</dd>{{end}}</div>
+      <div><dt>GitHub quota (core REST)</dt>
+        {{with .GitHub}}{{if .ObservedAt.IsZero}}<dd>Unknown</dd>{{else}}
+        <dd>{{.Remaining}} of {{.Limit}} requests left</dd>
+        <dd>Observed at {{when .ObservedAt}}</dd>
+        <dd>Resets at {{when .ResetAt}}</dd>
+        {{end}}{{end}}</div>
+    </dl>
+  </section>
+  {{end}}{{end}}
+  <section class="sidebar-summary phase-legend" aria-labelledby="phase-legend-title">
     <h2 id="phase-legend-title">Phase icons</h2>
     <dl>{{range .PhaseLegend}}
       <div><dt><span class="tab-status {{.Class}}" aria-hidden="true">{{.Icon}}</span> {{.Label}}</dt><dd>{{.Reason}}</dd></div>
