@@ -15,11 +15,24 @@ presence of write-capable credentials confer no permission.
    write enablement, a current per-target grant, and verified eligibility.
    Revalidate before sending and deny the write if authorization or evidence
    is missing, stale, or revoked.
-4. Keep GitHub and Konflux reads separate from write-capable adapters. The only
+4. Start with **Require the label for PR comments** unchecked. When enabled,
+   require the `allow-release-assistant` label for every PR retry comment,
+   including comments the user confirms. Check the label in `internal/dispatch`
+   using a fresh GitHub read immediately before dispatch. Deny the write if
+   the label is missing or GitHub cannot verify it. The label requirement
+   applies only to PRs. A label does not grant write permission or override
+   `no-release-assistant`.
+5. Show **Read-only** when writes are disabled and **Interactive** when
+   confirmation is required. Show **Only labeled** when automatic posting
+   requires the PR label and **Full auto** when it does not. Show
+   **Interactive · Only labeled** when both requirements apply. The pill opens
+   a popup that explains each mode and how to enable it. Show **Allowed by
+   label** beside qualifying PRs only while the label requirement is enabled.
+6. Keep GitHub and Konflux reads separate from write-capable adapters. The only
    supported external writes are Konflux retry comments posted to GitHub.
    Keep job eligibility in `konflux-retest`. Test authorization with fake
    writers and assert that denied requests never reach the writer.
-5. Route every Konflux build retry through the public `konflux-retest` interface.
+7. Route every Konflux build retry through the public `konflux-retest` interface.
    Post one comment per eligible job. Use `/konflux-retest <job>` on a PR
    or `/retest <job> tag:<tag>` on the tagged commit. A failed Actions
    job in `Test Konflux builds`, including `wait-for-images`, does not establish
