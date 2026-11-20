@@ -24,21 +24,33 @@ func TestRetryListsDoNotOverlap(t *testing.T) {
 	}
 }
 
-func TestStackRoxActionsRetryOwnership(t *testing.T) {
-	for workflow, jobs := range map[string][]string{
-		".github/workflows/style.yaml":        {"check-generated-files", "golangci-lint", "style-check"},
-		".github/workflows/unit-tests.yaml":   {`go (GOTAGS="")`, "local-roxctl-tests"},
-		".github/workflows/e2e-dispatch.yaml": {"e2e-nongroovy-tests-gke / run / gke-nongroovy-e2e-tests", "wait-for-images"},
+func TestActionsRetryOwnership(t *testing.T) {
+	for source, jobs := range map[retrySource][]string{
+		{"stackrox/stackrox", "github-actions", ".github/workflows/style.yaml"}:        {"check-generated-files", "golangci-lint", "style-check"},
+		{"stackrox/stackrox", "github-actions", ".github/workflows/unit-tests.yaml"}:   {`go (GOTAGS="")`, "local-roxctl-tests"},
+		{"stackrox/stackrox", "github-actions", ".github/workflows/e2e-dispatch.yaml"}: {"e2e-nongroovy-tests-gke / run / gke-nongroovy-e2e-tests", "wait-for-images"},
+		{"stackrox/scanner", "github-actions", ".github/workflows/ci.yaml"}:            {"db-integration-tests", "style-check", "unit-tests"},
 	} {
-		t.Run(workflow, func(t *testing.T) {
-			report := ManualRetryReport{Target: release.Target{Repo: "stackrox/stackrox", PR: 7}}
+		t.Run(source.repo+"/"+source.workflow, func(t *testing.T) {
+			report := ManualRetryReport{Target: release.Target{Repo: source.repo, PR: 7}}
 			for _, job := range jobs {
-				if !classifyRetry(&report, "github-actions", workflow, job) {
+				if !classifyRetry(&report, source.provider, source.workflow, job) {
 					t.Errorf("expected retry support for %s", job)
 				}
 			}
-			if classifyRetry(&report, "github-actions", workflow, "unclassified job") || len(report.OtherChecks) != 1 {
+			if classifyRetry(&report, source.provider, source.workflow, "unclassified job") || len(report.OtherChecks) != 1 {
 				t.Fatalf("unexpected check classifications: %v", report.OtherChecks)
+			}
+		})
+	}
+}
+
+func TestKonfluxChecksAreDeniedInReleaseRepositories(t *testing.T) {
+	for _, repo := range []string{"stackrox/stackrox", "stackrox/collector", "stackrox/fact", "stackrox/scanner"} {
+		t.Run(repo, func(t *testing.T) {
+			report := ManualRetryReport{Target: release.Target{Repo: repo, PR: 7}}
+			if classifyRetry(&report, "red-hat-konflux", "", "Red Hat Konflux / checks") || len(report.OtherChecks) != 0 {
+				t.Fatalf("expected Konflux to own the check, got %v", report.OtherChecks)
 			}
 		})
 	}

@@ -27,6 +27,11 @@ var (
 		{"stackrox/stackrox", "github-actions", stackroxBuildWorkflow}:         nil,
 		{"stackrox/collector", "github-actions", ".github/workflows/main.yml"}: nil,
 		{"stackrox/fact", "github-actions", ".github/workflows/ci.yml"}:        nil,
+		{"stackrox/scanner", "github-actions", ".github/workflows/ci.yaml"}: {
+			"db-integration-tests",
+			"style-check",
+			"unit-tests",
+		},
 		{"stackrox/stackrox", "github-actions", ".github/workflows/style.yaml"}: {
 			"check-generated-files",
 			"golangci-lint",

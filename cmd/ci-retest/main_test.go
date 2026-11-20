@@ -234,6 +234,10 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 			args: []string{"--prs", "7"}, workflowPath: ".github/workflows/e2e-dispatch.yaml", imageWait: true,
 			want: []string{"wait-for-images: cannot verify the Build run for this commit"}, absent: []string{"Unknown check", "/jobs/99/rerun"},
 		},
+		"should retry a required Scanner test and omit the optional build": {
+			repo: "stackrox/scanner", args: []string{"--prs", "7"}, workflowPath: ".github/workflows/ci.yaml",
+			want: []string{"unit-tests\nhttps://github.com/stackrox/scanner/actions/runs/22/job/99", "/jobs/99/rerun"}, absent: []string{"Unknown check", "/jobs/101/rerun"},
+		},
 		"unavailable rules do not promote optional failures": {
 			args: []string{"--prs", "7"}, rulesUnavailable: true, want: []string{"required checks for master"}, absent: []string{"gh api --method POST", "/test gke-qa-e2e-tests", "Unknown check"}, code: 1,
 		},
@@ -278,6 +282,9 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 			if tc.mergeScope {
 				first, second = "compile", "integration-tests / amd64-integration-tests (rhel) / Testing rhel"
 			}
+			if repo == "stackrox/scanner" {
+				first, second = "unit-tests", "build-images (linux, amd64)"
+			}
 			checks := []string{failedCheck(41, first, "github-actions", 15368), failedCheck(42, second, "github-actions", 15368)}
 			if tc.newerRunPR > 0 {
 				checks[0] = strings.Replace(checks[0], `"conclusion":"failure"`, `"conclusion":"cancelled"`, 1)
@@ -314,6 +321,10 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 					}
 					if tc.mergeScope {
 						fmt.Fprint(w, `[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"merge gate","integration_id":15368}]}}]`)
+						return
+					}
+					if repo == "stackrox/scanner" {
+						fmt.Fprint(w, `[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"unit-tests","integration_id":15368}]}}]`)
 						return
 					}
 					fmt.Fprint(w, `[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Konflux: release-central-db:rc"},{"context":"Upstream: main:rc"},{"context":"ci/prow/gke-qa-e2e-tests"},{"context":"wait-for-images"},{"context":"run-konflux-tests / integration-tests (fedora-coreos)"}]}}]`)
