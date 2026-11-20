@@ -26,6 +26,10 @@ func TestRetestQueueRendersOnlySupportedActions(t *testing.T) {
 		}},
 	}
 	body := newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t)
+	tab := between(t, body, `id="tab-retest-queue"`, "</a>")
+	if !strings.Contains(tab, "<span>Retest Queue (3)</span>") {
+		t.Fatal("the navigation count should include pending rows only")
+	}
 	panel := activityPanel(t, body, "retest-queue")
 	for _, needle := range []string{
 		"Backport &lt;fix&gt;", "https://example.com/main", "https://example.com/job/91", "https://example.com/prow",
