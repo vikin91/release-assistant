@@ -280,7 +280,30 @@ func (c *Client) manualActions(ctx context.Context, t release.Target, pr retryPR
 		if run.targetProblem(t, pr) != "" || run.Number < latestVerifiedPRRun[run.WorkflowID] {
 			continue
 		}
-		selected, scopeErr := c.scopedRunChecks(ctx, t, pr, run, scope, selected, checks)
+		source := retrySource{strings.ToLower(t.Repo), "github-actions", run.Path}
+		if retryDenyList.matches(source, "") {
+			continue
+		}
+		observed := checks
+		if run.Attempt > 1 {
+			latest, reason, err := c.latestRetryChecks(ctx, t, pr, run, checks)
+			if err != nil {
+				problems = append(problems, err)
+				continue
+			}
+			if reason != "" {
+				report.Warnings = append(report.Warnings, fmt.Sprintf("%s (run %d): %s", run.Name, run.ID, reason))
+				continue
+			}
+			observed = latest
+			selected = selected[:0]
+			for _, check := range latest {
+				if check.Status == "completed" && check.check().Result() == release.No {
+					selected = append(selected, check)
+				}
+			}
+		}
+		selected, scopeErr := c.scopedRunChecks(ctx, t, pr, run, scope, selected, observed)
 		if scopeErr != nil {
 			problems = append(problems, scopeErr)
 		}
@@ -329,6 +352,54 @@ func (run retryRun) targetProblem(t release.Target, pr retryPR) string {
 	return ""
 }
 
+// latestRetryChecks limits rerun evidence to the checks GitHub links from its latest job list.
+func (c *Client) latestRetryChecks(ctx context.Context, t release.Target, pr retryPR, run retryRun, checks []commitCheckRun) ([]commitCheckRun, string, error) {
+	endpoint := fmt.Sprintf("%s/actions/runs/%d/jobs?filter=latest", repoPath(t.Repo), run.ID)
+	jobs, err := retryPages[retryJob](ctx, c, endpoint, "jobs", maxPages)
+	if err != nil {
+		return nil, "", fmt.Errorf("reading latest jobs for run %d: %w", run.ID, err)
+	}
+	if _, reason, err := c.confirmRetryRun(ctx, t, pr, run); reason != "" || err != nil {
+		return nil, reason, err
+	}
+	byCheckURL := make(map[string]retryJob, len(jobs))
+	for _, job := range jobs {
+		url := strings.ToLower(job.CheckURL)
+		if _, exists := byCheckURL[url]; exists || job.ID <= 0 || url == "" || job.Status == "" {
+			return nil, "latest jobs lack unique check identities", nil
+		}
+		byCheckURL[url] = job
+	}
+	var latest []commitCheckRun
+	for _, check := range checks {
+		if check.Suite.ID != run.SuiteID || check.HeadSHA != pr.Head.SHA || check.App.Slug != "github-actions" {
+			continue
+		}
+		checkURL := fmt.Sprintf("https://api.github.com/repos/%s/check-runs/%d", t.Repo, check.ID)
+		if job, ok := byCheckURL[strings.ToLower(checkURL)]; ok {
+			check.Status, check.Conclusion = job.Status, job.Conclusion
+			latest = append(latest, check)
+		}
+	}
+	return latest, "", nil
+}
+
+// confirmRetryRun checks that the run still represents the observed attempt.
+func (c *Client) confirmRetryRun(ctx context.Context, t release.Target, pr retryPR, run retryRun) (retryRun, string, error) {
+	var current retryRun
+	endpoint := fmt.Sprintf("%s/actions/runs/%d", repoPath(t.Repo), run.ID)
+	if err := c.get(ctx, endpoint, &current); err != nil {
+		return current, "", err
+	}
+	if current.ID != run.ID || current.SuiteID != run.SuiteID || current.WorkflowID != run.WorkflowID || current.Path != run.Path || current.Attempt != run.Attempt || current.Status != run.Status || current.SHA != pr.Head.SHA {
+		return current, "run changed during collection", nil
+	}
+	if t.PR > 0 && !associatedPR(current, pr) {
+		return current, "PR association unproven", nil
+	}
+	return current, "", nil
+}
+
 func (c *Client) retryRunJobs(ctx context.Context, report *ManualRetryReport, pr retryPR, run retryRun, runs []retryRun, checks []commitCheckRun) ([]ManualJob, string, error) {
 	t := report.Target
 	var allowed []commitCheckRun
@@ -375,15 +446,9 @@ func (c *Client) retryRunJobs(ctx context.Context, report *ManualRetryReport, pr
 	if err != nil {
 		return nil, "", err
 	}
-	var current retryRun
-	if err := c.get(ctx, endpoint, &current); err != nil {
-		return nil, "", err
-	}
-	if current.ID != run.ID || current.SuiteID != run.SuiteID || current.WorkflowID != run.WorkflowID || current.Path != run.Path || current.Attempt != run.Attempt || current.Status != "completed" || current.SHA != pr.Head.SHA {
-		return nil, "run changed during collection", nil
-	}
-	if t.PR > 0 && !associatedPR(current, pr) {
-		return nil, "PR association unproven", nil
+	current, reason, err := c.confirmRetryRun(ctx, t, pr, run)
+	if reason != "" || err != nil {
+		return nil, reason, err
 	}
 	if t.Tag != "" {
 		verified, err := c.tagCaller(ctx, t, current)

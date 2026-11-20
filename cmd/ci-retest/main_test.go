@@ -156,6 +156,8 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 		greenGate, rulesUnavailable      bool
 		moved, otherCheck, missingConfig bool
 		newerRunPR                       int
+		rerunConclusion                  string
+		attemptMoved                     bool
 		want, absent                     []string
 		code                             int
 	}{
@@ -202,6 +204,22 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 			repo: "stackrox/collector", args: []string{"--prs", "7"}, workflowPath: ".github/workflows/main.yml", workflow: mergeWorkflow, mergeScope: true, newerRunPR: 8,
 			want: []string{"compile: ineligible Actions conclusion cancelled"}, absent: []string{"gh api --method POST"},
 		},
+		"should omit a cancelled check when the latest attempt passed it": {
+			repo: "stackrox/collector", args: []string{"--prs", "7"}, workflowPath: ".github/workflows/main.yml", workflow: mergeWorkflow, mergeScope: true, rerunConclusion: "success",
+			absent: []string{"gh api --method POST", "Unknown check", "Warnings:"},
+		},
+		"should offer the failed job from the latest attempt": {
+			repo: "stackrox/collector", args: []string{"--prs", "7"}, workflowPath: ".github/workflows/main.yml", workflow: mergeWorkflow, mergeScope: true, rerunConclusion: "failure",
+			want: []string{"actions/runs/22/job/103", "actions/jobs/103/rerun"}, absent: []string{"cancelled", "/jobs/99/rerun"},
+		},
+		"should omit prerequisite retries when the latest required check passed": {
+			repo: "stackrox/collector", args: []string{"--prs", "7"}, workflowPath: ".github/workflows/main.yml", workflow: mergeWorkflow, mergeScope: true, rerunConclusion: "failure", greenGate: true,
+			absent: []string{"gh api --method POST", "Unknown check", "Warnings:"},
+		},
+		"should withhold retry results when the attempt changes during collection": {
+			repo: "stackrox/collector", args: []string{"--prs", "7"}, workflowPath: ".github/workflows/main.yml", workflow: mergeWorkflow, mergeScope: true, rerunConclusion: "failure", attemptMoved: true,
+			want: []string{"run changed during collection"}, absent: []string{"cancelled", "/rerun"},
+		},
 		"unavailable rules do not promote optional failures": {
 			args: []string{"--prs", "7"}, rulesUnavailable: true, want: []string{"required checks for master"}, absent: []string{"gh api --method POST", "/test gke-qa-e2e-tests", "Unknown check"}, code: 1,
 		},
@@ -218,8 +236,12 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 				workflowName += " (rc)"
 			}
 			created := time.Now().UTC().Format(time.RFC3339)
+			attempt := 1
+			if tc.rerunConclusion != "" {
+				attempt = 2
+			}
 			workflowRun := func(id, suite, number int, pullRequest string) string {
-				return fmt.Sprintf(`{"id":%d,"name":%q,"path":%q,"workflow_id":33,"check_suite_id":%d,"head_sha":%q,"head_branch":%q,"event":%q,"run_attempt":1,"run_number":%d,"status":"completed","created_at":%q,"pull_requests":[%s],"referenced_workflows":[{"path":"stackrox/stackrox/.github/workflows/build.yml@%s","ref":%q,"sha":%q}]}`, id, workflowName, workflowPath, suite, sha, ref, event, number, created, pullRequest, sha, tc.ref, sha)
+				return fmt.Sprintf(`{"id":%d,"name":%q,"path":%q,"workflow_id":33,"check_suite_id":%d,"head_sha":%q,"head_branch":%q,"event":%q,"run_attempt":%d,"run_number":%d,"status":"completed","created_at":%q,"pull_requests":[%s],"referenced_workflows":[{"path":"stackrox/stackrox/.github/workflows/build.yml@%s","ref":%q,"sha":%q}]}`, id, workflowName, workflowPath, suite, sha, ref, event, attempt, number, created, pullRequest, sha, tc.ref, sha)
 			}
 			runData := workflowRun(22, 11, 2, pr)
 			runs := []string{runData}
@@ -239,6 +261,10 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 				checks = append(checks, fmt.Sprintf(`{"id":44,"name":%q,"status":"completed","conclusion":"success","head_sha":%q,"app":{"slug":"github-actions","id":15368},"check_suite":{"id":12}}`, first, sha))
 				newerPR := strings.Replace(pr, `"number":7`, fmt.Sprintf(`"number":%d`, tc.newerRunPR), 1)
 				runs = append(runs, workflowRun(23, 12, 3, newerPR))
+			}
+			if tc.rerunConclusion != "" {
+				checks[0] = strings.Replace(checks[0], `"conclusion":"failure"`, `"conclusion":"cancelled"`, 1)
+				checks = append(checks, strings.Replace(failedCheck(44, first, "github-actions", 15368), `"conclusion":"failure"`, `"conclusion":"`+tc.rerunConclusion+`"`, 1))
 			}
 			if tc.greenGate {
 				checks = append(checks, strings.Replace(failedCheck(45, "merge gate", "github-actions", 15368), `"conclusion":"failure"`, `"conclusion":"success"`, 1))
@@ -323,7 +349,20 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 				case "/actions/runs":
 					fmt.Fprintf(w, `{"total_count":%d,"workflow_runs":[%s]}`, len(runs), strings.Join(runs, ","))
 				case "/actions/runs/22":
+					if tc.attemptMoved {
+						fmt.Fprint(w, strings.Replace(runData, `"run_attempt":2`, `"run_attempt":3`, 1))
+						return
+					}
 					fmt.Fprint(w, runData)
+				case "/actions/runs/22/jobs", "/actions/runs/22/attempts/2/jobs":
+					if r.URL.Path == root+"/actions/runs/22/jobs" && r.URL.Query().Get("filter") != "latest" {
+						t.Errorf("unexpected workflow jobs filter in %s", r.URL)
+					}
+					latestJobs := []string{fmt.Sprintf(`{"id":103,"status":"completed","conclusion":%q,"check_run_url":"https://api.github.com/repos/%s/check-runs/44"}`, tc.rerunConclusion, repo)}
+					if tc.greenGate {
+						latestJobs = append(latestJobs, fmt.Sprintf(`{"id":104,"status":"completed","conclusion":"success","check_run_url":"https://api.github.com/repos/%s/check-runs/45"}`, repo))
+					}
+					fmt.Fprintf(w, `{"total_count":%d,"jobs":[%s]}`, len(latestJobs), strings.Join(latestJobs, ","))
 				case "/contents/" + workflowPath:
 					if tc.mergeScope && r.URL.Query().Get("ref") != "merge-revision" {
 						t.Errorf("workflow read at %s", r.URL.RawQuery)
