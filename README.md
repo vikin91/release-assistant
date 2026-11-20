@@ -191,7 +191,7 @@ Use `ci-retest` to check GitHub Actions jobs and OpenShift CI presubmits indepen
 
 The CLI and dashboard use the PR base branch’s classic protection and active rulesets to identify merge-required checks. For Actions, they follow direct and transitive `needs` at the PR workflow revision, including local reusable workflows. The report offers a failed job after its prerequisites pass. If a prerequisite fails, the report offers that job when it is ready. Independent jobs can appear together.
 
-The [retry dependency file](internal/github/retry_dependencies.yaml) records the audited trees for StackRox, Collector, FACT, and Scanner. Edit `cross-workflow` in that file when a required job uses output from another workflow. GitHub’s current branch rules and workflow files determine the requirements within a workflow. The report shows an error when it cannot read those rules or files. Dependencies inside external reusable workflows are outside prerequisite discovery.
+The [CI retry dependency rules](internal/github/retry_dependency_rules.go) record the audited trees for StackRox, Collector, FACT, and Scanner. Edit `retryDependencies` in that file when a required job uses output from another workflow. GitHub’s current branch rules and workflow files determine the requirements within a workflow. The report shows an error when it cannot read those rules or files. Dependencies inside external reusable workflows are outside prerequisite discovery.
 
 Pass `--optional` to include configured standalone jobs outside the merge dependency trees. Tags have no PR merge requirements, so their manual Actions retries require `--optional`. Konflux selects its own jobs and prerequisites for PRs and tags.
 

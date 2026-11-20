@@ -3,21 +3,16 @@ package github
 import (
 	"testing"
 
-	"go.yaml.in/yaml/v3"
-
 	"release-assistant/internal/release"
 )
 
-func TestRetryDependencyFileHasTreesForReleaseRepositories(t *testing.T) {
-	var file struct {
-		Trees map[string][]yaml.Node `yaml:"audited-trees"`
-	}
-	if err := yaml.Unmarshal(retryDependencyYAML, &file); err != nil {
-		t.Fatal(err)
-	}
-	for _, repo := range []string{"stackrox/stackrox", "stackrox/collector", "stackrox/fact", "stackrox/scanner"} {
-		if len(file.Trees[repo]) == 0 {
-			t.Errorf("missing audited trees for %s", repo)
+func TestRetryDependencyRules(t *testing.T) {
+	for repo, dependencies := range retryDependencies {
+		for _, dependency := range dependencies {
+			if !release.ValidRepo(repo) || dependency.Workflow == "" || dependency.Job == "" ||
+				dependency.Needs == "" || dependency.Name == "" || len(dependency.RequiredChecks) == 0 {
+				t.Errorf("incomplete retry dependency for %s: %+v", repo, dependency)
+			}
 		}
 	}
 }

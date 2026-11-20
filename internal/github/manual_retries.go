@@ -100,9 +100,6 @@ func (c *Client) ManualRetries(ctx context.Context, t release.Target) (ManualRet
 // A tag has no merge base branch and therefore has no required merge checks.
 func (c *Client) ManualRetriesWithOptional(ctx context.Context, t release.Target, optional bool) (ManualRetryReport, error) {
 	report := ManualRetryReport{Target: t}
-	if retryDependencyConfigErr != nil {
-		return report, retryDependencyConfigErr
-	}
 	if !release.ValidRepo(t.Repo) || !(t.PR > 0 && t.Tag == "" || t.PR == 0 && ValidRetryTag(t.Tag)) {
 		return report, errors.New("invalid retry target")
 	}

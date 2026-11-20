@@ -3,50 +3,14 @@ package github
 import (
 	"cmp"
 	"context"
-	_ "embed"
 	"fmt"
 	"slices"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
-
 	"release-assistant/internal/release"
 )
 
-var (
-	//go:embed retry_dependencies.yaml
-	retryDependencyYAML                         []byte
-	retryDependencies, retryDependencyConfigErr = loadRetryDependencies()
-)
-
 const githubActionsAppID = 15368
-
-type retryWorkflowDependency struct {
-	Workflow       string
-	Job            string
-	RequiredChecks []string `yaml:"required-checks"`
-	Needs          string
-	Name           string
-}
-
-// loadRetryDependencies reads the links between workflows from the embedded configuration.
-func loadRetryDependencies() (map[string][]retryWorkflowDependency, error) {
-	var config struct {
-		CrossWorkflow map[string][]retryWorkflowDependency `yaml:"cross-workflow"`
-	}
-	if err := yaml.Unmarshal(retryDependencyYAML, &config); err != nil {
-		return nil, fmt.Errorf("read retry_dependencies.yaml: %w", err)
-	}
-	for repo, dependencies := range config.CrossWorkflow {
-		for _, dependency := range dependencies {
-			if !release.ValidRepo(repo) || dependency.Workflow == "" || dependency.Job == "" ||
-				dependency.Needs == "" || dependency.Name == "" || len(dependency.RequiredChecks) == 0 {
-				return nil, fmt.Errorf("incomplete retry dependency for %s in retry_dependencies.yaml", repo)
-			}
-		}
-	}
-	return config.CrossWorkflow, nil
-}
 
 // requiredRetryWorkflows includes producers while a check still needs their output.
 func (c *Client) requiredRetryWorkflows(ctx context.Context, t release.Target, pr retryPR, scope retryScope, runs []retryRun, checks []commitCheckRun) (map[string]bool, error) {
