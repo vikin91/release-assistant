@@ -24,6 +24,8 @@ import (
 	"release-assistant/internal/web"
 )
 
+const defaultKonfluxLookup = "296509,api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -56,7 +58,9 @@ func run() error {
 	flag.DurationVar(&limits.SlowGap, "slow-gap", time.Hour, "per-job gap at failure threshold")
 	flag.IntVar(&limits.Threshold, "failure-threshold", 10, "distinct consecutive failed runs before slowdown")
 	flag.BoolVar(&limits.EnableWrites, "enable-writes", false, "allow retry comments after per-target RW permission and required confirmation")
-	flag.Func("allow-konflux-lookup", "allow a Konflux lookup for APP_ID,API_HOST,NAMESPACE (repeatable)", allowedLookups.Add)
+	flag.Func("allow-konflux-lookup",
+		"Konflux lookup for APP_ID,API_HOST,NAMESPACE (repeatable, replaces default "+defaultKonfluxLookup+")",
+		allowedLookups.Add)
 	flag.Parse()
 	if flag.NArg() != 0 {
 		return fmt.Errorf("unexpected positional arguments")
@@ -78,6 +82,9 @@ func run() error {
 		}
 	}
 	options.Initial = config
+	if err := applyDefaultKonfluxLookup(allowedLookups); err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	plannerConfig := konflux.StartupConfig(ctx, allowedLookups)
@@ -124,6 +131,17 @@ func run() error {
 		return nil
 	}
 	return err
+}
+
+// applyDefaultKonfluxLookup supplies the ACS namespace when the flags supply no lookup policy.
+func applyDefaultKonfluxLookup(lookups konflux.Lookups) error {
+	if len(lookups) > 0 {
+		return nil
+	}
+	if err := lookups.Add(defaultKonfluxLookup); err != nil {
+		return fmt.Errorf("invalid default Konflux lookup: %w", err)
+	}
+	return nil
 }
 
 // applyVersionDefaults fills component streams and branches from the CLI version.

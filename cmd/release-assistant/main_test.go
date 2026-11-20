@@ -3,10 +3,12 @@ package main
 import (
 	"flag"
 	"io"
+	"maps"
 	"os"
 	"strings"
 	"testing"
 
+	"release-assistant/internal/konflux"
 	"release-assistant/internal/release"
 )
 
@@ -59,6 +61,45 @@ func TestWritesRequireExplicitStartupFlag(t *testing.T) {
 			}
 			if flag.Lookup("disable-writes") != nil {
 				t.Fatal("obsolete flag still registered")
+			}
+		})
+	}
+}
+
+func TestDefaultKonfluxLookup(t *testing.T) {
+	const defaultLookup = "296509,api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant"
+	const customLookup = "296509,api.stone-prd-rh01.pg1f.p1.openshiftapps.com,other-tenant"
+	const otherCluster = "296509,api.stone-stg.example.openshiftapps.com,rh-acs-tenant"
+	for name, tc := range map[string]struct {
+		explicit, want []string
+	}{
+		"no flags uses the ACS namespace": {want: []string{defaultLookup}},
+		"one explicit flag replaces the default": {
+			explicit: []string{customLookup},
+			want:     []string{customLookup},
+		},
+		"repeated flags replace the default": {
+			explicit: []string{customLookup, otherCluster},
+			want:     []string{customLookup, otherCluster},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, want := make(konflux.Lookups), make(konflux.Lookups)
+			for _, value := range tc.explicit {
+				if err := got.Add(value); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, value := range tc.want {
+				if err := want.Add(value); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := applyDefaultKonfluxLookup(got); err != nil {
+				t.Fatal(err)
+			}
+			if !maps.Equal(got, want) {
+				t.Fatalf("lookup policy = %v, want %v", got, want)
 			}
 		})
 	}

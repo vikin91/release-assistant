@@ -23,13 +23,11 @@ oc login --web https://api.stone-prd-rh01.pg1f.p1.openshiftapps.com:6443/
 ```
 
 From the repository root, replace the credential placeholders and start
-the assistant. This example uses App ID `296509` for `rh-acs-tenant`.
+the assistant.
 
 ```sh
-export APP_ID=296509
 GH_TOKEN='YOUR_GITHUB_TOKEN' QUAY_USERNAME='YOUR_QUAY_USERNAME' QUAY_PASSWORD='YOUR_QUAY_PASSWORD' \
-  go run ./cmd/release-assistant --version 5.0.1 --branch release-5.0 \
-    --allow-konflux-lookup "${APP_ID},api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant"
+  go run ./cmd/release-assistant --version 5.0.1 --branch release-5.0
 ```
 
 Open the [local assistant](http://127.0.0.1:8080). [Setup details](#setup-details)
@@ -70,9 +68,9 @@ at startup. Restart it after changing a token or login.
    `QUAY_RHACS_ENG_RO_USERNAME` and `QUAY_RHACS_ENG_RO_PASSWORD`.
    Public images can be checked anonymously.
 
-4. **Log in to Konflux and identify the lookup to allow.** In the OpenShift
-   console for the cluster that runs your builds, choose **Copy login
-   command** and run the provided `oc login` command. Check the active server.
+4. **Log in to Konflux.** In the OpenShift console for the cluster that runs
+   your builds, choose **Copy login command** and run the provided `oc login`
+   command. Check the active server.
 
    ```sh
    oc whoami --show-server
@@ -81,6 +79,11 @@ at startup. Restart it after changing a token or login.
    Your account needs read access to the relevant namespace’s PipelineRuns
    or their Tekton Results records. The assistant uses the token from the
    active `oc` login for that cluster.
+
+   The assistant allows lookups for GitHub App ID `296509` in `rh-acs-tenant`
+   on `api.stone-prd-rh01.pg1f.p1.openshiftapps.com` by default. To replace
+   the default, pass `--allow-konflux-lookup APP_ID,API_HOST,NAMESPACE` once
+   for each approved lookup.
 
    Use the hostname from the API URL printed by `oc`. The namespace is the
    segment after `/ns/` in the Konflux build URL.
@@ -93,14 +96,9 @@ at startup. Restart it after changing a token or login.
      --jq '.app | {id, slug, owner: .owner.login}'
    ```
 
-   Verify the app slug and owner, then set `APP_ID` to the returned numeric
-   `id` in the launch example.
-
-   Repeat `--allow-konflux-lookup` for each trusted app, host, and namespace
-   combination. If you still need a check-run ID, start without the flag.
-   A `lookup denied by caller policy` message in **Activity and errors**
-   names the repository and check-run ID. Verify the combination and
-   restart with the flag.
+   Verify the app slug and owner before using the returned numeric ID in
+   the flag. A `lookup denied by caller policy` message in **Activity and
+   errors** names the repository and check-run ID.
 
 ## Release configuration
 
@@ -200,6 +198,7 @@ The CLI and dashboard share hardcoded [retry ownership and optional-job lists](i
 For each target, `konflux-retest` runs first. Post each suggested comment separately on the linked PR or tagged commit. The CI check then silently skips deny-listed jobs, including collector and FACT’s `Test Konflux builds` workflows. An allow-listed failure gets a command only after the usual target, revision, and job checks pass. Unlisted failures in the merge scope appear as **Unknown check — patch ci-retest to classify it**.
 
 ```sh
+APP_ID=296509
 go run ./cmd/ci-retest --allow-konflux-lookup "${APP_ID},api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant" --repo stackrox --prs 24136 24135
 go run ./cmd/ci-retest --optional --allow-konflux-lookup "${APP_ID},api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant" --repo stackrox --tags 4.11.8-rc.0,5.0.0-rc.0
 ```
