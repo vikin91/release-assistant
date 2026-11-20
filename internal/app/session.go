@@ -940,8 +940,8 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		if canceled(ctx) {
 			return ctx.Err()
 		}
-		// Keep the normal cadence when the task contract mismatch is the only error.
-		if err != nil && (!isRC || work.scheduled) && (!work.scheduled || !konflux.IsUnsupportedRetagTask(err)) {
+		// Keep the normal cadence when an unsupported retag contract is the only error.
+		if err != nil && (!isRC || work.scheduled) && (!work.scheduled || !konflux.IsUnsupportedRetagContract(err)) {
 			errs = append(errs, fmt.Errorf("reading build results for %s: %w", consoleRevision(target, plan.SHA), err))
 		}
 		s.mu.Lock()

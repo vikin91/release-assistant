@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -11,6 +12,8 @@ import (
 
 	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
+
+	retry "github.com/vikin91/konflux-retest"
 )
 
 type buildPollPlanner func(context.Context, release.Target) (release.Plan, error)
@@ -19,8 +22,8 @@ func (f buildPollPlanner) Plan(ctx context.Context, target release.Target) (rele
 	return f(ctx, target)
 }
 
-func TestBuildPollBackoffDistinguishesUnsupportedRetagTasks(t *testing.T) {
-	contract := errors.New("invalid .tekton/retag-pipeline.yaml: unsupported pinned task implementation for determine-input-image-tag; update the consumer contract before suggesting a retest")
+func TestBuildPollBackoffDistinguishesUnsupportedRetagContracts(t *testing.T) {
+	contract := fmt.Errorf("%w: invalid .tekton/retag-pipeline.yaml", retry.ErrUnsupportedRetagContract)
 	for name, readErr := range map[string]error{
 		"contract mismatch alone keeps the normal interval":    nil,
 		"contract mismatch with an unavailable read backs off": context.DeadlineExceeded,

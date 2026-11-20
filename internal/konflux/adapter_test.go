@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"release-assistant/internal/release"
@@ -189,8 +190,8 @@ func TestPublicAdapterPreservesActionableIdentityErrors(t *testing.T) {
 	}
 }
 
-func TestIsUnsupportedRetagTask(t *testing.T) {
-	contract := errors.New("invalid .tekton/retag-pipeline.yaml: unsupported pinned task implementation for determine-input-image-tag; update the consumer contract before suggesting a retest")
+func TestIsUnsupportedRetagContract(t *testing.T) {
+	contract := fmt.Errorf("%w: invalid .tekton/retag-pipeline.yaml", retry.ErrUnsupportedRetagContract)
 	for name, tc := range map[string]struct {
 		err  error
 		want bool
@@ -199,13 +200,13 @@ func TestIsUnsupportedRetagTask(t *testing.T) {
 			&observationError{message: contract.Error() + "\nSome Konflux reads were deferred by endpoint backoff.", cause: errors.Join(errors.Join(contract, contract))},
 			true,
 		},
-		"a joined timeout still requires backoff": {errors.Join(contract, context.DeadlineExceeded), false},
-		"an error that quotes the diagnostic":     {errors.New("remote error: " + contract.Error()), false},
-		"no error":                                {nil, false},
+		"a wrapped joined timeout still requires backoff": {fmt.Errorf("planning: %w", errors.Join(contract, context.DeadlineExceeded)), false},
+		"an error with the same text":                     {errors.New(contract.Error()), false},
+		"no error":                                        {nil, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := IsUnsupportedRetagTask(tc.err); got != tc.want {
-				t.Fatalf("IsUnsupportedRetagTask(%v) = %t, want %t", tc.err, got, tc.want)
+			if got := IsUnsupportedRetagContract(tc.err); got != tc.want {
+				t.Fatalf("IsUnsupportedRetagContract(%v) = %t, want %t", tc.err, got, tc.want)
 			}
 		})
 	}
