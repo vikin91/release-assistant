@@ -24,7 +24,7 @@ func (i *Inspector) InspectReference(ctx context.Context, reference string) (rel
 	default:
 		image.Name = strings.TrimPrefix(path.Base(repository), "release-")
 		image.Evidence.URL = "https://quay.io/v2/" + repository + "/manifests/" + url.PathEscape(version)
-		image.Present, err = i.registry.present(ctx, reference)
+		image.Present, image.Evidence.At, err = i.registry.present(ctx, reference)
 	}
 	image.Evidence.Known = err == nil
 	if err != nil {

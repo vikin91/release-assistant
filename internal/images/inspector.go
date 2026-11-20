@@ -100,8 +100,9 @@ func (i *Inspector) inspect(ctx context.Context, config release.Config, confirme
 			image.Evidence.Error = "registry client is unavailable; image availability is unknown"
 			issues = append(issues, fmt.Errorf("inspect %s %s image: registry client is unavailable", pattern.component, pattern.family))
 		} else {
-			present, err := i.registry.present(ctx, reference)
-			image.Evidence = release.Evidence{At: time.Now(), URL: sourceURL(reference), Known: err == nil}
+			present, observedAt, err := i.registry.present(ctx, reference)
+			image.Evidence.At = observedAt
+			image.Evidence.Known = err == nil
 			if err != nil {
 				image.Evidence.Error = "registry availability is unknown: " + err.Error()
 				issues = append(issues, fmt.Errorf("inspect %s %s image: %w", pattern.component, pattern.family, err))

@@ -53,6 +53,53 @@ func TestInspectReferenceReportsConfirmedManifestAbsence(t *testing.T) {
 	}
 }
 
+func TestInspectReferenceCachesOnlyConfirmedPresence(t *testing.T) {
+	for name, tc := range map[string]struct {
+		reference string
+		status    int
+		body      string
+		presence  release.Truth
+		wantErr   bool
+	}{
+		"should recheck a missing tag": {
+			reference: "quay.io/rhacs-eng/fact:0.3.77",
+			status:    http.StatusNotFound,
+			body:      `{"errors":[{"code":"MANIFEST_UNKNOWN"}]}`,
+			presence:  release.No,
+		},
+		"should recheck an unverified digest": {
+			reference: "quay.io/rhacs-eng/release-fact@sha256:" + strings.Repeat("a", 64),
+			status:    http.StatusOK,
+			body:      `{}`,
+			wantErr:   true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			requests := 0
+			inspector := New(testHTTPClient(func(*http.Request) *http.Response {
+				requests++
+				if requests == 1 {
+					return response(tc.status, tc.body, nil)
+				}
+				return response(http.StatusOK, validImageManifest, nil)
+			}), "", "")
+
+			first, err := inspector.InspectReference(t.Context(), tc.reference)
+			if (err != nil) != tc.wantErr || first.Present != tc.presence {
+				t.Fatalf("first inspection = %#v, err = %v, want presence %q and error %t", first, err, tc.presence, tc.wantErr)
+			}
+			verified, err := inspector.InspectReference(t.Context(), tc.reference)
+			if err != nil || verified.Present != release.Yes || !verified.Evidence.Fresh() {
+				t.Fatalf("second inspection = %#v, err = %v, want verified presence", verified, err)
+			}
+			cached, err := inspector.InspectReference(t.Context(), tc.reference)
+			if err != nil || cached != verified || requests != 2 {
+				t.Fatalf("third inspection = %#v, err = %v, requests = %d, want the verified result with two requests total", cached, err, requests)
+			}
+		})
+	}
+}
+
 func TestInspectReferenceKeepsRegistryFailuresUnknown(t *testing.T) {
 	for _, tt := range []struct {
 		name    string

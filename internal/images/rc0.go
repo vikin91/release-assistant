@@ -22,8 +22,8 @@ func inspectRC(ctx context.Context, inspector *Inspector, major int, tag string,
 			image.Evidence.Error = "registry client is unavailable; image availability is unknown"
 			continue
 		}
-		present, err := inspector.registry.present(ctx, image.Reference)
-		image.Evidence.At = time.Now()
+		present, observedAt, err := inspector.registry.present(ctx, image.Reference)
+		image.Evidence.At = observedAt
 		image.Evidence.Known = err == nil
 		if err != nil {
 			image.Evidence.Error = "registry availability is unknown: " + err.Error()

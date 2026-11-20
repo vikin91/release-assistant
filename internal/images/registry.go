@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"release-assistant/internal/release"
 )
@@ -23,6 +25,8 @@ type (
 		http     *http.Client
 		username string
 		password string
+
+		confirmedPresence sync.Map // exact reference to first successful observation time
 	}
 
 	manifestDescriptor struct {
@@ -52,7 +56,21 @@ func newRegistryClient(baseURL string, client *http.Client, username, password s
 	return &registryClient{baseURL: strings.TrimRight(baseURL, "/"), http: &copy, username: username, password: password}
 }
 
-func (c *registryClient) present(ctx context.Context, reference string) (release.Truth, error) {
+// present reuses confirmed presence for the life of the client because release images rarely disappear.
+func (c *registryClient) present(ctx context.Context, reference string) (release.Truth, time.Time, error) {
+	if observedAt, ok := c.confirmedPresence.Load(reference); ok {
+		return release.Yes, observedAt.(time.Time), nil
+	}
+	present, err := c.checkManifest(ctx, reference)
+	observedAt := time.Now()
+	if err == nil && present == release.Yes {
+		confirmedAt, _ := c.confirmedPresence.LoadOrStore(reference, observedAt)
+		observedAt = confirmedAt.(time.Time)
+	}
+	return present, observedAt, err
+}
+
+func (c *registryClient) checkManifest(ctx context.Context, reference string) (release.Truth, error) {
 	repository, tag, ok := splitReference(reference)
 	if !ok {
 		return "", errors.New("expected image reference is invalid")

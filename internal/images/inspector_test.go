@@ -242,7 +242,7 @@ func TestRegistryPreservesAuthenticationAndRedirectProtections(t *testing.T) {
 			return responseFor(request, http.StatusNotFound, "", nil), nil
 		}
 	})}, "user", "password")
-	_, err := client.present(t.Context(), "quay.io/rhacs-eng/fact:0.3.77")
+	_, _, err := client.present(t.Context(), "quay.io/rhacs-eng/fact:0.3.77")
 	if err == nil || !basicSeen || manifestRequests != 2 || redirectedRequest {
 		t.Fatalf("redirect/auth protection failed: err=%v basic=%t manifests=%d followed=%t", err, basicSeen, manifestRequests, redirectedRequest)
 	}
@@ -254,7 +254,7 @@ func TestRegistryRejectsUnexpectedTokenScope(t *testing.T) {
 		requests++
 		return responseFor(request, http.StatusUnauthorized, "", http.Header{"Www-Authenticate": []string{`Bearer realm="https://quay.io/v2/auth",service="quay.io",scope="repository:other/image:pull"`}}), nil
 	})}, "username", "password")
-	_, err := client.present(t.Context(), "quay.io/rhacs-eng/fact:0.3.77")
+	_, _, err := client.present(t.Context(), "quay.io/rhacs-eng/fact:0.3.77")
 	if err == nil || requests != 1 {
 		t.Fatalf("present() error=%v requests=%d, want unsupported scope and one request", err, requests)
 	}
