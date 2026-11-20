@@ -189,7 +189,16 @@ Open an offered Actions job link and select the job rerun control on GitHub. For
 
 ## Monitoring and logs
 
-The server listens on loopback. It polls active checks every minute and discovers PRs and tags every five minutes by default. Failed reads can leave the last results visible with their age while current evidence remains unverified. Browser refresh runs separately and preserves open panels and unsaved form input.
+The server listens on loopback. In **Application settings** → **Refresh intervals**, enter the time in minutes between reads for each type of release data. Each component uses its own tag selection to choose the active schedule. The first read starts as soon as its target is available. During the first five minutes, failed reads can retry early. After a successful read, the assistant waits for the configured interval. Changing an interval updates the running schedule. Browser refresh runs separately and preserves open panels and unsaved form input.
+
+| Data | Before component tag selection | After component tag selection | ACS |
+|---|---:|---:|---:|
+| PRs | 5 min | 15 min | 5 min |
+| PR checks | 5 min | 30 min | 5 min |
+| Tags | 10 min | 10 min | 10 min |
+| Tag checks | — | 10 min | 5 min |
+
+The **ACS** section also controls Konflux build reads for all tracked targets (5 minutes) and Quay release image reads (10 minutes). These intervals apply to the current session. At startup, `-discover` can override the initial PR and tag discovery intervals. `-poll` can override the initial check, build, and image intervals. Failed reads can leave the last results visible with their age while current evidence remains unverified.
 
 Under **Application settings** → **Concurrent GitHub reads**, **First 5 minutes** accepts 1–5 and defaults to 3. The five-minute window starts when the first configured release begins monitoring. **After 5 minutes** accepts 1–3 and defaults to 1 for the rest of the session. Saving either limit updates how queued reads are admitted. The hourly read budget and GitHub rate-limit backoff apply throughout.
 

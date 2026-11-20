@@ -78,6 +78,7 @@ type (
 	}
 	tagModel struct {
 		Tag             release.Tag
+		Validation      release.Validation
 		Proposed        bool
 		Authority       *dispatch.View
 		Component, Repo string
@@ -308,6 +309,12 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 				}
 			}
 			if tag.Name == r.CurrentTag {
+				for _, plan := range snapshot.Plans {
+					if plan.Target == (release.Target{Repo: repo.Source.Repo, Tag: tag.Name}) && plan.SHA == tag.SHA {
+						t.Validation = plan.Validation
+						break
+					}
+				}
 				r.SelectedTag = &t
 				continue
 			}

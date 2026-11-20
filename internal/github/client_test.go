@@ -642,3 +642,36 @@ func TestGetPreservesDeadlineDuringResponseRead(t *testing.T) {
 		t.Fatalf("body read timeout was lost or unsafe: %v", err)
 	}
 }
+
+func TestPRInventoryIdentifiesTransitionsWithoutPollingAllPRDetails(t *testing.T) {
+	gets := make(map[string]int)
+	client := New("https://api.github.test", "", &http.Client{Transport: fakeTransport{handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/repos/acme/fact")
+		gets[path]++
+		switch path {
+		case "/branches/release":
+			fmt.Fprint(w, `{"commit":{"sha":"branch"}}`)
+		case "/pulls":
+			fmt.Fprint(w, `[{"number":1,"state":"open","head":{"sha":"one"},"base":{"ref":"release"}}]`)
+		case "/pulls/2":
+			fmt.Fprint(w, `{"number":2,"state":"closed","merged_at":"2026-11-19T12:00:00Z","head":{"sha":"two"},"base":{"ref":"release"}}`)
+		case "/pulls/3":
+			fmt.Fprint(w, `{"number":3,"state":"closed","head":{"sha":"three"},"base":{"ref":"release"}}`)
+		default:
+			t.Fatalf("unrelated request during PR discovery: %s", path)
+		}
+	})}})
+	req := app.DiscoveryRequest{Source: release.Source{Name: "fact", Repo: "acme/fact", Branch: "release"},
+		Scope: app.ReadPRs | app.ReadTargets, PreviouslyOpen: []int{1, 2, 3}}
+	repo, err := client.Discover(t.Context(), req)
+	if err != nil || len(repo.PRs) != 3 || findPR(repo.PRs, 1).State != "open" || findPR(repo.PRs, 2).State != "merged" || findPR(repo.PRs, 3).State != "closed" {
+		t.Fatalf("PRs=%+v, error=%v", repo.PRs, err)
+	}
+	req.PreviouslyOpen = []int{1}
+	if _, err := client.Discover(t.Context(), req); err != nil {
+		t.Fatal(err)
+	}
+	if gets["/pulls"] != 2 || gets["/pulls/2"] != 1 || gets["/pulls/3"] != 1 {
+		t.Fatalf("detail request counts=%v", gets)
+	}
+}

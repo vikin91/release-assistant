@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -22,6 +23,7 @@ type (
 	candidateTag struct {
 		name, sha, kind string
 		number          uint64
+		published       bool
 	}
 	// candidatePRCache retains successful commit associations across bounded polls.
 	candidatePRCache struct {
@@ -36,66 +38,114 @@ type (
 	}
 )
 
-func (c *Client) readCandidate(ctx context.Context, req app.DiscoveryRequest, head string) release.Candidate {
-	src, version := req.Source, req.Version
-	cycle := &discoveryCycle{reads: map[string]cachedRead{}, limit: maxCandidateRequests, remaining: maxCandidateRequests}
+// readCandidate resolves the release tags and verifies the highest reachable RC.
+func (c *Client) readCandidate(ctx context.Context, req app.DiscoveryRequest, head string) (release.Candidate, []release.Tag, error) {
+	if _, _, _, ok := release.Version(req.Version); !ok {
+		return release.Candidate{}, nil, nil
+	}
+	cycle := &discoveryCycle{reads: map[string]cachedRead{}, limit: maxDiscoveryRequests, remaining: maxDiscoveryRequests}
 	ctx = context.WithValue(ctx, discoveryCycleKey{}, cycle)
-	if _, _, _, ok := release.Version(version); !ok {
+	base := repoPath(req.Source.Repo)
+	tags, err := c.candidateTags(ctx, base, strings.TrimPrefix(req.Version, "v"))
+	if err != nil {
+		return release.Candidate{Evidence: release.Evidence{At: time.Now(), Error: requestProblem(err)}}, nil, err
+	}
+	rc := release.Candidate{Evidence: release.Evidence{Known: true, At: time.Now()}}
+	if head == "" {
+		rc.Evidence.Error = "The release branch head is unavailable."
+	}
+	var inventory []release.Tag
+	var inventoryErr error
+	for _, ref := range tags {
+		tag := release.Tag{Name: ref.name, Evidence: release.Evidence{At: time.Now(), URL: "https://github.com/" + req.Source.Repo + "/tree/" + ref.name}}
+		tag.SHA, err = c.peelCommit(ctx, base, ref.name, ref.sha, ref.kind)
+		tag.Evidence.Known = err == nil
+		if err != nil {
+			tag.Evidence.Error = requestProblem(err)
+			inventoryErr = errors.Join(inventoryErr, err)
+		}
+		// Refs are ordered by descending RC number. An unreadable higher RC
+		// prevents selecting a lower one until its ancestry can be verified.
+		if !ref.published && rc.Target.Tag == "" && rc.Evidence.Fresh() {
+			if err != nil {
+				rc.Evidence = tag.Evidence
+			} else {
+				var candidate release.Candidate
+				candidate, tag.Belongs, err = c.compareCandidate(ctx, req, ref, tag.SHA, head)
+				if err != nil {
+					rc.Evidence = release.Evidence{At: time.Now(), Error: requestProblem(err)}
+					inventoryErr = errors.Join(inventoryErr, err)
+				} else if tag.Belongs == release.Yes {
+					rc = candidate
+				}
+			}
+		}
+		inventory = append(inventory, tag)
+	}
+	return rc, inventory, inventoryErr
+}
+
+func (c *Client) compareCandidate(ctx context.Context, req app.DiscoveryRequest, ref candidateTag, sha, head string) (release.Candidate, release.Truth, error) {
+	src := req.Source
+	endpoint := repoPath(src.Repo) + "/compare/" + segment(sha) + "..." + segment(head)
+	var comparison candidateComparison
+	if err := c.get(ctx, endpoint+"?per_page=100&page=1", &comparison); err != nil {
+		return release.Candidate{}, "", err
+	}
+	switch comparison.Status {
+	case "behind", "diverged":
+		return release.Candidate{}, release.No, nil
+	case "ahead":
+		if comparison.Ahead <= 0 {
+			return release.Candidate{}, "", fmt.Errorf("GitHub returned an invalid post-RC commit count")
+		}
+	case "identical":
+		comparison.Ahead = 0
+	default:
+		return release.Candidate{}, "", fmt.Errorf("GitHub returned an unknown tag ancestry status")
+	}
+	rc := release.Candidate{
+		Target: release.Target{Repo: src.Repo, Tag: ref.name}, SHA: sha, Number: ref.number,
+		Evidence: release.Evidence{At: time.Now(), Known: true}, Ahead: comparison.Ahead,
+		CompareURL: "https://github.com/" + src.Repo + "/compare/" + sha + "..." + head,
+		PRsPending: comparison.Ahead > 0,
+	}
+	if req.CandidateProgress != nil {
+		req.CandidateProgress(head, rc)
+	}
+	if req.Reads(app.ReadPRs) {
+		cycle := &discoveryCycle{reads: map[string]cachedRead{}, limit: maxCandidateRequests, remaining: maxCandidateRequests}
+		ctx = context.WithValue(ctx, discoveryCycleKey{}, cycle)
+		rc.PRsPending = false
+		if err := c.readCandidatePRs(ctx, src, endpoint, comparison, &rc); err != nil {
+			rc.PRError = requestProblem(err)
+		}
+	}
+	return rc, release.Yes, nil
+}
+
+// completeCandidatePRs looks up merged PRs for the range verified by tag discovery.
+func (c *Client) completeCandidatePRs(ctx context.Context, src release.Source, rc release.Candidate, head string) release.Candidate {
+	if !rc.Evidence.Fresh() || rc.SHA == "" || head == "" ||
+		rc.CompareURL != "https://github.com/"+src.Repo+"/compare/"+rc.SHA+"..."+head {
 		return release.Candidate{}
 	}
-	if head == "" {
-		return release.Candidate{Evidence: release.Evidence{At: time.Now(), Error: "The release branch head is unavailable."}}
+	if !rc.PRsPending && rc.PRError == "" {
+		return rc
 	}
-	base := repoPath(src.Repo)
-	tags, err := c.candidateTags(ctx, base, strings.TrimPrefix(version, "v")+"-rc.")
+	cycle := &discoveryCycle{reads: map[string]cachedRead{}, limit: maxCandidateRequests, remaining: maxCandidateRequests}
+	ctx = context.WithValue(ctx, discoveryCycleKey{}, cycle)
+	endpoint := repoPath(src.Repo) + "/compare/" + segment(rc.SHA) + "..." + segment(head)
+	var comparison candidateComparison
+	rc.PRs, rc.PRError, rc.PRsPending = nil, "", false
+	err := c.get(ctx, endpoint+"?per_page=100&page=1", &comparison)
+	if err == nil {
+		err = c.readCandidatePRs(ctx, src, endpoint, comparison, &rc)
+	}
 	if err != nil {
-		return release.Candidate{Evidence: release.Evidence{At: time.Now(), Error: requestProblem(err)}}
+		rc.PRError = requestProblem(err)
 	}
-	for _, tag := range tags {
-		for depth := 0; tag.kind == "tag" && depth < 5; depth++ {
-			var object gitTagResponse
-			if err := c.get(ctx, base+"/git/tags/"+segment(tag.sha), &object); err != nil {
-				return release.Candidate{Evidence: release.Evidence{At: time.Now(), Error: requestProblem(err)}}
-			}
-			tag.sha, tag.kind = object.Object.SHA, object.Object.Type
-		}
-		if tag.kind != "commit" || tag.sha == "" {
-			return release.Candidate{Evidence: release.Evidence{At: time.Now(), Error: "The RC tag did not resolve to a commit."}}
-		}
-		endpoint := base + "/compare/" + segment(tag.sha) + "..." + segment(head)
-		var comparison candidateComparison
-		err := c.get(ctx, endpoint+"?per_page=100&page=1", &comparison)
-		if err != nil {
-			return release.Candidate{Evidence: release.Evidence{At: time.Now(), Error: requestProblem(err)}}
-		}
-		switch comparison.Status {
-		case "behind", "diverged":
-			continue
-		case "ahead":
-			if comparison.Ahead <= 0 {
-				return release.Candidate{Evidence: release.Evidence{At: time.Now(), Error: "GitHub returned an invalid post-RC commit count."}}
-			}
-		case "identical":
-			comparison.Ahead = 0
-		default:
-			return release.Candidate{Evidence: release.Evidence{At: time.Now(), Error: "GitHub returned an unknown tag ancestry status."}}
-		}
-		candidate := release.Candidate{
-			Target: release.Target{Repo: src.Repo, Tag: tag.name}, SHA: tag.sha, Number: tag.number,
-			Evidence: release.Evidence{At: time.Now(), Known: true}, Ahead: comparison.Ahead,
-			CompareURL: "https://github.com/" + src.Repo + "/compare/" + tag.sha + "..." + head,
-		}
-		if req.CandidateProgress != nil {
-			partial := candidate
-			partial.PRsPending = partial.Ahead > 0
-			req.CandidateProgress(head, partial)
-		}
-		if err := c.readCandidatePRs(ctx, src, endpoint, comparison, &candidate); err != nil {
-			candidate.PRError = requestProblem(err)
-		}
-		return candidate
-	}
-	return release.Candidate{Evidence: release.Evidence{At: time.Now(), Known: true}}
+	return rc
 }
 
 func (c *Client) candidateTags(ctx context.Context, base, prefix string) ([]candidateTag, error) {
@@ -113,8 +163,16 @@ func (c *Client) candidateTags(ctx context.Context, base, prefix string) ([]cand
 		}
 		for _, ref := range refs {
 			suffix, match := strings.CutPrefix(ref.Ref, "refs/tags/"+tagPrefix)
-			number, err := strconv.ParseUint(suffix, 10, 64)
-			if !match || err != nil || strconv.FormatUint(number, 10) != suffix {
+			if !match {
+				continue
+			}
+			if suffix == "" {
+				tags = append(tags, candidateTag{name: tagPrefix, sha: ref.Object.SHA, kind: ref.Object.Type, published: true})
+				continue
+			}
+			rawNumber, isRC := strings.CutPrefix(suffix, "-rc.")
+			number, err := strconv.ParseUint(rawNumber, 10, 64)
+			if !isRC || err != nil || strconv.FormatUint(number, 10) != rawNumber {
 				continue
 			}
 			tags = append(tags, candidateTag{name: tagPrefix + suffix, sha: ref.Object.SHA, kind: ref.Object.Type, number: number})

@@ -11,6 +11,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
 )
 
@@ -28,8 +29,8 @@ func TestMonitorWarningNamesFailedReadAndBranch(t *testing.T) {
 		cancel()
 		<-done
 		for _, want := range []string{
-			"Could not read pull requests, component version pins, pull request checks on stackrox/release-5.0. outage",
-			"Warn: The last monitoring attempt failed while reading pull requests, component version pins, pull request checks on stackrox/release-5.0: outage.",
+			"Could not read pull requests, component version pins on stackrox/release-5.0. outage",
+			"Warn: The last monitoring attempt failed while reading pull requests, component version pins on stackrox/release-5.0: outage.",
 			"The next monitoring attempt for stackrox/release-5.0 is in 2 minutes.",
 		} {
 			if !strings.Contains(output.String(), want) {
@@ -73,13 +74,13 @@ func TestMonitorLogsScheduledPRDiscovery(t *testing.T) {
 		synctest.Wait()
 		startup := s.log.Recent()
 
-		time.Sleep(s.options.Discovery - s.options.Poll)
+		time.Sleep(s.options.RefreshIntervals[BeforePRs] - time.Minute)
 		synctest.Wait()
 		if got := s.log.Recent(); !slices.Equal(got, startup) {
 			t.Fatalf("unchanged active polls produced activity: %+v", got)
 		}
 
-		time.Sleep(s.options.Poll)
+		time.Sleep(time.Minute)
 		synctest.Wait()
 		progress := s.log.Recent()[len(startup):]
 		want := "Checking GitHub for pull request updates on fact/release-0.3."
@@ -87,6 +88,23 @@ func TestMonitorLogsScheduledPRDiscovery(t *testing.T) {
 			t.Fatalf("expected one discovery progress entry with %q, got %+v", want, progress)
 		}
 	})
+}
+
+// fetchSourcePolls runs the eligible production jobs in the order specified by the test.
+// Recompute eligibility after each read because tag discovery can enable follow-up jobs.
+func fetchSourcePolls(t *testing.T, s *Session, source release.Source, kinds ...pollKind) error {
+	t.Helper()
+	var errs []error
+	for _, kind := range kinds {
+		for _, job := range s.pollJobs(source) {
+			if job.kind == kind {
+				ctx, usage := githubread.Track(t.Context(), 80)
+				errs = append(errs, s.fetchPoll(ctx, s.generation, s.workRevision, source, job, false, usage))
+				break
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 type workServices struct {
@@ -120,8 +138,7 @@ func TestScheduledPRWorkDoesNotRequireComponentTags(t *testing.T) {
 	fact.PRs = []release.PR{{Target: first, SHA: "one", Base: fact.Source.Branch, State: "open", Evidence: observed()}, {Target: second, SHA: "two", Base: fact.Source.Branch, State: "open", Evidence: observed()}}
 	fact.Tags = nil
 	f.repos["fact"] = fact
-	generation := s.Snapshot().Generation
-	if err := s.refreshPlanned(t.Context(), generation, fact.Source, true); err != nil {
+	if err := fetchSourcePolls(t, s, fact.Source, pollPRs); err != nil {
 		t.Fatal(err)
 	}
 	if len(s.Snapshot().Repositories[0].PRs) != 2 || len(services.plans) != 0 {
@@ -130,7 +147,7 @@ func TestScheduledPRWorkDoesNotRequireComponentTags(t *testing.T) {
 	for target, choice := range map[release.Target]release.Choice{first: release.Included, second: release.Excluded} {
 		apply(t, s, Action{Kind: "choice", Target: target, Choice: choice})
 	}
-	if err := s.refreshPlanned(t.Context(), generation, fact.Source, false); err != nil {
+	if err := fetchSourcePolls(t, s, fact.Source, pollChecks, pollBuilds); err != nil {
 		t.Fatal(err)
 	}
 	request := f.requests[len(f.requests)-1]
@@ -144,19 +161,18 @@ func TestScheduledPRWorkDoesNotRequireComponentTags(t *testing.T) {
 
 func TestScheduledDiscoveryContinuesAfterTagSelectionAndPinning(t *testing.T) {
 	s, f, _ := rcFixture(t)
-	generation := s.Snapshot().Generation
 	acs := f.repos["acs"]
 	old := release.Target{Repo: acs.Source.Repo, PR: 1}
 	acs.PRs = []release.PR{{Target: old, SHA: "old-head", State: "open", Base: acs.Source.Branch, Evidence: observed()}}
 	f.repos["acs"] = acs
-	if err := s.refreshPlanned(t.Context(), generation, acs.Source, true); err != nil {
+	if err := fetchSourcePolls(t, s, acs.Source, pollPRs); err != nil {
 		t.Fatal(err)
 	}
 	apply(t, s, Action{Kind: "choice", Target: old, Choice: release.Included})
 	acs.PRs[0].Merged, acs.PRs[0].State, acs.PRs[0].MergeSHA = true, "merged", "merge-one"
 	acs.PRs = append(acs.PRs, release.PR{Target: release.Target{Repo: acs.Source.Repo, PR: 2}, SHA: "new-head", State: "open", Base: acs.Source.Branch, Evidence: observed()})
 	f.repos["acs"] = acs
-	if err := s.refreshPlanned(t.Context(), generation, acs.Source, true); err != nil {
+	if err := fetchSourcePolls(t, s, acs.Source, pollPRs); err != nil {
 		t.Fatal(err)
 	}
 	observedACS := s.repos["acs"]
@@ -167,7 +183,7 @@ func TestScheduledDiscoveryContinuesAfterTagSelectionAndPinning(t *testing.T) {
 	selected := s.choices.Tags["fact"]
 	fact.Tags = append(fact.Tags, release.Tag{Name: "0.3.78", SHA: fact.Head, Belongs: release.Yes, Evidence: observed()})
 	f.repos["fact"] = fact
-	if err := s.refreshPlanned(t.Context(), generation, fact.Source, true); err != nil {
+	if err := fetchSourcePolls(t, s, fact.Source, pollTags); err != nil {
 		t.Fatal(err)
 	}
 	if len(s.repos["fact"].Tags) != 2 || s.choices.Tags["fact"] != selected {
@@ -230,7 +246,8 @@ func TestTagInventoryFailurePreservesIndependentPRChecks(t *testing.T) {
 	fact.PRs = []release.PR{{Target: target, SHA: "pr-head", State: "open", Base: fact.Source.Branch, Evidence: observed(), ChecksEvidence: observed(), Checks: []release.Check{{Name: "build", Status: "success", Required: release.Yes}}}}
 	f.repos["fact"] = fact
 	s.discovery = tagFailureServices{fixture: f}
-	if err := s.refreshPlanned(t.Context(), s.generation, fact.Source, true); err == nil {
+	s.choices.PRs[target] = release.Included
+	if err := fetchSourcePolls(t, s, fact.Source, pollPRs, pollChecks, pollTags); err == nil {
 		t.Fatal("tag inventory failure was hidden")
 	}
 	pr := s.repos["fact"].PRs[0]
@@ -257,20 +274,20 @@ func TestScopedRefreshPreservesTagInventoryCompleteness(t *testing.T) {
 	fact.Tags = nil
 	f.repos["fact"] = fact
 	s.discovery = truncatedInventory{f}
-	if err := s.refreshPlanned(t.Context(), s.generation, fact.Source, true); err == nil {
+	if err := fetchSourcePolls(t, s, fact.Source, pollPRs, pollTags); err == nil {
 		t.Fatal("tag inventory truncation was hidden")
 	}
 	if repo := s.repos["fact"]; !repo.Evidence.Fresh() || !repo.TagsPending {
 		t.Fatalf("expected fresh branch evidence and an incomplete tag inventory: %+v", repo)
 	}
-	if err := s.refreshPlanned(t.Context(), s.generation, fact.Source, false); err != nil {
+	if err := fetchSourcePolls(t, s, fact.Source, pollPRs); err != nil {
 		t.Fatal(err)
 	}
 	if !s.repos["fact"].TagsPending {
-		t.Fatal("a checks-only refresh marked the tag inventory complete")
+		t.Fatal("a PR refresh marked the tag inventory complete")
 	}
 	s.discovery = f
-	if err := s.refreshPlanned(t.Context(), s.generation, fact.Source, true); err != nil {
+	if err := fetchSourcePolls(t, s, fact.Source, pollTags); err != nil {
 		t.Fatal(err)
 	}
 	if s.repos["fact"].TagsPending {
@@ -284,20 +301,20 @@ func TestDiscoveryLogsNewWorkAndMergesOnce(t *testing.T) {
 	var output bytes.Buffer
 	s.log = NewLog(&output, false)
 	source := configuration().Components[0]
-	if err := s.refreshPlanned(t.Context(), s.generation, source, true); err != nil {
+	if err := fetchSourcePolls(t, s, source, pollPRs); err != nil {
 		t.Fatal(err)
 	}
 	fact := f.repos["fact"]
 	fact.PRs = []release.PR{{Target: release.Target{Repo: source.Repo, PR: 1}, SHA: "pr-head", Title: "Fix release build", Base: source.Branch, State: "open", Evidence: observed()}}
 	f.repos["fact"] = fact
-	if err := s.refreshPlanned(t.Context(), s.generation, source, true); err != nil {
+	if err := fetchSourcePolls(t, s, source, pollPRs); err != nil {
 		t.Fatal(err)
 	}
 	apply(t, s, Action{Kind: "choice", Target: fact.PRs[0].Target, Choice: release.Included})
 	fact.PRs[0].Merged, fact.PRs[0].State, fact.PRs[0].MergeSHA = true, "merged", "merge-one"
 	f.repos["fact"] = fact
 	for range 2 {
-		if err := s.refreshPlanned(t.Context(), s.generation, source, false); err != nil {
+		if err := fetchSourcePolls(t, s, source, pollPRs); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -308,5 +325,35 @@ func TestDiscoveryLogsNewWorkAndMergesOnce(t *testing.T) {
 		if strings.Count(output.String(), want) != 1 {
 			t.Fatalf("expected one readable transition %q: %s", want, output.String())
 		}
+	}
+}
+
+func TestPRInventoryRetainsChecksOnlyForVerifiedOpenRevisions(t *testing.T) {
+	source := configuration().ACS()
+	pr := release.PR{Target: release.Target{Repo: source.Repo, PR: 42}, Base: source.Branch, State: "open", SHA: "head",
+		Evidence: observed(), ChecksEvidence: observed(), CheckResultsEvidence: observed(), Checks: []release.Check{{Name: "build"}}}
+	for name, change := range map[string]func(*release.PR){
+		"same revision":       func(*release.PR) {},
+		"different head":      func(p *release.PR) { p.SHA = "second" },
+		"different base":      func(p *release.PR) { p.Base = "master" },
+		"closed PR":           func(p *release.PR) { p.State = "closed" },
+		"unverified identity": func(p *release.PR) { p.Evidence.Known = false },
+	} {
+		t.Run(name, func(t *testing.T) {
+			fresh := pr
+			change(&fresh)
+			old := release.Repository{Source: source, PRs: []release.PR{pr}, PinningPR: &pr, PinningEvidence: observed()}
+			latest := release.Repository{Source: source, PRs: []release.PR{fresh}, PinningPR: &fresh, PinningEvidence: observed()}
+			got := mergeDiscovery(old, latest, DiscoveryRequest{Source: source, Scope: ReadPRs | ReadPins})
+			for _, p := range []release.PR{got.PRs[0], *got.PinningPR} {
+				if name == "same revision" {
+					if len(p.Checks) != 1 || p.ChecksEvidence != pr.ChecksEvidence || p.CheckResultsEvidence != pr.CheckResultsEvidence {
+						t.Fatalf("lost checks for unchanged revision: %+v", p)
+					}
+				} else if len(p.Checks) != 0 || p.ChecksEvidence.Fresh() || p.CheckResultsEvidence.Fresh() {
+					t.Fatalf("retained checks for changed revision: %+v", p)
+				}
+			}
+		})
 	}
 }

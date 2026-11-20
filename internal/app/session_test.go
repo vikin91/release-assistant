@@ -232,7 +232,7 @@ func TestStaleGenerationAndCopiedSnapshots(t *testing.T) {
 func TestPollingBackoffRecoveryAndBrowserIndependence(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		s, f := newFixture()
-		s.options = Options{Poll: time.Minute, Discovery: time.Minute, BackoffCap: 4 * time.Minute, Timeout: time.Minute}
+		s.options = Options{RefreshIntervals: DefaultRefreshIntervals(time.Minute, time.Minute), Poll: time.Minute, Discovery: time.Minute, BackoffCap: 4 * time.Minute, Timeout: time.Minute}
 		apply(t, s, Action{Kind: "configure", Config: configuration()})
 		f.fail["fact"] = true
 		ctx, cancel := context.WithCancel(t.Context())
@@ -289,10 +289,7 @@ func TestConfigurationStartsInitialLoadWithoutWaitingForPoll(t *testing.T) {
 					}
 					f.mu.Lock()
 					for _, source := range []string{"acs", "fact", "collector"} {
-						want := attempt + 1
-						if source != "acs" {
-							want *= 2
-						}
+						want := 2 * (attempt + 1) // One tag inventory and one PR inventory per source.
 						if f.calls[source] != want {
 							t.Errorf("%s discovery calls=%d, want %d", source, f.calls[source], want)
 						}

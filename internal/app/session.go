@@ -19,6 +19,7 @@ import (
 type (
 	// Options controls polling and bounds each source's work.
 	Options struct {
+		RefreshIntervals                     RefreshIntervals
 		Poll, Discovery, BackoffCap, Timeout time.Duration
 		Initial                              release.Config
 		Cache                                DiscoveryCache
@@ -34,6 +35,7 @@ type (
 	}
 	// Snapshot is a copied display state; service credentials are never included.
 	Snapshot struct {
+		RefreshIntervals             RefreshIntervals
 		Config                       release.Config
 		Choices                      release.Choices
 		Repositories                 []release.Repository
@@ -55,13 +57,14 @@ type (
 		LogEntries      []Record
 		// KonfluxReadIssues reports endpoint reachability independently of release readiness.
 		KonfluxReadIssues []konflux.ReadIssue
-		// NextSourceCheck records scheduled monitoring times by repository.
+		// NextSourceCheck records the next Konflux build poll for each repository.
 		NextSourceCheck map[string]time.Time
 		// Loading keeps the dashboard refreshing during startup and while included ACS PRs await CI results.
 		Loading bool
 	}
 	// Action is a typed browser or CLI session decision.
 	Action struct {
+		RefreshIntervals        RefreshIntervals
 		Kind                    string
 		Config                  release.Config
 		Target                  release.Target
@@ -81,10 +84,14 @@ type (
 		choices         release.Choices
 		repos           map[string]release.Repository
 		plans           map[release.Target]release.Plan
+		tagChecks       map[string]tagCheckObservation
 		manualRetries   map[release.Target]release.ManualRetryReport
 		inventory       release.Inventory
 		confirmedSHAs   map[string]string
 		tagInitialized  map[string]bool
+		polls           map[pollID]pollRecord
+		pollChanged     chan struct{}
+		startupUntil    time.Time
 		nextSourceCheck map[string]time.Time
 		initiallyLoaded map[string]bool
 		priorPinChoice  release.Choice
@@ -105,11 +112,15 @@ type (
 
 // New constructs an unconfigured session with safe restart defaults.
 func New(d Discoverer, p Planner, i Inspector, dispatcher *dispatch.Dispatcher, log *Log, o Options) *Session {
+	intervals := DefaultRefreshIntervals(o.Poll, o.Discovery)
+	for key := range intervals {
+		if d := o.RefreshIntervals[key]; d > 0 {
+			intervals[key] = d
+		}
+	}
+	o.RefreshIntervals = intervals
 	if o.Poll <= 0 {
 		o.Poll = time.Minute
-	}
-	if o.Discovery <= 0 {
-		o.Discovery = 5 * time.Minute
 	}
 	if o.BackoffCap <= 0 {
 		o.BackoffCap = 5 * time.Minute
@@ -117,7 +128,7 @@ func New(d Discoverer, p Planner, i Inspector, dispatcher *dispatch.Dispatcher, 
 	if o.Timeout <= 0 {
 		o.Timeout = 45 * time.Second
 	}
-	s := &Session{discovery: d, planner: p, images: i, dispatcher: dispatcher, log: log, options: o, changed: make(chan struct{}, 1)}
+	s := &Session{discovery: d, planner: p, images: i, dispatcher: dispatcher, log: log, options: o, changed: make(chan struct{}, 1), pollChanged: make(chan struct{})}
 	s.reset()
 	s.config = o.Initial
 	s.config.Components = slices.Clone(o.Initial.Components)
@@ -135,8 +146,10 @@ func (s *Session) reset() {
 	s.repos = map[string]release.Repository{}
 	s.plans = map[release.Target]release.Plan{}
 	s.manualRetries = map[release.Target]release.ManualRetryReport{}
+	s.tagChecks = make(map[string]tagCheckObservation)
 	s.confirmedSHAs = map[string]string{}
 	s.tagInitialized = map[string]bool{}
+	s.polls = make(map[pollID]pollRecord)
 	s.nextSourceCheck = map[string]time.Time{}
 	s.initiallyLoaded = map[string]bool{}
 	s.workRevision++
@@ -230,6 +243,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			s.includePinningPR()
 		}
 		s.config.Components = slices.Clone(a.Config.Components)
+		s.polls = make(map[pollID]pollRecord)
 		s.nextSourceCheck = map[string]time.Time{}
 		s.initiallyLoaded = map[string]bool{}
 		s.workRevision++
@@ -267,6 +281,9 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		}
 		err = s.dispatcher.Grant(a.Target, a.SHA, a.Enabled)
 	case "application-settings":
+		if err := a.RefreshIntervals.Validate(); err != nil {
+			return err
+		}
 		if a.CacheEnabled != nil && s.options.Cache == nil {
 			return fmt.Errorf("discovery cache is unavailable")
 		}
@@ -291,6 +308,18 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			previous := s.options.Cache.Enabled()
 			s.options.Cache.SetEnabled(*a.CacheEnabled)
 			recordSettingChange(s, "Reuse GitHub commit history in memory", previous, a.CacheEnabled)
+		}
+		changed := false
+		for key, interval := range a.RefreshIntervals {
+			if previous := s.options.RefreshIntervals[key]; previous != interval {
+				s.options.RefreshIntervals[key] = interval
+				s.record(release.Target{}, "", "setting-changed", "", fmt.Sprintf("Refresh interval %s changed from %s to %s.", key, previous, interval), "user")
+				changed = true
+			}
+		}
+		if changed {
+			close(s.pollChanged)
+			s.pollChanged = make(chan struct{})
 		}
 		s.drain()
 		return nil
@@ -337,9 +366,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			s.archiveTag(a.Component, r.Source.Repo)
 		}
 		s.workRevision++
-		s.choices.Tags[a.Component] = a.Tag
-		s.confirmedSHAs[a.Component] = a.SHA
-		s.tagInitialized[a.Component] = true
+		s.selectComponentTag(configuredSource, a.Tag, a.SHA)
 		s.dispatcher.Ignore(release.Target{Repo: r.Source.Repo, Tag: a.Tag}, false)
 		s.record(release.Target{Repo: r.Source.Repo, Tag: a.Tag}, a.SHA, "tag-confirmed", "", a.Tag, "user")
 		select {
@@ -409,9 +436,26 @@ func (s *Session) archiveTag(component, repo string) {
 	s.dispatcher.Ignore(target, true)
 	delete(s.plans, target)
 	delete(s.manualRetries, target)
+	delete(s.tagChecks, component)
+}
+
+// selectComponentTag schedules initial coverage, checks, and builds for the selected commit.
+func (s *Session) selectComponentTag(source release.Source, tag, sha string) {
+	if s.choices.Tags[source.Name] != tag || s.confirmedSHAs[source.Name] != sha {
+		for _, kind := range []pollKind{pollPRs, pollTagChecks, pollBuilds} {
+			delete(s.polls, pollID{source.Repo, kind})
+		}
+	}
+	s.choices.Tags[source.Name] = tag
+	s.confirmedSHAs[source.Name] = sha
+	s.tagInitialized[source.Name] = true
 }
 
 func (s *Session) setPRChoice(target release.Target, sha string, choice release.Choice) {
+	if choice == release.Included && s.choices.PRs[target] != release.Included {
+		delete(s.polls, pollID{target.Repo, pollChecks})
+		delete(s.polls, pollID{target.Repo, pollBuilds})
+	}
 	s.choices.PRs[target] = choice
 	ignored := choice == release.Ignored || choice == release.Excluded
 	s.dispatcher.Ignore(target, ignored)
@@ -462,7 +506,7 @@ func (s *Session) Snapshot() Snapshot {
 	choices.Tags = maps.Clone(choices.Tags)
 	choices.Acknowledged = maps.Clone(choices.Acknowledged)
 	x := Snapshot{
-		Config: c, Choices: choices, Error: s.errorText, Generation: s.generation,
+		RefreshIntervals: maps.Clone(s.options.RefreshIntervals), Config: c, Choices: choices, Error: s.errorText, Generation: s.generation,
 		Interactive: s.dispatcher.IsInteractive(), WritesEnabled: s.dispatcher.WritesEnabled(),
 		Authority: s.dispatcher.Views(), NextSourceCheck: maps.Clone(s.nextSourceCheck),
 	}
@@ -502,9 +546,7 @@ func (s *Session) Snapshot() Snapshot {
 		}
 		return 1
 	})
-	for _, p := range s.plans {
-		x.Plans = append(x.Plans, clonePlan(p))
-	}
+	x.Plans = s.plansForDisplay()
 	slices.SortFunc(x.Plans, func(a, b release.Plan) int {
 		if a.Target.String() < b.Target.String() {
 			return -1
@@ -581,61 +623,13 @@ func (s *Session) Run(ctx context.Context) {
 	}
 }
 
-func (s *Session) monitor(ctx context.Context, generation uint64, source release.Source) {
-	var discoverAt time.Time
-	var delay time.Duration
-	failures := 0
-	for {
-		previousDelay := delay
-		s.mu.Lock()
-		if generation == s.generation {
-			delete(s.nextSourceCheck, source.Repo)
-		}
-		s.mu.Unlock()
-		err := s.refreshPlanned(ctx, generation, source, !time.Now().Before(discoverAt))
-		if ctx.Err() != nil {
-			return
-		}
-		if err != nil {
-			failures++
-			delay = min(s.options.Poll*time.Duration(1<<min(failures, 12)), s.options.BackoffCap)
-		} else {
-			failures = 0
-			delay = s.options.Poll
-		}
-		if !time.Now().Before(discoverAt) {
-			discoverAt = time.Now().Add(s.options.Discovery)
-		}
-		if err != nil && (failures == 1 || delay != previousDelay) {
-			s.mu.Lock()
-			if generation == s.generation {
-				message := fmt.Sprintf("The last monitoring attempt failed while %s. The next monitoring attempt for %s is in %s.", err, consoleBranch(source), retryDelay(delay))
-				s.record(release.Target{Repo: source.Repo}, "", "retry-wait", "", fmt.Sprintf("Next check attempt in %s; next GitHub discovery at %s.", delay, discoverAt.Format(time.RFC3339)), "system", message)
-			}
-			s.mu.Unlock()
-		}
-		next := time.Now().Add(delay)
-		s.mu.Lock()
-		if generation == s.generation {
-			s.nextSourceCheck[source.Repo] = next
-		}
-		s.mu.Unlock()
-		timer := time.NewTimer(time.Until(next))
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-		}
-	}
-}
-
 // Refresh performs an explicit full source cycle independently of browser navigation.
 func (s *Session) Refresh(ctx context.Context, generation uint64, source release.Source, discover bool) error {
 	return s.refresh(ctx, generation, source, discover, sourceWork{scope: ReadAll, plans: true, images: source.Name == "acs"})
 }
 
 func (s *Session) refresh(ctx context.Context, generation uint64, source release.Source, discover bool, work sourceWork) error {
+	scoped := work.scope != ReadAll || work.scheduled
 	ctx, cancel := context.WithTimeout(ctx, s.options.Timeout)
 	ctx = konflux.WithReadCycle(ctx)
 	var imageReads sync.WaitGroup
@@ -644,19 +638,39 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		imageReads.Wait()
 	}()
 	s.mu.Lock()
-	if generation != s.generation || (work.scope != ReadAll && work.revision != s.workRevision) {
+	if generation != s.generation || (scoped && work.revision != s.workRevision) {
 		s.mu.Unlock()
 		return nil
 	}
 	c := s.config
 	earlyComponentImages := work.images && !s.rcReady()
-	initial := discover && !s.initiallyLoaded[source.Name]
-	request := DiscoveryRequest{Source: source, ConfirmedTag: s.choices.Tags[source.Name], PinningPR: c.PinningPR, Version: c.Version, Scope: work.scope}
-	if source.Name == "acs" && c.PinningPR == 0 {
-		request.DetectPinningPR = true
-		request.PreviousPinFiles = s.repos["acs"].PinDiscovery.Files
+	request := DiscoveryRequest{Source: source, ConfirmedTag: s.choices.Tags[source.Name], Version: c.Version, Scope: work.scope}
+	initial := discover && request.Reads(ReadPRs) && !s.initiallyLoaded[source.Name]
+	if request.Reads(ReadCoverage) && !request.Reads(ReadTags) {
+		old := s.repos[source.Name]
+		for _, tag := range old.Tags {
+			if tag.Name == request.ConfirmedTag && tag.SHA == s.confirmedSHAs[source.Name] && tag.Evidence.Fresh() {
+				request.CoverageTag, request.CoverageHead = tag, old.Head
+				break
+			}
+		}
 	}
-	if source.Name == "acs" && work.scope != ReadAll && s.duringStartup() && s.repos[source.Name].Candidate.Target.Tag == "" {
+	if request.Reads(ReadPRs) {
+		for _, p := range s.repos[source.Name].PRs {
+			if p.State == "open" && p.Base == source.Branch {
+				request.PreviouslyOpen = append(request.PreviouslyOpen, p.Target.PR)
+			}
+		}
+	}
+	if source.Name == "acs" {
+		request.PinningPR = c.PinningPR
+		request.PreviousCandidate = s.repos["acs"].Candidate
+		if request.Reads(ReadPRs) && c.PinningPR == 0 {
+			request.DetectPinningPR = true
+			request.PreviousPinFiles = s.repos["acs"].PinDiscovery.Files
+		}
+	}
+	if source.Name == "acs" && request.Reads(ReadRC) && scoped && s.duringStartup() && s.repos[source.Name].Candidate.Target.Tag == "" {
 		request.CandidateProgress = func(head string, candidate release.Candidate) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
@@ -678,14 +692,14 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		if t.Repo == source.Repo {
 			if choice == release.Ignored || choice == release.Excluded {
 				request.Ignored = append(request.Ignored, t)
-			} else if choice == release.Included || work.scope == ReadAll {
+			} else if choice == release.Included || !scoped {
 				request.Tracked = append(request.Tracked, t)
 			}
 		}
 	}
 	if initial {
 		message := fmt.Sprintf("Checking %s on %s.", discoverySubject(request), consoleBranch(source))
-		s.record(release.Target{Repo: source.Repo}, "", "github-start", "", "Reading GitHub branch "+source.Branch+", PRs, and tags.", "system", message)
+		s.record(release.Target{Repo: source.Repo}, "", "github-start", "", message, "system", message)
 	} else if discover && work.scope&ReadPRs != 0 {
 		message := fmt.Sprintf("Checking GitHub for pull request updates on %s.", consoleBranch(source))
 		s.record(release.Target{Repo: source.Repo}, "", "github-start", "", message, "system", message)
@@ -694,12 +708,26 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	var imageErr, componentImageErr error
 	if earlyComponentImages {
 		imageReads.Go(func() {
-			componentImageErr = s.refreshImagesScoped(ctx, generation, initial, false, work.scope != ReadAll)
+			componentImageErr = s.refreshImagesScoped(ctx, generation, initial, false, scoped)
 		})
 	}
 	var errs []error
 	if discover {
 		r, err := s.discovery.Discover(ctx, request)
+		if scoped {
+			switch {
+			case request.Reads(ReadChecks):
+				for _, p := range r.PRs {
+					if p.ChecksEvidence.Error != "" {
+						err = errors.Join(err, fmt.Errorf("%s: %s", p.Target, p.ChecksEvidence.Error))
+					}
+				}
+			case err == nil && request.Reads(ReadRC) && r.Candidate.Evidence.Error != "":
+				err = errors.New(r.Candidate.Evidence.Error)
+			case request.Reads(ReadPRs) && r.Candidate.PRError != "":
+				err = errors.Join(err, errors.New(r.Candidate.PRError))
+			}
+		}
 		if err != nil && errors.Is(ctx.Err(), context.Canceled) {
 			return fmt.Errorf("reading %s on %s: %w", discoverySubject(request), consoleBranch(source), ctx.Err())
 		}
@@ -707,7 +735,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			errs = append(errs, fmt.Errorf("reading %s on %s: %w", discoverySubject(request), consoleBranch(source), err))
 		}
 		s.mu.Lock()
-		if generation != s.generation || (work.scope != ReadAll && revision != s.workRevision) {
+		if generation != s.generation || (scoped && revision != s.workRevision) {
 			s.mu.Unlock()
 			return nil
 		}
@@ -716,25 +744,38 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			message = err.Error()
 		}
 		operation := "github"
-		if work.tagInventory {
+		switch {
+		case work.tagInventory || work.scope == ReadTags:
 			operation = "tags"
+		case scoped && request.Reads(ReadRC) && !request.Reads(ReadPRs):
+			operation = "acs-tags"
+		case scoped && request.Reads(ReadChecks) && !request.Reads(ReadPRs):
+			operation = "pr-checks"
 		}
 		s.recordReadResult(release.Target{Repo: source.Repo}, operation, message, discoverySubject(request)+" on "+consoleBranch(source))
 		if initial {
 			message := discoverySummary(request, r, err != nil || r.TagsPending)
-			s.record(release.Target{Repo: source.Repo}, r.Head, "github-complete", "", fmt.Sprintf("GitHub discovery returned %d PRs and %d tags; complete=%t.", len(r.PRs), len(r.Tags), err == nil && !r.TagsPending), "system", message)
+			s.record(release.Target{Repo: source.Repo}, r.Head, "github-complete", "", message, "system", message)
 		}
 		old := s.repos[source.Name]
-		if work.scope != ReadAll {
-			r = mergeDiscovery(old, r, request)
-		}
 		if err != nil && r.Head == "" {
-			if work.tagInventory {
-				r = cloneRepository(old)
-				r.TagsPending = true
-			} else {
+			if !scoped {
 				r = retainDiscoveryFailure(old, r, err)
+			} else {
+				// A failed branch read establishes no change of head. Merge
+				// only data requested in this poll with the last observation.
+				r.Head = old.Head
+				if r.Evidence.At.IsZero() {
+					r.Evidence = release.Evidence{At: time.Now(), Error: err.Error()}
+				}
+				if request.Reads(ReadPins) {
+					retained := retainDiscoveryFailure(old, r, err)
+					r.Pins, r.PinningPR, r.PinningPins, r.PinningEvidence = retained.Pins, retained.PinningPR, retained.PinningPins, retained.PinningEvidence
+				}
 			}
+		}
+		if scoped {
+			r = mergeDiscovery(old, r, request)
 		}
 		r.Source = source
 		if request.DetectPinningPR && request.Reads(ReadPRs) {
@@ -744,7 +785,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			s.logPinDiscovery(old.PinDiscovery, r.PinDiscovery)
 		}
 		if err != nil {
-			if source.Name != "acs" && (work.tagInventory || work.scope == ReadAll) {
+			if source.Name != "acs" && (work.tagInventory || !scoped) {
 				r.TagsPending = true
 			}
 			for _, previous := range old.Tags {
@@ -758,8 +799,12 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		for _, p := range old.PRs {
 			if !slices.ContainsFunc(r.PRs, func(v release.PR) bool { return v.Target == p.Target }) {
 				if source.Name != "acs" || s.choices.PRs[p.Target] != release.Ignored {
-					p.Evidence.Known = false
-					p.Evidence.Error = "not returned by latest discovery"
+					if p.State == "open" || slices.Contains(request.Tracked, p.Target) {
+						p.Evidence.Known = false
+						p.Evidence.Error = "not returned by latest discovery"
+						p.ChecksEvidence.Known = false
+						p.CheckResultsEvidence.Known = false
+					}
 					r.PRs = append(r.PRs, p)
 				}
 			}
@@ -851,14 +896,14 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		s.mu.Unlock()
 	}
 	s.mu.Lock()
-	if generation != s.generation || (work.scope != ReadAll && revision != s.workRevision) {
+	if generation != s.generation || (scoped && revision != s.workRevision) {
 		s.mu.Unlock()
 		return errors.Join(errs...)
 	}
 	r := s.repos[source.Name]
 	var targets []release.Target
 	for _, p := range r.PRs {
-		if work.plans && s.choices.PRs[p.Target] != release.Ignored && s.choices.PRs[p.Target] != release.Excluded && (work.scope == ReadAll || s.choices.PRs[p.Target] == release.Included || p.Target == c.PinningTarget()) && p.State == "open" {
+		if work.plans && s.choices.PRs[p.Target] != release.Ignored && s.choices.PRs[p.Target] != release.Excluded && (!scoped || s.choices.PRs[p.Target] == release.Included || p.Target == c.PinningTarget()) && p.State == "open" {
 			targets = append(targets, p.Target)
 		}
 	}
@@ -877,7 +922,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	for _, target := range targets {
 		isRC := target == rc.Target
 		s.mu.Lock()
-		ignore := generation != s.generation || (work.scope != ReadAll && revision != s.workRevision) || (s.choices.PRs[target] == release.Ignored || s.choices.PRs[target] == release.Excluded)
+		ignore := generation != s.generation || (scoped && revision != s.workRevision) || (s.choices.PRs[target] == release.Ignored || s.choices.PRs[target] == release.Excluded)
 		if isRC && (revision != s.workRevision || !s.rcReady()) {
 			ignore = true
 		}
@@ -889,7 +934,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			continue
 		}
 		readPlan := s.planner.Plan
-		if isRC {
+		if isRC && !work.scheduled {
 			readPlan = s.readRCPlan
 		}
 		plan, err := readPlan(ctx, target)
@@ -899,11 +944,11 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		if canceled(ctx) {
 			return ctx.Err()
 		}
-		if err != nil && !isRC {
+		if err != nil && (!isRC || work.scheduled) {
 			errs = append(errs, fmt.Errorf("reading build results for %s: %w", consoleRevision(target, plan.SHA), err))
 		}
 		s.mu.Lock()
-		if generation != s.generation || (work.scope != ReadAll && revision != s.workRevision) || (s.choices.PRs[target] == release.Ignored || s.choices.PRs[target] == release.Excluded) {
+		if generation != s.generation || (scoped && revision != s.workRevision) || (s.choices.PRs[target] == release.Ignored || s.choices.PRs[target] == release.Excluded) {
 			s.mu.Unlock()
 			continue
 		}
@@ -1028,7 +1073,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 
 	// A fresh revalidation occurs inside Send; a polled proposal is never queued.
 	s.mu.Lock()
-	currentGeneration := s.generation == generation && (work.scope == ReadAll || revision == s.workRevision)
+	currentGeneration := s.generation == generation && (!scoped || revision == s.workRevision)
 	s.mu.Unlock()
 	if work.plans && currentGeneration && !canceled(ctx) && !s.dispatcher.IsInteractive() {
 		for _, view := range s.dispatcher.Views() {
@@ -1046,11 +1091,11 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			}
 		}
 	}
-	if work.plans {
+	if work.plans && !work.scheduled {
 		s.refreshManualRetries(ctx, generation, revision, source)
 	}
 	s.mu.Lock()
-	if generation == s.generation && discover {
+	if generation == s.generation && discover && request.Reads(ReadPRs) {
 		s.initiallyLoaded[source.Name] = true
 	}
 	s.drain()

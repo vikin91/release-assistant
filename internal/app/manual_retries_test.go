@@ -43,8 +43,8 @@ func TestMonitorManualRetries(t *testing.T) {
 	})
 	refresh := func() Snapshot {
 		t.Helper()
-		if err := s.refreshPlanned(t.Context(), s.generation, source, false); err != nil {
-			t.Fatal(err)
+		if err := fetchSourcePolls(t, s, source, pollChecks, pollTagChecks); err == nil {
+			t.Fatal("the failed PR retry read should schedule a retry")
 		}
 		return s.Snapshot()
 	}
@@ -137,7 +137,7 @@ func TestManualRetriesFollowCurrentRC(t *testing.T) {
 		}
 		return release.ManualRetryReport{Target: target, SHA: rc.SHA, Jobs: []release.ManualJob{{ID: 88}}}, nil
 	})
-	if err := s.refreshPlanned(t.Context(), s.generation, source, true); err != nil {
+	if err := fetchSourcePolls(t, s, source, pollTags, pollTagChecks); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.Snapshot().ManualRetries; len(got) != 1 || got[0].Jobs[0].ID != 88 {
@@ -146,7 +146,7 @@ func TestManualRetriesFollowCurrentRC(t *testing.T) {
 	s.options.ManualRetries = manualReaderFunc(func(_ context.Context, target release.Target) (release.ManualRetryReport, error) {
 		return release.ManualRetryReport{Target: target, SHA: rc.SHA}, nil
 	})
-	if err := s.refreshPlanned(t.Context(), s.generation, source, false); err != nil {
+	if err := fetchSourcePolls(t, s, source, pollTagChecks); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.Snapshot().ManualRetries; len(got) != 1 || got[0].SHA != rc.SHA || len(got[0].Jobs) != 0 {

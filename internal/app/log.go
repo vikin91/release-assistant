@@ -195,6 +195,9 @@ func discoverySubject(request DiscoveryRequest) string {
 			subjects = append(subjects, "release tags")
 		}
 	}
+	if request.Scope != ReadAll && request.Reads(ReadRC) && !request.Reads(ReadPRs) {
+		subjects = append(subjects, "ACS release tags")
+	}
 	if request.Source.Name == "acs" && request.Reads(ReadPins) {
 		subjects = append(subjects, "component version pins")
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	pathpkg "path"
 	"slices"
@@ -135,11 +136,13 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 	result.Source = source
 	readRC := source.Name == "acs" && req.Reads(app.ReadRC)
 	var rc release.Candidate
+	var acsTags []release.Tag
+	var rcErr error
 	var rcRead sync.WaitGroup
 	if readRC && req.CandidateProgress != nil {
 		head := result.Head
 		rcRead.Go(func() {
-			rc = c.readCandidate(githubread.WithPriority(ctx, githubread.Tags, source.Repo), req, head)
+			rc, acsTags, rcErr = c.readCandidate(githubread.WithPriority(ctx, githubread.Tags, source.Repo), req, head)
 		})
 	}
 	if req.Reads(app.ReadTags) {
@@ -209,6 +212,16 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 			tracked[target.PR] = true
 		}
 	}
+	// Inspect disappeared open PRs once. The open list alone cannot distinguish
+	// a merge, a close, a branch change, or an incomplete page.
+	resolve := maps.Clone(tracked)
+	if req.Reads(app.ReadPRs) && prErr == nil {
+		for _, number := range req.PreviouslyOpen {
+			if number != req.PinningPR || !req.Reads(app.ReadPins) {
+				resolve[number] = true
+			}
+		}
+	}
 	for _, summary := range prs {
 		p := convertPR(req.Source.Repo, summary)
 		if ignored[p.Target.PR] {
@@ -220,7 +233,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		}
 		result.PRs = append(result.PRs, p)
 	}
-	for number := range tracked {
+	for number := range resolve {
 		if ignored[number] || hasPR(result.PRs, number) {
 			continue
 		}
@@ -230,15 +243,31 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 			continue
 		}
 		p := convertPR(req.Source.Repo, raw)
-		if p.State == "open" && req.Reads(app.ReadChecks) {
+		if p.State == "open" && p.Base == source.Branch && req.Reads(app.ReadChecks) && tracked[number] {
 			c.readChecks(ctx, source, &p, classicEnforcement)
 		}
 		result.PRs = append(result.PRs, p)
 	}
 	var merged []release.PR
 	for _, p := range result.PRs {
-		if p.Merged && p.MergeSHA != "" && !ignored[p.Target.PR] {
+		if p.Merged && p.Base == source.Branch && p.MergeSHA != "" && !ignored[p.Target.PR] &&
+			(req.Scope == app.ReadAll || tracked[p.Target.PR]) {
 			merged = append(merged, p)
+		}
+	}
+	if !req.Reads(app.ReadTags) && req.Reads(app.ReadCoverage) && len(merged) > 0 && req.ConfirmedTag != "" && result.Head != "" {
+		tag := req.CoverageTag
+		if tag.Name == req.ConfirmedTag && tag.Evidence.Fresh() && tag.SHA != "" && req.CoverageHead == result.Head {
+			tag.Contains = make(map[string]release.Truth)
+			result.Tags = []release.Tag{tag}
+		} else {
+			resolved, err := c.resolveTag(ctx, source, req.ConfirmedTag, result.Head)
+			if err != nil {
+				issues = append(issues, err)
+			}
+			if resolved.observation.Name != "" {
+				result.Tags = []release.Tag{resolved.observation}
+			}
 		}
 	}
 	if req.Reads(app.ReadCoverage) && len(merged) > 0 && len(result.Tags) > 0 {
@@ -352,11 +381,17 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 	result, err := finishDiscovery(result, issues, cycle)
 	if readRC {
 		if req.CandidateProgress == nil {
-			rc = c.readCandidate(ctx, req, result.Head)
+			rc, acsTags, rcErr = c.readCandidate(ctx, req, result.Head)
 		} else {
 			rcRead.Wait()
 		}
 		result.Candidate = rc
+		if req.Scope != app.ReadAll {
+			result.Tags, result.TagsPending = acsTags, rcErr != nil
+			err = errors.Join(err, rcErr)
+		}
+	} else if source.Name == "acs" && req.Reads(app.ReadPRs) {
+		result.Candidate = c.completeCandidatePRs(ctx, source, req.PreviousCandidate, result.Head)
 	}
 	if source.Name == "acs" && req.DetectPinningPR && req.Reads(app.ReadPRs) {
 		result.PinDiscovery = c.discoverPinFiles(ctx, req, prs, prErr, result.Head)
@@ -414,24 +449,31 @@ func (c *Client) listTags(ctx context.Context, src release.Source, headSHA strin
 	return out, errors.Join(err, firstErr)
 }
 
+func (c *Client) peelCommit(ctx context.Context, base, name, sha, kind string) (string, error) {
+	for depth := 0; kind == "tag" && depth < 5; depth++ {
+		var obj gitTagResponse
+		if err := c.get(ctx, base+"/git/tags/"+segment(sha), &obj); err != nil {
+			return "", err
+		}
+		sha, kind = obj.Object.SHA, obj.Object.Type
+	}
+	if sha == "" || kind == "tag" {
+		return "", fmt.Errorf("tag %s could not be resolved", name)
+	}
+	if kind != "commit" {
+		return "", fmt.Errorf("tag %s does not resolve to a commit", name)
+	}
+	return sha, nil
+}
+
 func (c *Client) resolveTag(ctx context.Context, src release.Source, name, headSHA string) (resolvedTag, error) {
 	var ref gitTagResponse
 	if err := c.get(ctx, repoPath(src.Repo)+"/git/ref/tags/"+segment(name), &ref); err != nil {
 		return resolvedTag{}, err
 	}
-	sha, kind := ref.Object.SHA, ref.Object.Type
-	for depth := 0; kind == "tag" && depth < 5; depth++ {
-		var obj gitTagResponse
-		if err := c.get(ctx, repoPath(src.Repo)+"/git/tags/"+segment(sha), &obj); err != nil {
-			return resolvedTag{}, err
-		}
-		sha, kind = obj.Object.SHA, obj.Object.Type
-	}
-	if sha == "" || kind == "tag" {
-		return resolvedTag{}, fmt.Errorf("tag %s could not be resolved", name)
-	}
-	if kind != "commit" {
-		return resolvedTag{}, fmt.Errorf("tag %s does not resolve to a commit", name)
+	sha, err := c.peelCommit(ctx, repoPath(src.Repo), name, ref.Object.SHA, ref.Object.Type)
+	if err != nil {
+		return resolvedTag{}, err
 	}
 	tag := resolvedTag{observation: release.Tag{Name: name, SHA: sha, Contains: map[string]release.Truth{}, Evidence: release.Evidence{At: time.Now(), URL: "https://github.com/" + src.Repo + "/tree/" + name, Known: true}}}
 	var metadata commitResponse

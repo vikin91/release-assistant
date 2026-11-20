@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"slices"
@@ -110,25 +111,25 @@ func (c *Client) readCommitWorkflows(ctx context.Context, repo, sha string) (map
 	return workflows, fmt.Errorf("GitHub workflow run search limit reached")
 }
 
-// ReadRCChecks reads the candidate commit's checks and joins Actions runs by check suite.
+// ReadTagChecks reads the tagged commit's checks and joins Actions runs by check suite.
 // Commit statuses without a verified workflow remain useful as commit-scoped evidence.
-func (c *Client) ReadRCChecks(ctx context.Context, target release.Target) release.Validation {
+func (c *Client) ReadTagChecks(ctx context.Context, target release.Target) (release.Validation, error) {
 	result := release.Validation{Evidence: release.Evidence{At: time.Now()}}
 	if target.Tag == "" || !target.Valid() {
-		result.Evidence.Error = "The candidate commit could not be identified."
-		return result
+		result.Evidence.Error = "The tagged commit could not be identified."
+		return result, errors.New(result.Evidence.Error)
 	}
 	var commit struct {
 		SHA string `json:"sha"`
 	}
 	if err := c.get(ctx, repoPath(target.Repo)+"/commits/"+segment("refs/tags/"+target.Tag), &commit); err != nil {
-		result.Evidence.Error = "Candidate tag: " + requestProblem(err)
-		return result
+		result.Evidence.Error = "Tag: " + requestProblem(err)
+		return result, err
 	}
 	sha := commit.SHA
 	if !release.ValidRef(sha) {
-		result.Evidence.Error = "GitHub did not return the candidate commit."
-		return result
+		result.Evidence.Error = "GitHub did not return the tagged commit."
+		return result, errors.New(result.Evidence.Error)
 	}
 	result.SHA = sha
 	base := "https://github.com/" + target.Repo
@@ -150,7 +151,7 @@ func (c *Client) ReadRCChecks(ctx context.Context, target release.Target) releas
 	}
 	result.Evidence.Known = result.Evidence.Error == ""
 	result.Checks = validationChecks(runs, statuses, workflows, sha, base, result.Evidence.URL)
-	return result
+	return result, errors.Join(checkErr, statusErr, workflowErr)
 }
 
 func validationChecks(runs []commitCheckRun, statuses []commitStatus, workflows map[int64]workflowRun, sha, base, checksURL string) []release.ValidationCheck {

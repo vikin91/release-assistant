@@ -143,7 +143,7 @@ func TestDeveloperConformaAdvisoryDoesNotBackOffMonitoring(t *testing.T) {
 		done := make(chan struct{})
 		go func() { defer close(done); s.monitor(ctx, s.generation, fact.Source) }()
 		synctest.Wait()
-		time.Sleep(time.Minute)
+		time.Sleep(s.options.RefreshIntervals[KonfluxBuilds])
 		synctest.Wait()
 		cancel()
 		<-done

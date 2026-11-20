@@ -14,11 +14,18 @@ type (
 		Source           release.Source
 		ConfirmedTag     string
 		Tracked, Ignored []release.Target
-		PinningPR        int
-		DetectPinningPR  bool
-		PreviousPinFiles map[int]release.PinFileMatch
-		Version          string
-		Scope            DiscoveryScope
+		// PreviouslyOpen identifies PRs whose transition out of the open list needs verification.
+		PreviouslyOpen []int
+		// CoverageTag belongs to CoverageHead and supplies the selected commit for ancestry reads.
+		CoverageTag  release.Tag
+		CoverageHead string
+		// PreviousCandidate supplies the verified tag and commit range for post-RC PR discovery.
+		PreviousCandidate release.Candidate
+		PinningPR         int
+		DetectPinningPR   bool
+		PreviousPinFiles  map[int]release.PinFileMatch
+		Version           string
+		Scope             DiscoveryScope
 		// Progress publishes verified tags while the remaining inventory is still loading.
 		Progress func(release.Repository)
 		// CandidateProgress publishes verified ancestry before post-RC PR and pin reads finish.
@@ -42,9 +49,9 @@ type (
 	ManualRetryReader interface {
 		ManualRetries(context.Context, release.Target) (release.ManualRetryReport, error)
 	}
-	// RCCheckReader resolves the candidate tag and reads checks on its commit.
-	RCCheckReader interface {
-		ReadRCChecks(context.Context, release.Target) release.Validation
+	// TagCheckReader resolves a release tag and reads checks on its commit.
+	TagCheckReader interface {
+		ReadTagChecks(context.Context, release.Target) (release.Validation, error)
 	}
 	// ComponentInspector defers release candidate reads while component prerequisites are monitored.
 	ComponentInspector interface {
@@ -75,7 +82,7 @@ const (
 	ReadCoverage
 	// ReadPreviousPins observes the component baseline at the previous ACS patch tag.
 	ReadPreviousPins
-	// ReadRC observes ACS candidate tags and commits since the current candidate.
+	// ReadRC lists patch and RC tags and verifies the current RC against the branch head.
 	ReadRC
 
 	// TagBatchRequests bounds the inventory work after resolving the branch head.

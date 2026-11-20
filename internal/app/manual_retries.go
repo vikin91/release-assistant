@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"slices"
 
 	"release-assistant/internal/githubread"
@@ -30,13 +32,8 @@ func (s *Session) manualRetryHeads(repo release.Repository) map[release.Target]s
 		delete(heads, pr.Target)
 		includePR(*pr)
 	}
-	if rc := repo.Candidate; repo.Source.Name == "acs" && rcImageWaitReason(rc) == "" {
-		heads[rc.Target] = rc.SHA
-	}
-	for _, tag := range repo.Tags {
-		if tag.Name == s.choices.Tags[repo.Source.Name] && tag.Evidence.Fresh() && tag.SHA != "" && tag.SHA == s.confirmedSHAs[repo.Source.Name] {
-			heads[release.Target{Repo: repo.Source.Repo, Tag: tag.Name}] = tag.SHA
-		}
+	if target, sha := s.tagCheckTarget(repo); sha != "" {
+		heads[target] = sha
 	}
 	return heads
 }
@@ -63,23 +60,40 @@ func (s *Session) currentManualRetries(repo release.Repository) []release.Manual
 
 // refreshManualRetries spends the remaining source-cycle read budget on display-only offers.
 func (s *Session) refreshManualRetries(ctx context.Context, generation, revision uint64, source release.Source) {
+	_ = s.readManualRetries(ctx, generation, revision, source, ReadAll)
+}
+
+func (s *Session) refreshPRRetries(ctx context.Context, generation, revision uint64, source release.Source) error {
+	return s.readManualRetries(ctx, generation, revision, source, ReadPRs)
+}
+
+// readManualRetries replaces only the reports covered by this type of refresh.
+func (s *Session) readManualRetries(ctx context.Context, generation, revision uint64, source release.Source, scope DiscoveryScope) error {
+	inScope := func(target release.Target) bool {
+		return scope == ReadAll || (scope == ReadPRs && target.PR > 0) || (scope == ReadTags && target.Tag != "")
+	}
 	reader := s.options.ManualRetries
 	if reader == nil {
-		return
+		return nil
 	}
 	s.mu.Lock()
 	if generation != s.generation || revision != s.workRevision {
 		s.mu.Unlock()
-		return
+		return nil
 	}
 	repo := s.repos[source.Name]
 	heads := s.manualRetryHeads(repo)
 	s.mu.Unlock()
 	ctx = githubread.WithPriority(ctx, githubread.Background, source.Repo)
 	reports := make(map[release.Target]release.ManualRetryReport)
+	var errs []error
 	for target, sha := range heads {
+		if !inScope(target) {
+			continue
+		}
 		report, err := reader.ManualRetries(ctx, target)
 		if err != nil {
+			errs = append(errs, err)
 			report.Incomplete = true
 			report.Warnings = append(report.Warnings, err.Error())
 		}
@@ -90,6 +104,7 @@ func (s *Session) refreshManualRetries(ctx context.Context, generation, revision
 			report.Incomplete = true
 			if err == nil {
 				report.Warnings = append(report.Warnings, "The target revision changed during the manual retry check.")
+				errs = append(errs, fmt.Errorf("manual retry check for %s observed a different revision", target))
 			}
 		}
 		if target == repo.Candidate.Target || (source.Name == "acs" && target.PR > 0) || len(report.Jobs)+len(report.Prow)+len(report.Warnings)+len(report.OtherChecks) > 0 {
@@ -99,14 +114,15 @@ func (s *Session) refreshManualRetries(ctx context.Context, generation, revision
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if generation != s.generation || revision != s.workRevision {
-		return
+		return nil
 	}
 	for target := range s.manualRetries {
-		if target.Repo == source.Repo {
+		if target.Repo == source.Repo && inScope(target) {
 			delete(s.manualRetries, target)
 		}
 	}
 	for target, report := range reports {
 		s.manualRetries[target] = report
 	}
+	return errors.Join(errs...)
 }

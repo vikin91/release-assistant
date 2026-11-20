@@ -109,13 +109,45 @@
     </form>
   </section>
 
-  {{if or .Configured .Snapshot.CacheAvailable .Snapshot.StartupReadLimit}}
+  {{if or .Configured .Snapshot.CacheAvailable .Snapshot.StartupReadLimit .Snapshot.RefreshIntervals}}
   <section class="panel" id="retry-settings" aria-labelledby="application-settings-heading">
     <h3 id="application-settings-heading">Application settings</h3>
     <form method="post" action="/action">
       <input type="hidden" name="tab" value="settings">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
+      {{with .Snapshot.RefreshIntervals}}
+      {{$intervals := .}}
+      <section class="setting-group" aria-labelledby="refresh-intervals-heading">
+        <div>
+          <h4 id="refresh-intervals-heading">Refresh intervals</h4>
+          <p class="setting-help">Enter intervals in minutes. Each component switches schedules when you select or clear its release tag.</p>
+        </div>
+        <div class="refresh-sections">
+          {{range refreshSections}}
+          <fieldset class="refresh-section"><legend>{{.Title}}</legend>
+            {{range .Groups}}
+            {{if .Title}}<fieldset class="refresh-group"><legend>{{.Title}}</legend>{{else}}<div class="refresh-group">{{end}}
+              {{range .Fields}}
+              {{$duration := index $intervals .Key}}{{$minutes := wholeMinutes $duration}}
+              <div class="refresh-field">
+                <div>
+                  <label for="refresh-{{.Key}}">{{.Label}}</label>
+                  <p class="setting-help" id="refresh-help-{{.Key}}">{{.Help}}{{if not $minutes}} The current interval is {{$duration}}.{{end}}</p>
+                </div>
+                <div class="refresh-value">
+                  <input id="refresh-{{.Key}}" name="refresh_{{.Key}}" type="number" min="1" step="1" {{if $minutes}}required value="{{$minutes}}" {{end}}aria-describedby="refresh-help-{{.Key}} refresh-unit-{{.Key}}">
+                  <span id="refresh-unit-{{.Key}}">min</span>
+                </div>
+              </div>
+              {{end}}
+            {{if .Title}}</fieldset>{{else}}</div>{{end}}
+            {{end}}
+          </fieldset>
+          {{end}}
+        </div>
+      </section>
+      {{end}}
       {{if .Snapshot.StartupReadLimit}}
       <section class="setting-group" aria-labelledby="read-limits-heading">
         <h4 id="read-limits-heading">Concurrent GitHub reads</h4>
@@ -166,7 +198,7 @@
       </section>
       {{end}}
       <div class="settings-footer control-row">
-        <button type="submit" name="kind" value="application-settings"{{if not (or .Snapshot.CacheAvailable .Snapshot.WritesEnabled .Snapshot.StartupReadLimit)}} disabled{{end}}>Save settings</button>
+        <button type="submit" name="kind" value="application-settings"{{if not (or .Snapshot.CacheAvailable .Snapshot.WritesEnabled .Snapshot.StartupReadLimit .Snapshot.RefreshIntervals)}} disabled{{end}}>Save settings</button>
         {{if .SettingsSaved}}<span role="status">Settings saved.</span>{{end}}
       </div>
     </form>

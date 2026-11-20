@@ -48,9 +48,7 @@ func (s *Session) initializePinnedTags() bool {
 			continue
 		}
 		target := release.Target{Repo: source.Repo, Tag: selected.Name}
-		s.choices.Tags[source.Name] = selected.Name
-		s.confirmedSHAs[source.Name] = selected.SHA
-		s.tagInitialized[source.Name] = true
+		s.selectComponentTag(source, selected.Name, selected.SHA)
 		s.dispatcher.ObserveIdentity(dispatch.Identity{Target: target, SHA: selected.SHA, Open: true, Evidence: selected.Evidence})
 		s.dispatcher.Ignore(target, false)
 		s.record(target, selected.SHA, "tag-from-pinning-pr", "", fmt.Sprintf("Selected from merged ACS pinning PR #%d.", pr.Target.PR), "system", fmt.Sprintf("Selected release tag %s from merged ACS pinning pull request #%d.", consoleRevision(target, selected.SHA), pr.Target.PR))

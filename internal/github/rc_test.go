@@ -14,17 +14,22 @@ import (
 
 func TestDiscoverCandidateUsesHighestReachableRCAndLinksItsMergedPRs(t *testing.T) {
 	published := false
+	prDiscovery := false
 	client := New("https://api.github.test", "", &http.Client{Transport: fakeTransport{handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch path := strings.TrimPrefix(r.URL.Path, "/repos/stackrox/stackrox"); path {
 		case "/branches/release-5.0":
 			fmt.Fprint(w, `{"commit":{"sha":"head"}}`)
-		case "/git/matching-refs/tags/5.0.1-rc.":
+		case "/pulls":
+			fmt.Fprint(w, `[]`)
+		case "/git/matching-refs/tags/5.0.1":
 			fmt.Fprint(w, `[
+				{"ref":"refs/tags/5.0.1","object":{"sha":"published","type":"commit"}},
+				{"ref":"refs/tags/5.0.10","object":{"sha":"other-patch","type":"commit"}},
 				{"ref":"refs/tags/5.0.1-rc.9","object":{"sha":"old","type":"commit"}},
 				{"ref":"refs/tags/5.0.1-rc.11","object":{"sha":"wrong-branch","type":"commit"}},
 				{"ref":"refs/tags/5.0.1-rc.100-other","object":{"sha":"invalid","type":"commit"}}
 			]`)
-		case "/git/matching-refs/tags/v5.0.1-rc.":
+		case "/git/matching-refs/tags/v5.0.1":
 			fmt.Fprint(w, `[{"ref":"refs/tags/v5.0.1-rc.10","object":{"sha":"annotation","type":"tag"}}]`)
 		case "/git/tags/annotation":
 			fmt.Fprint(w, `{"object":{"sha":"candidate","type":"commit"}}`)
@@ -33,8 +38,8 @@ func TestDiscoverCandidateUsesHighestReachableRCAndLinksItsMergedPRs(t *testing.
 		case "/compare/candidate...head":
 			fmt.Fprint(w, `{"status":"ahead","ahead_by":2,"commits":[{"sha":"first"},{"sha":"second"}]}`)
 		case "/commits/first/pulls":
-			if !published {
-				t.Error("post-RC PR lookup delayed the first verified RC")
+			if !prDiscovery {
+				t.Error("tag discovery requested associated PRs")
 			}
 			fmt.Fprint(w, `[
 				{"number":41,"title":"Backport one","base":{"ref":"release-5.0"},"merged_at":"2026-11-17T12:00:00Z"},
@@ -59,10 +64,22 @@ func TestDiscoverCandidateUsesHighestReachableRCAndLinksItsMergedPRs(t *testing.
 		},
 	})
 	rc := result.Candidate
-	if err != nil || !rc.Evidence.Fresh() || rc.Target.Tag != "v5.0.1-rc.10" || rc.Number != 10 || rc.SHA != "candidate" || rc.Ahead != 2 || rc.PRError != "" {
+	if err != nil || !published || !rc.PRsPending || !rc.Evidence.Fresh() || rc.Target.Tag != "v5.0.1-rc.10" || rc.Number != 10 || rc.SHA != "candidate" || rc.Ahead != 2 || rc.PRError != "" {
 		t.Fatalf("unexpected current candidate: %+v, err=%v", rc, err)
 	}
-	if len(rc.PRs) != 2 || rc.PRs[0].URL != "https://github.com/stackrox/stackrox/pull/41" || rc.PRs[1].Number != 44 {
+	want := map[string]string{"5.0.1": "published", "5.0.1-rc.9": "old", "5.0.1-rc.11": "wrong-branch", "v5.0.1-rc.10": "candidate"}
+	if len(result.Tags) != len(want) {
+		t.Fatalf("patch tags = %+v", result.Tags)
+	}
+	for _, tag := range result.Tags {
+		if want[tag.Name] != tag.SHA || !tag.Evidence.Fresh() {
+			t.Fatalf("incorrect patch tag observation: %+v", tag)
+		}
+	}
+	prDiscovery = true
+	result, err = client.Discover(t.Context(), app.DiscoveryRequest{Source: result.Source, PreviousCandidate: rc, Scope: app.ReadPRs})
+	rc = result.Candidate
+	if err != nil || rc.PRsPending || rc.PRError != "" || len(rc.PRs) != 2 || rc.PRs[0].URL != "https://github.com/stackrox/stackrox/pull/41" || rc.PRs[1].Number != 44 {
 		t.Fatalf("unexpected post-RC PRs: %+v", rc.PRs)
 	}
 }
@@ -74,9 +91,11 @@ func TestDiscoverCandidateResumesPRLookupsAcrossPolls(t *testing.T) {
 		switch path := strings.TrimPrefix(r.URL.Path, "/repos/stackrox/stackrox"); {
 		case path == "/branches/release-5.0":
 			fmt.Fprint(w, `{"commit":{"sha":"head"}}`)
-		case path == "/git/matching-refs/tags/5.0.1-rc.":
+		case path == "/pulls":
+			fmt.Fprint(w, `[]`)
+		case path == "/git/matching-refs/tags/5.0.1":
 			fmt.Fprint(w, `[{"ref":"refs/tags/5.0.1-rc.2","object":{"sha":"candidate","type":"commit"}}]`)
-		case path == "/git/matching-refs/tags/v5.0.1-rc.":
+		case path == "/git/matching-refs/tags/v5.0.1":
 			fmt.Fprint(w, `[]`)
 		case path == "/compare/candidate...head":
 			type commit struct{ SHA string }
@@ -105,7 +124,7 @@ func TestDiscoverCandidateResumesPRLookupsAcrossPolls(t *testing.T) {
 	})}})
 	req := app.DiscoveryRequest{
 		Source:  release.Source{Name: "acs", Repo: "stackrox/stackrox", Branch: "release-5.0"},
-		Version: "5.0.1", Scope: app.ReadRC,
+		Version: "5.0.1", Scope: app.ReadRC | app.ReadPRs,
 	}
 	for i := range 10 {
 		result, err := client.Discover(t.Context(), req)

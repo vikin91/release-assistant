@@ -37,13 +37,9 @@ func TestRCBuildChecksAndRetryAuthority(t *testing.T) {
 		Proposals: []release.Proposal{proposal, {Target: target, SHA: proposal.SHA, Job: "roxctl-on-push"}},
 	}}
 	s.planner = planner
-	refresh := func(discover bool) {
-		t.Helper()
-		if err := s.refreshPlanned(t.Context(), snapshot.Generation, snapshot.Config.ACS(), discover); err != nil {
-			t.Fatal(err)
-		}
+	if err := fetchSourcePolls(t, s, snapshot.Config.ACS(), pollTags, pollPRs, pollBuilds); err != nil {
+		t.Fatal(err)
 	}
-	refresh(true)
 	if !slices.Equal(planner.calls, []release.Target{target}) {
 		t.Fatalf("expected one check for %s, got %v", target, planner.calls)
 	}
@@ -63,7 +59,9 @@ func TestRCBuildChecksAndRetryAuthority(t *testing.T) {
 	}
 	planner.plan = release.Plan{Target: target, Evidence: observed()}
 	planner.err = errors.New("tag lookup failed")
-	refresh(false)
+	if err := fetchSourcePolls(t, s, snapshot.Config.ACS(), pollBuilds); !errors.Is(err, planner.err) {
+		t.Fatalf("build poll error = %v, want %v", err, planner.err)
+	}
 	for _, view := range s.Snapshot().Authority {
 		if view.Target == target && (view.Granted || len(view.Offers) != 0) {
 			t.Fatalf("unresolved RC retained write authority: %+v", view)
@@ -122,7 +120,7 @@ func TestRCMonitoringStartsOnDiscoveryWithoutPinning(t *testing.T) {
 	rc := acs.Candidate
 	planner := &rcPlanner{plan: release.Plan{Target: rc.Target, SHA: rc.SHA, Evidence: observed()}}
 	s.planner = planner
-	if err := s.refreshPlanned(t.Context(), s.generation, c.ACS(), true); err != nil {
+	if err := fetchSourcePolls(t, s, c.ACS(), pollTags, pollPRs, pollBuilds, pollImages); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Contains(planner.calls, rc.Target) || inspector.release != 1 || s.Snapshot().Inventory.Versions["acs"] != rc.Target.Tag {
@@ -141,7 +139,7 @@ func TestRCMonitoringRequiresCurrentTagAndCommit(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			s, f, inspector := rcFixture(t)
-			if err := s.refreshPlanned(t.Context(), s.generation, s.config.ACS(), true); err != nil {
+			if err := fetchSourcePolls(t, s, s.config.ACS(), pollTags, pollPRs, pollBuilds, pollImages); err != nil {
 				t.Fatal(err)
 			}
 			acs := f.repos["acs"]
@@ -149,7 +147,7 @@ func TestRCMonitoringRequiresCurrentTagAndCommit(t *testing.T) {
 			f.repos["acs"] = acs
 			planner := &rcPlanner{}
 			s.planner = planner
-			if err := s.refreshPlanned(t.Context(), s.generation, s.config.ACS(), true); err != nil {
+			if err := fetchSourcePolls(t, s, s.config.ACS(), pollTags, pollPRs, pollBuilds, pollImages); err != nil {
 				t.Fatal(err)
 			}
 			if inspector.release != 1 || len(planner.calls) != 0 || s.Snapshot().RCImageWaitReason() == "" {
@@ -164,8 +162,8 @@ type rcCheckFixture struct {
 	validation release.Validation
 }
 
-func (f *rcCheckFixture) ReadRCChecks(context.Context, release.Target) release.Validation {
-	return f.validation
+func (f *rcCheckFixture) ReadTagChecks(context.Context, release.Target) (release.Validation, error) {
+	return f.validation, nil
 }
 
 func TestRCPlanBindsValidationToTheCandidate(t *testing.T) {
@@ -234,20 +232,20 @@ func TestRCValidationRetryRespectsWriteAndConfirmationModes(t *testing.T) {
 			s.planner = tr
 			s.dispatcher = dispatch.New(tr, tr, tr, dispatch.Options{EnableWrites: mode.writes})
 			generation := s.Snapshot().Generation
-			refresh := func(discover bool) {
+			refresh := func(kinds ...pollKind) {
 				t.Helper()
-				if err := s.refreshPlanned(t.Context(), generation, config.ACS(), discover); err != nil {
+				if err := fetchSourcePolls(t, s, config.ACS(), kinds...); err != nil {
 					t.Fatal(err)
 				}
 			}
-			refresh(true)
-			refresh(false)
+			refresh(pollTags, pollPRs, pollBuilds)
+			refresh(pollBuilds)
 			grant := Action{Kind: "grant", Target: target, SHA: proposal.SHA, Enabled: true, Generation: generation}
 			if err := s.Apply(t.Context(), grant); (err == nil) != mode.writes {
 				t.Fatalf("unexpected permission result %v", err)
 			}
 			apply(t, s, Action{Kind: "interactive", Enabled: mode.interactive})
-			refresh(false)
+			refresh(pollBuilds)
 			if mode.interactive {
 				if len(tr.posted) != 0 {
 					t.Fatal("posted before an interactive confirmation")
@@ -263,7 +261,7 @@ func TestRCValidationRetryRespectsWriteAndConfirmationModes(t *testing.T) {
 			}
 			tr.plan.Proposals = nil
 			tr.plan.Runs[0] = release.Run{Job: proposal.Job, ID: "52", Status: "in_progress"}
-			refresh(false)
+			refresh(pollBuilds)
 			for _, view := range s.Snapshot().Authority {
 				if view.Target == target && len(view.Offers) != 0 {
 					t.Fatal("a running rerun retained a retry offer")
@@ -285,7 +283,7 @@ func TestNewCandidateReplacesImagesAndRevokesPreviousRetryAuthority(t *testing.T
 	s.planner = planner
 	refresh := func() {
 		t.Helper()
-		if err := s.refreshPlanned(t.Context(), s.generation, config.ACS(), true); err != nil {
+		if err := fetchSourcePolls(t, s, config.ACS(), pollTags, pollPRs, pollBuilds, pollImages); err != nil {
 			t.Fatal(err)
 		}
 	}

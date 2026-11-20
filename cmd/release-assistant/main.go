@@ -48,8 +48,8 @@ func run() error {
 		flag.StringVar(&components[n].Stream, name+"-stream", "", "component major.minor stream")
 	}
 	flag.IntVar(&port, "port", 8080, "loopback HTTP port")
-	flag.DurationVar(&options.Poll, "poll", time.Minute, "active-check polling interval")
-	flag.DurationVar(&options.Discovery, "discover", 5*time.Minute, "PR and tag discovery interval")
+	flag.DurationVar(&options.Poll, "poll", 0, "override initial refresh intervals for checks, builds, and images")
+	flag.DurationVar(&options.Discovery, "discover", 0, "override initial refresh intervals for PR and tag discovery")
 	flag.DurationVar(&options.BackoffCap, "backoff-cap", 5*time.Minute, "maximum per-source access-error backoff")
 	flag.DurationVar(&options.Timeout, "timeout", 2*time.Minute, "maximum work duration per source cycle")
 	flag.DurationVar(&limits.Gap, "comment-gap", time.Minute, "minimum comment gap per target")
@@ -61,9 +61,16 @@ func run() error {
 	if flag.NArg() != 0 {
 		return fmt.Errorf("unexpected positional arguments")
 	}
-	if port < 1 || port > 65535 || options.Poll <= 0 || options.Discovery <= 0 || options.BackoffCap <= 0 || options.Timeout <= 0 || limits.Gap <= 0 || limits.SlowGap <= 0 || limits.Threshold < 1 {
+	var invalidInterval bool
+	flag.Visit(func(f *flag.Flag) {
+		if (f.Name == "poll" && options.Poll <= 0) || (f.Name == "discover" && options.Discovery <= 0) {
+			invalidInterval = true
+		}
+	})
+	if port < 1 || port > 65535 || invalidInterval || options.BackoffCap <= 0 || options.Timeout <= 0 || limits.Gap <= 0 || limits.SlowGap <= 0 || limits.Threshold < 1 {
 		return fmt.Errorf("port and timing/threshold settings must be positive and valid")
 	}
+	options.RefreshIntervals = app.DefaultRefreshIntervals(options.Poll, options.Discovery)
 	prefilled := applyVersionDefaults(config.Version, components[:])
 	for _, source := range prefilled {
 		if source.Name != "scanner" || source.Branch != "" || source.Stream != "" {

@@ -27,6 +27,14 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 		Assessment: release.Assessment{ProposedTags: map[string]string{"fact": "3.25.2"}, Conditions: []release.Condition{{
 			Name: "tag fact", Status: release.No, Reason: "Current tag does not contain merge-1", TagIssue: release.TagMissingMerge,
 		}}},
+		Plans: []release.Plan{
+			{Target: release.Target{Repo: "acme/fact", Tag: "3.25.1"}, SHA: "fact-current-sha",
+				Validation: release.Validation{SHA: "fact-current-sha", Evidence: observed,
+					Checks: []release.ValidationCheck{{Check: release.Check{Name: "Fact tag smoke test", Conclusion: "success"}}}}},
+			{Target: release.Target{Repo: "acme/collector", Tag: "3.25.4"}, SHA: "another-sha",
+				Validation: release.Validation{SHA: "another-sha", Evidence: observed,
+					Checks: []release.ValidationCheck{{Check: release.Check{Name: "Collector test for another commit"}}}}},
+		},
 		Repositories: []release.Repository{
 			{Source: release.Source{Name: "fact", Repo: "acme/fact", Branch: "release-3.25", Stream: "3.25"}, Tags: []release.Tag{
 				{Name: "3.25.1", SHA: "fact-current-sha", Belongs: release.Yes, Contains: map[string]release.Truth{"merge-1": release.No}, Evidence: observed},
@@ -44,6 +52,7 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 	for _, want := range []string{
 		"Component tags", "2 of 2 selected · 1 coverage issue · 1 unverified",
 		"<code>3.25.1</code>", "<code>3.25.4</code>", "Missing an included merge", "Coverage unverified",
+		"GitHub checks for the selected tag", "Fact tag smoke test · success", "Waiting for GitHub check results.",
 	} {
 		if !strings.Contains(tagDetails, want) {
 			t.Errorf("tag selection missing %q", want)
@@ -51,6 +60,9 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 	}
 	if !strings.Contains(body, `<div id="tag-selection">`) {
 		t.Fatal("selected tag status must not automatically fold the section")
+	}
+	if strings.Contains(tagDetails, "Collector test for another commit") {
+		t.Fatal("selected Collector tag displayed checks from another commit")
 	}
 	for _, forbidden := range []string{"Confirm fact 3.25.1", "Confirm collector 3.25.4"} {
 		if strings.Contains(tagDetails, forbidden) {

@@ -26,8 +26,8 @@ func TestIncludedPRLogsCheckStatusChanges(t *testing.T) {
 		repo := f.repos[source.Name]
 		repo.PRs = []release.PR{pr}
 		f.repos[source.Name] = repo
-		if err := s.refreshPlanned(t.Context(), s.generation, source, false); err != nil {
-			t.Fatal(err)
+		if err := fetchSourcePolls(t, s, source, pollChecks); (err != nil) != (pr.ChecksEvidence.Error != "") {
+			t.Fatalf("poll error = %v for checks evidence %+v", err, pr.ChecksEvidence)
 		}
 	}
 	refresh()

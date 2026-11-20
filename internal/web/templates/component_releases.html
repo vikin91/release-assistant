@@ -49,6 +49,13 @@
             {{if .Coverage.Reason}}<p>{{.Coverage.Reason}}</p>{{end}}
             {{with .SelectedTag}}
               {{template "tag-observation" .}}
+              {{with .Validation}}
+                <h4>GitHub checks for the selected tag</h4>
+                {{if .Evidence.Error}}<p class="error-text">{{.Evidence.Error}}</p>{{end}}
+                {{if .Checks}}<ol>{{range .Checks}}
+                  <li>{{if url .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer">{{.Name}}</a>{{else}}{{.Name}}{{end}} · {{if .Conclusion}}{{.Conclusion}}{{else}}{{.Status}}{{end}}</li>
+                {{end}}</ol>{{else if .Evidence.Fresh}}<p>No checks reported for this commit.</p>{{else if not .Evidence.Error}}<p>Waiting for GitHub check results.</p>{{end}}
+              {{end}}
               {{template "tag-comment-permission" .}}
             {{else}}{{if and .CurrentTag (not .Coverage.Reason)}}<p class="muted">The selected tag is absent from current discovery.</p>{{end}}{{end}}
           </details>

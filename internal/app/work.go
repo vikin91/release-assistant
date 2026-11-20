@@ -1,15 +1,11 @@
 package app
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
 	"strings"
-	"sync"
 
-	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
 )
 
@@ -18,6 +14,7 @@ type sourceWork struct {
 	scope         DiscoveryScope
 	plans, images bool
 	tagInventory  bool
+	scheduled     bool
 }
 
 func (s *Session) rcReady() bool {
@@ -62,58 +59,6 @@ func (s *Session) rcRetriesReady() bool {
 	return true
 }
 
-func (s *Session) work(source release.Source, discover bool) sourceWork {
-	scope := ReadTargets | ReadChecks
-	if discover {
-		scope |= ReadPRs
-	}
-	if source.Name == "acs" {
-		scope |= ReadPins | ReadRC
-		if discover {
-			scope |= ReadPreviousPins
-		}
-	} else if s.choices.Tags[source.Name] != "" {
-		scope |= ReadTags | ReadCoverage
-	}
-	return sourceWork{
-		scope: scope, plans: true, images: source.Name == "acs",
-	}
-}
-
-func (s *Session) refreshPlanned(ctx context.Context, generation uint64, source release.Source, discover bool) error {
-	s.mu.Lock()
-	work := s.work(source, discover)
-	work.revision = s.workRevision
-	startupTags := s.duringStartup() && source.Name != "acs" && s.choices.Tags[source.Name] == "" && (discover || s.repos[source.Name].TagsPending)
-	s.mu.Unlock()
-	priority := githubread.Builds
-	if discover {
-		priority = githubread.PRs
-	}
-	ctx = githubread.WithPriority(ctx, priority, source.Repo)
-	ctx, usage := githubread.Track(ctx, 80)
-	if startupTags {
-		var tags sync.WaitGroup
-		var tagErr error
-		tags.Go(func() { tagErr = s.readStartupTags(ctx, generation, work.revision, source, usage) })
-		err := s.refresh(ctx, generation, source, true, work)
-		tags.Wait()
-		return errors.Join(err, tagErr)
-	}
-	err := s.refresh(ctx, generation, source, true, work)
-	if !discover || source.Name == "acs" || ctx.Err() != nil {
-		return err
-	}
-	// Tag inventories have their own result so incomplete ancestry reads cannot
-	// prevent PR observations or selected build checks from being published.
-	s.mu.Lock()
-	revision := s.workRevision
-	s.mu.Unlock()
-	tags := sourceWork{scope: ReadTags, revision: revision, tagInventory: true}
-	tagErr := s.refresh(githubread.WithPriority(ctx, githubread.Background, source.Repo), generation, source, true, tags)
-	return errors.Join(err, tagErr)
-}
-
 func mergeTags(old release.Repository, latest *release.Repository, request DiscoveryRequest) {
 	if !request.Reads(ReadCoverage) {
 		for i := range latest.Tags {
@@ -125,11 +70,12 @@ func mergeTags(old release.Repository, latest *release.Repository, request Disco
 			}
 		}
 	}
-	readsTagInventory := request.Reads(ReadTags) && (request.Scope == ReadAll || request.ConfirmedTag == "")
+	readsTagInventory := request.Reads(ReadTags) && (request.Scope == ReadAll || request.ConfirmedTag == "") ||
+		request.Source.Name == "acs" && request.Reads(ReadRC)
 	if latest.TagsPending || !readsTagInventory {
 		tags := slices.Clone(old.Tags)
-		if latest.Head != old.Head {
-			for i := range tags {
+		for i := range tags {
+			if latest.Head != old.Head || latest.TagsPending && readsTagInventory || (request.Reads(ReadTags) && tags[i].Name == request.ConfirmedTag) {
 				tags[i].Evidence.Known = false
 			}
 		}
@@ -143,17 +89,28 @@ func mergeTags(old release.Repository, latest *release.Repository, request Disco
 		}
 		latest.Tags = tags
 	}
-	if !readsTagInventory && latest.Source.Name != "acs" {
-		latest.TagsPending = latest.TagsPending || old.TagsPending || old.Head != latest.Head
+	if !readsTagInventory {
+		latest.TagsPending = latest.TagsPending || old.TagsPending || (latest.Source.Name != "acs" && old.Head != latest.Head)
 	}
 }
 
 func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) release.Repository {
 	mergeTags(old, &latest, request)
 	if !request.Reads(ReadChecks) {
+		byTarget := make(map[release.Target]release.PR, len(old.PRs))
+		for _, p := range old.PRs {
+			byTarget[p.Target] = p
+		}
 		for i := range latest.PRs {
-			latest.PRs[i].ChecksEvidence.Known = false
-			latest.PRs[i].CheckResultsEvidence.Known = false
+			p := &latest.PRs[i]
+			p.Checks, p.ChecksEvidence, p.CheckResultsEvidence, p.RequiredChecksError = nil, release.Evidence{}, release.Evidence{}, ""
+			previous := byTarget[p.Target]
+			if p.State == "open" && previous.State == "open" && p.SHA != "" && previous.SHA == p.SHA &&
+				previous.Base == p.Base && p.Base == request.Source.Branch && p.Evidence.Fresh() && previous.Evidence.Fresh() {
+				p.Checks = slices.Clone(previous.Checks)
+				p.ChecksEvidence, p.CheckResultsEvidence = previous.ChecksEvidence, previous.CheckResultsEvidence
+				p.RequiredChecksError = previous.RequiredChecksError
+			}
 		}
 	}
 	if !request.Reads(ReadPRs) {
@@ -186,7 +143,7 @@ func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) re
 		}
 		latest.PRs = prs
 	}
-	if request.Scope == ReadTags && latest.Head == old.Head && old.Evidence.Fresh() {
+	if !request.Reads(ReadPRs) && latest.Head == old.Head && !old.Evidence.At.IsZero() {
 		latest.Evidence = old.Evidence
 	}
 	if !request.Reads(ReadPreviousPins) {
@@ -198,15 +155,44 @@ func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) re
 			latest.Pins.Evidence.Known = false
 		}
 	}
-	if request.Source.Name == "acs" && !request.Reads(ReadRC) {
-		latest.Candidate = old.Candidate
-		if latest.Head != old.Head {
+	if pin := latest.PinningPR; pin != nil && (request.Reads(ReadPins) || request.Reads(ReadTargets) && slices.Contains(request.Tracked, pin.Target)) {
+		// Both dashboard views must use the same revision. Pin-file reads stay
+		// tied to the revision from which their contents were read.
+		for _, p := range latest.PRs {
+			if p.Target != pin.Target || (request.Reads(ReadPins) && (!latest.PinningEvidence.Fresh() || p.SHA != pin.SHA || p.Base != pin.Base || p.State != pin.State)) {
+				continue
+			}
+			if p.SHA != pin.SHA || (p.Merged && p.MergeSHA != pin.MergeSHA) || p.Merged != pin.Merged || p.Base != pin.Base || !p.Evidence.Fresh() {
+				latest.PinningPins.Evidence.Known = false
+			}
+			latest.PinningPR = new(p)
+			if !request.Reads(ReadPins) {
+				latest.PinningEvidence = p.Evidence
+			}
+			break
+		}
+	}
+	if request.Source.Name == "acs" {
+		switch {
+		case request.Reads(ReadRC):
+			// A tag refresh cannot replace PR associations for an identical commit range.
+			if latest.Candidate.PRsPending && sameCandidateRange(old.Candidate, latest.Candidate) {
+				latest.Candidate.PRs, latest.Candidate.PRError, latest.Candidate.PRsPending = old.Candidate.PRs, old.Candidate.PRError, old.Candidate.PRsPending
+			}
+		case latest.Head != old.Head:
 			latest.Candidate = release.Candidate{Evidence: release.Evidence{
 				At: latest.Evidence.At, Error: "The release branch changed before the RC could be verified.",
 			}}
+		case !request.Reads(ReadPRs) || !sameCandidateRange(old.Candidate, latest.Candidate):
+			latest.Candidate = old.Candidate
 		}
 	}
 	return latest
+}
+
+// sameCandidateRange binds PR associations to the exact tag and branch commit SHAs.
+func sameCandidateRange(a, b release.Candidate) bool {
+	return a.Target == b.Target && a.SHA != "" && a.SHA == b.SHA && a.CompareURL != "" && a.CompareURL == b.CompareURL
 }
 
 // recordDiscoveryChanges reports newly available work and PR transitions once.

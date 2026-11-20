@@ -42,7 +42,7 @@ func windowCacheFixture(tb testing.TB) (*Client, app.DiscoveryRequest, map[strin
 		case "/repos/acme/fact/git/ref/tags/3.25.1":
 			_, _ = fmt.Fprintf(w, `{"object":{"type":"commit","sha":%q}}`, sha(301))
 		case "/repos/acme/fact/pulls/1":
-			_, _ = fmt.Fprintf(w, `{"number":1,"state":"closed","merged":true,"merge_commit_sha":%q}`, sha(1))
+			_, _ = fmt.Fprintf(w, `{"number":1,"state":"closed","merged":true,"base":{"ref":"release"},"merge_commit_sha":%q}`, sha(1))
 		case "/repos/acme/fact/commits":
 			window, ok := windows[r.URL.Query().Get("sha")]
 			if !ok {

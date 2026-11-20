@@ -12,9 +12,10 @@ import (
 
 func (s *Session) readRCPlan(ctx context.Context, target release.Target) (release.Plan, error) {
 	var validation release.Validation
+	var validationErr error
 	var read sync.WaitGroup
-	if reader, ok := s.discovery.(RCCheckReader); ok {
-		read.Go(func() { validation = reader.ReadRCChecks(ctx, target) })
+	if reader, ok := s.discovery.(TagCheckReader); ok {
+		read.Go(func() { validation, validationErr = reader.ReadTagChecks(ctx, target) })
 	}
 	plan, err := s.planner.Plan(ctx, target)
 	read.Wait()
@@ -28,7 +29,7 @@ func (s *Session) readRCPlan(ctx context.Context, target release.Target) (releas
 		plan.Proposals = nil
 	}
 	plan.Validation = validation
-	return plan, err
+	return plan, errors.Join(err, validationErr)
 }
 
 func (s *Session) revalidateRCPlan() {

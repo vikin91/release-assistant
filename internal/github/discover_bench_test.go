@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"release-assistant/internal/app"
 	"release-assistant/internal/release"
@@ -289,6 +290,20 @@ func TestScopedDiscoveryAvoidsUnrelatedRequests(t *testing.T) {
 		repo, err := client.Discover(t.Context(), request)
 		if err != nil || len(repo.Tags) != 1 || len(repo.PRs) != 1 || repo.Tags[0].Contains[repo.PRs[0].MergeSHA] != release.Yes || counts["tag_ref"] != 1 || counts["pr_detail"] != 1 || counts["open_list"] != 0 || counts["merged_search"] != 0 {
 			t.Fatalf("counts=%v repo=%+v error=%v", counts, repo, err)
+		}
+	})
+	t.Run("selected merge coverage reuses the tag verified for the current branch head", func(t *testing.T) {
+		client, request, counts := discoveryFixture(t, 100, 500, 20)
+		request.Scope = app.ReadPRs | app.ReadTargets | app.ReadCoverage
+		request.ConfirmedTag = "3.25.100"
+		request.CoverageHead = "branch-sha"
+		request.CoverageTag = release.Tag{Name: request.ConfirmedTag, SHA: "tag-100", Belongs: release.Yes,
+			Evidence: release.Evidence{Known: true, At: time.Now()}}
+		request.Tracked = []release.Target{{Repo: request.Source.Repo, PR: 1001}}
+		repo, err := client.Discover(t.Context(), request)
+		if err != nil || len(repo.Tags) != 1 || repo.Tags[0].Contains["merge-1001"] != release.Yes ||
+			counts["tag_ref"] != 0 || counts["tags"] != 0 || counts["checks"] != 0 || counts["tag_ancestry"] != 0 {
+			t.Fatalf("counts=%v, tags=%+v, error=%v", counts, repo.Tags, err)
 		}
 	})
 	t.Run("excluded target", func(t *testing.T) {

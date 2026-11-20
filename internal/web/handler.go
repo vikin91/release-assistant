@@ -57,6 +57,7 @@ func New(application Application) (http.Handler, error) {
 		"tabPage": tabPage, "tabTitle": tabTitle, "tabHelp": tabHelp, "tabStep": tabStep,
 		"truth": truthLabel, "when": formatTime, "quotaReset": quotaReset, "url": safeURL,
 		"activity": activityText, "commentURL": commentURL,
+		"refreshSections": refreshSections, "wholeMinutes": wholeMinutes,
 		"slice": func(values ...string) []string { return values },
 		"title": func(value string) string {
 			if value == "acs" {
@@ -325,6 +326,10 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 			return a, fmt.Errorf("grant requires the displayed SHA")
 		}
 	case "application-settings":
+		a.RefreshIntervals, err = submittedIntervals(r.PostForm)
+		if err != nil {
+			return a, err
+		}
 		a.StartupReadLimit, err = readLimitSetting(r.PostForm, "startup_read_limit")
 		if err != nil {
 			return a, err

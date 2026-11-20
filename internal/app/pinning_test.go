@@ -225,7 +225,7 @@ func TestPinningSelection(t *testing.T) {
 			s, f, config := newPinningSession(t)
 			poll := func() {
 				t.Helper()
-				if err := s.refreshPlanned(t.Context(), s.Snapshot().Generation, config.ACS(), true); err != nil {
+				if err := fetchSourcePolls(t, s, config.ACS(), pollPRs); err != nil {
 					t.Fatal(err)
 				}
 			}

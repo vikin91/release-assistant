@@ -67,6 +67,9 @@ func (s *Session) includePinningPR() {
 	if t.PR == 0 {
 		return
 	}
+	for _, kind := range []pollKind{pollPRs, pollChecks, pollBuilds} {
+		delete(s.polls, pollID{t.Repo, kind})
+	}
 	s.priorPinChoice = s.choices.PRs[t]
 	s.choices.PRs[t] = release.Included
 	if s.priorPinChoice == release.Ignored || s.priorPinChoice == release.Excluded {

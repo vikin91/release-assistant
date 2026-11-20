@@ -17,7 +17,7 @@ func writeCheckFixture(t *testing.T, w http.ResponseWriter, body string) {
 	}
 }
 
-func TestReadRCChecksJoinsWorkflowTriggersAndKeepsLatestAttempts(t *testing.T) {
+func TestReadTagChecksJoinsWorkflowTriggersAndKeepsLatestAttempts(t *testing.T) {
 	target := release.Target{Repo: "stackrox/stackrox", Tag: "5.0.1-rc.0"}
 	server := newFakeServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch strings.TrimPrefix(r.URL.Path, "/repos/"+target.Repo) {
@@ -48,8 +48,8 @@ func TestReadRCChecksJoinsWorkflowTriggersAndKeepsLatestAttempts(t *testing.T) {
 		}
 	}))
 	c := New(server.URL, "", server.Client())
-	result := c.ReadRCChecks(t.Context(), target)
-	if result.SHA != "candidate-sha" || !result.Evidence.Fresh() || len(result.Checks) != 4 {
+	result, err := c.ReadTagChecks(t.Context(), target)
+	if err != nil || result.SHA != "candidate-sha" || !result.Evidence.Fresh() || len(result.Checks) != 4 {
 		t.Fatalf("unexpected validation snapshot %+v", result)
 	}
 	if slices.ContainsFunc(result.Checks, func(check release.ValidationCheck) bool { return check.ID == 1 }) {
@@ -67,7 +67,7 @@ func TestReadRCChecksJoinsWorkflowTriggersAndKeepsLatestAttempts(t *testing.T) {
 	}
 }
 
-func TestReadRCChecksPreservesPartialEvidenceOnActionsFailure(t *testing.T) {
+func TestReadTagChecksPreservesPartialEvidenceOnActionsFailure(t *testing.T) {
 	server := newFakeServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.Contains(r.URL.Path, "/refs/tags/"):
@@ -84,8 +84,8 @@ func TestReadRCChecksPreservesPartialEvidenceOnActionsFailure(t *testing.T) {
 		}
 	}))
 	c := New(server.URL, "", server.Client())
-	result := c.ReadRCChecks(t.Context(), release.Target{Repo: "stackrox/stackrox", Tag: "5.0.1-rc.0"})
-	if result.Evidence.Fresh() || !strings.Contains(result.Evidence.Error, "Workflow triggers:") ||
+	result, err := c.ReadTagChecks(t.Context(), release.Target{Repo: "stackrox/stackrox", Tag: "5.0.1-rc.0"})
+	if err == nil || result.Evidence.Fresh() || !strings.Contains(result.Evidence.Error, "Workflow triggers:") ||
 		len(result.Checks) != 1 || result.Checks[0].Event != "" || result.Checks[0].Conclusion != "failure" ||
 		!strings.HasSuffix(result.Checks[0].URL, "/commit/candidate-sha/checks?check_run_id=1") {
 		t.Fatalf("partial checks were lost or mislabeled: %+v", result)
