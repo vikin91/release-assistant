@@ -57,6 +57,7 @@ func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (
 			}
 		}
 		pr := release.PR{Target: release.Target{Repo: r.Source.Repo, PR: 201}, Title: "Fixture: ACS dependency backport", CommentLabel: true, Author: "mintmaker", URL: "https://example.com/pr201", SHA: "acs-pr-head", State: "open", Base: r.Source.Branch, Evidence: observation(), ChecksEvidence: observation(), Checks: []release.Check{{Name: "CI build", Status: "completed", Conclusion: "failure", Required: release.Yes}}}
+		pr.MergeState = "blocked"
 		if f.step >= 4 {
 			pr.State, pr.Merged, pr.MergeSHA = "merged", true, "acs-next"
 			repository.Head = "acs-next"
@@ -68,7 +69,7 @@ func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (
 		}
 		repository.PRs = []release.PR{pr}
 		// The fixture pin PR can be reviewed before a number or component tag is selected.
-		pin := release.PR{Target: release.Target{Repo: r.Source.Repo, PR: 202}, Title: "Fixture: component versions", State: "open", Base: r.Source.Branch, SHA: "pin-head", Evidence: observation()}
+		pin := release.PR{Target: release.Target{Repo: r.Source.Repo, PR: 202}, Title: "Fixture: component versions", State: "open", MergeState: "clean", Base: r.Source.Branch, SHA: "pin-head", Evidence: observation()}
 		if f.step < 3 && r.PinningPR != pin.Target.PR {
 			repository.PRs = append(repository.PRs, pin)
 		}
@@ -124,6 +125,7 @@ func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (
 	repository.Tags = []release.Tag{{Name: version, SHA: repository.Head, Belongs: release.Yes, Contains: map[string]release.Truth{}, Evidence: observation()}}
 	if r.Source.Name == "fact" {
 		pr := release.PR{Target: release.Target{Repo: r.Source.Repo, PR: 101}, Title: "Fixture: release fix <script>alert(1)</script>", Author: "fixture-author", URL: "https://example.com/pr101", SHA: "pr-head", State: "open", Base: r.Source.Branch, Evidence: observation(), ChecksEvidence: observation(), Checks: []release.Check{{Name: "CI build", Status: "completed", Conclusion: "failure", Required: release.Yes}}}
+		pr.MergeState = "blocked"
 		if f.step >= 1 {
 			pr.State = "merged"
 			pr.Merged = true

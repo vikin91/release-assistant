@@ -19,6 +19,7 @@ type (
 	prListRow struct {
 		PinRole, PinReason string
 		Checks             prCheckSummary
+		MergeStatus        release.Truth
 		Attention          bool
 		Retry              *pageModel
 		HasProposal        bool
@@ -118,6 +119,7 @@ func (p pageModel) PRList() prListModel {
 				triage.Ignored++
 				continue
 			}
+			view.MergeStatus = prMergeStatus(row.PR)
 			triage.Active++
 			closed := row.PR.State == "closed"
 			switch {
@@ -148,6 +150,23 @@ func (p pageModel) PRList() prListModel {
 		}
 	}
 	return triage
+}
+
+func prMergeStatus(pr release.PR) release.Truth {
+	if pr.State != "open" || !pr.Evidence.Fresh() {
+		return ""
+	}
+	if pr.Draft {
+		return release.No
+	}
+	switch pr.MergeState {
+	case "clean", "unstable":
+		return release.Yes
+	case "blocked", "behind", "dirty", "draft":
+		return release.No
+	default:
+		return ""
+	}
 }
 
 func summarizePRChecks(pr release.PR) prCheckSummary {

@@ -36,6 +36,7 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 		}
 	}
 	open := pr(1, "open", "failure")
+	open.MergeState = "blocked"
 	open.Checks = append(open.Checks,
 		release.Check{Required: release.Yes, Status: "in_progress"},
 		release.Check{Required: release.Yes, Status: "queued"},
@@ -48,6 +49,7 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 	stale := pr(4, "open", "failure")
 	stale.ChecksEvidence.Error = "read timed out"
 	clean := pr(5, "open", "success")
+	clean.MergeState = "clean"
 	excluded := pr(6, "open", "success")
 	merged := pr(7, "closed", "success")
 	merged.Merged = true
@@ -135,10 +137,13 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 		}
 	}
 	mixed := prCardContaining(body, "change-1")
-	for _, want := range []string{"❌", "3 checks failed, including 1 required", "/pull/1/checks"} {
+	for _, want := range []string{"❌", "3 checks failed, including 1 required", "/pull/1/checks", `<span class="pill no">Merge blocked</span>`} {
 		if !strings.Contains(mixed, want) {
 			t.Errorf("mixed check summary missing %q", want)
 		}
+	}
+	if ready := prCardContaining(body, "change-5"); !strings.Contains(ready, `<span class="pill yes">Ready to merge</span>`) {
+		t.Error("the ready PR needs a merge status pill even before inclusion")
 	}
 	if strings.Contains(mixed, "GitHub Actions tests") || strings.Contains(mixed, "Konflux tests") {
 		t.Error("the PR row should summarize failures without listing individual checks")
@@ -150,6 +155,29 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 	application.snapshot.Choices.PRs[candidate.Target] = release.Included
 	updated := activityPanel(t, browser.getBody(t), tab)
 	assertPROrder(between(t, updated, `id="`+section+`-panel"`, "</section>"))
+}
+
+func TestPRMergeStatusUsesGitHubVerdict(t *testing.T) {
+	for name, tc := range map[string]struct {
+		verdict      string
+		draft, stale bool
+		want         release.Truth
+	}{
+		"should report ready with non-blocking failures": {verdict: "unstable", want: release.Yes},
+		"should report blocked for conflicts":            {verdict: "dirty", want: release.No},
+		"should report blocked when out of date":         {verdict: "behind", want: release.No},
+		"should report blocked for a draft":              {verdict: "clean", draft: true, want: release.No},
+		"should wait for GitHub to calculate a verdict":  {verdict: "unknown"},
+		"should omit a stale verdict":                    {verdict: "clean", stale: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			pr := release.PR{State: "open", MergeState: tc.verdict, Draft: tc.draft,
+				Evidence: release.Evidence{Known: !tc.stale, At: time.Now()}}
+			if got := prMergeStatus(pr); got != tc.want {
+				t.Errorf("merge status = %q, want %q", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestIgnoreAllComponentPRsSubmitsTheCurrentGeneration(t *testing.T) {

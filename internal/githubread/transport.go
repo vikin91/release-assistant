@@ -43,7 +43,7 @@ type (
 		Remaining, Limit    int
 		ObservedAt, ResetAt time.Time
 	}
-	// Transport schedules GitHub GETs fairly within each priority and caps hourly spending.
+	// Transport schedules GitHub reads fairly within each priority and caps hourly spending.
 	Transport struct {
 		base         http.RoundTripper
 		mu           sync.Mutex
@@ -207,9 +207,10 @@ func (t *Transport) chosen() *http.Request {
 	return best
 }
 
-// RoundTrip applies scheduling only to github.com's REST reads; other services proceed independently.
+// RoundTrip schedules github.com REST reads and queries sent to the GraphQL endpoint.
 func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req.Method != http.MethodGet || req.URL.Hostname() != "api.github.com" {
+	graphql := req.Method == http.MethodPost && req.URL.Path == "/graphql"
+	if req.URL.Hostname() != "api.github.com" || (req.Method != http.MethodGet && !graphql) {
 		return t.base.RoundTrip(req)
 	}
 	t.mu.Lock()

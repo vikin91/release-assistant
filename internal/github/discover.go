@@ -77,6 +77,7 @@ type (
 		Merged             bool              `json:"merged"`
 		MergedAt           *time.Time        `json:"merged_at"`
 		MergeCommitSHA     string            `json:"merge_commit_sha"`
+		MergeState         string            `json:"mergeable_state"`
 		RequestedReviewers []json.RawMessage `json:"requested_reviewers"`
 		RequestedTeams     []json.RawMessage `json:"requested_teams"`
 		Labels             []struct {
@@ -395,6 +396,9 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 	if source.Name == "acs" && req.DetectPinningPR && req.Reads(app.ReadPRs) {
 		result.PinDiscovery = c.discoverPinFiles(ctx, req, prs, prErr, result.Head)
 	}
+	if req.Reads(app.ReadPRs) {
+		c.readListedPRMergeStates(ctx, cycle, result, ignored)
+	}
 	return result, err
 }
 
@@ -665,7 +669,7 @@ func convertPR(repo string, p prResponse) release.PR {
 	r := release.PR{
 		Target: release.Target{Repo: repo, PR: p.Number}, SHA: p.Head.SHA,
 		Title: p.Title, Author: p.User.Login, URL: p.HTMLURL, State: state, Base: p.Base.Ref,
-		MergeSHA: p.MergeCommitSHA, Merged: p.Merged || p.MergedAt != nil, Draft: p.Draft,
+		MergeSHA: p.MergeCommitSHA, MergeState: p.MergeState, Merged: p.Merged || p.MergedAt != nil, Draft: p.Draft,
 		ReviewRequested: len(p.RequestedReviewers) > 0 || len(p.RequestedTeams) > 0,
 		Evidence:        release.Evidence{At: time.Now(), URL: p.HTMLURL, Known: p.Head.SHA != ""},
 	}

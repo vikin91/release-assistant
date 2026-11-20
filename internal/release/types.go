@@ -50,6 +50,8 @@ type (
 		Evidence                                       Evidence
 		Checks                                         []Check
 		ChecksEvidence                                 Evidence
+		// MergeState is GitHub's policy verdict for the open PR.
+		MergeState string
 		// RequiredChecksError describes incomplete discovery of the branch's required checks.
 		RequiredChecksError string
 		// CheckResultsEvidence describes check runs and commit statuses independently of branch protection.

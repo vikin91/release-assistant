@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"release-assistant/internal/app"
+	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
 )
 
@@ -614,16 +615,74 @@ func TestReadPRFetchesOnlyRequestedPullRequest(t *testing.T) {
 	var paths []string
 	srv := newFakeServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.Method+" "+r.URL.RequestURI())
-		_, _ = w.Write([]byte(`{"number":4298,"state":"open","title":"Updated PR","base":{"ref":"release-3.25"},"head":{"sha":"fresh-head"},"labels":[{"name":"allow-release-assistant"}]}`))
+		_, _ = w.Write([]byte(`{"number":4298,"state":"open","title":"Updated PR","mergeable":true,"mergeable_state":"blocked","base":{"ref":"release-3.25"},"head":{"sha":"fresh-head"},"labels":[{"name":"allow-release-assistant"}]}`))
 	}))
 	defer srv.Close()
 	target := release.Target{Repo: "stackrox/collector", PR: 4298}
 	pr, err := New(srv.URL, "", srv.Client()).ReadPR(t.Context(), target)
-	if err != nil || pr.Target != target || pr.SHA != "fresh-head" || pr.Base != "release-3.25" || !pr.CommentLabel || !pr.Evidence.Fresh() {
+	if err != nil || pr.Target != target || pr.SHA != "fresh-head" || pr.Base != "release-3.25" ||
+		pr.MergeState != "blocked" || !pr.CommentLabel || !pr.Evidence.Fresh() {
 		t.Fatalf("PR=%+v err=%v", pr, err)
 	}
 	if !slices.Equal(paths, []string{"GET /repos/stackrox/collector/pulls/4298"}) {
 		t.Fatalf("GitHub requests: %v", paths)
+	}
+}
+
+func TestPRDiscoveryReadsMergeStateWithoutCheckResults(t *testing.T) {
+	srv := newFakeServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/acme/fact/branches/release":
+			_, _ = w.Write([]byte(`{"commit":{"sha":"branch-sha"}}`))
+		case "/repos/acme/fact/pulls":
+			_, _ = w.Write([]byte(`[
+				{"number":11,"state":"open","base":{"ref":"release"},"head":{"sha":"head-11"}},
+				{"number":12,"state":"open","base":{"ref":"release"},"head":{"sha":"head-12"}},
+				{"number":13,"state":"open","base":{"ref":"release"},"head":{"sha":"head-13"}},
+				{"number":14,"state":"open","base":{"ref":"release"},"head":{"sha":"head-14"}}
+			]`))
+		case "/graphql":
+			var request struct {
+				Query     string
+				Variables map[string]string
+			}
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil || r.Method != http.MethodPost ||
+				r.Header.Get("Authorization") != "Bearer fixture" || !strings.HasPrefix(request.Query, "query PRMergeStates") ||
+				request.Variables["owner"] != "acme" || request.Variables["repo"] != "fact" || request.Variables["base"] != "release" {
+				t.Fatalf("invalid merge state query: %+v, err=%v", request, err)
+			}
+			switch request.Variables["cursor"] {
+			case "":
+				_, _ = w.Write([]byte(`{"data":{"repository":{"pullRequests":{"nodes":[
+					{"number":11,"headRefOid":"head-11","isDraft":false,"mergeStateStatus":"BLOCKED"},
+					{"number":12,"headRefOid":"new-head","isDraft":false,"mergeStateStatus":"CLEAN"}
+				],"pageInfo":{"hasNextPage":true,"endCursor":"first-page"}}}}}`))
+			case "first-page":
+				_, _ = w.Write([]byte(`{"data":{"repository":{"pullRequests":{"nodes":[
+					{"number":13,"headRefOid":"head-13","isDraft":false,"mergeStateStatus":"CLEAN"}
+				],"pageInfo":{"hasNextPage":false}}}}}`))
+			default:
+				t.Fatalf("unexpected cursor: %v", request.Variables)
+			}
+		default:
+			t.Errorf("unexpected request: %s", r.URL)
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	client := New("https://api.github.com", "fixture", &http.Client{Transport: githubread.New(srv.Client().Transport)})
+	ctx, usage := githubread.Track(t.Context(), 4)
+	repo, err := client.Discover(ctx, app.DiscoveryRequest{
+		Source: release.Source{Name: "fact", Repo: "acme/fact", Branch: "release"},
+		Scope:  app.ReadPRs,
+	})
+	if err != nil || len(repo.PRs) != 4 || usage.Calls() != 4 {
+		t.Fatalf("PRs=%+v calls=%d err=%v", repo.PRs, usage.Calls(), err)
+	}
+	for i, want := range []string{"blocked", "", "clean", ""} {
+		if pr := repo.PRs[i]; pr.MergeState != want || !pr.Evidence.Fresh() {
+			t.Errorf("PR #%d merge state = %q, want %q with fresh identity", pr.Target.PR, pr.MergeState, want)
+		}
 	}
 }
 

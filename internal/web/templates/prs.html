@@ -44,13 +44,17 @@
               <div class="pr-title">
                 <a aria-describedby="new-tab-description" href="{{url .PR.URL}}" target="_blank" rel="noreferrer">#{{.PR.Target.PR}} {{.PR.Title}}</a>
                 {{if $.Snapshot.RequirePRLabel}}{{template "pr-label-badge" .PR}}{{end}}
-                <div class="pr-meta">{{template "pr-identity-summary" .PR}}</div>
+                <div class="pr-meta">
+                  {{template "pr-identity-summary" .PR}}
+                  {{if eq (truth $row.MergeStatus) "yes"}}<span class="pill yes">Ready to merge</span>
+                  {{else if eq (truth $row.MergeStatus) "no"}}<span class="pill no">Merge blocked</span>{{end}}
+                </div>
               </div>
               <div class="pr-list-choice">
                 {{if eq $row.PinRole "Confirmed pinning PR"}}<a class="pill yes" href="/?tab=acs-prs#pinning-details" data-open-section>{{$row.PinRole}}</a>{{else if $row.PinRole}}<span class="pill">{{$row.PinRole}}</span> {{$row.PinReason}}{{end}}
                 <span class="pill">{{title .ChoiceLabel}}</span>
                 {{if .PR.Merged}}<span class="pr-list-note">Merged</span>{{else if eq .PR.State "closed"}}<span class="pr-list-note">{{if .PR.Evidence.Fresh}}Closed without merging{{else}}Last observed closed without merging{{end}}</span>
-                {{else if eq .Choice "included"}}<span class="pr-list-note">Awaiting merge</span>{{end}}
+                {{else if and (eq .Choice "included") (not $row.MergeStatus)}}<span class="pr-list-note">Awaiting merge</span>{{end}}
               </div>
               {{if eq .Choice "included"}}{{template "pr-list-checks" $row.Checks}}{{end}}
             </div>

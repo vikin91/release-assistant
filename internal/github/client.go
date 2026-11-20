@@ -23,7 +23,7 @@ import (
 const maxPages = 20
 
 type (
-	// Client is a read client for GitHub's REST API.
+	// Client reads GitHub's REST and GraphQL APIs.
 	Client struct {
 		baseURL      string
 		token        string
@@ -89,16 +89,20 @@ func (c *Client) get(ctx context.Context, endpoint string, dst any) error {
 	return c.getObservation(ctx, endpoint, dst, nil)
 }
 
-func (c *Client) getObservation(ctx context.Context, endpoint string, dst any, storable *bool) (err error) {
+func (c *Client) getObservation(ctx context.Context, endpoint string, dst any, storable *bool) error {
+	return c.readObservation(ctx, http.MethodGet, endpoint, nil, dst, storable)
+}
+
+func (c *Client) readObservation(ctx context.Context, method, endpoint string, payload io.Reader, dst any, storable *bool) (err error) {
 	cycle, _ := ctx.Value(discoveryCycleKey{}).(*discoveryCycle)
-	cacheable := cycle != nil && cacheableObservation(endpoint)
+	cacheable := cycle != nil && method == http.MethodGet && cacheableObservation(endpoint)
 	var capture bytes.Buffer
 	if cacheable {
 		if read, ok := cycle.reads[endpoint]; ok {
 			if read.err != nil {
 				return read.err
 			}
-			return c.decodeResponse(ctx, endpoint, json.NewDecoder(bytes.NewReader(read.data)), dst)
+			return c.decodeResponse(ctx, method, endpoint, json.NewDecoder(bytes.NewReader(read.data)), dst)
 		}
 		defer func() { cycle.reads[endpoint] = cachedRead{data: capture.Bytes(), err: err} }()
 	}
@@ -114,18 +118,21 @@ func (c *Client) getObservation(ctx context.Context, endpoint string, dst any, s
 		}
 	}
 	requestURL := c.baseURL + endpoint
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	req, err := http.NewRequestWithContext(ctx, method, requestURL, payload)
 	if err != nil {
-		return fmt.Errorf("build GitHub GET %s request failed", safeEndpoint(requestURL, c.token))
+		return fmt.Errorf("build GitHub %s %s request failed", method, safeEndpoint(requestURL, c.token))
 	}
 	c.authorize(req)
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return &requestError{diagnostic: fmt.Sprintf("GitHub GET %s unavailable: %s", safeEndpoint(req.URL.String(), c.token), safeTransportCause(err)), problem: transportProblem(err), cause: safeTransportCause(err)}
+		return &requestError{diagnostic: fmt.Sprintf("GitHub %s %s unavailable: %s", method, safeEndpoint(req.URL.String(), c.token), safeTransportCause(err)), problem: transportProblem(err), cause: safeTransportCause(err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		failure := &requestError{diagnostic: fmt.Sprintf("GitHub GET %s rejected (HTTP %d): %s", safeEndpoint(req.URL.String(), c.token), resp.StatusCode, httpStatusHint(resp)), problem: fmt.Sprintf("%s (HTTP %d).", httpStatusHint(resp), resp.StatusCode), statusCode: resp.StatusCode}
+		failure := &requestError{diagnostic: fmt.Sprintf("GitHub %s %s rejected (HTTP %d): %s", method, safeEndpoint(req.URL.String(), c.token), resp.StatusCode, httpStatusHint(resp)), problem: fmt.Sprintf("%s (HTTP %d).", httpStatusHint(resp), resp.StatusCode), statusCode: resp.StatusCode}
 		if rateLimited(resp) {
 			c.backoff.record(resp, failure)
 			if cycle != nil {
@@ -141,7 +148,7 @@ func (c *Client) getObservation(ctx context.Context, endpoint string, dst any, s
 		body = io.TeeReader(body, &capture)
 	}
 	decoder := json.NewDecoder(body)
-	if err := c.decodeResponse(ctx, endpoint, decoder, dst); err != nil {
+	if err := c.decodeResponse(ctx, method, endpoint, decoder, dst); err != nil {
 		return err
 	}
 	if storable != nil && windowAllowsStorage(resp) && maxResponseBytes-limited.N <= maxCacheableWindowBytes {
@@ -152,16 +159,16 @@ func (c *Client) getObservation(ctx context.Context, endpoint string, dst any, s
 	return nil
 }
 
-func (c *Client) decodeResponse(ctx context.Context, endpoint string, decoder *json.Decoder, dst any) error {
+func (c *Client) decodeResponse(ctx context.Context, method, endpoint string, decoder *json.Decoder, dst any) error {
 	if err := decoder.Decode(dst); err != nil {
 		if ctx.Err() != nil {
 			err = ctx.Err()
 		}
 		_, networkFailure := errors.AsType[net.Error](err)
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || networkFailure {
-			return &requestError{diagnostic: fmt.Sprintf("GitHub GET %s response unavailable: %s", safeEndpoint(c.baseURL+endpoint, c.token), safeTransportCause(err)), problem: transportProblem(err), cause: safeTransportCause(err)}
+			return &requestError{diagnostic: fmt.Sprintf("GitHub %s %s response unavailable: %s", method, safeEndpoint(c.baseURL+endpoint, c.token), safeTransportCause(err)), problem: transportProblem(err), cause: safeTransportCause(err)}
 		}
-		return &requestError{diagnostic: fmt.Sprintf("GitHub GET %s response malformed", safeEndpoint(c.baseURL+endpoint, c.token)), problem: "GitHub returned an invalid JSON response."}
+		return &requestError{diagnostic: fmt.Sprintf("GitHub %s %s response malformed", method, safeEndpoint(c.baseURL+endpoint, c.token)), problem: "GitHub returned an invalid JSON response."}
 	}
 	return nil
 }
