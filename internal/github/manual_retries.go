@@ -100,6 +100,9 @@ func (c *Client) ManualRetries(ctx context.Context, t release.Target) (ManualRet
 // A tag has no merge base branch and therefore has no required merge checks.
 func (c *Client) ManualRetriesWithOptional(ctx context.Context, t release.Target, optional bool) (ManualRetryReport, error) {
 	report := ManualRetryReport{Target: t}
+	if retryDependencyConfigErr != nil {
+		return report, retryDependencyConfigErr
+	}
 	if !release.ValidRepo(t.Repo) || !(t.PR > 0 && t.Tag == "" || t.PR == 0 && ValidRetryTag(t.Tag)) {
 		return report, errors.New("invalid retry target")
 	}
@@ -129,9 +132,10 @@ func (c *Client) ManualRetriesWithOptional(ctx context.Context, t release.Target
 		scope.required, problem = c.requiredChecks(ctx, release.Source{Repo: t.Repo, Branch: pr.Base.Ref}, branch.Protection.RequiredStatusChecks.EnforcementLevel)
 		if problem != "" {
 			policyErr = fmt.Errorf("required checks for %s: %s", pr.Base.Ref, problem)
+			scope.optional = false
 		}
 	}
-	if len(scope.required) == 0 && !optional {
+	if len(scope.required) == 0 && !scope.optional {
 		return report, policyErr
 	}
 	statuses, prowErr := c.readCommitStatuses(ctx, t.Repo, pr.Head.SHA)
@@ -268,6 +272,10 @@ func (c *Client) manualActions(ctx context.Context, t release.Target, pr retryPR
 	if err != nil {
 		problems = append(problems, err)
 	}
+	scope.upstreamWorkflows, err = c.requiredRetryWorkflows(ctx, t, pr, scope, runs, checks)
+	if err != nil {
+		problems = append(problems, err)
+	}
 	countBySuite := make(map[int64]int)
 	latestVerifiedPRRun := make(map[int64]int)
 	for _, run := range runs {
@@ -311,7 +319,8 @@ func (c *Client) manualActions(ctx context.Context, t release.Target, pr retryPR
 				}
 			}
 		}
-		selected, scopeErr := c.scopedRunChecks(ctx, t, pr, run, scope, selected, observed)
+		selected, blocked, scopeErr := c.scopedRunChecks(ctx, t, pr, run, runs, scope, selected, observed)
+		report.Warnings = append(report.Warnings, blocked...)
 		if scopeErr != nil {
 			problems = append(problems, scopeErr)
 		}
@@ -408,31 +417,6 @@ func (c *Client) confirmRetryRun(ctx context.Context, t release.Target, pr retry
 	return current, "", nil
 }
 
-// actionsImageBuildProblem checks the workflow that publishes the images for e2e-dispatch.
-func actionsImageBuildProblem(t release.Target, pr retryPR, runs []retryRun) string {
-	const unverified = "cannot verify the Build run for this commit"
-	var latest retryRun
-	for _, run := range runs {
-		if run.Path != stackroxBuildWorkflow || run.targetProblem(t, pr) != "" {
-			continue
-		}
-		if latest.ID != 0 && (latest.WorkflowID != run.WorkflowID || latest.Number == run.Number) {
-			return unverified
-		}
-		if run.Number > latest.Number {
-			latest = run
-		}
-	}
-	if latest.ID == 0 {
-		return unverified
-	}
-	if latest.Status == "completed" && latest.Conclusion == "success" {
-		return ""
-	}
-	return fmt.Sprintf("inspect the Build run for this commit (%s) at https://github.com/%s/actions/runs/%d",
-		cmp.Or(latest.Conclusion, latest.Status, "unknown"), t.Repo, latest.ID)
-}
-
 func (c *Client) retryRunJobs(ctx context.Context, report *ManualRetryReport, pr retryPR, run retryRun, runs []retryRun, checks []commitCheckRun) ([]ManualJob, string, error) {
 	t := report.Target
 	var allowed []commitCheckRun
@@ -443,12 +427,6 @@ func (c *Client) retryRunJobs(ctx context.Context, report *ManualRetryReport, pr
 		if check.Conclusion != "failure" {
 			report.Warnings = append(report.Warnings, check.Name+": ineligible Actions conclusion "+check.Conclusion)
 			continue
-		}
-		if strings.EqualFold(t.Repo, "stackrox/stackrox") && run.Path == stackroxE2EDispatchWorkflow && check.Name == waitForActionsImagesJob {
-			if problem := actionsImageBuildProblem(t, pr, runs); problem != "" {
-				report.Warnings = append(report.Warnings, check.Name+": "+problem)
-				continue
-			}
 		}
 		allowed = append(allowed, check)
 	}

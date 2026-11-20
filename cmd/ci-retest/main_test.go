@@ -239,7 +239,7 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 			want: []string{"unit-tests\nhttps://github.com/stackrox/scanner/actions/runs/22/job/99", "/jobs/99/rerun"}, absent: []string{"Unknown check", "/jobs/101/rerun"},
 		},
 		"unavailable rules do not promote optional failures": {
-			args: []string{"--prs", "7"}, rulesUnavailable: true, want: []string{"required checks for master"}, absent: []string{"gh api --method POST", "/test gke-qa-e2e-tests", "Unknown check"}, code: 1,
+			args: []string{"--prs", "7"}, rulesUnavailable: true, optional: true, want: []string{"required checks for master"}, absent: []string{"gh api --method POST", "/test gke-qa-e2e-tests", "Unknown check"}, code: 1,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -24,41 +24,68 @@ type (
 var (
 	// retryAllowList supports required jobs and their prerequisites in these CI workflows.
 	retryAllowList = retryList{
-		{"stackrox/stackrox", "github-actions", stackroxBuildWorkflow}:         nil,
-		{"stackrox/collector", "github-actions", ".github/workflows/main.yml"}: nil,
-		{"stackrox/fact", "github-actions", ".github/workflows/ci.yml"}:        nil,
+		{"stackrox/stackrox", "github-actions", stackroxBuildWorkflow}:                  nil,
+		{"stackrox/collector", "github-actions", ".github/workflows/main.yml"}:          nil,
+		{"stackrox/fact", "github-actions", ".github/workflows/ci.yml"}:                 nil,
+		{"stackrox/stackrox", "github-actions", ".github/workflows/scanner-build.yaml"}: nil,
+		{"stackrox/stackrox", "github-actions", ".github/workflows/check-crd-compatibility.yaml"}: {
+			"check-crd-compatibility",
+			"detect-changes / detect",
+		},
 		{"stackrox/scanner", "github-actions", ".github/workflows/ci.yaml"}: {
 			"db-integration-tests",
 			"style-check",
 			"unit-tests",
 		},
 		{"stackrox/stackrox", "github-actions", ".github/workflows/style.yaml"}: {
+			"check-dependent-images-exist",
+			"check-dependent-images-exist (collector)",
+			"check-dependent-images-exist (fact)",
+			"check-dependent-images-exist (scanner)",
+			"check-dependent-images-exist (scanner-db)",
+			"check-dependent-images-exist (scanner-db-slim)",
+			"check-dependent-images-exist (scanner-slim)",
 			"check-generated-files",
+			"detect-changes / detect",
 			"golangci-lint",
+			"misc-checks",
 			"style-check",
 		},
 		{"stackrox/stackrox", "github-actions", ".github/workflows/unit-tests.yaml"}: {
+			"detect-changes / detect",
 			`go (GOTAGS="")`,
+			"go-bench",
+			`go-postgres (GOTAGS="", 16)`,
 			"local-roxctl-tests",
+			"ui",
 		},
 		{"stackrox/stackrox", "github-actions", stackroxE2EDispatchWorkflow}: {
+			"detect-changes / detect",
+			"e2e-gke-upgrade-tests / check-postgres-upgrade",
+			"e2e-gke-upgrade-tests / gke-upgrade-tests-central",
+			"e2e-gke-upgrade-tests / gke-upgrade-tests-postgres",
 			"e2e-nongroovy-tests-gke / run / gke-nongroovy-e2e-tests",
+			"should-dispatch",
 			waitForActionsImagesJob,
 		},
+		{"stackrox/stackrox", "Prow", ""}: {"ci/prow/gke-ui-e2e-tests"},
 	}
-	// retryOptionalList also permits these jobs when the CLI includes optional checks.
-	// A branch rule or prerequisite can bring any of them into the default report.
+	// retryOptionalList permits standalone failures outside the merge dependency trees.
 	retryOptionalList = retryList{
 		{"stackrox/collector", "github-actions", ".github/workflows/main.yml"}: {
 			"integration-tests / amd64-integration-tests (rhel) / Testing rhel",
 			"integration-tests / arm64-integration-tests (rhel-arm64) / Testing rhel-arm64",
+			"integration-tests / amd64-integration-tests (fedora-coreos) / Testing fedora-coreos",
+			"integration-tests / amd64-integration-tests (rhcos) / Testing rhcos",
+			"integration-tests / ppc64le-integration-tests (rhel-ppc64le-9) / Testing rhel-ppc64le-9",
+			"integration-tests / ppc64le-integration-tests (rhel-ppc64le-10) / Testing rhel-ppc64le-10",
+			"integration-tests / s390x-integration-tests / Testing rhel-s390x",
 		},
 		{"stackrox/fact", "github-actions", ".github/workflows/ci.yml"}: {
 			"integration-tests / integration-tests (rhcos)",
+			"integration-tests / integration-tests (rhcos-arm64)",
+			"integration-tests / integration-tests (rhel-arm64)",
 			"unit-tests / unit-tests (rhcos)",
-		},
-		{"stackrox/stackrox", "github-actions", stackroxE2EDispatchWorkflow}: {
-			"e2e-gke-upgrade-tests / gke-upgrade-tests-postgres",
 		},
 		{"stackrox/stackrox", "github-actions", ".github/workflows/scan-image-vulnerabilities.yaml"}: nil,
 		// openshift/release at 5fa6a272, stackrox-stackrox-release-5.0-presubmits.yaml.
@@ -81,7 +108,6 @@ var (
 			"ci/prow/gke-race-condition-qa-e2e-tests",
 			"ci/prow/gke-scale-tests",
 			"ci/prow/gke-scanner-v4-install-tests",
-			"ci/prow/gke-ui-e2e-tests",
 			"ci/prow/gke-version-compatibility-tests",
 			"ci/prow/ocp-4-12-compliance-e2e-tests",
 			"ci/prow/ocp-4-12-nongroovy-e2e-tests",

@@ -16,11 +16,12 @@ import (
 
 type (
 	retryScope struct {
-		required []requiredCheck
-		optional bool
+		required          []requiredCheck
+		upstreamWorkflows map[string]bool
+		optional          bool
 	}
 	retryWorkflowJob struct {
-		Name, Uses      string
+		Name, Uses, If  string
 		Needs           yaml.Node
 		Strategy        struct{ Matrix yaml.Node }
 		ContinueOnError string `yaml:"continue-on-error"`
@@ -38,43 +39,25 @@ func (s retryScope) includesOptional(source retrySource, job string) bool {
 	return s.optional && retryOptionalList.matches(source, job)
 }
 
-// scopedRunChecks keeps direct requirements even when dependency evidence is unavailable.
-func (c *Client) scopedRunChecks(ctx context.Context, target release.Target, pr retryPR, run retryRun, scope retryScope, failures, observed []commitCheckRun) ([]commitCheckRun, error) {
+// scopedRunChecks selects failures that can run with the current prerequisite results.
+func (c *Client) scopedRunChecks(ctx context.Context, target release.Target, pr retryPR, run retryRun, runs []retryRun, scope retryScope, failures, observed []commitCheckRun) ([]commitCheckRun, []string, error) {
 	source := retrySource{strings.ToLower(target.Repo), "github-actions", run.Path}
-	var selected, candidates []commitCheckRun
-	for _, check := range failures {
-		switch {
-		case retryDenyList.matches(source, check.Name):
-		case scope.matches(check.Name, check.App.ID), scope.includesOptional(source, check.Name):
-			selected = append(selected, check)
-		default:
-			candidates = append(candidates, check)
-		}
-	}
-	if len(candidates) == 0 || len(scope.required) == 0 {
-		return selected, nil
-	}
-
-	// Successful required checks in this suite need no upstream retries.
-	var roots []requiredCheck
-	for _, rule := range scope.required {
-		if rule.appID != 0 && !slices.ContainsFunc(candidates, func(c commitCheckRun) bool { return c.App.ID == rule.appID }) {
-			continue
-		}
-		if slices.ContainsFunc(observed, func(c commitCheckRun) bool {
-			return c.Suite.ID == run.SuiteID && c.Name == rule.context && (rule.appID == 0 || c.App.ID == rule.appID) && c.Conclusion == "success"
-		}) {
-			continue
-		}
-		roots = append(roots, rule)
-	}
-	if len(roots) == 0 {
-		return selected, nil
+	upstreamRequired := scope.upstreamWorkflows[run.Path] && run.Conclusion != "success"
+	if !slices.ContainsFunc(failures, func(check commitCheckRun) bool {
+		return !retryDenyList.matches(source, check.Name) && (upstreamRequired || scope.includesOptional(source, check.Name) ||
+			slices.ContainsFunc(scope.required, func(rule requiredCheck) bool {
+				return (rule.appID == 0 || rule.appID == check.App.ID) && !strings.HasPrefix(rule.context, "Red Hat Konflux /")
+			}))
+	}) {
+		return nil, nil, nil
 	}
 
 	revision := run.workflowRevision(target.Repo, pr)
+	if target.Tag != "" {
+		revision = run.SHA
+	}
 	if revision == "" {
-		return selected, fmt.Errorf("cannot verify the workflow revision for %s (run %d)", run.Path, run.ID)
+		return nil, nil, fmt.Errorf("cannot verify the workflow revision for %s (run %d)", run.Path, run.ID)
 	}
 	files := make(map[string]retryWorkflow)
 	var problems []error
@@ -94,18 +77,145 @@ func (c *Client) scopedRunChecks(ctx context.Context, target release.Target, pr 
 		files[file] = w
 		return w
 	}
-	for _, check := range candidates {
-		for _, root := range roots {
-			if root.appID != 0 && root.appID != check.App.ID {
-				continue
-			}
-			if workflowPrerequisite(run.Path, root.context, check.Name, load) {
-				selected = append(selected, check)
-				break
+	load(run.Path)
+	var results []retryCheckResult
+	var passed []commitCheckRun
+	for _, check := range observed {
+		if check.Suite.ID == run.SuiteID && check.App.Slug == "github-actions" && check.HeadSHA == pr.Head.SHA {
+			results = append(results, retryCheckResult{check.Name, check.Status == "completed" && check.check().Result() == release.Yes})
+			if check.Status == "completed" && check.Conclusion == "success" {
+				passed = append(passed, check)
 			}
 		}
 	}
-	return selected, errors.Join(problems...)
+	var selected []commitCheckRun
+	var blocked []string
+	for _, check := range failures {
+		if retryDenyList.matches(source, check.Name) {
+			continue
+		}
+		needed := upstreamRequired || scope.matches(check.Name, check.App.ID)
+		mergePrerequisite := false
+		for _, root := range scope.required {
+			if (root.appID != 0 && root.appID != check.App.ID) || !workflowPrerequisite(run.Path, root.context, check.Name, load) {
+				continue
+			}
+			mergePrerequisite = true
+			needed = needed || !slices.ContainsFunc(passed, func(current commitCheckRun) bool {
+				return current.Name == root.context && (root.appID == 0 || current.App.ID == root.appID)
+			})
+		}
+		if !needed && (mergePrerequisite || !scope.includesOptional(source, check.Name) || workflowCheckHasDependents(run.Path, check.Name, load)) {
+			continue
+		}
+		if blocker := workflowRetryBlocker(run.Path, check.Name, results, load); blocker != "" {
+			blocked = append(blocked, check.Name+": waiting for prerequisite "+blocker)
+			continue
+		}
+		if blocker := retryWorkflowDependencyProblem(target, pr, run.Path, check.Name, runs, load); blocker != "" {
+			blocked = append(blocked, check.Name+": "+blocker)
+			continue
+		}
+		selected = append(selected, check)
+	}
+	if len(problems) > 0 {
+		return nil, blocked, errors.Join(problems...)
+	}
+	return selected, blocked, nil
+}
+
+type retryCheckResult struct {
+	name   string
+	passed bool
+}
+
+// workflowCheckHasDependents identifies jobs that belong to a dependency chain.
+func workflowCheckHasDependents(file, name string, load func(string) retryWorkflow) bool {
+	visited := make(map[string]bool)
+	for path.Dir(file) == ".github/workflows" && !visited[file] {
+		visited[file] = true
+		w := load(file)
+		id, _, child := w.resolve(name)
+		if id == "" {
+			return false
+		}
+		for downstream, job := range w.Jobs {
+			if !job.runsOnFailure() && slices.Contains(w.directNeeds(downstream), id) {
+				return true
+			}
+		}
+		local, ok := strings.CutPrefix(w.Jobs[id].Uses, "./")
+		if !ok || child == "" {
+			return false
+		}
+		file, name = local, child
+	}
+	return false
+}
+
+// runsOnFailure recognizes failure handlers that can run without a successful upstream job.
+func (job retryWorkflowJob) runsOnFailure() bool {
+	condition := strings.TrimSpace(job.If)
+	condition = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(condition, "${{"), "}}"))
+	return condition == "failure()" || strings.HasPrefix(condition, "failure() &&") ||
+		strings.HasPrefix(condition, "always() && contains(join(needs.*.result, ','), 'failure')")
+}
+
+// workflowRetryBlocker checks the ancestors of a job in its caller and local reusable workflows.
+func workflowRetryBlocker(file, name string, results []retryCheckResult, load func(string) retryWorkflow) string {
+	visited := make(map[string]bool)
+	for path.Dir(file) == ".github/workflows" && !visited[file] {
+		visited[file] = true
+		w := load(file)
+		id, call, child := w.resolve(name)
+		if id == "" {
+			return ""
+		}
+		if blocker := w.prerequisiteBlocker(id, results, load); blocker != "" {
+			return blocker
+		}
+		local, ok := strings.CutPrefix(w.Jobs[id].Uses, "./")
+		if !ok || child == "" {
+			return ""
+		}
+		var nested []retryCheckResult
+		for _, result := range results {
+			if suffix, ok := strings.CutPrefix(result.name, call+" / "); ok {
+				nested = append(nested, retryCheckResult{suffix, result.passed})
+			}
+		}
+		file, name, results = local, child, nested
+	}
+	return ""
+}
+
+func (w retryWorkflow) prerequisiteBlocker(id string, results []retryCheckResult, load func(string) retryWorkflow) string {
+	seen := map[string]bool{id: true}
+	work := w.directNeeds(id)
+	for len(work) > 0 {
+		dependency := work[0]
+		work = work[1:]
+		if seen[dependency] {
+			continue
+		}
+		seen[dependency] = true
+		matched := false
+		for _, result := range results {
+			resolved, _, child := w.resolve(result.name)
+			if resolved != dependency || !verifiedChild(w.Jobs[dependency], child, load) {
+				continue
+			}
+			matched = true
+			if !result.passed {
+				return result.name
+			}
+		}
+		if !matched {
+			return cmp.Or(w.Jobs[dependency].Name, dependency)
+		}
+		work = append(work, w.directNeeds(dependency)...)
+	}
+	return ""
 }
 
 // workflowRevision identifies the PR merge revision used by local workflow calls.
@@ -223,6 +333,23 @@ func (job retryWorkflowJob) matches(display, instance string) bool {
 	})
 }
 
+func (w retryWorkflow) directNeeds(id string) []string {
+	node := w.Jobs[id].Needs
+	var needs []string
+	switch node.Kind {
+	case yaml.ScalarNode:
+		needs = []string{node.Value}
+	case yaml.SequenceNode:
+		if node.Decode(&needs) != nil {
+			return nil
+		}
+	}
+	return slices.DeleteFunc(needs, func(dependency string) bool {
+		job, ok := w.Jobs[dependency]
+		return !ok || (job.ContinueOnError != "" && job.ContinueOnError != "false")
+	})
+}
+
 func (w retryWorkflow) needs(root, upstream string) bool {
 	seen := make(map[string]bool)
 	work := []string{root}
@@ -233,21 +360,7 @@ func (w retryWorkflow) needs(root, upstream string) bool {
 			continue
 		}
 		seen[job] = true
-		node := w.Jobs[job].Needs
-		var needs []string
-		switch node.Kind {
-		case yaml.ScalarNode:
-			needs = []string{node.Value}
-		case yaml.SequenceNode:
-			if node.Decode(&needs) != nil {
-				continue
-			}
-		}
-		for _, id := range needs {
-			job, ok := w.Jobs[id]
-			if !ok || (job.ContinueOnError != "" && job.ContinueOnError != "false") {
-				continue
-			}
+		for _, id := range w.directNeeds(job) {
 			if id == upstream {
 				return true
 			}
