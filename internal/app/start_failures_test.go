@@ -86,7 +86,7 @@ func TestCreationFailuresBecomeStaleWhenPRIdentityChanges(t *testing.T) {
 func TestCreationFailureLogsOnlyNewActiveCheckReports(t *testing.T) {
 	s, _ := newFixture()
 	var output bytes.Buffer
-	s.log = NewLog(&output)
+	s.log = NewLog(&output, false)
 	plan := release.Plan{Target: release.Target{Repo: "stackrox/stackrox", PR: 3}, SHA: "commit", StartFailures: []release.StartFailure{creationFailure(42), creationFailure(43), creationFailure(42)}}
 	s.recordStartFailures(release.Plan{}, plan)
 	fresh := clonePlan(plan)

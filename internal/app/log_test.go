@@ -13,7 +13,7 @@ import (
 
 func TestLogPrintsFullHistoryToConsole(t *testing.T) {
 	var console bytes.Buffer
-	log := NewLog(&console)
+	log := NewLog(&console, true)
 	for index := range maxRecentRecords + 3 {
 		record := Record{
 			At:      time.Date(2026, time.November, 17, 12, 0, index, 0, time.UTC),
@@ -35,6 +35,20 @@ func TestLogPrintsFullHistoryToConsole(t *testing.T) {
 	}
 }
 
+func TestLogHidesDebugRecordsAndRetryDetails(t *testing.T) {
+	var console bytes.Buffer
+	log := NewLog(&console, false)
+	log.CallingAPI("GitHub", "GET", "/repos/test/project")
+	log.Append(Record{Decision: "checks", Result: "check diagnostics"})
+	log.Append(Record{Decision: "proposal", Result: "Retry available", Payload: "/retest job"})
+	if got := console.String(); strings.Count(got, "\n") != 1 || !strings.HasSuffix(got, " Info: Retry available\n") {
+		t.Fatalf("console = %q", got)
+	}
+	if got := log.Recent(); len(got) != 1 || got[0].Decision != "proposal" {
+		t.Fatalf("activity = %+v", got)
+	}
+}
+
 func TestLogFormatsTargetsAndMultilineResults(t *testing.T) {
 	for name, tc := range map[string]struct {
 		target release.Target
@@ -46,7 +60,7 @@ func TestLogFormatsTargetsAndMultilineResults(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			var output bytes.Buffer
-			log := NewLog(&output)
+			log := NewLog(&output, false)
 			log.Append(Record{At: time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC), Target: tc.target, Decision: "checks-error", Result: "Read failed\nRetry later"})
 			want := "2026-11-17T12:00:00Z Error: Could not read build results in " + tc.want + ". Read failed\n    Retry later\n"
 			if !strings.HasPrefix(output.String(), want) {
@@ -63,7 +77,7 @@ func TestLogOmitsRoutineNoiseFromConsoleAndUI(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			var output bytes.Buffer
-			log := NewLog(&output)
+			log := NewLog(&output, false)
 			log.Append(record)
 			if output.Len() != 0 {
 				t.Fatalf("unexpected console noise: %s", output.String())
@@ -74,7 +88,7 @@ func TestLogOmitsRoutineNoiseFromConsoleAndUI(t *testing.T) {
 		})
 	}
 	var output bytes.Buffer
-	NewLog(&output).Append(Record{Decision: "configure", Release: "4.10.12", SHA: "ambiguous-commit", Origin: "system"})
+	NewLog(&output, false).Append(Record{Decision: "configure", Release: "4.10.12", SHA: "ambiguous-commit", Origin: "system"})
 	if strings.Contains(output.String(), "Context for") || strings.Contains(output.String(), "ambiguous-commit") {
 		t.Fatalf("unexplained context leaked into the log: %s", output.String())
 	}
@@ -90,7 +104,7 @@ func TestLogLabelsCommitRoles(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			var output bytes.Buffer
-			NewLog(&output).Append(Record{Decision: "dispatch", Target: tc.target, SHA: "abc123"})
+			NewLog(&output, false).Append(Record{Decision: "dispatch", Target: tc.target, SHA: "abc123"})
 			if !strings.Contains(output.String(), "Authorized a retry comment in "+tc.want+".\n") {
 				t.Fatalf("unexplained commit in log: %s", output.String())
 			}
@@ -141,7 +155,7 @@ func TestLogPrintsSeverityLevels(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			var output bytes.Buffer
-			log := NewLog(&output)
+			log := NewLog(&output, true)
 			record := Record{At: time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC), Decision: tc.decision, Result: tc.result}
 			log.Append(record)
 			want := "2026-11-17T12:00:00Z " + tc.level + ": "
@@ -156,7 +170,7 @@ func TestLogPrintsSeverityLevels(t *testing.T) {
 }
 
 func TestRecentLogIsBoundedAndCopied(t *testing.T) {
-	log := NewLog(io.Discard)
+	log := NewLog(io.Discard, false)
 	for index := range maxRecentRecords + 3 {
 		log.Append(Record{Result: strconv.Itoa(index)})
 	}
@@ -197,7 +211,7 @@ func TestLogExplainsUserActionsAndDelivery(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			var output bytes.Buffer
-			log := NewLog(&output)
+			log := NewLog(&output, false)
 			record := Record{At: time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC), Target: release.Target{Repo: "stackrox/fact", PR: 7}, Decision: tc.decision, Result: tc.result}
 			log.Append(record)
 			first, _, _ := strings.Cut(output.String(), "\n")
@@ -231,7 +245,7 @@ func TestRetryDelay(t *testing.T) {
 }
 
 func TestFailedLogWriteRetainsConsoleEntry(t *testing.T) {
-	log := NewLog(badLog{})
+	log := NewLog(badLog{}, false)
 	log.Append(Record{Decision: "github-error", Result: "GitHub rejected the request (HTTP 401)"})
 	if len(log.Recent()) != 1 || log.Error() == "" {
 		t.Fatal("log failure hid the diagnostic event")

@@ -34,13 +34,15 @@ type (
 	Log struct {
 		mu      sync.Mutex
 		output  io.Writer
+		debug   bool
 		failure string
 		recent  []Record
 	}
 )
 
 // NewLog writes audit records to w and retains recent activity for the UI.
-func NewLog(w io.Writer) *Log { return &Log{output: w} }
+// Both destinations include Debug records only when debug is true.
+func NewLog(w io.Writer, debug bool) *Log { return &Log{output: w, debug: debug} }
 
 // CallingAPI records an outbound HTTP attempt in the terminal and browser activity logs.
 func (l *Log) CallingAPI(system, method, resource string) {
@@ -87,19 +89,23 @@ func (l *Log) GitHubCommentAttempt(p release.Proposal) error {
 func (l *Log) Append(r Record) { _ = l.append(r) }
 
 func (l *Log) append(r Record) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	if r.Decision == "work-complete" || (r.Decision == "observation" && r.message == "") {
 		return nil
 	}
+	level := recordLevel(r)
+	if level == "Debug" && !l.debug {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if len(l.recent) == maxRecentRecords {
 		l.recent = slices.Delete(l.recent, 0, 1)
 	}
 	l.recent = append(l.recent, r)
 	var text strings.Builder
 	stamp := r.At.Format(time.RFC3339)
-	fmt.Fprintf(&text, "%s %s: %s\n", stamp, recordLevel(r), strings.ReplaceAll(recordMessage(r), "\n", "\n    "))
-	if r.Payload != "" && r.Decision != "image" {
+	fmt.Fprintf(&text, "%s %s: %s\n", stamp, level, strings.ReplaceAll(recordMessage(r), "\n", "\n    "))
+	if l.debug && r.Payload != "" && r.Decision != "image" {
 		fmt.Fprintf(&text, "%s Debug: Retry comment for %s:\n    %s\n", stamp, consoleRevision(r.Target, r.SHA), strings.ReplaceAll(r.Payload, "\n", "\n    "))
 	}
 	if l.output != nil {

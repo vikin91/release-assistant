@@ -166,7 +166,7 @@ func TestSaveApplicationSettingsTogether(t *testing.T) {
 
 func TestSettingsSaveLogsOnlyCommittedChanges(t *testing.T) {
 	var output bytes.Buffer
-	log := app.NewLog(&output)
+	log := app.NewLog(&output, false)
 	session := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{EnableWrites: true}), log, app.Options{
 		Initial: validACS5Config(), GitHubReads: githubread.New(nil), Cache: github.NewCommitWindowCache(nil),
 	})

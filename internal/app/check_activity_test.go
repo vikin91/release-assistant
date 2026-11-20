@@ -15,7 +15,7 @@ func TestIncludedPRLogsCheckStatusChanges(t *testing.T) {
 	target := release.Target{Repo: source.Repo, PR: 7}
 	s.choices.PRs[target] = release.Included
 	var output bytes.Buffer
-	s.log = NewLog(&output)
+	s.log = NewLog(&output, false)
 	pr := release.PR{
 		Target: target, SHA: "pr-head", State: "open", Base: source.Branch,
 		Evidence: observed(), ChecksEvidence: observed(), CheckResultsEvidence: observed(),
@@ -55,7 +55,7 @@ func TestRCLogsValidationStatusChanges(t *testing.T) {
 	s, _ := newFixture()
 	target := release.Target{Repo: configuration().ACS().Repo, Tag: "5.0.1-rc.0"}
 	var output bytes.Buffer
-	s.log = NewLog(&output)
+	s.log = NewLog(&output, false)
 	plan := release.Plan{SHA: "rc-head", Validation: release.Validation{
 		SHA: "rc-head", Evidence: observed(),
 		Checks: []release.ValidationCheck{{Check: release.Check{Conclusion: "failure"}}},

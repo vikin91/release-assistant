@@ -123,7 +123,7 @@ func newFixture() (*Session, *fixture) {
 		f.repos[source.Name] = release.Repository{Source: source, Head: source.Name + "-head", Evidence: observed(), Tags: []release.Tag{{Name: version, SHA: source.Name + "-head", Belongs: release.Yes, Contains: map[string]release.Truth{}, Evidence: observed()}}}
 	}
 	d := dispatch.New(f, f, f, dispatch.Options{EnableWrites: true})
-	s := New(f, f, f, d, NewLog(io.Discard), Options{})
+	s := New(f, f, f, d, NewLog(io.Discard, false), Options{})
 	return s, f
 }
 func apply(t *testing.T, s *Session, a Action) {
@@ -401,7 +401,7 @@ type badLog struct{}
 
 func (badLog) Write([]byte) (int, error) { return 0, errors.New("disk full") }
 func TestActionLogFailureVisibleAndNoCredentialFields(t *testing.T) {
-	l := NewLog(badLog{})
+	l := NewLog(badLog{}, false)
 	l.Append(Record{Decision: "permission", Origin: "user"})
 	if l.Error() == "" {
 		t.Fatal("log failure hidden")
@@ -432,7 +432,7 @@ func TestIncompleteInitialConfigStartsNoMonitoring(t *testing.T) {
 		d := dispatch.New(f, f, f, dispatch.Options{})
 		initial := configuration()
 		initial.Branch = ""
-		s := New(f, f, f, d, NewLog(io.Discard), Options{Initial: initial})
+		s := New(f, f, f, d, NewLog(io.Discard, false), Options{Initial: initial})
 		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan struct{})
 		go func() { defer close(done); s.Run(ctx) }()

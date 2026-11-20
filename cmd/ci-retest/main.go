@@ -33,6 +33,7 @@ type (
 	cliOptions struct {
 		lookups  konflux.Lookups
 		optional bool
+		debugLog bool
 	}
 
 	readers struct {
@@ -41,14 +42,14 @@ type (
 	}
 )
 
-func newReader(ctx context.Context, lookups konflux.Lookups) (readers, error) {
+func newReader(ctx context.Context, lookups konflux.Lookups, log *app.Log) (readers, error) {
 	config := konflux.StartupConfig(ctx, lookups)
 	if config.GitHubToken == "" {
 		return readers{}, errors.New("set GH_TOKEN or GITHUB_TOKEN, or sign in with gh auth login --hostname github.com")
 	}
 	config.HTTPClient = &http.Client{
 		Timeout:   30 * time.Second,
-		Transport: apilog.Transport{Base: http.DefaultTransport, Calling: app.NewLog(os.Stderr).CallingAPI},
+		Transport: apilog.Transport{Base: http.DefaultTransport, Calling: log.CallingAPI},
 	}
 	return readers{
 		konfluxPlan:   konflux.New(config).Plan,
@@ -61,6 +62,7 @@ func targets(args []string, diagnostics io.Writer, options *cliOptions) ([]relea
 	fs.SetOutput(io.Discard)
 	fs.Func("allow-konflux-lookup", "allow a Konflux lookup for APP_ID,API_HOST,NAMESPACE (repeatable)", options.lookups.Add)
 	fs.BoolVar(&options.optional, "optional", false, "include configured optional CI jobs")
+	fs.BoolVar(&options.debugLog, "debug-log", false, "show Debug messages on stderr")
 	repo := fs.String("repo", "stackrox", "repository")
 	prs := fs.String("prs", "", "PR numbers")
 	tags := fs.String("tags", "", "tag names")
@@ -73,6 +75,7 @@ repository names use the stackrox owner. Default: stackrox/stackrox.
 Prints eligible Konflux retry comments first, then supported Actions reruns and
 Prow comments. By default CI retries cover PR merge requirements and their
 prerequisites. Add --optional to include configured optional CI jobs on PRs or tags.
+Pass -debug-log before the target list to show Debug messages on stderr.
 For verified Konflux reads, use the active oc login and pass
 --allow-konflux-lookup APP_ID,API_HOST,NAMESPACE before the target list.
 GitHub authentication: GH_TOKEN,
@@ -128,7 +131,7 @@ commit statuses, contents and pull requests is needed.`)
 	return result, nil
 }
 
-func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader func(context.Context, konflux.Lookups) (readers, error)) int {
+func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader func(context.Context, konflux.Lookups, *app.Log) (readers, error)) int {
 	options := cliOptions{lookups: make(konflux.Lookups)}
 	targets, err := targets(args, diagnostics, &options)
 	if errors.Is(err, flag.ErrHelp) {
@@ -138,7 +141,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader 
 		fmt.Fprintln(diagnostics, err)
 		return 2
 	}
-	c, err := reader(ctx, options.lookups)
+	c, err := reader(ctx, options.lookups, app.NewLog(diagnostics, options.debugLog))
 	if err != nil {
 		fmt.Fprintln(diagnostics, err)
 		return 1

@@ -35,6 +35,7 @@ func run() error {
 	var options app.Options
 	var limits dispatch.Options
 	var port int
+	debugLog := flag.Bool("debug-log", false, "show Debug messages in the terminal and dashboard Log tab")
 	allowedLookups := make(konflux.Lookups)
 	flag.StringVar(&config.Version, "version", "", "ACS patch version, e.g. 5.0.1")
 	flag.StringVar(&config.Branch, "branch", "", "explicit ACS target branch")
@@ -73,7 +74,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	plannerConfig := konflux.StartupConfig(ctx, allowedLookups)
-	log := app.NewLog(os.Stdout)
+	log := app.NewLog(os.Stdout, *debugLog)
 	options.GitHubReads = githubread.New(apilog.Transport{Base: http.DefaultTransport, Calling: log.CallingAPI})
 	client := &http.Client{Transport: options.GitHubReads, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	windowCache := github.NewCommitWindowCache(log.CommitWindowCacheHits)

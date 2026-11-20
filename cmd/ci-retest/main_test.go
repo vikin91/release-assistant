@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"release-assistant/internal/app"
 	"release-assistant/internal/github"
 	"release-assistant/internal/konflux"
 	"release-assistant/internal/release"
@@ -53,13 +54,14 @@ func TestKonfluxCommentsPrecedeManualRetries(t *testing.T) {
 		url, comment, manualSHA string
 	}{
 		"PR comment":         {[]string{"--prs", "7"}, "https://github.com/" + repo + "/pull/7", "/konflux-retest central-db-on-push", sha},
-		"tag commit comment": {[]string{"--tags", "5.0.1-rc.0"}, "https://github.com/" + repo + "/commit/" + sha, "/retest central-db-on-push tag:5.0.1-rc.0", sha},
+		"tag commit comment": {[]string{"-debug-log", "--tags", "5.0.1-rc.0"}, "https://github.com/" + repo + "/commit/" + sha, "/retest central-db-on-push tag:5.0.1-rc.0", sha},
 		"moved PR":           {[]string{"--prs", "7"}, "https://github.com/" + repo + "/pull/7", "/konflux-retest central-db-on-push", "new-head"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var out, diagnostics bytes.Buffer
 			var planned bool
-			read := func(context.Context, konflux.Lookups) (readers, error) {
+			read := func(_ context.Context, _ konflux.Lookups, log *app.Log) (readers, error) {
+				log.CallingAPI("GitHub", "GET", "/repos/"+repo)
 				return readers{
 					konfluxPlan: func(_ context.Context, target release.Target) (release.Plan, error) {
 						planned = true
@@ -75,6 +77,9 @@ func TestKonfluxCommentsPrecedeManualRetries(t *testing.T) {
 				}, nil
 			}
 			code := run(t.Context(), tc.args, &out, &diagnostics, read)
+			if got := strings.Contains(diagnostics.String(), "Debug: Calling API:"); got != (tc.args[0] == "-debug-log") {
+				t.Fatalf("unexpected debug output for %v: %q", tc.args, diagnostics.String())
+			}
 			beforeCI, _, found := strings.Cut(out.String(), "gh api --method POST")
 			if !found {
 				t.Fatalf("missing CI job: %s", &out)
@@ -305,7 +310,7 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 				args = append(args, "--optional")
 			}
 			args = append(args, tc.args...)
-			code := run(t.Context(), args, &out, &diag, func(context.Context, konflux.Lookups) (readers, error) {
+			code := run(t.Context(), args, &out, &diag, func(context.Context, konflux.Lookups, *app.Log) (readers, error) {
 				return readers{
 					konfluxPlan:   func(context.Context, release.Target) (release.Plan, error) { return release.Plan{}, nil },
 					manualRetries: github.New(server.URL, "", server.Client()).ManualRetriesWithOptional,

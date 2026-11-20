@@ -20,7 +20,7 @@ func TestMonitorWarningNamesFailedReadAndBranch(t *testing.T) {
 		s.config = configuration()
 		fixture.fail["acs"] = true
 		var output bytes.Buffer
-		s.log = NewLog(&output)
+		s.log = NewLog(&output, false)
 		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan struct{})
 		go func() { defer close(done); s.monitor(ctx, s.generation, s.config.ACS()) }()
@@ -52,7 +52,7 @@ func TestPRDiscoveryLogDoesNotClaimTagsWereRead(t *testing.T) {
 	repo.PRs = make([]release.PR, 4)
 	fixture.repos[source.Name] = repo
 	var output bytes.Buffer
-	s.log = NewLog(&output)
+	s.log = NewLog(&output, false)
 	if err := s.refresh(t.Context(), s.generation, source, true, sourceWork{scope: ReadPRs, revision: s.workRevision}); err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestMonitorLogsScheduledPRDiscovery(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		s, _ := newFixture()
 		s.config = configuration()
-		s.log = NewLog(io.Discard)
+		s.log = NewLog(io.Discard, false)
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		go s.monitor(ctx, s.generation, s.config.Components[0])
@@ -282,7 +282,7 @@ func TestDiscoveryLogsNewWorkAndMergesOnce(t *testing.T) {
 	s, f := newFixture()
 	apply(t, s, Action{Kind: "configure", Config: configuration()})
 	var output bytes.Buffer
-	s.log = NewLog(&output)
+	s.log = NewLog(&output, false)
 	source := configuration().Components[0]
 	if err := s.refreshPlanned(t.Context(), s.generation, source, true); err != nil {
 		t.Fatal(err)

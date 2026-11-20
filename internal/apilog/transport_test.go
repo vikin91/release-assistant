@@ -29,7 +29,7 @@ func TestOutboundRequestLog(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			var output bytes.Buffer
-			log := app.NewLog(&output)
+			log := app.NewLog(&output, true)
 			req, err := http.NewRequestWithContext(t.Context(), tc.method, tc.url, strings.NewReader("private"))
 			if err != nil {
 				t.Fatal(err)
@@ -60,7 +60,7 @@ func TestOutboundRequestLog(t *testing.T) {
 
 func TestQuayRedirectLogsOriginalResource(t *testing.T) {
 	var output bytes.Buffer
-	log := app.NewLog(&output)
+	log := app.NewLog(&output, true)
 	base := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		resp := &http.Response{Request: req, StatusCode: http.StatusOK, Header: make(http.Header), Body: http.NoBody}
 		if req.URL.Host == "quay.io" {
@@ -90,7 +90,7 @@ func TestQuayRedirectLogsOriginalResource(t *testing.T) {
 
 func TestDeferredGitHubReadProducesNoCallRecord(t *testing.T) {
 	var output bytes.Buffer
-	log := app.NewLog(&output)
+	log := app.NewLog(&output, true)
 	base := roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 	})

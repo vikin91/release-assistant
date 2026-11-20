@@ -522,7 +522,7 @@ func TestWriterUsesPRIssueAndCommitCommentEndpoints(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			called := false
 			var output bytes.Buffer
-			log := app.NewLog(&output)
+			log := app.NewLog(&output, false)
 			srv := newFakeServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				called = true
 				if r.Method != http.MethodPost || r.URL.Path != tt.wantPath {
@@ -562,7 +562,7 @@ func TestWriterDistinguishesRejectedFromUncertain(t *testing.T) {
 	}{{http.StatusBadRequest, "failed"}, {http.StatusInternalServerError, "uncertain"}} {
 		srv := newFakeServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "private response content", tc.status) }))
 		c := New(srv.URL, "", srv.Client())
-		delivery, err := NewWriter(c, app.NewLog(io.Discard)).Write(t.Context(), release.Proposal{Target: release.Target{Repo: "acme/rox", PR: 1}, SHA: "sha", Payload: "command"})
+		delivery, err := NewWriter(c, app.NewLog(io.Discard, false)).Write(t.Context(), release.Proposal{Target: release.Target{Repo: "acme/rox", PR: 1}, SHA: "sha", Payload: "command"})
 		srv.Close()
 		if err == nil || delivery.Status != tc.want || strings.Contains(err.Error(), "private") {
 			t.Fatalf("status=%d delivery=%+v err=%v", tc.status, delivery, err)
@@ -581,8 +581,8 @@ func TestWriterRequiresCompleteLogBeforePOST(t *testing.T) {
 	}
 	defer brokenOutput.Close()
 	for name, log := range map[string]*app.Log{
-		"missing log": nil, "missing output": app.NewLog(nil),
-		"failed write": app.NewLog(brokenOutput), "short write": app.NewLog(shortLogWriter{}),
+		"missing log": nil, "missing output": app.NewLog(nil, false),
+		"failed write": app.NewLog(brokenOutput, false), "short write": app.NewLog(shortLogWriter{}, false),
 	} {
 		t.Run(name, func(t *testing.T) {
 			srv := newFakeServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("unexpected GitHub POST") }))

@@ -74,7 +74,7 @@ func TestCommitWindowCacheDiscovery(t *testing.T) {
 	client, request, counts, _ := windowCacheFixture(t)
 	var hits int
 	var console bytes.Buffer
-	log := app.NewLog(&console)
+	log := app.NewLog(&console, true)
 	cache := NewCommitWindowCache(func(repo string, n int) {
 		if repo != request.Source.Repo {
 			t.Errorf("cache hit repository = %q", repo)
