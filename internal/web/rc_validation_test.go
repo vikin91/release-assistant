@@ -54,7 +54,7 @@ func TestRCValidationShowsExceptionsAndReusesExactTagRetest(t *testing.T) {
 			if mode.writes {
 				s.Authority = []dispatch.View{{
 					Target: target, SHA: sha, Granted: true,
-					Offers: []dispatch.Offer{{ID: dispatch.ID(proposal), Proposal: proposal, CanApprove: true}},
+					Offers: []dispatch.Offer{{ID: dispatch.ID(proposal), Proposal: proposal, CanApprove: true, Queueable: true}},
 				}}
 			}
 			panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-rcs")
@@ -100,8 +100,8 @@ func TestRCValidationShowsExceptionsAndReusesExactTagRetest(t *testing.T) {
 				strings.Index(validation, "Canceled") > strings.Index(validation, "gke-qa-e2e-tests-konflux") {
 				t.Error("show the exact tag retry once and place failures and cancellations first")
 			}
-			if strings.Contains(validation, `value="send"`) != mode.interactive {
-				t.Error("only interactive mode should render a manual send form")
+			if strings.Contains(validation, "Open Retest Queue") != mode.interactive {
+				t.Error("only interactive mode should link the proposal to the queue")
 			}
 			if strings.Contains(validation, `action="/action#rc-validation"`) != mode.writes {
 				t.Error("tag permission should return to validation")

@@ -38,8 +38,8 @@ func TestBuildRetriesMergeOnlyExactComments(t *testing.T) {
 				Authority: []dispatch.View{{
 					Target: target, SHA: verified.SHA, Granted: true,
 					Offers: []dispatch.Offer{
-						{ID: dispatch.ID(verified), Proposal: verified, CanApprove: true},
-						{ID: dispatch.ID(waiting), Proposal: waiting, Reason: "waiting for comment rate limit", WaitingUntil: until},
+						{ID: dispatch.ID(verified), Proposal: verified, CanApprove: true, Queueable: true},
+						{ID: dispatch.ID(waiting), Proposal: waiting, Queueable: true, Reason: "waiting for comment rate limit", WaitingUntil: until},
 					},
 				}},
 			}}
@@ -66,16 +66,14 @@ func TestBuildRetriesMergeOnlyExactComments(t *testing.T) {
 			row := func(proposal release.Proposal) string {
 				return between(t, body, `data-fold-key="build-retry:`+dispatch.ID(proposal)+`"`, "</details>")
 			}
-			send := formContaining(t, row(verified), "Send one comment")
-			if formInputValue(t, send, "id") != dispatch.ID(verified) || formInputValue(t, send, "sha") != verified.SHA ||
-				formInputValue(t, send, "tab") != tab || !strings.Contains(send, `name="confirm" value="yes" required`) {
-				t.Fatal("the exact confirmation lost its offer identity or tab")
+			if queued := row(verified); !strings.Contains(queued, "Open Retest Queue") || strings.Contains(queued, "<form") {
+				t.Fatal("the verified proposal should link to the queue for confirmation")
 			}
 			if manual := row(copyOnly); !strings.Contains(manual, "Copy only") || strings.Contains(manual, "<form") {
 				t.Fatal("the unmatched proposal inherited an offer's actions")
 			}
 			if cooldown := row(waiting); !strings.Contains(cooldown, "waiting for comment rate limit · until") ||
-				strings.Contains(cooldown, "Send one comment") {
+				!strings.Contains(cooldown, "Open Retest Queue") || strings.Contains(cooldown, "<form") {
 				t.Fatal("the cooldown status or actions are incorrect")
 			}
 			application.snapshot.Interactive = false

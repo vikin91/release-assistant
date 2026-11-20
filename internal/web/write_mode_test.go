@@ -108,11 +108,8 @@ func TestWriteModeControls(t *testing.T) {
 				t.Error("interactive confirmation should be available when writes are enabled")
 			}
 
-			sendForm := formContaining(t, body, "Send one comment")
-			assertCheckboxDisabled(t, "send confirmation", sendForm, "confirm", !tc.writesEnabled)
-			assertButtonDisabled(t, "send button", sendForm, !tc.writesEnabled)
-			if !strings.Contains(sendForm, `name="confirm"`) {
-				t.Error("inconsistent CanApprove offer should remain visible with disabled controls")
+			if strings.Contains(body, `name="confirm"`) || strings.Contains(body, `name="kind" value="send"`) {
+				t.Error("the dashboard rendered a confirmation form outside the queue")
 			}
 		})
 	}
@@ -150,11 +147,6 @@ func assertCheckboxDisabled(t *testing.T, name, form, field string, want bool) {
 	if got := strings.Contains(input, " disabled"); got != want {
 		t.Errorf("%s disabled=%t, want %t: %s", name, got, want, input)
 	}
-}
-
-func assertButtonDisabled(t *testing.T, name, form string, want bool) {
-	t.Helper()
-	assertButtonTextDisabled(t, name, form, "Send one comment", want)
 }
 
 func assertButtonTextDisabled(t *testing.T, name, form, label string, want bool) {

@@ -42,6 +42,8 @@ type (
 		Inventory                    release.Inventory
 		Plans                        []release.Plan
 		ManualRetries                []release.ManualRetryReport
+		RetestQueue                  []RetestItem
+		RetestLog                    []RetestDecision
 		Assessment                   release.Assessment
 		Authority                    []dispatch.View
 		Interactive, RequirePRLabel  bool
@@ -76,6 +78,7 @@ type (
 		StartupReadLimit                          *int
 		OngoingReadLimit                          *int
 		Generation                                uint64
+		QueueID                                   uint64
 	}
 	// Session owns release observations. Dispatcher alone owns write grants.
 	Session struct {
@@ -86,6 +89,9 @@ type (
 		plans           map[release.Target]release.Plan
 		tagChecks       map[string]tagCheckObservation
 		manualRetries   map[release.Target]release.ManualRetryReport
+		retestQueue     []RetestItem
+		retestLog       []RetestDecision
+		nextRetestID    uint64
 		inventory       release.Inventory
 		confirmedSHAs   map[string]string
 		tagInitialized  map[string]bool
@@ -146,6 +152,7 @@ func (s *Session) reset() {
 	s.repos = map[string]release.Repository{}
 	s.plans = map[release.Target]release.Plan{}
 	s.manualRetries = map[release.Target]release.ManualRetryReport{}
+	s.retestQueue = nil
 	s.tagChecks = make(map[string]tagCheckObservation)
 	s.confirmedSHAs = map[string]string{}
 	s.tagInitialized = map[string]bool{}
@@ -207,18 +214,8 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		s.mu.Unlock()
 		return fmt.Errorf("page belongs to an earlier configuration; reload")
 	}
-	if a.Kind == "send" {
-		rc := s.repos["acs"].Candidate
-		if a.Target.Tag != "" && a.Target == rc.Target && (!s.rcRetriesReady() || s.plans[a.Target].SHA != rc.SHA) {
-			s.mu.Unlock()
-			return fmt.Errorf("release candidate prerequisites or build checks are no longer verified")
-		}
-		s.mu.Unlock()
-		_, err := s.dispatcher.Send(ctx, a.Target, a.ID, true)
-		s.mu.Lock()
-		s.drain()
-		s.mu.Unlock()
-		return err
+	if a.Kind == "queue-send" || a.Kind == "queue-skip" {
+		return s.applyRetestDecision(ctx, a)
 	}
 	defer s.mu.Unlock()
 	var err error
@@ -406,8 +403,6 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		}
 		s.choices.Acknowledged[a.ID] = a.Enabled
 		s.record(a.Target, a.SHA, "conforma-acknowledged", "", fmt.Sprint(a.Enabled), "user")
-	case "reject":
-		err = s.dispatcher.Reject(a.Target, a.ID, a.Enabled)
 	default:
 		return fmt.Errorf("unknown action")
 	}
@@ -537,6 +532,9 @@ func (s *Session) Snapshot() Snapshot {
 		x.Repositories = append(x.Repositories, cloneRepository(r))
 	}
 	slices.SortFunc(x.ManualRetries, func(a, b release.ManualRetryReport) int { return strings.Compare(a.Target.String(), b.Target.String()) })
+	s.syncRetestQueue(x.Authority, x.ManualRetries)
+	x.RetestQueue = slices.Clone(s.retestQueue)
+	x.RetestLog = slices.Clone(s.retestLog)
 	x.Loading = x.Loading || slices.ContainsFunc(x.ManualRetries, func(r release.ManualRetryReport) bool { return r.Pending })
 	slices.SortFunc(x.Repositories, func(a, b release.Repository) int {
 		if a.Source.Name < b.Source.Name {
@@ -1069,7 +1067,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		errs = append(errs, fmt.Errorf("checking container images for release %s: %w", c.Version, imageErr))
 	}
 
-	// A fresh revalidation occurs inside Send; a polled proposal is never queued.
+	// Automatic dispatch revalidates the proposal inside Send.
 	s.mu.Lock()
 	currentGeneration := s.generation == generation && (!scoped || revision == s.workRevision)
 	s.mu.Unlock()

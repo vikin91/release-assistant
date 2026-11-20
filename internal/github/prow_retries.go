@@ -29,6 +29,7 @@ type (
 		prowJob
 		pattern *regexp.Regexp
 	}
+	failedPresubmit struct{ Name, URL string }
 )
 
 var singleTestCommand = regexp.MustCompile(`^/test [A-Za-z0-9][A-Za-z0-9_.-]*$`)
@@ -49,14 +50,15 @@ func (c *Client) prowRetries(ctx context.Context, report *ManualRetryReport, bra
 	return nil
 }
 
-func targetedProwRetries(failed map[string]string, triggers []prowTrigger) ([]release.ProwRetry, []string) {
+func targetedProwRetries(failed map[string]failedPresubmit, triggers []prowTrigger) ([]release.ProwRetry, []string) {
 	var report release.ManualRetryReport
 	var warnings []string
 	selected := make(map[int]bool)
 	for _, status := range slices.Sorted(maps.Keys(failed)) {
+		build := failed[status]
 		matched := -1
 		for i, job := range triggers {
-			if job.Context == status && job.Name == failed[status] {
+			if job.Context == status && job.Name == build.Name {
 				if matched >= 0 {
 					matched = -1
 					break
@@ -74,13 +76,13 @@ func targetedProwRetries(failed map[string]string, triggers []prowTrigger) ([]re
 			continue
 		}
 		if slices.ContainsFunc(triggers, func(other prowTrigger) bool {
-			return other.Name != failed[status] && other.pattern.MatchString(cmd)
+			return other.Name != build.Name && other.pattern.MatchString(cmd)
 		}) {
 			warnings = append(warnings, status+": command also matches another presubmit")
 			continue
 		}
 		selected[matched] = true
-		report.Prow = append(report.Prow, release.ProwRetry{Context: status, Command: cmd})
+		report.Prow = append(report.Prow, release.ProwRetry{Context: status, Command: cmd, URL: build.URL})
 	}
 	if len(report.Prow) > 0 {
 		body := report.ProwComment()

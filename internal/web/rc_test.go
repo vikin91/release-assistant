@@ -43,7 +43,7 @@ func TestRCTabShowsBuildActionsBesideMissingImages(t *testing.T) {
 			if writes {
 				s.Authority = []dispatch.View{{
 					Target: target, SHA: proposal.SHA, Granted: true,
-					Offers: []dispatch.Offer{{ID: dispatch.ID(proposal), Proposal: proposal, CanApprove: true}},
+					Offers: []dispatch.Offer{{ID: dispatch.ID(proposal), Proposal: proposal, CanApprove: true, Queueable: true}},
 				}}
 			}
 			body := newBrowser(t, &fakeApplication{snapshot: s}).getBody(t)
@@ -60,10 +60,10 @@ func TestRCTabShowsBuildActionsBesideMissingImages(t *testing.T) {
 				}
 			}
 			if writes {
-				if !strings.Contains(main, "Retest Konflux build") || !strings.Contains(main, "I confirm this exact comment") {
-					t.Error("authorized row is missing an exact comment confirmation")
+				if !strings.Contains(main, "Open Retest Queue") || strings.Contains(main, "<form") {
+					t.Error("authorized row should link to the queue for confirmation")
 				}
-			} else if !strings.Contains(main, "Copy retest command") || strings.Contains(main, `value="send"`) {
+			} else if !strings.Contains(main, "View retest comment") || strings.Contains(main, "Open Retest Queue") {
 				t.Error("read-only row should offer a copyable command")
 			}
 			roxctl := between(t, panel, "<code>roxctl</code></th>", "</tr>")
@@ -71,7 +71,7 @@ func TestRCTabShowsBuildActionsBesideMissingImages(t *testing.T) {
 			if !strings.Contains(roxctl, "Build running") || !strings.Contains(scanner, "Check build output") {
 				t.Error("running and successful build evidence is missing")
 			}
-			if strings.Contains(roxctl+scanner, "Copy retest command") || strings.Contains(roxctl+scanner, "Retest Konflux build") {
+			if strings.Contains(roxctl+scanner, "View retest comment") {
 				t.Error("running or successful build unexpectedly offers a retry")
 			}
 			if strings.Contains(activityPanel(t, body, "acs-prs"), proposal.Payload) {

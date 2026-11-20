@@ -24,7 +24,7 @@ type (
 		Incomplete bool
 	}
 	// ProwRetry pairs a failed status context with its configured presubmit command.
-	ProwRetry struct{ Context, Command string }
+	ProwRetry struct{ Context, Command, URL string }
 	// ManualJob identifies an Actions job with a verified rerun destination.
 	ManualJob struct {
 		ID                      int64

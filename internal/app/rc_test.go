@@ -250,7 +250,7 @@ func TestRCValidationRetryRespectsWriteAndConfirmationModes(t *testing.T) {
 				if len(tr.posted) != 0 {
 					t.Fatal("posted before an interactive confirmation")
 				}
-				apply(t, s, Action{Kind: "send", Target: target, ID: dispatch.ID(proposal)})
+				apply(t, s, Action{Kind: "queue-send", QueueID: queueID(t, s, proposal)})
 			}
 			if mode.writes {
 				if !slices.Equal(tr.posted, []release.Proposal{proposal}) {
@@ -290,6 +290,7 @@ func TestNewCandidateReplacesImagesAndRevokesPreviousRetryAuthority(t *testing.T
 	refresh()
 	refresh()
 	apply(t, s, Action{Kind: "grant", Target: older.Target, SHA: older.SHA, Enabled: true})
+	id := queueID(t, s, proposal)
 
 	acs := f.repos["acs"]
 	acs.Candidate = release.Candidate{
@@ -309,7 +310,7 @@ func TestNewCandidateReplacesImagesAndRevokesPreviousRetryAuthority(t *testing.T
 			t.Fatal("previous candidate plan survived the new tag")
 		}
 	}
-	err := s.Apply(t.Context(), Action{Kind: "send", Target: older.Target, ID: dispatch.ID(proposal), Generation: snapshot.Generation})
+	err := s.Apply(t.Context(), Action{Kind: "queue-send", QueueID: id, Generation: snapshot.Generation})
 	if err == nil {
 		t.Fatal("accepted a retry for a superseded candidate")
 	}

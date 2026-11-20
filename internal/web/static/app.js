@@ -12,12 +12,14 @@ document.addEventListener("DOMContentLoaded", () => {
   } catch {}
 
   let restoreLogOnOpen;
+  let refreshQueueOnOpen;
   let activeTab = document.body.dataset.activeTab || "component-prs";
   const tabLinks = () => Array.from(document.querySelectorAll("[data-workflow-tab]"));
   const activateTab = (tab, historyMode = "") => {
     const links = tabLinks();
     if (!links.some((link) => link.dataset.workflowTab === tab)) return;
     const openingLog = tab === "activity" && activeTab !== tab;
+    const openingQueue = tab === "retest-queue" && activeTab !== tab;
     activeTab = tab;
     document.body.dataset.activeTab = tab;
     for (const link of links) {
@@ -27,6 +29,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     for (const panel of document.querySelectorAll("[data-workflow-panel]")) panel.hidden = panel.dataset.workflowPanel !== tab;
     if (openingLog) restoreLogOnOpen?.();
+    if (openingQueue) refreshQueueOnOpen?.();
     // Shared forms return to the activity the reader is using.
     for (const input of document.querySelectorAll("#configuration-panel input[name=tab], #retry-settings input[name=tab]")) input.value = tab;
     if (historyMode) window.history[historyMode](null, "", `/?tab=${tab}`);
@@ -119,7 +122,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const status = block.querySelector("[data-copy-status]");
     window.clearTimeout(copyTimers.get(status));
     try {
-      await window.navigator.clipboard.writeText(block.querySelector("pre code").textContent);
+      await window.navigator.clipboard.writeText((block.querySelector("[data-copy-value]") || block.querySelector("pre code")).textContent);
       status.textContent = "Copied";
     } catch {
       status.textContent = "Select and copy the text manually.";
@@ -127,6 +130,40 @@ document.addEventListener("DOMContentLoaded", () => {
     window.clearTimeout(copyTimers.get(status));
     copyTimers.set(status, window.setTimeout(() => { status.textContent = ""; }, 2500));
   });
+
+  const retestSearch = document.getElementById("retest-search");
+  const retestFilterKey = `release-assistant:retest-search:${document.body.dataset.session}`;
+  const filterRetests = () => {
+    if (!retestSearch) return;
+    document.getElementById("retest-filter").hidden = false;
+    const query = retestSearch.value.trim().toLowerCase();
+    let visible = false;
+    for (const bucket of document.querySelectorAll("[data-retest-bucket]")) {
+      let visibleBucket = false;
+      for (const group of bucket.querySelectorAll("[data-retest-group]")) {
+        const targetMatches = group.dataset.retestGroup.toLowerCase().includes(query);
+        let visibleGroup = false;
+        for (const row of group.querySelectorAll("[data-retest-row]")) {
+          row.hidden = !targetMatches && !row.dataset.retestRow.toLowerCase().includes(query);
+          visibleGroup ||= !row.hidden;
+        }
+        group.hidden = !visibleGroup;
+        visibleBucket ||= visibleGroup;
+      }
+      bucket.hidden = !visibleBucket;
+      visible ||= visibleBucket;
+    }
+    const emptySearch = document.getElementById("retest-no-matches");
+    if (emptySearch) emptySearch.hidden = visible;
+  };
+  if (retestSearch) {
+    try { retestSearch.value = window.sessionStorage.getItem(retestFilterKey) || ""; } catch {}
+    retestSearch.addEventListener("input", () => {
+      try { window.sessionStorage.setItem(retestFilterKey, retestSearch.value); } catch {}
+      filterRetests();
+    });
+    filterRetests();
+  }
 
   const activityLog = document.getElementById("activity-log");
   const activityError = document.getElementById("activity-refresh-error");
@@ -238,12 +275,29 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!dashboard || !refreshStatus) return;
 
   const editedControls = new WeakSet();
+  if (retestSearch) editedControls.add(retestSearch);
   const rememberEdit = (event) => editedControls.add(event.target);
   document.addEventListener("input", rememberEdit, true);
   document.addEventListener("change", rememberEdit, true);
   let submitting = false;
-  document.addEventListener("submit", () => { submitting = true; });
-  window.addEventListener("pageshow", () => { submitting = false; });
+  let sendingRow;
+  let sendingButtons = [];
+  document.addEventListener("submit", (event) => {
+    submitting = true;
+    if (!event.target.matches?.("[data-retest-send]")) return;
+    sendingRow = event.target.closest("[data-retest-row]");
+    sendingButtons = Array.from(sendingRow.querySelectorAll("button:not(:disabled)"));
+    for (const button of sendingButtons) button.disabled = true;
+    sendingRow.querySelector("[data-retest-sending]").hidden = false;
+  });
+  window.addEventListener("pageshow", () => {
+    submitting = false;
+    if (!sendingRow) return;
+    for (const button of sendingButtons) button.disabled = false;
+    sendingRow.querySelector("[data-retest-sending]").hidden = true;
+    sendingRow = undefined;
+    sendingButtons = [];
+  });
 
   const nodeKey = (node) => {
     if (node.nodeType !== 1) return "";
@@ -328,6 +382,7 @@ document.addEventListener("DOMContentLoaded", () => {
       patch(document.querySelector("header"), incoming.querySelector("header"));
       patch(dashboard, nextDashboard);
       activateTab(activeTab);
+      filterRetests();
       if (active && active.isConnected && document.activeElement !== active) active.focus({ preventScroll: true });
       window.scrollTo(scrollX, scrollY);
       document.body.dataset.loading = incoming.body.dataset.loading;
@@ -340,8 +395,13 @@ document.addEventListener("DOMContentLoaded", () => {
       refreshStatus.classList.add("error-text");
     } finally {
       dashboardRefreshing = false;
-      dashboardTimer = window.setTimeout(refreshDashboard, document.body.dataset.loading === "true" ? 1_000 : 60_000);
+      const delay = document.body.dataset.loading === "true" ? 1_000 : activeTab === "retest-queue" ? 5_000 : 60_000;
+      dashboardTimer = window.setTimeout(refreshDashboard, delay);
     }
+  };
+  refreshQueueOnOpen = () => {
+    window.clearTimeout(dashboardTimer);
+    refreshDashboard();
   };
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {

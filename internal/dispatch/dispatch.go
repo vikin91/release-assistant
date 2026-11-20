@@ -28,10 +28,12 @@ type (
 	}
 	// Offer is a proposal plus the current dispatcher-owned authority and cooldown.
 	Offer struct {
-		ID                            string
-		Proposal                      release.Proposal
-		Allowed, CanApprove, Rejected bool
-		Failures                      int
+		ID                  string
+		Proposal            release.Proposal
+		Allowed, CanApprove bool
+		// Queueable remains true during a cooldown or an in-flight write on the target.
+		Queueable bool
+		Failures  int
 		// CommentSent reports successful delivery of this exact proposal.
 		CommentSent  bool
 		WaitingUntil time.Time
@@ -62,16 +64,15 @@ type (
 		granted, ignored, inFlight bool
 		epoch                      uint64
 		proposals                  []release.Proposal
-		approved, rejected         map[string]bool
+		approved, sent             map[string]bool
 		jobs                       map[string]*jobState
 		last                       time.Time
 		message                    string
 	}
 	jobState struct {
-		lastSentID string
-		seen       map[string]bool
-		count      int
-		last       time.Time
+		seen  map[string]bool
+		count int
+		last  time.Time
 	}
 )
 
@@ -94,7 +95,7 @@ func New(r Reader, p Planner, w Writer, o Options) *Dispatcher {
 func (d *Dispatcher) state(t release.Target) *targetState {
 	s := d.targets[t]
 	if s == nil {
-		s = &targetState{approved: map[string]bool{}, rejected: map[string]bool{}, jobs: map[string]*jobState{}}
+		s = &targetState{approved: map[string]bool{}, sent: map[string]bool{}, jobs: map[string]*jobState{}}
 		d.targets[t] = s
 	}
 	return s
@@ -125,7 +126,7 @@ func (d *Dispatcher) observe(i Identity) {
 		s.epoch++
 		if s.identity.SHA != i.SHA {
 			clear(s.jobs)
-			clear(s.rejected)
+			clear(s.sent)
 			s.proposals = nil
 		}
 	}
@@ -256,16 +257,16 @@ func (d *Dispatcher) plan(p release.Plan) {
 	}
 }
 
-// ID binds approvals and rejections to an exact immutable proposal.
+// ID binds approval to an exact immutable proposal.
 func ID(p release.Proposal) string {
 	return fmt.Sprintf("%x", sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%s\x00%s\x00%s", p.Target, p.SHA, p.Job, p.RunID, p.Payload)))
 }
 func (d *Dispatcher) offer(s *targetState, p release.Proposal) Offer {
-	o := Offer{ID: ID(p), Proposal: p, Allowed: s.granted, Rejected: s.rejected[ID(p)]}
+	id := ID(p)
+	o := Offer{ID: id, Proposal: p, Allowed: s.granted, CommentSent: s.sent[id]}
 	j := s.jobs[p.Job]
 	if j != nil {
 		o.Failures = j.count
-		o.CommentSent = j.lastSentID == o.ID
 	}
 	switch {
 	case d.stopped:
@@ -284,10 +285,12 @@ func (d *Dispatcher) offer(s *targetState, p release.Proposal) Offer {
 		o.Reason = "stable run evidence unavailable; copy only"
 	case !s.granted:
 		o.Reason = "RW permission required"
-	case s.inFlight:
+	case o.CommentSent:
+		o.Reason = "comment already sent for this run"
+	}
+	o.Queueable = o.Reason == ""
+	if o.Queueable && s.inFlight {
 		o.Reason = "comment dispatch in progress"
-	case o.Rejected:
-		o.Reason = "rejected for this run; allow retry again to restore"
 	}
 	until := s.last.Add(d.options.Gap)
 	if s.last.IsZero() {
@@ -342,22 +345,6 @@ func (d *Dispatcher) Views() []View {
 	return v
 }
 
-// Reject suppresses just this run. Reconsider never grants write permission.
-func (d *Dispatcher) Reject(t release.Target, id string, reject bool) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	s := d.state(t)
-	for _, p := range s.proposals {
-		if ID(p) == id {
-			s.rejected[id] = reject
-			delete(s.approved, id)
-			d.event(t, p.SHA, "reject", p.Payload, fmt.Sprint(reject), "user")
-			return nil
-		}
-	}
-	return fmt.Errorf("proposal is stale")
-}
-
 // Send revalidates remote evidence, then admits exactly one attempt under local authority.
 // Admission is the dispatch boundary: subsequent revocation cannot recall that request.
 func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, approve bool) (Delivery, error) {
@@ -383,6 +370,10 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 		d.mu.Unlock()
 		return Delivery{}, fmt.Errorf("single-use confirmation required")
 	}
+	if approve && !d.interactive {
+		d.mu.Unlock()
+		return Delivery{}, fmt.Errorf("interactive mode is no longer enabled")
+	}
 	epoch := s.epoch
 	s.inFlight = true
 	if d.interactive {
@@ -406,10 +397,11 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 	d.observe(identity)
 	matches := readErr == nil && identity.Evidence.Fresh() && identity.Open && !identity.OptOut && identity.SHA == proposal.SHA && fresh.Target == t && fresh.SHA == proposal.SHA
 	if matches {
+		d.plan(fresh)
 		matches = slices.ContainsFunc(fresh.Proposals, func(p release.Proposal) bool { return ID(p) == id && p.RunID != "" })
 	}
 	labelMissing := d.requirePRLabel && t.PR > 0 && !identity.CommentLabel
-	if !matches || labelMissing || s.epoch != epoch || !s.granted || s.ignored || d.stopped || !d.options.EnableWrites || (d.interactive && !s.approved[id]) || s.rejected[id] {
+	if !matches || labelMissing || s.epoch != epoch || !s.granted || s.ignored || d.stopped || !d.options.EnableWrites || (d.interactive && !s.approved[id]) {
 		clear(s.approved)
 		s.message = "Approval became stale; refreshed evidence does not support dispatch"
 		reason := "stale"
@@ -422,7 +414,6 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 		d.mu.Unlock()
 		return Delivery{}, fmt.Errorf("%s", message)
 	}
-	d.plan(fresh)
 	delete(s.approved, id)
 	now := d.options.Now()
 	s.last = now
@@ -441,7 +432,7 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 		result.Status = "uncertain"
 	}
 	if result.Status == "sent" {
-		j.lastSentID = id
+		s.sent[id] = true
 	}
 	s.message = "Delivery: " + result.Status
 	if result.URL != "" {

@@ -159,7 +159,7 @@ func (s *server) get(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{Name: csrfName(r.Host), Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 3600})
 	page := makePage(s.app.Snapshot(), token, "")
 	page.Tab = validTab(r.URL.Query().Get("tab"))
-	if !page.Configured && page.Tab != "activity" {
+	if !page.Configured && page.Tab != "activity" && page.Tab != "retest-queue" {
 		page.Tab = "settings"
 	}
 	page.ConfigSaved = page.Configured && page.Tab == "settings" && r.URL.Query().Get("saved") == "configuration"
@@ -370,13 +370,10 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 		if a.ID == "" {
 			return a, fmt.Errorf("advisory identity is missing")
 		}
-	case "send", "reject":
-		if !a.Target.Valid() || a.ID == "" || a.SHA == "" {
-			return a, fmt.Errorf("proposal action requires target, SHA, and offer identity")
-		}
-		a.Enabled = a.Kind == "reject" && formHasValue(form, "enabled", "true")
-		if a.Kind == "send" && form.Get("confirm") != "yes" {
-			return a, fmt.Errorf("exact comment confirmation is required")
+	case "queue-send", "queue-skip":
+		a.QueueID, err = strconv.ParseUint(form.Get("queue_id"), 10, 64)
+		if err != nil || a.QueueID == 0 {
+			return a, fmt.Errorf("a valid queue item ID is required")
 		}
 	default:
 		return a, fmt.Errorf("unknown form action")

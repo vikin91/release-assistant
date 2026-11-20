@@ -4,7 +4,7 @@ import "release-assistant/internal/release"
 
 func validTab(tab string) string {
 	switch tab {
-	case "component-releases", "acs-prs", "acs-rcs", "activity", "settings":
+	case "component-releases", "acs-prs", "acs-rcs", "activity", "retest-queue", "settings":
 		return tab
 	default:
 		return "component-prs"
@@ -17,6 +17,8 @@ func tabTitle(tab string) string {
 		return "Settings"
 	case "activity":
 		return "Log"
+	case "retest-queue":
+		return "Retest Queue"
 	case "component-releases":
 		return "Component releases"
 	case "acs-prs":

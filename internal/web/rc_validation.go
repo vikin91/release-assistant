@@ -53,7 +53,6 @@ func (p *pageModel) prepareRCValidation(plan release.Plan, runs map[string]relea
 		}
 		if candidate := retries[run.Job]; rcRetryMatches(candidate, run, plan.SHA) {
 			row.Retry = new(p.rcRetry(candidate))
-			row.Retry.Label = "Retest Konflux check"
 		}
 		p.RC.ValidationRows = append(p.RC.ValidationRows, row)
 	}

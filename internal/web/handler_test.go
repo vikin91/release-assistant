@@ -370,11 +370,12 @@ func TestPageEscapesExternalTextAndShowsUnknownEvidenceAndExactOffer(t *testing.
 	appFake := &fakeApplication{snapshot: app.Snapshot{
 		Config:       validACS5Config(),
 		Generation:   4,
+		Interactive:  true,
 		Choices:      release.Choices{PRs: map[release.Target]release.Choice{target: release.Included}},
 		Repositories: []release.Repository{{Source: release.Source{Name: "acs", Repo: "acme/rox", Branch: "release"}, PRs: []release.PR{{Target: target, SHA: "head-sha", Title: `<script>alert("x")</script>`, URL: "javascript:alert(1)", State: "open", Base: "release", Evidence: release.Evidence{At: time.Now(), Error: "head observation partial"}}}}},
 		Assessment:   release.Assessment{Conditions: []release.Condition{{Name: "included PR " + target.String(), Status: "", Reason: "Coverage cannot be established", Evidence: []release.Evidence{{Error: "compare API unavailable"}}}}, ACSRecommendations: []string{"Review the proposed <tag>"}, Commands: "cdrox && pin --version 3.25.7"},
 		Plans:        []release.Plan{{Target: target, SHA: "head-sha", Evidence: release.Evidence{Known: false, Error: "partial plan"}, Proposals: []release.Proposal{proposal}}},
-		Authority:    []dispatch.View{{Target: target, SHA: "head-sha", Granted: true, Warnings: []string{"slow retry threshold reached"}, Offers: []dispatch.Offer{{ID: "offer-1", Proposal: proposal, Allowed: true, CanApprove: true}}}},
+		Authority:    []dispatch.View{{Target: target, SHA: "head-sha", Granted: true, Warnings: []string{"slow retry threshold reached"}, Offers: []dispatch.Offer{{ID: "offer-1", Proposal: proposal, Allowed: true, CanApprove: true, Queueable: true}}}},
 	}}
 	b := newBrowser(t, appFake)
 	body := httptest.NewRecorder()
@@ -385,7 +386,7 @@ func TestPageEscapesExternalTextAndShowsUnknownEvidenceAndExactOffer(t *testing.
 	if strings.Contains(text, `<script>alert("x")</script>`) {
 		t.Fatal("external PR title was rendered as markup")
 	}
-	for _, needle := range []string{"&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", "unknown", "compare API unavailable", "/konflux-retest unit", "run-77", "I confirm this exact comment", "Review the proposed &lt;tag&gt;", "cdrox &amp;&amp; pin --version 3.25.7"} {
+	for _, needle := range []string{"&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", "unknown", "compare API unavailable", "/konflux-retest unit", "run-77", "Open Retest Queue", "Review the proposed &lt;tag&gt;", "cdrox &amp;&amp; pin --version 3.25.7"} {
 		if !strings.Contains(text, needle) {
 			t.Errorf("rendered page missing %q", needle)
 		}
@@ -425,35 +426,26 @@ func TestIgnoredPRIsHiddenAndConfirmedTagHasIndependentRWControl(t *testing.T) {
 	}
 }
 
-func TestSendRequiresExactConfirmationAndForwardsTargetSHA(t *testing.T) {
-	appFake := &fakeApplication{}
-	b := newBrowser(t, appFake)
-	base := url.Values{"kind": {"send"}, "generation": {"6"}, "repo": {"acme/rox"}, "pr": {"7"}, "sha": {"head-sha"}, "id": {"offer-1"}}
-	if w := b.post(base); w.Code != http.StatusBadRequest {
-		t.Fatalf("unconfirmed send status=%d", w.Code)
-	}
-	base.Add("confirm", "yes")
-	if w := b.post(base); w.Code != http.StatusSeeOther {
-		t.Fatalf("confirmed send status=%d body=%s", w.Code, w.Body.String())
-	}
-	if len(appFake.actions) != 1 {
-		t.Fatalf("actions=%+v", appFake.actions)
-	}
-	a := appFake.actions[0]
-	if a.Kind != "send" || a.Target != (release.Target{Repo: "acme/rox", PR: 7}) || a.SHA != "head-sha" || a.ID != "offer-1" {
-		t.Fatalf("send action=%+v", a)
-	}
-}
-
-func TestReconsiderActionDoesNotReRejectOffer(t *testing.T) {
-	appFake := &fakeApplication{}
-	b := newBrowser(t, appFake)
-	form := url.Values{"kind": {"reject"}, "generation": {"2"}, "repo": {"acme/rox"}, "pr": {"7"}, "sha": {"head-sha"}, "id": {"offer-1"}, "enabled": {"false"}}
-	if w := b.post(form); w.Code != http.StatusSeeOther {
-		t.Fatalf("reconsider status=%d body=%s", w.Code, w.Body.String())
-	}
-	if len(appFake.actions) != 1 || appFake.actions[0].Enabled {
-		t.Fatalf("reconsider action=%+v", appFake.actions)
+func TestQueueFormsRequireAnIDAndForwardOnlyTheDecision(t *testing.T) {
+	for _, kind := range []string{"queue-send", "queue-skip"} {
+		t.Run(kind, func(t *testing.T) {
+			appFake := &fakeApplication{}
+			b := newBrowser(t, appFake)
+			form := url.Values{"kind": {kind}, "tab": {"retest-queue"}, "generation": {"6"}}
+			for _, invalid := range []string{"", "0", "-1", "fake"} {
+				form.Set("queue_id", invalid)
+				if w := b.post(form); w.Code != http.StatusBadRequest {
+					t.Fatalf("invalid queue ID returned status %d", w.Code)
+				}
+			}
+			form.Set("queue_id", "27")
+			if w := b.post(form); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/?tab=retest-queue" {
+				t.Fatalf("queue decision returned status %d, destination %q", w.Code, w.Header().Get("Location"))
+			}
+			if len(appFake.actions) != 1 || appFake.actions[0].Kind != kind || appFake.actions[0].QueueID != 27 || appFake.actions[0].Generation != 6 {
+				t.Fatalf("queue decision = %+v", appFake.actions)
+			}
+		})
 	}
 }
 

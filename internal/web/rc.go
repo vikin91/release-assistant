@@ -29,8 +29,7 @@ type (
 	}
 	rcRetryModel struct {
 		Candidate *buildRetryCandidate
-		Actions   *retryOfferActions
-		Label     string
+		Queued    bool
 	}
 )
 
@@ -125,11 +124,10 @@ func rcRetryMatches(candidate *buildRetryCandidate, run release.Run, sha string)
 }
 
 func (p pageModel) rcRetry(candidate *buildRetryCandidate) rcRetryModel {
-	retry := rcRetryModel{Candidate: candidate, Label: "Retest Konflux build"}
-	if p.Snapshot.WritesEnabled && candidate.Offer != nil {
-		retry.Actions = new(p.RetryOfferActions(*candidate.Offer))
+	return rcRetryModel{
+		Candidate: candidate,
+		Queued:    p.Snapshot.Interactive && candidate.Offer != nil && candidate.Offer.Queueable,
 	}
-	return retry
 }
 
 func rcBuild(run release.Run, checksURL string) rcBuildModel {

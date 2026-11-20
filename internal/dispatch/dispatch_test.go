@@ -147,6 +147,9 @@ func TestSingleUseCooldownAndDuplicateSubmission(t *testing.T) {
 	if _, err := d.Send(t.Context(), p.Target, ID(p), false); err == nil {
 		t.Fatal("approval replayed")
 	}
+	if _, err := d.Send(t.Context(), p.Target, ID(p), true); err == nil || f.writes.Load() != 1 {
+		t.Fatal("a completed submission was posted again")
+	}
 }
 func TestFailureCountsUseRunsAndReset(t *testing.T) {
 	d, f, now := setup(t)
@@ -179,16 +182,9 @@ func TestFailureCountsUseRunsAndReset(t *testing.T) {
 		t.Fatal("head did not reset")
 	}
 }
-func TestRejectAndPartialResults(t *testing.T) {
+func TestVerifiedProposalSurvivesPartialResults(t *testing.T) {
 	d, f, _ := setup(t)
 	p := f.plan.Proposals[0]
-	if err := d.Reject(p.Target, ID(p), true); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := d.Send(t.Context(), p.Target, ID(p), true); err == nil {
-		t.Fatal("rejected run sent")
-	}
-	_ = d.Reject(p.Target, ID(p), false)
 	f.planErr = errors.New("unrelated job unavailable")
 	if _, err := d.Send(t.Context(), p.Target, ID(p), true); err != nil {
 		t.Fatal(err)

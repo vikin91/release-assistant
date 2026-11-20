@@ -549,12 +549,16 @@ func TestReadOnlySessionRejectsForgedGrantAndSend(t *testing.T) {
 	apply(t, s, Action{Kind: "choice", Target: target, Choice: release.Included})
 	proposal := release.Proposal{Target: target, SHA: "head", Job: "unit", RunID: "run", Payload: "/konflux-retest unit"}
 	s.dispatcher.ObservePlan(release.Plan{Target: target, SHA: "head", Proposals: []release.Proposal{proposal}, Evidence: observed()})
-	for _, action := range []Action{
-		{Kind: "grant", Target: target, SHA: "head", Enabled: true},
-		{Kind: "send", Target: target, SHA: "head", ID: dispatch.ID(proposal)},
+	for _, tc := range []struct {
+		action Action
+		want   string
+	}{
+		{Action{Kind: "grant", Target: target, SHA: "head", Enabled: true}, "-enable-writes"},
+		{Action{Kind: "queue-send", QueueID: 1}, "no longer pending"},
 	} {
+		action := tc.action
 		action.Generation = s.Snapshot().Generation
-		if err := s.Apply(t.Context(), action); err == nil || !strings.Contains(err.Error(), "-enable-writes") {
+		if err := s.Apply(t.Context(), action); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Fatalf("read-only %s: %v", action.Kind, err)
 		}
 	}

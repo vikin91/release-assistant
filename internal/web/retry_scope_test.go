@@ -89,7 +89,7 @@ func TestRetryAndCommentSectionsUseExplicitCurrentScope(t *testing.T) {
 		t.Errorf("included PR has %d manual comment links, want one for the proposal and one for the offer", count)
 	}
 	builds := between(t, body, `<section class="panel" id="component-releases-retry">`, `</section>`)
-	for _, includedMarker := range []string{"accepted-fact-tag", "accepted-collector-tag", "offer-accepted-fact-tag", "offer-accepted-collector-tag"} {
+	for _, includedMarker := range []string{"accepted-fact-tag-marker", "accepted-collector-tag-marker"} {
 		if !strings.Contains(builds, includedMarker) {
 			t.Errorf("Build retries omitted scoped target marker %q", includedMarker)
 		}

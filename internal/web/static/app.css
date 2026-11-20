@@ -167,6 +167,18 @@ legend { padding: 0 .35rem; font-weight: var(--emphasis-weight); }
 [data-copy-text] { display: none; }
 [data-copy-enabled] [data-copy-text] { display: inline-block; }
 [data-copy-status] { font-size: .86rem; }
+.retest-filter { max-width: 30rem; margin-bottom: 1rem; }
+.retest-group + .retest-group { margin-top: 1.25rem; }
+.retest-group h4 { overflow-wrap: anywhere; }
+.retest-items :is(th, td) { vertical-align: top; }
+.retest-items code, .retest-log code { overflow-wrap: anywhere; }
+.retest-id, .retest-log time { font-family: var(--mono-font); }
+.retest-job { display: block; font-size: .86rem; }
+.retest-actions > div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; }
+.retest-actions form { margin: 0; }
+.retest-log { overflow-x: auto; }
+.retest-log time { white-space: nowrap; }
+.retest-log td { vertical-align: top; }
 .creation-failure-intro { margin-bottom: .5rem; }
 .creation-failure-pr { margin: 1rem 0 .25rem; }
 .creation-failure-pr + .creation-failure-cluster { margin-top: 0; }

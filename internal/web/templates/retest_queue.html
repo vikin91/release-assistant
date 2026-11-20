@@ -1,0 +1,82 @@
+{{define "retest-queue"}}
+<h2 id="retest-queue">Retest Queue</h2>
+<div id="retest-filter" class="retest-filter" hidden>
+  <label for="retest-search">Search queue</label>
+  <input id="retest-search" type="search" placeholder="ID, PR, repository, tag, job, or command" autocomplete="off">
+</div>
+{{if .Snapshot.RetestQueue}}
+  <p id="retest-no-matches" class="muted" role="status" hidden>No queue items match your search.</p>
+{{else}}
+  <p class="muted">No retries are queued.</p>
+{{end}}
+{{range .RetestBuckets}}{{if .Groups}}
+  <section class="panel retest-bucket" data-retest-bucket data-live-key="retest-bucket:{{.Label}}">
+    <h3>{{.Label}}</h3>
+    {{range .Groups}}{{$group := .}}
+      <section class="retest-group" data-retest-group="{{.Target.Repo}} {{.Label}} {{.Title}} {{.Branch}}" data-live-key="retest-target:{{.Target}}">
+        <h4 id="retests-{{.Target}}"><a href="{{url .URL}}" target="_blank" rel="noreferrer" aria-describedby="new-tab-description">{{.Label}}</a>
+          <span class="muted">· {{.Target.Repo}}{{with .Title}} · {{.}}{{end}}{{with .Branch}} · {{.}}{{end}}</span>
+        </h4>
+        <table class="retest-items" aria-labelledby="retests-{{.Target}}">
+          <thead><tr><th scope="col">ID</th><th scope="col">Request</th><th scope="col">Actions</th></tr></thead>
+          <tbody>{{range .Items}}
+            <tr data-live-key="retest:{{.ID}}" data-retest-row="{{.ID}} {{.Job}} {{.Payload}}" class="copyable-text">
+              <th scope="row" class="retest-id">{{.ID}}</th>
+              <td>
+                {{if eq .Kind "actions"}}API call{{else}}Comment{{end}} <code data-copy-value>{{.Payload}}</code>
+                <small class="retest-job muted">{{if url .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer" aria-describedby="new-tab-description">{{.Job}}</a>{{else}}{{.Job}}{{end}} failed</small>
+                {{if eq .Kind "prow"}}<small><a href="{{url $group.URL}}#new_comment_field" target="_blank" rel="noreferrer" aria-describedby="new-tab-description">Post manually on GitHub</a></small>{{end}}
+                {{if .Blocked}}<small class="retest-job muted">{{.Blocked}}</small>{{end}}
+                <small class="retest-job muted" data-retest-sending role="status"{{if not .Sending}} hidden{{end}}>Sending…</small>
+                <small role="status" data-copy-status data-live-preserve></small>
+              </td>
+              <td class="retest-actions">
+                <div>
+                  {{if eq .Kind "konflux"}}
+                    <form method="post" action="/action" data-retest-send>
+                      {{template "retest-form-fields" $}}
+                      <input type="hidden" name="kind" value="queue-send">
+                      <input type="hidden" name="queue_id" value="{{.ID}}">
+                      <button type="submit"{{if or .Sending .Blocked}} disabled{{end}}>Send</button>
+                    </form>
+                  {{else}}
+                    <button type="button" data-copy-text>Copy</button>
+                    {{if eq .Kind "actions"}}<button type="button" disabled>Execute</button>{{end}}
+                  {{end}}
+                  <form method="post" action="/action">
+                    {{template "retest-form-fields" $}}
+                    <input type="hidden" name="kind" value="queue-skip">
+                    <input type="hidden" name="queue_id" value="{{.ID}}">
+                    <button type="submit"{{if .Sending}} disabled{{end}}>Skip</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {{end}}</tbody>
+        </table>
+      </section>
+    {{end}}
+  </section>
+{{end}}{{end}}
+<section class="panel" aria-labelledby="retest-log-heading">
+  <h3 id="retest-log-heading">Queue log</h3>
+  {{if .Snapshot.RetestLog}}
+    <div class="retest-log" role="region" aria-labelledby="retest-log-heading" tabindex="0">
+      <table>
+        <thead><tr><th scope="col">Time</th><th scope="col">ID</th><th scope="col">Target</th><th scope="col">Decision</th><th scope="col">Details</th></tr></thead>
+        <tbody>{{range .Snapshot.RetestLog}}
+          <tr><td><time datetime="{{.At.Format "2006-01-02T15:04:05Z07:00"}}">{{when .At}}</time></td><td class="retest-id">{{.ID}}</td>
+            <td>{{.Target}}</td><td>{{.Result}}</td><td><code>{{.Payload}}</code><small class="retest-job muted">{{.Detail}}
+              {{if url .URL}} <a href="{{url .URL}}" target="_blank" rel="noreferrer" aria-describedby="new-tab-description">View comment</a>{{end}}</small></td></tr>
+        {{end}}</tbody>
+      </table>
+    </div>
+  {{else}}<p class="muted">Queue decisions will appear here.</p>{{end}}
+</section>
+{{end}}
+
+{{define "retest-form-fields"}}
+  <input type="hidden" name="tab" value="retest-queue">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
+{{end}}

@@ -139,8 +139,8 @@
 
 {{define "rc-retry"}}
   <details class="rc-retry" data-fold-key="rc-retry:{{.Candidate.Key}}">
-    <summary>{{if and .Actions .Candidate.Offer.CanApprove}}{{if .Actions.Page.Snapshot.Interactive}}{{.Label}}{{else}}View retest comment{{end}}{{else}}Copy retest command{{end}}<span class="component-image-note">{{.Candidate.Proposal.Job}} · {{.Candidate.Status}}</span></summary>
+    <summary>View retest comment<span class="component-image-note">{{.Candidate.Proposal.Job}} · {{.Candidate.Status}}</span></summary>
     {{template "manual-comment" .Candidate.Proposal}}
-    {{with .Actions}}{{template "retry-offer-actions" .}}{{end}}
+    {{if .Queued}}{{template "retest-queue-link"}}{{end}}
   </details>
 {{end}}

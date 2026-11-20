@@ -113,7 +113,7 @@ test("copies the exact command text and reports clipboard failures", async () =>
   const clipboard = { writeText: async (text) => writes.push(text) };
   const page = makePage({ clipboard });
   const status = { textContent: "" };
-  const block = { querySelector: (selector) => selector === "pre code" ? { textContent: command } : status };
+  const block = { querySelector: (selector) => ({ "pre code": { textContent: command }, "[data-copy-status]": status })[selector] };
   const button = { dataset: { copyText: "" }, closest: () => block };
   const click = () => page.document.emit("click", {
     target: { closest: (selector) => selector === "[data-copy-text]" ? button : null },
@@ -444,34 +444,50 @@ test("updates keyed rows in place, preserves drafts and focus, and applies saved
   assert.equal(page.timeouts[0].delay, 60_000);
 });
 
-test("keeps confirmation only for the same retry action and refreshes hidden generation fields", async () => {
-  const form = (id, generation) => {
-    const node = domNode("FORM", {}, [
-      domNode("INPUT", { type: "hidden", name: "kind", value: "send" }),
-      domNode("INPUT", { type: "hidden", name: "id", value: id }),
-      domNode("INPUT", { type: "hidden", name: "generation", value: generation }),
-      domNode("INPUT", { type: "checkbox", name: "confirm" }),
-    ]);
-    node.id = node.childNodes[1];
-    return node;
+test("keeps the queue search and row identities across a live refresh", async () => {
+  const row = (id, job) => domNode("TR", { "data-live-key": `retest:${id}`, "data-retest-row": `${id} ${job}` });
+  const queue = (reverse = false) => {
+    const search = emitter(domNode("INPUT", { id: "retest-search", type: "search" }));
+    const integration = row(7, "integration");
+    const upgrade = row(8, "Upgrade");
+    return livePage({ activeTab: "retest-queue", children: [
+      domNode("DIV", { id: "retest-filter" }, [search]),
+      domNode("P", { id: "retest-no-matches", hidden: "" }),
+      domNode("SECTION", { "data-retest-bucket": "", "data-live-key": "bucket" }, [
+        domNode("SECTION", { "data-retest-group": "PR #42 backport", "data-live-key": "target" },
+          reverse ? [upgrade, integration] : [integration, upgrade]),
+      ]),
+    ] });
   };
-  const original = form("offer-one", "1");
-  const initial = livePage({ children: [original] });
-  const page = dashboardPage(initial);
+  const storage = new Map([["release-assistant:retest-search:session:1", "uPgRaDe"]]);
+  const initial = queue();
+  const page = dashboardPage(initial, { storage });
   page.start();
   await new Promise(setImmediate);
-  const confirmation = original.childNodes[3];
-  confirmation.checked = true;
-  page.document.emit("input", { target: confirmation });
-  page.updateTo(livePage({ children: [form("offer-one", "2")] }));
+  const search = page.document.getElementById("retest-search");
+  const [integration, upgrade] = page.document.querySelectorAll("[data-retest-row]");
+  assert.equal(search.value, "uPgRaDe");
+  assert.equal(integration.hidden, true);
+  assert.equal(upgrade.hidden, false);
+  assert.equal(page.timeouts[0].delay, 5_000);
+
+  page.updateTo(queue(true));
   await page.timeouts.shift()();
-  assert.equal(initial.dashboard.childNodes[1], original);
-  assert.equal(confirmation.checked, true);
-  assert.equal(original.childNodes[2].value, "2");
-  page.updateTo(livePage({ children: [form("offer-two", "2")] }));
-  await page.timeouts.shift()();
-  assert.notEqual(initial.dashboard.childNodes[1], original);
-  assert.equal(initial.dashboard.childNodes[1].childNodes[3].checked, false);
+  assert.deepEqual(page.document.querySelectorAll("[data-retest-row]"), [upgrade, integration]);
+  assert.equal(search.value, "uPgRaDe");
+  assert.equal(integration.hidden, true);
+  assert.equal(upgrade.hidden, false);
+
+  search.value = "#42";
+  search.emit("input");
+  assert.equal(integration.hidden, false);
+  assert.equal(upgrade.hidden, false);
+
+  search.value = "missing";
+  search.emit("input");
+  assert.equal(page.document.getElementById("retest-no-matches").hidden, false);
+  assert.equal(page.document.querySelectorAll("[data-retest-bucket]")[0].hidden, true);
+  assert.equal(storage.get("release-assistant:retest-search:session:1"), "missing");
 });
 
 test("serializes requests, pauses while hidden, and discards a response after form submission", async () => {

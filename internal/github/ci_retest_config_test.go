@@ -42,7 +42,7 @@ func TestFailedPresubmitOwnership(t *testing.T) {
 			status.Creator.ID = tc.reporter
 			failed := failedPresubmits(&report, []commitStatus{status}, retryScope{required: []requiredCheck{{context: tc.context}}})
 			if tc.wantAllowed {
-				if failed[tc.context] != "job" || len(report.OtherChecks) != 0 {
+				if failed[tc.context] != (failedPresubmit{Name: "job", URL: status.URL}) || len(report.OtherChecks) != 0 {
 					t.Fatalf("failed = %v, other checks = %v", failed, report.OtherChecks)
 				}
 			} else if len(failed) != 0 || len(report.OtherChecks) != 1 || !strings.Contains(report.OtherChecks[0], tc.context+" · Unknown check") {

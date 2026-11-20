@@ -158,7 +158,7 @@ The image views distinguish **Available**, **Not found**, and **Unable to check*
 Review and copy proposed comments in read-only mode. To send comments from the assistant, restart with your usual flags and add `--enable-writes`.
 
 1. Set **Allow posting retry comments** on the PR or tag you want to permit. Release inclusion alone grants no write access.
-2. Leave **Confirm each retry comment** on to approve a single exact comment at a time. To allow eligible retries without confirmation for permitted targets, change this setting under **Application settings** and select **Save settings**.
+2. Leave **Confirm each retry comment** on. Open **Retest Queue** and select **Send** to approve the exact comment for that job. To allow eligible retries without confirmation for permitted targets, change this setting under **Application settings** and select **Save settings**.
 
 The retry library decides which Konflux jobs are eligible. PR retries use `/konflux-retest <job>`. Tag retries use `/retest <job> tag:<tag>` on the resolved commit. GitHub required-check settings inform the status display. Marking a Conforma advisory as reviewed only records your review for the session.
 
@@ -167,6 +167,25 @@ A PR head or target branch change revokes its grant. The `no-release-assistant` 
 Before sending, the assistant rechecks the target, current permission, eligible run, and exact comment. By default, it waits at least one minute between comments on a target. After ten distinct consecutive unsuccessful eligible runs for a job on the same target and commit, it waits at least an hour between comments for that job. Repeated polls do not increase the failure count. If delivery is uncertain, the assistant records it and waits for the cooldown before reconsidering.
 
 On the **ACS PRs** tab, **Checks of Included PRs** groups Konflux retry comments, GitHub Actions rerun commands, and Prow comments by PR. On the other workflow tabs, **Manual CI retries** shows GitHub Actions job links and copyable `gh api` commands for monitored targets. For failed Prow presubmits, copy the listed `/test <job>` commands and post them together on the linked PR. These options are available in read-only mode.
+
+### Retest Queue
+
+The queue groups retries for included PRs and selected tags in this order.
+
+1. ACS tags. The queue shows the current release candidate.
+2. ACS PRs against the release branch, including the pinning PR.
+3. Component tags. Each selected tag stays in the queue while it has pending retries.
+4. Component PRs against their release branches.
+
+Within each category, groups sort by repository name, then by PR number in
+ascending order. New items go to the end of their group. **Skip** moves the
+item to the end of its own group and keeps its numeric queue ID. Search by ID,
+PR, repository, tag, job, or command to narrow the list without changing the
+order. Use **Copy** for manual Actions and Prow retries.
+
+The **Queue log** records the time, queue ID, target, and outcome of each
+decision. When GitHub confirms a comment, its item leaves the queue. Queue IDs
+and decisions are available for the current assistant process.
 
 ## Standalone CI retry CLI
 

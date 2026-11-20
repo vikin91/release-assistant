@@ -30,10 +30,6 @@ type (
 		Page pageModel
 		Plan planModel
 	}
-	retryOfferActions struct {
-		Page  pageModel
-		Offer dispatch.Offer
-	}
 )
 
 // BuildRetries groups retry instructions by target, including ACS PRs awaiting their first observation.
@@ -129,7 +125,7 @@ func (g buildRetryTarget) nextAction(interactive bool) string {
 				sent++
 			} else if offer.CanApprove {
 				if interactive {
-					return "Review the proposed retry comment."
+					return "Review the proposed retry comment in the Retest Queue."
 				}
 				return "Wait for the automatic retry comment to be posted."
 			}
@@ -181,8 +177,8 @@ func (g buildRetryTarget) nextAction(interactive bool) string {
 
 func (p pageModel) retryStatus(offer *dispatch.Offer) string {
 	switch {
-	case offer != nil && offer.Rejected:
-		return "Skipped for this run"
+	case offer != nil && offer.CommentSent:
+		return "Comment sent"
 	case !p.Snapshot.WritesEnabled:
 		return "Copy only · read-only mode"
 	case offer == nil:
@@ -201,9 +197,4 @@ func (p pageModel) retryStatus(offer *dispatch.Offer) string {
 // RetryPlanEvidence supplies the live session values for build evidence and review forms.
 func (p pageModel) RetryPlanEvidence(plan planModel) retryPlanEvidence {
 	return retryPlanEvidence{Page: p, Plan: plan}
-}
-
-// RetryOfferActions binds the exact offer to the current session's comment forms.
-func (p pageModel) RetryOfferActions(offer dispatch.Offer) retryOfferActions {
-	return retryOfferActions{Page: p, Offer: offer}
 }

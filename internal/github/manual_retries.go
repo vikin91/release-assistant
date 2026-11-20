@@ -150,9 +150,9 @@ func (c *Client) ManualRetriesWithOptional(ctx context.Context, t release.Target
 	return report, errors.Join(policyErr, prowErr, actionsErr)
 }
 
-func failedPresubmits(report *ManualRetryReport, statuses []commitStatus, scope retryScope) map[string]string {
+func failedPresubmits(report *ManualRetryReport, statuses []commitStatus, scope retryScope) map[string]failedPresubmit {
 	t := report.Target
-	failed := make(map[string]string)
+	failed := make(map[string]failedPresubmit)
 	// The statuses API returns newest first. Another reporter can supersede the failure.
 	seen := make(map[string]bool)
 	prefix := fmt.Sprintf("/view/gs/test-platform-results-public/pr-logs/pull/%s/%d/", strings.ReplaceAll(strings.ToLower(t.Repo), "/", "_"), t.PR)
@@ -190,7 +190,7 @@ func failedPresubmits(report *ManualRetryReport, statuses []commitStatus, scope 
 			report.Warnings = append(report.Warnings, s.Context+": build URL does not identify this PR")
 			continue
 		}
-		failed[s.Context] = job
+		failed[s.Context] = failedPresubmit{Name: job, URL: s.URL}
 	}
 	return failed
 }

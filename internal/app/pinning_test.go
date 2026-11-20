@@ -78,7 +78,7 @@ func TestConfiguredPinningPRIsIncludedWithoutWritePermission(t *testing.T) {
 		t.Fatal("pinning monitoring enabled writes")
 	}
 	apply(t, s, Action{Kind: "grant", Target: config.PinningTarget(), SHA: f.plan.SHA, Enabled: true})
-	apply(t, s, Action{Kind: "send", Target: config.PinningTarget(), ID: dispatch.ID(f.plan.Proposals[0])})
+	apply(t, s, Action{Kind: "queue-send", QueueID: queueID(t, s, f.plan.Proposals[0])})
 	if f.writes != 1 {
 		t.Fatal("explicitly approved fake retry was not delivered")
 	}
@@ -116,7 +116,7 @@ func TestPinningImageFailureDoesNotInventOrSuppressLibraryRetries(t *testing.T) 
 		t.Fatal("registry access failure was treated as image availability")
 	}
 	apply(t, s, Action{Kind: "grant", Target: config.PinningTarget(), SHA: f.plan.SHA, Enabled: true})
-	apply(t, s, Action{Kind: "send", Target: config.PinningTarget(), ID: dispatch.ID(f.plan.Proposals[0])})
+	apply(t, s, Action{Kind: "queue-send", QueueID: queueID(t, s, f.plan.Proposals[0])})
 	if f.writes != 1 {
 		t.Fatal("fresh library-approved retry was suppressed by output image inspection")
 	}

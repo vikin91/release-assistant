@@ -29,8 +29,8 @@
 
 {{define "retry-offers"}}
     {{range .Authority}}<div class="offer-card" data-live-key="authority:{{.View.Target}}"><h3>{{.View.Target}} <span class="muted">SHA {{.View.SHA}}</span></h3><p>RW {{if .View.Granted}}allowed{{else}}not allowed{{end}} · {{if .View.Ignored}}ignored{{else}}monitored{{end}}{{if .View.OptOut}} · no-release-assistant disables writes{{end}}</p>{{if .View.Message}}<p>{{.View.Message}}</p>{{end}}{{if .View.Warnings}}<ol>{{range .View.Warnings}}<li class="warning">{{.}}</li>{{end}}</ol>{{end}}
-      {{range .View.Offers}}<div class="offer" data-live-key="offer:{{.ID}}"><p>Offer {{.ID}} · {{.Proposal.Target}} · SHA {{.Proposal.SHA}} · {{.Proposal.Job}} · run {{.Proposal.RunID}} · failures {{.Failures}}{{if .Rejected}} · rejected{{end}}</p><p>{{if .Reason}}{{.Reason}}{{else}}Ready for exact confirmation{{end}}{{if not .WaitingUntil.IsZero}} · wait until {{when .WaitingUntil}}{{end}}</p>{{template "manual-comment" .Proposal}}
-        {{template "retry-offer-actions" ($.RetryOfferActions .)}}
+      {{range .View.Offers}}<div class="offer" data-live-key="offer:{{.ID}}"><p>{{.Proposal.Target}} · SHA {{.Proposal.SHA}} · {{.Proposal.Job}} · run {{.Proposal.RunID}} · failures {{.Failures}}</p><p>{{if .CommentSent}}Comment sent{{else if .Reason}}{{.Reason}}{{else if $.Snapshot.Interactive}}Ready to review{{else}}Eligible for automatic retry{{end}}{{if not .WaitingUntil.IsZero}} · wait until {{when .WaitingUntil}}{{end}}</p>{{template "manual-comment" .Proposal}}
+        {{if and $.Snapshot.Interactive .Queueable}}{{template "retest-queue-link"}}{{end}}
       </div>{{else}}<p class="muted">No current offers.</p>{{end}}
     </div>{{end}}
 {{end}}
@@ -50,32 +50,8 @@
       </div>{{end}}{{end}}
 {{end}}
 
-{{define "retry-offer-actions"}}
-  {{if and .Offer.CanApprove (or (ne .Page.Tab "acs-rcs") .Page.Snapshot.Interactive)}}
-    <form method="post" action="/action">
-      {{template "retry-offer-fields" .}}
-      <input type="hidden" name="kind" value="send">
-      <label class="check{{if not .Page.Snapshot.WritesEnabled}} disabled-control{{end}}"><input type="checkbox" name="confirm" value="yes" required{{if not .Page.Snapshot.WritesEnabled}} disabled{{end}}> I confirm this exact comment</label>
-      <button type="submit"{{if not .Page.Snapshot.WritesEnabled}} disabled{{end}}>Send one comment</button>
-    </form>
-  {{end}}
-  <form method="post" action="/action" class="inline-form">
-    {{template "retry-offer-fields" .}}
-    <input type="hidden" name="kind" value="reject">
-    <input type="hidden" name="enabled" value="{{if .Offer.Rejected}}false{{else}}true{{end}}">
-    <button type="submit">{{if .Offer.Rejected}}Allow retry again{{else}}Skip retry for this run{{end}}</button>
-  </form>
-{{end}}
-
-{{define "retry-offer-fields"}}
-  <input type="hidden" name="tab" value="{{.Page.Tab}}">
-  <input type="hidden" name="csrf" value="{{.Page.CSRF}}">
-  <input type="hidden" name="generation" value="{{.Page.Snapshot.Generation}}">
-  <input type="hidden" name="repo" value="{{.Offer.Proposal.Target.Repo}}">
-  <input type="hidden" name="pr" value="{{if .Offer.Proposal.Target.PR}}{{.Offer.Proposal.Target.PR}}{{end}}">
-  <input type="hidden" name="tag" value="{{.Offer.Proposal.Target.Tag}}">
-  <input type="hidden" name="sha" value="{{.Offer.Proposal.SHA}}">
-  <input type="hidden" name="id" value="{{.Offer.ID}}">
+{{define "retest-queue-link"}}
+  <a href="/?tab=retest-queue#retest-queue" data-open-section>Open Retest Queue</a>
 {{end}}
 
 {{define "manual-comment"}}
