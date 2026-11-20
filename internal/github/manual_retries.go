@@ -18,8 +18,12 @@ import (
 	"release-assistant/internal/release"
 )
 
-// openshiftCIReporterID identifies the openshift-ci[bot] GitHub status creator.
-const openshiftCIReporterID = 75433959
+const (
+	// openshiftCIReporterID identifies the bot user in GitHub commit statuses.
+	openshiftCIReporterID = 75433959
+	// openshiftCIAppID identifies the same provider in GitHub branch rules.
+	openshiftCIAppID = 91280
+)
 
 type (
 	// ManualRetryReport holds human-executable offers for the observed target.
@@ -39,12 +43,12 @@ type (
 	}
 	retryRun struct {
 		workflowRun
-		Status, Path string
-		Attempt      int                               `json:"run_attempt"`
-		Number       int                               `json:"run_number"`
-		Created      time.Time                         `json:"created_at"`
-		PRs          []retryPR                         `json:"pull_requests"`
-		References   []struct{ Path, Ref, SHA string } `json:"referenced_workflows"`
+		Status, Conclusion, Path string
+		Attempt                  int                               `json:"run_attempt"`
+		Number                   int                               `json:"run_number"`
+		Created                  time.Time                         `json:"created_at"`
+		PRs                      []retryPR                         `json:"pull_requests"`
+		References               []struct{ Path, Ref, SHA string } `json:"referenced_workflows"`
 	}
 	retryJob struct {
 		ID                 int64
@@ -166,11 +170,15 @@ func failedPresubmits(report *ManualRetryReport, statuses []commitStatus, scope 
 			continue
 		}
 		source := retrySource{strings.ToLower(t.Repo), "Prow", ""}
-		optional := s.Creator.ID == openshiftCIReporterID && scope.includesOptional(source, s.Context)
-		if !scope.matches(s.Context, 0) && !optional {
+		var appID int64
+		if s.Creator.ID == openshiftCIReporterID {
+			appID = openshiftCIAppID
+		}
+		optional := appID != 0 && scope.includesOptional(source, s.Context)
+		if !scope.matches(s.Context, appID) && !optional {
 			continue
 		}
-		if s.Creator.ID != openshiftCIReporterID {
+		if appID == 0 {
 			provider := "commit status"
 			if s.Creator.Login != "" {
 				provider += " (" + s.Creator.Login + ")"
@@ -400,6 +408,31 @@ func (c *Client) confirmRetryRun(ctx context.Context, t release.Target, pr retry
 	return current, "", nil
 }
 
+// actionsImageBuildProblem checks the workflow that publishes the images for e2e-dispatch.
+func actionsImageBuildProblem(t release.Target, pr retryPR, runs []retryRun) string {
+	const unverified = "cannot verify the Build run for this commit"
+	var latest retryRun
+	for _, run := range runs {
+		if run.Path != stackroxBuildWorkflow || run.targetProblem(t, pr) != "" {
+			continue
+		}
+		if latest.ID != 0 && (latest.WorkflowID != run.WorkflowID || latest.Number == run.Number) {
+			return unverified
+		}
+		if run.Number > latest.Number {
+			latest = run
+		}
+	}
+	if latest.ID == 0 {
+		return unverified
+	}
+	if latest.Status == "completed" && latest.Conclusion == "success" {
+		return ""
+	}
+	return fmt.Sprintf("inspect the Build run for this commit (%s) at https://github.com/%s/actions/runs/%d",
+		cmp.Or(latest.Conclusion, latest.Status, "unknown"), t.Repo, latest.ID)
+}
+
 func (c *Client) retryRunJobs(ctx context.Context, report *ManualRetryReport, pr retryPR, run retryRun, runs []retryRun, checks []commitCheckRun) ([]ManualJob, string, error) {
 	t := report.Target
 	var allowed []commitCheckRun
@@ -410,6 +443,12 @@ func (c *Client) retryRunJobs(ctx context.Context, report *ManualRetryReport, pr
 		if check.Conclusion != "failure" {
 			report.Warnings = append(report.Warnings, check.Name+": ineligible Actions conclusion "+check.Conclusion)
 			continue
+		}
+		if strings.EqualFold(t.Repo, "stackrox/stackrox") && run.Path == stackroxE2EDispatchWorkflow && check.Name == waitForActionsImagesJob {
+			if problem := actionsImageBuildProblem(t, pr, runs); problem != "" {
+				report.Warnings = append(report.Warnings, check.Name+": "+problem)
+				continue
+			}
 		}
 		allowed = append(allowed, check)
 	}

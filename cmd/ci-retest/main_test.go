@@ -158,6 +158,8 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 		newerRunPR                       int
 		rerunConclusion                  string
 		attemptMoved                     bool
+		imageWait                        bool
+		buildConclusion                  string
 		want, absent                     []string
 		code                             int
 	}{
@@ -220,6 +222,18 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 			repo: "stackrox/collector", args: []string{"--prs", "7"}, workflowPath: ".github/workflows/main.yml", workflow: mergeWorkflow, mergeScope: true, rerunConclusion: "failure", attemptMoved: true,
 			want: []string{"run changed during collection"}, absent: []string{"cancelled", "/rerun"},
 		},
+		"should point to the latest failed Build instead of retrying the image wait": {
+			args: []string{"--prs", "7"}, workflowPath: ".github/workflows/e2e-dispatch.yaml", imageWait: true, buildConclusion: "failure",
+			want: []string{"wait-for-images: inspect the Build run for this commit (failure)", "https://github.com/stackrox/stackrox/actions/runs/25"}, absent: []string{"Unknown check", "/jobs/99/rerun"},
+		},
+		"should retry the failed image wait after Build succeeds": {
+			args: []string{"--prs", "7"}, workflowPath: ".github/workflows/e2e-dispatch.yaml", imageWait: true, buildConclusion: "success",
+			want: []string{"wait-for-images\nhttps://github.com/stackrox/stackrox/actions/runs/22/job/99", "/jobs/99/rerun"}, absent: []string{"Unknown check"},
+		},
+		"should withhold an image wait retry when Build is unavailable": {
+			args: []string{"--prs", "7"}, workflowPath: ".github/workflows/e2e-dispatch.yaml", imageWait: true,
+			want: []string{"wait-for-images: cannot verify the Build run for this commit"}, absent: []string{"Unknown check", "/jobs/99/rerun"},
+		},
 		"unavailable rules do not promote optional failures": {
 			args: []string{"--prs", "7"}, rulesUnavailable: true, want: []string{"required checks for master"}, absent: []string{"gh api --method POST", "/test gke-qa-e2e-tests", "Unknown check"}, code: 1,
 		},
@@ -245,12 +259,21 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 			}
 			runData := workflowRun(22, 11, 2, pr)
 			runs := []string{runData}
+			if tc.buildConclusion != "" {
+				buildRun := func(id, number int, conclusion string) string {
+					return fmt.Sprintf(`{"id":%d,"name":"Build","path":".github/workflows/build.yaml","workflow_id":34,"check_suite_id":%d,"head_sha":%q,"head_branch":"feature","event":"pull_request","run_attempt":1,"run_number":%d,"status":"completed","conclusion":%q,"pull_requests":[%s]}`, id, id+10, sha, number, conclusion, pr)
+				}
+				runs = append(runs, buildRun(25, 2, tc.buildConclusion), buildRun(24, 1, "success"))
+			}
 			first, second := "Konflux: release-central-db:rc", "Upstream: main:rc"
 			if tc.workflowName != "" {
 				first, second = "wait-for-images", "run-konflux-tests / integration-tests (fedora-coreos)"
 			}
 			if tc.mixed {
 				first, second = "unit-tests / unit-tests (rhcos)", "wait-for-images"
+			}
+			if tc.imageWait {
+				first, second = "wait-for-images", "unrelated job"
 			}
 			if tc.mergeScope {
 				first, second = "compile", "integration-tests / amd64-integration-tests (rhel) / Testing rhel"

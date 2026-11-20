@@ -24,29 +24,61 @@ func TestRetryListsDoNotOverlap(t *testing.T) {
 	}
 }
 
+func TestStackRoxActionsRetryOwnership(t *testing.T) {
+	for workflow, jobs := range map[string][]string{
+		".github/workflows/style.yaml":        {"check-generated-files", "golangci-lint", "style-check"},
+		".github/workflows/unit-tests.yaml":   {`go (GOTAGS="")`, "local-roxctl-tests"},
+		".github/workflows/e2e-dispatch.yaml": {"e2e-nongroovy-tests-gke / run / gke-nongroovy-e2e-tests", "wait-for-images"},
+	} {
+		t.Run(workflow, func(t *testing.T) {
+			report := ManualRetryReport{Target: release.Target{Repo: "stackrox/stackrox", PR: 7}}
+			for _, job := range jobs {
+				if !classifyRetry(&report, "github-actions", workflow, job) {
+					t.Errorf("expected retry support for %s", job)
+				}
+			}
+			if classifyRetry(&report, "github-actions", workflow, "unclassified job") || len(report.OtherChecks) != 1 {
+				t.Fatalf("unexpected check classifications: %v", report.OtherChecks)
+			}
+		})
+	}
+}
+
 func TestFailedPresubmitOwnership(t *testing.T) {
 	const context = "ci/prow/gke-qa-e2e-tests"
 	for name, tc := range map[string]struct {
-		repo, context string
-		reporter      int64
-		wantAllowed   bool
+		repo, context            string
+		reporter, requiredApp    int64
+		wantAllowed, wantUnknown bool
 	}{
-		"verified presubmit":                 {"StackRox/StackRox", context, openshiftCIReporterID, true},
-		"same context in another repository": {"stackrox/fact", context, openshiftCIReporterID, false},
-		"unlisted presubmit":                 {"stackrox/stackrox", "ci/prow/new", openshiftCIReporterID, false},
-		"same context from another reporter": {"stackrox/stackrox", context, 123, false},
+		"verified presubmit":                        {"StackRox/StackRox", context, openshiftCIReporterID, 0, true, false},
+		"verified presubmit required from its app":  {"stackrox/stackrox", context, openshiftCIReporterID, 91280, true, false},
+		"presubmit required from a different app":   {"stackrox/stackrox", context, openshiftCIReporterID, 123, false, false},
+		"unverified reporter for an app-bound rule": {"stackrox/stackrox", context, 123, 91280, false, false},
+		"same context in another repository":        {"stackrox/fact", context, openshiftCIReporterID, 0, false, true},
+		"unlisted presubmit":                        {"stackrox/stackrox", "ci/prow/new", openshiftCIReporterID, 0, false, true},
+		"same context from another reporter":        {"stackrox/stackrox", context, 123, 0, false, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			report := ManualRetryReport{Target: release.Target{Repo: tc.repo, PR: 7}}
 			status := commitStatus{State: "failure", Context: tc.context, URL: "https://prow.ci.openshift.org/view/gs/test-platform-results-public/pr-logs/pull/" + strings.ToLower(strings.ReplaceAll(tc.repo, "/", "_")) + "/7/job/123"}
 			status.Creator.ID = tc.reporter
-			failed := failedPresubmits(&report, []commitStatus{status}, retryScope{required: []requiredCheck{{context: tc.context}}})
+			failed := failedPresubmits(&report, []commitStatus{status}, retryScope{required: []requiredCheck{{context: tc.context, appID: tc.requiredApp}}})
 			if tc.wantAllowed {
 				if failed[tc.context] != (failedPresubmit{Name: "job", URL: status.URL}) || len(report.OtherChecks) != 0 {
 					t.Fatalf("failed = %v, other checks = %v", failed, report.OtherChecks)
 				}
-			} else if len(failed) != 0 || len(report.OtherChecks) != 1 || !strings.Contains(report.OtherChecks[0], tc.context+" · Unknown check") {
+				return
+			}
+			if len(failed) != 0 {
 				t.Fatalf("failed = %v, other checks = %v", failed, report.OtherChecks)
+			}
+			if tc.wantUnknown {
+				if len(report.OtherChecks) != 1 || !strings.Contains(report.OtherChecks[0], tc.context+" · Unknown check") {
+					t.Fatalf("expected an unknown check for %s, got %v", tc.context, report.OtherChecks)
+				}
+			} else if len(report.OtherChecks) != 0 {
+				t.Fatalf("unexpected check classifications: %v", report.OtherChecks)
 			}
 		})
 	}

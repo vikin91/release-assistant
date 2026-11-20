@@ -7,6 +7,12 @@ import (
 	"release-assistant/internal/release"
 )
 
+const (
+	stackroxBuildWorkflow       = ".github/workflows/build.yaml"
+	stackroxE2EDispatchWorkflow = ".github/workflows/e2e-dispatch.yaml"
+	waitForActionsImagesJob     = "wait-for-images"
+)
+
 // Hardcoded ci-retest ownership configuration. Keys identify the reporting
 // provider and caller workflow in one repository. Prow uses its status context
 // as the job. A present key with a nil job list covers the entire source.
@@ -18,9 +24,22 @@ type (
 var (
 	// retryAllowList supports required jobs and their prerequisites in these CI workflows.
 	retryAllowList = retryList{
-		{"stackrox/stackrox", "github-actions", ".github/workflows/build.yaml"}: nil,
-		{"stackrox/collector", "github-actions", ".github/workflows/main.yml"}:  nil,
-		{"stackrox/fact", "github-actions", ".github/workflows/ci.yml"}:         nil,
+		{"stackrox/stackrox", "github-actions", stackroxBuildWorkflow}:         nil,
+		{"stackrox/collector", "github-actions", ".github/workflows/main.yml"}: nil,
+		{"stackrox/fact", "github-actions", ".github/workflows/ci.yml"}:        nil,
+		{"stackrox/stackrox", "github-actions", ".github/workflows/style.yaml"}: {
+			"check-generated-files",
+			"golangci-lint",
+			"style-check",
+		},
+		{"stackrox/stackrox", "github-actions", ".github/workflows/unit-tests.yaml"}: {
+			`go (GOTAGS="")`,
+			"local-roxctl-tests",
+		},
+		{"stackrox/stackrox", "github-actions", stackroxE2EDispatchWorkflow}: {
+			"e2e-nongroovy-tests-gke / run / gke-nongroovy-e2e-tests",
+			waitForActionsImagesJob,
+		},
 	}
 	// retryOptionalList also permits these jobs when the CLI includes optional checks.
 	// A branch rule or prerequisite can bring any of them into the default report.
@@ -33,7 +52,7 @@ var (
 			"integration-tests / integration-tests (rhcos)",
 			"unit-tests / unit-tests (rhcos)",
 		},
-		{"stackrox/stackrox", "github-actions", ".github/workflows/e2e-dispatch.yaml"}: {
+		{"stackrox/stackrox", "github-actions", stackroxE2EDispatchWorkflow}: {
 			"e2e-gke-upgrade-tests / gke-upgrade-tests-postgres",
 		},
 		{"stackrox/stackrox", "github-actions", ".github/workflows/scan-image-vulnerabilities.yaml"}: nil,
