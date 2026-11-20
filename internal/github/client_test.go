@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -606,6 +607,23 @@ func TestReadTargetDetectsLabelsAndCurrentHead(t *testing.T) {
 	got, err := c.ReadTarget(context.Background(), release.Target{Repo: "acme/rox", PR: 4})
 	if err != nil || got.SHA != "fresh-head" || !got.Open || !got.OptOut || !got.CommentLabel {
 		t.Fatalf("identity=%+v err=%v", got, err)
+	}
+}
+
+func TestReadPRFetchesOnlyRequestedPullRequest(t *testing.T) {
+	var paths []string
+	srv := newFakeServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.Method+" "+r.URL.RequestURI())
+		_, _ = w.Write([]byte(`{"number":4298,"state":"open","title":"Updated PR","base":{"ref":"release-3.25"},"head":{"sha":"fresh-head"},"labels":[{"name":"allow-release-assistant"}]}`))
+	}))
+	defer srv.Close()
+	target := release.Target{Repo: "stackrox/collector", PR: 4298}
+	pr, err := New(srv.URL, "", srv.Client()).ReadPR(t.Context(), target)
+	if err != nil || pr.Target != target || pr.SHA != "fresh-head" || pr.Base != "release-3.25" || !pr.CommentLabel || !pr.Evidence.Fresh() {
+		t.Fatalf("PR=%+v err=%v", pr, err)
+	}
+	if !slices.Equal(paths, []string{"GET /repos/stackrox/collector/pulls/4298"}) {
+		t.Fatalf("GitHub requests: %v", paths)
 	}
 }
 

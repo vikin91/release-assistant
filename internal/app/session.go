@@ -87,6 +87,7 @@ type (
 		choices         release.Choices
 		repos           map[string]release.Repository
 		plans           map[release.Target]release.Plan
+		prRefreshHeads  map[release.Target]string
 		tagChecks       map[string]tagCheckObservation
 		manualRetries   map[release.Target]release.ManualRetryReport
 		retestQueue     []RetestItem
@@ -151,6 +152,7 @@ func (s *Session) reset() {
 	s.choices = release.Choices{PRs: map[release.Target]release.Choice{}, Tags: map[string]string{}, Acknowledged: map[string]bool{}}
 	s.repos = map[string]release.Repository{}
 	s.plans = map[release.Target]release.Plan{}
+	s.prRefreshHeads = map[release.Target]string{}
 	s.manualRetries = map[release.Target]release.ManualRetryReport{}
 	s.retestQueue = nil
 	s.tagChecks = make(map[string]tagCheckObservation)
@@ -934,6 +936,9 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			readPlan = s.readRCPlan
 		}
 		plan, err := readPlan(ctx, target)
+		if target.PR > 0 && plan.SHA != "" {
+			s.refreshChangedPRHead(ctx, generation, revision, source, target, plan.SHA)
+		}
 		if imageErr := s.inspectPinningImages(ctx, generation, &plan); imageErr != nil {
 			errs = append(errs, fmt.Errorf("checking built images for %s: %w", consoleRevision(target, plan.SHA), imageErr))
 		}
@@ -979,33 +984,12 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		}
 		expected := ""
 		for _, p := range s.repos[source.Name].PRs {
-			if p.Target == target {
+			if p.Target == target && p.State == "open" {
 				expected = p.SHA
 			}
 		}
 		if target.Tag != "" {
 			expected = s.confirmedSHAs[source.Name]
-		}
-		if plan.SHA != "" && plan.SHA != expected && target.PR > 0 {
-			// The planner resolved a new head; withhold authority until labels refresh.
-			identity := dispatch.Identity{Target: target, SHA: plan.SHA, Open: true, Evidence: release.Evidence{At: plan.Evidence.At, Error: "head changed; fresh authorization required"}}
-			s.dispatcher.ObserveIdentity(identity)
-			repo := s.repos[source.Name]
-			for n := range repo.PRs {
-				if repo.PRs[n].Target == target {
-					repo.PRs[n].SHA = plan.SHA
-					repo.PRs[n].Evidence = identity.Evidence
-				}
-			}
-			if repo.PinningPR != nil && repo.PinningPR.Target == target {
-				p := *repo.PinningPR
-				p.SHA, p.Evidence = plan.SHA, identity.Evidence
-				p.ChecksEvidence.Known = false
-				p.CheckResultsEvidence.Known = false
-				repo.PinningPR = &p
-			}
-			s.repos[source.Name] = repo
-			expected = plan.SHA
 		}
 		if err != nil && plan.SHA == "" {
 			old := clonePlan(s.plans[target])

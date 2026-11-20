@@ -35,6 +35,10 @@ type (
 	Discoverer interface {
 		Discover(context.Context, DiscoveryRequest) (release.Repository, error)
 	}
+	// PRReader verifies one PR's metadata with a single GitHub read.
+	PRReader interface {
+		ReadPR(context.Context, release.Target) (release.PR, error)
+	}
 	// DiscoveryCache exposes controls for optional reusable discovery data.
 	DiscoveryCache interface {
 		Enabled() bool

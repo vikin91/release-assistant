@@ -237,12 +237,11 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		if ignored[number] || hasPR(result.PRs, number) {
 			continue
 		}
-		var raw prResponse
-		if err := c.get(ctx, base+"/pulls/"+strconv.Itoa(number), &raw); err != nil {
+		p, err := c.readPR(ctx, release.Target{Repo: source.Repo, PR: number})
+		if err != nil {
 			issues = append(issues, err)
 			continue
 		}
-		p := convertPR(req.Source.Repo, raw)
 		if p.State == "open" && p.Base == source.Branch && req.Reads(app.ReadChecks) && tracked[number] {
 			c.readChecks(ctx, source, &p, classicEnforcement)
 		}
@@ -844,6 +843,30 @@ func (c *Client) previousPins(ctx context.Context, repo, version string) (releas
 	return pins, release.Yes
 }
 
+// ReadPR verifies PR metadata independently of branch and check discovery.
+func (c *Client) ReadPR(ctx context.Context, target release.Target) (release.PR, error) {
+	if target.PR <= 0 || !target.Valid() {
+		return release.PR{}, fmt.Errorf("invalid GitHub pull request target")
+	}
+	pr, err := c.readPR(ctx, target)
+	if err != nil {
+		return release.PR{}, err
+	}
+	if pr.Target != target || !pr.Evidence.Fresh() {
+		return release.PR{}, fmt.Errorf("GitHub did not return the requested PR and its head SHA")
+	}
+	return pr, nil
+}
+
+// readPR preserves partial metadata for discovery and identity callers.
+func (c *Client) readPR(ctx context.Context, target release.Target) (release.PR, error) {
+	var raw prResponse
+	if err := c.get(ctx, repoPath(target.Repo)+"/pulls/"+strconv.Itoa(target.PR), &raw); err != nil {
+		return release.PR{}, err
+	}
+	return convertPR(target.Repo, raw), nil
+}
+
 // ReadTarget returns fresh PR or tag identity and write-related labels.
 func (c *Client) ReadTarget(ctx context.Context, target release.Target) (dispatch.Identity, error) {
 	identity := dispatch.Identity{Target: target, Evidence: release.Evidence{At: time.Now()}}
@@ -851,11 +874,10 @@ func (c *Client) ReadTarget(ctx context.Context, target release.Target) (dispatc
 		return identity, fmt.Errorf("invalid GitHub target")
 	}
 	if target.PR > 0 {
-		var p prResponse
-		if err := c.get(ctx, repoPath(target.Repo)+"/pulls/"+strconv.Itoa(target.PR), &p); err != nil {
+		pr, err := c.readPR(ctx, target)
+		if err != nil {
 			return identity, err
 		}
-		pr := convertPR(target.Repo, p)
 		identity.SHA = pr.SHA
 		identity.Base = pr.Base
 		identity.Open = pr.State == "open"

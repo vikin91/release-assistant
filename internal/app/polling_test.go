@@ -10,6 +10,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"release-assistant/internal/dispatch"
 	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
 
@@ -20,6 +21,103 @@ type buildPollPlanner func(context.Context, release.Target) (release.Plan, error
 
 func (f buildPollPlanner) Plan(ctx context.Context, target release.Target) (release.Plan, error) {
 	return f(ctx, target)
+}
+
+type prPollReader struct {
+	*fixture
+	read func(release.Target) (release.PR, error)
+}
+
+func (r prPollReader) ReadPR(_ context.Context, target release.Target) (release.PR, error) {
+	return r.read(target)
+}
+
+func TestBuildPollRefreshesChangedPRHeadOnce(t *testing.T) {
+	for name, tc := range map[string]struct {
+		githubHead, wantHead string
+		readErr              error
+		wantPlan             bool
+	}{
+		"should verify the new head":                       {githubHead: "new-head", wantHead: "new-head", wantPlan: true},
+		"should prefer a different current head on GitHub": {githubHead: "latest-head", wantHead: "latest-head"},
+		"should leave identity stale on read failure":      {readErr: errors.New("GitHub unavailable"), wantHead: "new-head", wantPlan: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, f := newFixture()
+			config := configuration()
+			source := config.Components[1]
+			target := release.Target{Repo: source.Repo, PR: 4298}
+			pr := release.PR{Target: target, SHA: "old-head", State: "open", Base: source.Branch, Evidence: observed(),
+				Checks: []release.Check{{Name: "CI", Required: release.Yes, Status: "completed", Conclusion: "success"}}, ChecksEvidence: observed()}
+			repo := f.repos[source.Name]
+			repo.PRs = []release.PR{pr}
+			f.repos[source.Name] = repo
+			apply(t, s, Action{Kind: "configure", Config: config})
+			if err := fetchSourcePolls(t, s, source, pollPRs); err != nil {
+				t.Fatal(err)
+			}
+			apply(t, s, Action{Kind: "choice", Target: target, Choice: release.Included})
+			if err := fetchSourcePolls(t, s, source, pollChecks); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.dispatcher.Grant(target, pr.SHA, true); err != nil {
+				t.Fatal(err)
+			}
+			head := pr.SHA
+			s.planner = buildPollPlanner(func(_ context.Context, target release.Target) (release.Plan, error) {
+				return release.Plan{Target: target, SHA: head, Evidence: observed()}, nil
+			})
+			reads := 0
+			fresh := release.PR{Target: target, SHA: tc.githubHead, Title: "updated title", State: "open", Base: source.Branch, CommentLabel: true, Evidence: observed()}
+			s.discovery = prPollReader{fixture: f, read: func(got release.Target) (release.PR, error) {
+				reads++
+				if got != target {
+					t.Fatalf("refreshed %v, want %v", got, target)
+				}
+				if err := s.dispatcher.Grant(target, pr.SHA, true); err == nil {
+					t.Fatal("old head was still eligible for a grant during verification")
+				}
+				return fresh, tc.readErr
+			}}
+			if err := fetchSourcePolls(t, s, source, pollBuilds); err != nil || reads != 0 {
+				t.Fatalf("unchanged head: %d targeted reads, err=%v", reads, err)
+			}
+			head = "new-head"
+			for range 2 {
+				if err := fetchSourcePolls(t, s, source, pollBuilds); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if reads != 1 || pollCount(f, source.Name, ReadPRs) != 1 || pollCount(f, source.Name, ReadChecks) != 1 {
+				t.Fatalf("expected one targeted refresh with the regular poll counts, got %d targeted reads and discovery requests %+v", reads, f.requests)
+			}
+			got := s.repos[source.Name].PRs[0]
+			if got.SHA != tc.wantHead || got.Evidence.Fresh() != (tc.readErr == nil) || got.ChecksEvidence.Fresh() || len(got.Checks) != 0 {
+				t.Fatalf("unexpected refreshed PR: %+v", got)
+			}
+			if tc.readErr == nil && (got.Title != fresh.Title || !got.CommentLabel) {
+				t.Fatalf("fresh PR metadata missing: %+v", got)
+			}
+			plan, exists := s.plans[target]
+			if exists != tc.wantPlan || exists && plan.SHA != tc.wantHead {
+				t.Fatalf("unexpected plan: %+v (exists=%t)", plan, exists)
+			}
+			if slices.ContainsFunc(s.dispatcher.Views(), func(view dispatch.View) bool { return view.Target == target && view.Granted }) {
+				t.Fatal("head change kept the old grant")
+			}
+			if tc.readErr != nil {
+				pr.SHA = head
+				repo.PRs = []release.PR{pr}
+				f.repos[source.Name] = repo
+				if err := fetchSourcePolls(t, s, source, pollPRs); err != nil {
+					t.Fatal(err)
+				}
+				if got := s.repos[source.Name].PRs[0]; !got.Evidence.Fresh() || got.SHA != head || reads != 1 {
+					t.Fatalf("regular poll did not recover verification: PR=%+v targeted reads=%d", got, reads)
+				}
+			}
+		})
+	}
 }
 
 func TestBuildPollBackoffDistinguishesUnsupportedRetagContracts(t *testing.T) {
