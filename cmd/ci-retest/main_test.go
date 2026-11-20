@@ -155,6 +155,7 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 		mixed, optional, mergeScope      bool
 		greenGate, rulesUnavailable      bool
 		moved, otherCheck, missingConfig bool
+		newerRunPR                       int
 		want, absent                     []string
 		code                             int
 	}{
@@ -193,6 +194,14 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 			repo: "stackrox/collector", args: []string{"--prs", "7"}, workflowPath: ".github/workflows/main.yml", workflow: mergeWorkflow, mergeScope: true, greenGate: true,
 			absent: []string{"gh api --method POST", "Unknown check", "Warnings:"},
 		},
+		"should omit a cancelled prerequisite when a newer run for this PR passed it": {
+			repo: "stackrox/collector", args: []string{"--prs", "7"}, workflowPath: ".github/workflows/main.yml", workflow: mergeWorkflow, mergeScope: true, newerRunPR: 7,
+			absent: []string{"gh api --method POST", "Unknown check", "Warnings:"},
+		},
+		"should keep a cancelled prerequisite when the newer run belongs to another PR": {
+			repo: "stackrox/collector", args: []string{"--prs", "7"}, workflowPath: ".github/workflows/main.yml", workflow: mergeWorkflow, mergeScope: true, newerRunPR: 8,
+			want: []string{"compile: ineligible Actions conclusion cancelled"}, absent: []string{"gh api --method POST"},
+		},
 		"unavailable rules do not promote optional failures": {
 			args: []string{"--prs", "7"}, rulesUnavailable: true, want: []string{"required checks for master"}, absent: []string{"gh api --method POST", "/test gke-qa-e2e-tests", "Unknown check"}, code: 1,
 		},
@@ -208,7 +217,12 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 				event, ref = "push", "rc"
 				workflowName += " (rc)"
 			}
-			runData := fmt.Sprintf(`{"id":22,"name":%q,"path":%q,"workflow_id":33,"check_suite_id":11,"head_sha":%q,"head_branch":%q,"event":%q,"run_attempt":1,"run_number":2,"status":"completed","created_at":%q,"pull_requests":[%s],"referenced_workflows":[{"path":"stackrox/stackrox/.github/workflows/build.yml@%s","ref":%q,"sha":%q}]}`, workflowName, workflowPath, sha, ref, event, time.Now().UTC().Format(time.RFC3339), pr, sha, tc.ref, sha)
+			created := time.Now().UTC().Format(time.RFC3339)
+			workflowRun := func(id, suite, number int, pullRequest string) string {
+				return fmt.Sprintf(`{"id":%d,"name":%q,"path":%q,"workflow_id":33,"check_suite_id":%d,"head_sha":%q,"head_branch":%q,"event":%q,"run_attempt":1,"run_number":%d,"status":"completed","created_at":%q,"pull_requests":[%s],"referenced_workflows":[{"path":"stackrox/stackrox/.github/workflows/build.yml@%s","ref":%q,"sha":%q}]}`, id, workflowName, workflowPath, suite, sha, ref, event, number, created, pullRequest, sha, tc.ref, sha)
+			}
+			runData := workflowRun(22, 11, 2, pr)
+			runs := []string{runData}
 			first, second := "Konflux: release-central-db:rc", "Upstream: main:rc"
 			if tc.workflowName != "" {
 				first, second = "wait-for-images", "run-konflux-tests / integration-tests (fedora-coreos)"
@@ -220,6 +234,12 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 				first, second = "compile", "integration-tests / amd64-integration-tests (rhel) / Testing rhel"
 			}
 			checks := []string{failedCheck(41, first, "github-actions", 15368), failedCheck(42, second, "github-actions", 15368)}
+			if tc.newerRunPR > 0 {
+				checks[0] = strings.Replace(checks[0], `"conclusion":"failure"`, `"conclusion":"cancelled"`, 1)
+				checks = append(checks, fmt.Sprintf(`{"id":44,"name":%q,"status":"completed","conclusion":"success","head_sha":%q,"app":{"slug":"github-actions","id":15368},"check_suite":{"id":12}}`, first, sha))
+				newerPR := strings.Replace(pr, `"number":7`, fmt.Sprintf(`"number":%d`, tc.newerRunPR), 1)
+				runs = append(runs, workflowRun(23, 12, 3, newerPR))
+			}
 			if tc.greenGate {
 				checks = append(checks, strings.Replace(failedCheck(45, "merge gate", "github-actions", 15368), `"conclusion":"failure"`, `"conclusion":"success"`, 1))
 			}
@@ -301,7 +321,7 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 				case "/commits/" + sha + "/check-runs":
 					fmt.Fprintf(w, `{"total_count":%d,"check_runs":[%s]}`, len(checks), strings.Join(checks, ","))
 				case "/actions/runs":
-					fmt.Fprintf(w, `{"total_count":1,"workflow_runs":[%s]}`, runData)
+					fmt.Fprintf(w, `{"total_count":%d,"workflow_runs":[%s]}`, len(runs), strings.Join(runs, ","))
 				case "/actions/runs/22":
 					fmt.Fprint(w, runData)
 				case "/contents/" + workflowPath:

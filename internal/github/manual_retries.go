@@ -261,8 +261,12 @@ func (c *Client) manualActions(ctx context.Context, t release.Target, pr retryPR
 		problems = append(problems, err)
 	}
 	countBySuite := make(map[int64]int)
+	latestVerifiedPRRun := make(map[int64]int)
 	for _, run := range runs {
 		countBySuite[run.SuiteID]++
+		if t.PR > 0 && run.targetProblem(t, pr) == "" {
+			latestVerifiedPRRun[run.WorkflowID] = max(latestVerifiedPRRun[run.WorkflowID], run.Number)
+		}
 	}
 	for _, run := range runs {
 		selected := failed[run.SuiteID]
@@ -273,7 +277,7 @@ func (c *Client) manualActions(ctx context.Context, t release.Target, pr retryPR
 			continue
 		}
 		delete(failed, run.SuiteID)
-		if run.targetProblem(t, pr) != "" {
+		if run.targetProblem(t, pr) != "" || run.Number < latestVerifiedPRRun[run.WorkflowID] {
 			continue
 		}
 		selected, scopeErr := c.scopedRunChecks(ctx, t, pr, run, scope, selected, checks)
