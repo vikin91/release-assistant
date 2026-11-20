@@ -219,7 +219,7 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 	}
 	switch action.Kind {
 	case "configure":
-		destination = "/?tab=settings&saved=configuration"
+		destination = "/?tab=settings&saved=configuration#configuration-panel"
 	case "application-settings":
 		destination = "/?tab=settings&saved=application#retry-settings"
 	case "clear-cache":

@@ -18,8 +18,11 @@ func TestRefreshIntervalsSettings(t *testing.T) {
 	session := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{}), nil, app.Options{})
 	b := newBrowser(t, session)
 	body := b.getBody(t)
+	if !strings.Contains(body, `<table class="settings-table" aria-label="Application settings">`) {
+		t.Fatal("application settings must use a table")
+	}
 	for _, heading := range []string{"Components", "Before tag selection", "After tag selection", "ACS"} {
-		if !strings.Contains(body, "<legend>"+heading+"</legend>") {
+		if !strings.Contains(body, `colspan="2">`+heading+"<") {
 			t.Errorf("settings missing %q group", heading)
 		}
 	}

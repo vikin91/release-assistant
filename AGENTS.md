@@ -39,6 +39,20 @@ RC from StackRox tags and compare its commit with the configured release branch
 head. Use the README and current code for the workflow. The RC.0 sections in
 `design.md` predate current RC discovery.
 
+## Settings page
+
+1. Use **Settings** as the page heading. Present settings in two-column tables.
+   Give each save action its own form and place it directly below its table.
+2. Use a full-width header row for each category, such as **Refresh intervals**.
+   Put a short explanation below the heading. Use smaller full-width headers for
+   groups such as **Components** and **ACS**. State which components or release
+   phases the group covers. Keep phase-specific rows together.
+3. Give each setting one row. Put its label and any help text in the left cell.
+   Align the control in the right column and put its unit beside it. Associate
+   the label, help text, and unit with the input.
+4. Use the dashboard fonts, muted help text, and horizontal table rules.
+   Keep controls aligned and let long descriptions wrap on narrow screens.
+
 ## Development
 
 Use the Go version in `go.mod`. Go downloads the pinned

@@ -215,7 +215,7 @@ document.addEventListener("DOMContentLoaded", () => {
     stream.addEventListener("input", update);
   });
 
-  const configForm = document.querySelector(".config-grid");
+  const configForm = document.querySelector("form[data-saved-config]");
   const confirmation = document.getElementById("configuration-saved");
   if (confirmation && configForm) {
     window.history.replaceState(null, "", "/?tab=settings");

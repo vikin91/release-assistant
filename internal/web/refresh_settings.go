@@ -13,8 +13,8 @@ import (
 
 type (
 	refreshSection struct {
-		Title  string
-		Groups []refreshGroup
+		Title, Help string
+		Groups      []refreshGroup
 	}
 	refreshGroup struct {
 		Title  string
@@ -33,7 +33,7 @@ func refreshSections() []refreshSection {
 		componentTagHelp   = "Find component release tags. Resolve their commit SHAs."
 	)
 	return []refreshSection{
-		{Title: "Components", Groups: []refreshGroup{
+		{Title: "Components", Help: "Applies to Collector, Fact, and Scanner (ACS 4.x). Each component follows its own tag selection.", Groups: []refreshGroup{
 			{Title: "Before tag selection", Fields: []refreshField{
 				{app.BeforePRs, "Component PRs", componentPRHelp},
 				{app.BeforePRChecks, "Component PR checks", componentCheckHelp},
@@ -46,7 +46,7 @@ func refreshSections() []refreshSection {
 				{app.ComponentTagChecks, "Component tag checks", "Refresh GitHub CI results for the selected component tag."},
 			}},
 		}},
-		{Title: "ACS", Groups: []refreshGroup{
+		{Title: "ACS", Help: "Track the ACS release branch, release candidates, builds, and images.", Groups: []refreshGroup{
 			{Fields: []refreshField{
 				{app.ACSPRs, "ACS release PRs", "Find PRs targeting the ACS release branch. Update each PR’s state to open, merged, or closed."},
 				{app.ACSPRChecks, "ACS PR checks", "Refresh GitHub CI results for tracked ACS PRs."},

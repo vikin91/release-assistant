@@ -261,11 +261,12 @@ func TestConfigureForACS5OmitsScannerAndForwardsFields(t *testing.T) {
 		t.Fatalf("configure status=%d body=%s", w.Code, w.Body.String())
 	}
 	location := w.Header().Get("Location")
-	if location != "/?tab=settings&saved=configuration" {
+	if location != "/?tab=settings&saved=configuration#configuration-panel" {
 		t.Fatalf("unexpected save redirect %q", location)
 	}
 	appFake.snapshot.Config = appFake.actions[0].Config
-	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080"+location, nil)
+	path, _, _ := strings.Cut(location, "#")
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080"+path, nil)
 	result := httptest.NewRecorder()
 	b.handler.ServeHTTP(result, r)
 	if !strings.Contains(result.Body.String(), "Configuration saved.") || strings.Contains(b.getBody(t), "Configuration saved.") {
