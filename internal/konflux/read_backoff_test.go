@@ -117,6 +117,60 @@ func TestReadBackoffScopesFailuresAndProbes(t *testing.T) {
 	}
 }
 
+func TestReadBackoffReportsUnauthorizedUntilSuccessfulRead(t *testing.T) {
+	now := time.Now()
+	status := http.StatusUnauthorized
+	transport := &readBackoff{
+		now:       func() time.Time { return now },
+		endpoints: make(map[string]*endpointBackoff),
+		base: roundTrip(func(*http.Request) (*http.Response, error) {
+			if status == 0 {
+				return nil, context.DeadlineExceeded
+			}
+			return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader("{}"))}, nil
+		}),
+	}
+	readArchive := func() error {
+		t.Helper()
+		now = now.Add(time.Second)
+		req, err := http.NewRequestWithContext(WithReadCycle(t.Context()), http.MethodGet, archiveRead, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := transport.RoundTrip(req)
+		if err != nil {
+			return err
+		}
+		if resp.StatusCode != status {
+			t.Fatalf("got HTTP %d, want HTTP %d", resp.StatusCode, status)
+		}
+		return resp.Body.Close()
+	}
+	for range 2 {
+		if err := readArchive(); err != nil {
+			t.Fatal(err)
+		}
+		if issues := transport.issues(); len(issues) != 1 || !issues[0].Unauthorized || issues[0].Endpoint != "Tekton Results" ||
+			issues[0].Reason != "HTTP 401 Unauthorized" || !issues[0].RetryAt.IsZero() || !issues[0].LastFailure.Equal(now) {
+			t.Fatalf("expected authorization failure without backoff: %+v", issues)
+		}
+	}
+	status = 0
+	if err := readArchive(); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected a timeout, got %v", err)
+	}
+	if issues := transport.issues(); len(issues) != 2 {
+		t.Fatalf("expected the timeout and the recent authorization failure: %+v", issues)
+	}
+	status = http.StatusOK
+	if err := readArchive(); err != nil {
+		t.Fatal(err)
+	}
+	if issues := transport.issues(); len(issues) != 0 {
+		t.Fatalf("successful read should clear both issues: %+v", issues)
+	}
+}
+
 func TestAdapterDefersLiveLookupsButStillReadsGitHubAndArchive(t *testing.T) {
 	var liveCalls, archiveCalls, checkReads int
 	a := New(Config{

@@ -11,8 +11,8 @@ import (
 
 type (
 	konfluxAdmission struct {
-		Class, Label, Detail string
-		Last, Next           time.Time
+		Class, Label, Detail, SignInCluster string
+		Last, Next                          time.Time
 	}
 	konfluxClusterStatus struct {
 		Cluster  string
@@ -85,7 +85,7 @@ func (p pageModel) KonfluxAdmission() konfluxAdmission {
 				continue
 			}
 			started = f.CheckStartedAt
-			failure = konfluxAdmission{"unverified", "Unverified", f.Reason, f.Evidence.At, next}
+			failure = konfluxAdmission{Class: "unverified", Label: "Unverified", Detail: f.Reason, Last: f.Evidence.At, Next: next}
 			if age := time.Since(started); age >= 0 && age <= 30*time.Minute {
 				failure.Class, failure.Label = "rejected", "Unhealthy"
 			}
@@ -108,23 +108,41 @@ func (p pageModel) KonfluxAdmission() konfluxAdmission {
 		}
 		for _, run := range plan.Runs {
 			if run.ID != "" && run.Status == "in_progress" && run.Outcome == "" && plan.Evidence.At.After(active.Last) {
-				active = konfluxAdmission{"accepted", "Healthy", "", plan.Evidence.At, next}
+				active = konfluxAdmission{Class: "accepted", Label: "Healthy", Last: plan.Evidence.At, Next: next}
 			}
 		}
 	}
-	if failure.Class == "rejected" {
-		return failure
-	}
-	var readIssue *konflux.ReadIssue
+	var authIssue, readIssue *konflux.ReadIssue
 	for _, cluster := range p.KonfluxStatus {
 		for _, issue := range cluster.Reads {
-			if readIssue == nil || issue.LastFailure.After(readIssue.LastFailure) {
+			if issue.Unauthorized {
+				if authIssue == nil || issue.LastFailure.After(authIssue.LastFailure) {
+					authIssue = &issue
+				}
+			} else if readIssue == nil || issue.LastFailure.After(readIssue.LastFailure) {
 				readIssue = &issue
 			}
 		}
 	}
+	if authIssue != nil {
+		status := konfluxAdmission{
+			Class: "unavailable", Label: "Sign-in required", Detail: authIssue.Endpoint + " returned " + authIssue.Reason,
+			SignInCluster: authIssue.Cluster, Last: authIssue.LastFailure,
+		}
+		if readIssue != nil {
+			status.Detail += ". " + readIssue.Endpoint + " read failed: " + readIssue.Reason
+			status.Next = readIssue.RetryAt
+		}
+		return status
+	}
+	if failure.Class == "rejected" {
+		return failure
+	}
 	if readIssue != nil {
-		return konfluxAdmission{"unavailable", "API unavailable", readIssue.Endpoint + " read failed: " + readIssue.Reason, readIssue.LastFailure, readIssue.RetryAt}
+		return konfluxAdmission{
+			Class: "unavailable", Label: "API unavailable", Detail: readIssue.Endpoint + " read failed: " + readIssue.Reason,
+			Last: readIssue.LastFailure, Next: readIssue.RetryAt,
+		}
 	}
 	if active.Class != "" {
 		return active

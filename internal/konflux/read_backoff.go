@@ -23,11 +23,12 @@ const (
 )
 
 type (
-	// ReadIssue summarizes endpoint reachability from real Konflux requests.
+	// ReadIssue summarizes an endpoint's reachability or authentication failure.
 	ReadIssue struct {
 		Cluster, Endpoint, Reason string
 		LastFailure, RetryAt      time.Time
 		Probing                   bool
+		Unauthorized              bool
 	}
 	readCycleKey struct{}
 	readCycle    struct {
@@ -45,9 +46,10 @@ type (
 	}
 	endpointBackoff struct {
 		ReadIssue
-		lastCycle uint64
-		epoch     uint64
-		pause     time.Duration
+		unauthorizedAt time.Time
+		lastCycle      uint64
+		epoch          uint64
+		pause          time.Duration
 	}
 	readBody struct {
 		io.ReadCloser
@@ -66,10 +68,17 @@ func WithReadCycle(ctx context.Context) context.Context {
 func (t *readBackoff) issues() []ReadIssue {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	now := t.now()
 	var issues []ReadIssue
 	for _, state := range t.endpoints {
-		if !state.LastFailure.IsZero() && (state.pause > 0 || t.now().Sub(state.LastFailure) < issueWindow) {
+		if !state.LastFailure.IsZero() && (state.pause > 0 || now.Sub(state.LastFailure) < issueWindow) {
 			issues = append(issues, state.ReadIssue)
+		}
+		if !state.unauthorizedAt.IsZero() && now.Sub(state.unauthorizedAt) < issueWindow {
+			issues = append(issues, ReadIssue{
+				Cluster: state.Cluster, Endpoint: state.Endpoint, Reason: "HTTP 401 Unauthorized",
+				LastFailure: state.unauthorizedAt, Unauthorized: true,
+			})
 		}
 	}
 	slices.SortFunc(issues, func(a, b ReadIssue) int {
@@ -134,11 +143,11 @@ func (t *readBackoff) RoundTrip(req *http.Request) (*http.Response, error) {
 				if reads != nil {
 					reads.unavailable.Store(true)
 				}
-				t.observe(state, cycle.id, epoch, now, fmt.Sprintf("HTTP %d", status), false)
+				t.observe(state, cycle.id, epoch, now, fmt.Sprintf("HTTP %d", status), 0)
 			case err == nil:
-				t.observe(state, cycle.id, epoch, now, "", true)
+				t.observe(state, cycle.id, epoch, now, "", status)
 			case !enoughTime || callerExpired || errors.Is(ctx.Err(), context.Canceled):
-				t.observe(state, cycle.id, epoch, now, "", false)
+				t.observe(state, cycle.id, epoch, now, "", 0)
 			default:
 				reason := ""
 				if networkErr, ok := errors.AsType[net.Error](err); ok {
@@ -152,7 +161,7 @@ func (t *readBackoff) RoundTrip(req *http.Request) (*http.Response, error) {
 				if reads != nil && reason != "" {
 					reads.unavailable.Store(true)
 				}
-				t.observe(state, cycle.id, epoch, now, reason, false)
+				t.observe(state, cycle.id, epoch, now, reason, 0)
 			}
 		})
 	}
@@ -170,7 +179,7 @@ func (t *readBackoff) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
-func (t *readBackoff) observe(state *endpointBackoff, cycle, epoch uint64, now time.Time, reason string, responded bool) {
+func (t *readBackoff) observe(state *endpointBackoff, cycle, epoch uint64, now time.Time, reason string, responseStatus int) {
 	t.mu.Lock()
 	wasPaused := state.pause > 0
 	defer func() {
@@ -185,7 +194,14 @@ func (t *readBackoff) observe(state *endpointBackoff, cycle, epoch uint64, now t
 		return
 	}
 	state.Probing = false
-	if responded {
+	if responseStatus != 0 {
+		// An HTTP response verifies reachability. Only a successful read clears a 401.
+		switch {
+		case responseStatus == http.StatusUnauthorized:
+			state.unauthorizedAt = now
+		case responseStatus >= 200 && responseStatus < 300:
+			state.unauthorizedAt = time.Time{}
+		}
 		if state.pause > 0 {
 			state.epoch++
 		}

@@ -97,7 +97,7 @@ func TestAdmissionKeepsLastReportedErrorAfterHealthEvidenceExpires(t *testing.T)
 	}
 }
 
-func TestKonfluxPillBeforeAndAfterTimeout(t *testing.T) {
+func TestKonfluxPillShowsTimeoutAndSignIn(t *testing.T) {
 	now := time.Now()
 	issue := konflux.ReadIssue{Endpoint: "PipelineRun API", Reason: "request timed out", LastFailure: now, RetryAt: now.Add(time.Minute)}
 	application := &fakeApplication{snapshot: app.Snapshot{Config: validACS5Config()}}
@@ -109,6 +109,19 @@ func TestKonfluxPillBeforeAndAfterTimeout(t *testing.T) {
 	application.snapshot.KonfluxReadIssues = []konflux.ReadIssue{issue}
 	got := header()
 	for _, want := range []string{`class="konflux-pill unavailable">Konflux · API unavailable`, "PipelineRun API read failed: request timed out", formatTime(issue.LastFailure), formatTime(issue.RetryAt)} {
+		if !strings.Contains(got, want) {
+			t.Errorf("header missing %q: %s", want, got)
+		}
+	}
+	application.snapshot.KonfluxReadIssues = append(application.snapshot.KonfluxReadIssues, konflux.ReadIssue{
+		Cluster: "example.openshiftapps.com", Endpoint: "Tekton Results", Reason: "HTTP 401 Unauthorized",
+		LastFailure: now.Add(-time.Second), Unauthorized: true,
+	})
+	got = header()
+	for _, want := range []string{
+		"Konflux · Sign-in required", "Tekton Results returned HTTP 401 Unauthorized", "PipelineRun API read failed: request timed out",
+		"Run <code>oc login</code> for <code>example.openshiftapps.com</code>, then restart Release Assistant.", formatTime(issue.RetryAt),
+	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("header missing %q: %s", want, got)
 		}
