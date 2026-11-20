@@ -45,8 +45,7 @@
       <div><dt>GitHub quota (core REST)</dt>
         {{with .GitHub}}{{if .ObservedAt.IsZero}}<dd>Unknown</dd>{{else}}
         <dd>{{.Remaining}} of {{.Limit}} requests left</dd>
-        <dd>Observed at {{when .ObservedAt}}</dd>
-        <dd>Resets at {{when .ResetAt}}</dd>
+        <dd>{{quotaReset .ResetAt}}</dd>
         {{end}}{{end}}</div>
     </dl>
   </section>

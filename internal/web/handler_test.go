@@ -1116,7 +1116,7 @@ func TestPartialTagInventoryShowsVerifiedChoicesImmediately(t *testing.T) {
 func TestSidebarReadBudget(t *testing.T) {
 	now := time.Now()
 	nextSlot := now.Add(time.Minute)
-	reset := now.Add(time.Hour)
+	reset := now.Add(50*time.Minute + 30*time.Second)
 	application := &fakeApplication{snapshot: app.Snapshot{GitHubReadBudget: githubread.Budget{
 		Limit: 3000, NextSlot: nextSlot,
 		GitHub: githubread.Quota{Remaining: 1812, Limit: 5000, ObservedAt: now, ResetAt: reset},
@@ -1129,11 +1129,17 @@ func TestSidebarReadBudget(t *testing.T) {
 	}
 	for _, want := range []string{
 		"0 of 3000 reads left", "Next slot at " + formatTime(nextSlot),
-		"1812 of 5000 requests left", "Observed at " + formatTime(now), "Resets at " + formatTime(reset),
+		"1812 of 5000 requests left", "Resets in 51 minutes",
 	} {
 		if !strings.Contains(sidebar, want) {
 			t.Errorf("sidebar missing %q", want)
 		}
+	}
+	if strings.Contains(sidebar, "Observed at") || strings.Contains(sidebar, "Resets at") {
+		t.Error("sidebar contains an absolute GitHub quota timestamp")
+	}
+	if got := quotaReset(time.Now().Add(30 * time.Second)); got != "Resets in 1 minute" {
+		t.Errorf("final minute = %q", got)
 	}
 }
 

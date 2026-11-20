@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -54,7 +55,7 @@ func New(application Application) (http.Handler, error) {
 		"retryCommentPermissionLabel": func() string { return retryCommentPermissionLabel },
 		"pinVersion":                  pinVersion, "pinDiffers": pinDiffers,
 		"tabPage": tabPage, "tabTitle": tabTitle, "tabHelp": tabHelp, "tabStep": tabStep,
-		"truth": truthLabel, "when": formatTime, "url": safeURL,
+		"truth": truthLabel, "when": formatTime, "quotaReset": quotaReset, "url": safeURL,
 		"activity": activityText, "commentURL": commentURL,
 		"slice": func(values ...string) []string { return values },
 		"title": func(value string) string {
@@ -431,6 +432,19 @@ func formatTime(t time.Time) string {
 	}
 	return t.Local().Format("2006-01-02 15:04:05 MST")
 }
+
+func quotaReset(at time.Time) string {
+	minutes := int(math.Ceil(time.Until(at).Minutes()))
+	switch {
+	case minutes <= 0:
+		return "Reset due"
+	case minutes == 1:
+		return "Resets in 1 minute"
+	default:
+		return fmt.Sprintf("Resets in %d minutes", minutes)
+	}
+}
+
 func safeURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
