@@ -164,7 +164,7 @@ func TestRetryPrerequisitesInOrder(t *testing.T) {
 				checks = append(checks, check)
 			}
 			scope := retryScope{required: []requiredCheck{{"job4", 15368}}}
-			selected, _, err := client.scopedRunChecks(t.Context(), target, pr, run, nil, scope, failed, checks)
+			selected, _, err := client.scopedRunChecks(t.Context(), target, pr, run, scope, failed, checks)
 			var got []string
 			for _, check := range selected {
 				got = append(got, check.Name)

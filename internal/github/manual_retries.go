@@ -269,7 +269,8 @@ func (c *Client) manualActions(ctx context.Context, t release.Target, pr retryPR
 	if err != nil {
 		problems = append(problems, err)
 	}
-	scope.upstreamWorkflows, err = c.requiredRetryWorkflows(ctx, t, pr, scope, runs, checks)
+	scope.workflowInputs, err = c.retryWorkflowInputs(ctx, t, pr, scope, runs, checks)
+	scope.workflowInputsVerified = err == nil
 	if err != nil {
 		problems = append(problems, err)
 	}
@@ -316,7 +317,7 @@ func (c *Client) manualActions(ctx context.Context, t release.Target, pr retryPR
 				}
 			}
 		}
-		selected, blocked, scopeErr := c.scopedRunChecks(ctx, t, pr, run, runs, scope, selected, observed)
+		selected, blocked, scopeErr := c.scopedRunChecks(ctx, t, pr, run, scope, selected, observed)
 		report.Warnings = append(report.Warnings, blocked...)
 		if scopeErr != nil {
 			problems = append(problems, scopeErr)

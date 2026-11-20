@@ -3,6 +3,7 @@ package github
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"path"
@@ -16,9 +17,10 @@ import (
 
 type (
 	retryScope struct {
-		required          []requiredCheck
-		upstreamWorkflows map[string]bool
-		optional          bool
+		required               []requiredCheck
+		workflowInputs         map[string]retryWorkflowInput
+		workflowInputsVerified bool
+		optional               bool
 	}
 	retryWorkflowJob struct {
 		Name, Uses, If  string
@@ -26,7 +28,10 @@ type (
 		Strategy        struct{ Matrix yaml.Node }
 		ContinueOnError string `yaml:"continue-on-error"`
 	}
-	retryWorkflow struct{ Jobs map[string]retryWorkflowJob }
+	retryWorkflow struct {
+		Jobs        map[string]retryWorkflowJob
+		auditedJobs map[string][]string
+	}
 )
 
 func (s retryScope) matches(name string, appID int64) bool {
@@ -40,11 +45,16 @@ func (s retryScope) includesOptional(source retrySource, job string) bool {
 }
 
 // scopedRunChecks selects failures that can run with the current prerequisite results.
-func (c *Client) scopedRunChecks(ctx context.Context, target release.Target, pr retryPR, run retryRun, runs []retryRun, scope retryScope, failures, observed []commitCheckRun) ([]commitCheckRun, []string, error) {
+func (c *Client) scopedRunChecks(ctx context.Context, target release.Target, pr retryPR, run retryRun, scope retryScope, failures, observed []commitCheckRun) ([]commitCheckRun, []string, error) {
 	source := retrySource{strings.ToLower(target.Repo), "github-actions", run.Path}
-	upstreamRequired := scope.upstreamWorkflows[run.Path] && run.Conclusion != "success"
+	var publishers []retryWorkflowProducer
+	for _, input := range scope.workflowInputs {
+		if input.build.ID == run.ID {
+			publishers = append(publishers, input.pending...)
+		}
+	}
 	if !slices.ContainsFunc(failures, func(check commitCheckRun) bool {
-		return !retryDenyList.matches(source, check.Name) && (upstreamRequired || scope.includesOptional(source, check.Name) ||
+		return !retryDenyList.matches(source, check.Name) && (len(publishers) != 0 || scope.includesOptional(source, check.Name) ||
 			slices.ContainsFunc(scope.required, func(rule requiredCheck) bool {
 				return (rule.appID == 0 || rule.appID == check.App.ID) && !strings.HasPrefix(rule.context, "Red Hat Konflux /")
 			}))
@@ -73,6 +83,8 @@ func (c *Client) scopedRunChecks(ctx context.Context, target release.Target, pr 
 		if err != nil {
 			problems = append(problems, fmt.Errorf("reading prerequisites from %s: %w", file, err))
 			w = retryWorkflow{}
+		} else {
+			w.applyAuditedTree(retryWorkflowTrees[source.repo][file], data)
 		}
 		files[file] = w
 		return w
@@ -94,7 +106,9 @@ func (c *Client) scopedRunChecks(ctx context.Context, target release.Target, pr 
 		if retryDenyList.matches(source, check.Name) {
 			continue
 		}
-		needed := upstreamRequired || scope.matches(check.Name, check.App.ID)
+		needed := scope.matches(check.Name, check.App.ID) || slices.ContainsFunc(publishers, func(producer retryWorkflowProducer) bool {
+			return producer.neededFor(check.Name, run.Path, load)
+		})
 		mergePrerequisite := false
 		for _, root := range scope.required {
 			if (root.appID != 0 && root.appID != check.App.ID) || !workflowPrerequisite(run.Path, root.context, check.Name, load) {
@@ -112,7 +126,7 @@ func (c *Client) scopedRunChecks(ctx context.Context, target release.Target, pr 
 			blocked = append(blocked, check.Name+": waiting for prerequisite "+blocker)
 			continue
 		}
-		if blocker := retryWorkflowDependencyProblem(target, pr, run.Path, check.Name, runs, load); blocker != "" {
+		if blocker := retryWorkflowDependencyProblem(target, scope, run, check.Name, load); blocker != "" {
 			blocked = append(blocked, check.Name+": "+blocker)
 			continue
 		}
@@ -333,7 +347,30 @@ func (job retryWorkflowJob) matches(display, instance string) bool {
 	})
 }
 
+// applyAuditedTree only overlays edges audited against this workflow revision.
+func (w *retryWorkflow) applyAuditedTree(trees []retryWorkflowTree, data []byte) {
+	if len(trees) == 0 {
+		return
+	}
+	fingerprint := fmt.Sprintf("%x", sha256.Sum256(data))
+	for _, tree := range trees {
+		if !slices.Contains(tree.Fingerprints, fingerprint) {
+			continue
+		}
+		w.auditedJobs = tree.Jobs
+		for id, uses := range tree.Calls {
+			job := w.Jobs[id]
+			job.Uses = uses
+			w.Jobs[id] = job
+		}
+		return
+	}
+}
+
 func (w retryWorkflow) directNeeds(id string) []string {
+	if needs, recorded := w.auditedJobs[id]; recorded {
+		return slices.Clone(needs)
+	}
 	node := w.Jobs[id].Needs
 	var needs []string
 	switch node.Kind {

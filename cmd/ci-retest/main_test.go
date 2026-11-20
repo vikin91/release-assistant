@@ -160,6 +160,7 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 		attemptMoved                     bool
 		imageWait                        bool
 		buildConclusion                  string
+		imagePublishersPassed            bool
 		want, absent                     []string
 		code                             int
 	}{
@@ -224,10 +225,10 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 		},
 		"should point to the latest failed Build instead of retrying the image wait": {
 			args: []string{"--prs", "7"}, workflowPath: ".github/workflows/e2e-dispatch.yaml", imageWait: true, buildConclusion: "failure",
-			want: []string{"wait-for-images: inspect the Build run for this commit (failure)", "https://github.com/stackrox/stackrox/actions/runs/25"}, absent: []string{"Unknown check", "/jobs/99/rerun"},
+			want: []string{"wait-for-images: waiting for Build image publishers build-and-push-db", "https://github.com/stackrox/stackrox/actions/runs/25"}, absent: []string{"Unknown check", "/jobs/99/rerun"},
 		},
-		"should retry the failed image wait after Build succeeds": {
-			args: []string{"--prs", "7"}, workflowPath: ".github/workflows/e2e-dispatch.yaml", imageWait: true, buildConclusion: "success",
+		"should retry the failed image wait after image publication despite an unrelated Build failure": {
+			args: []string{"--prs", "7"}, workflowPath: ".github/workflows/e2e-dispatch.yaml", imageWait: true, buildConclusion: "failure", imagePublishersPassed: true,
 			want: []string{"wait-for-images\nhttps://github.com/stackrox/stackrox/actions/runs/22/job/99", "/jobs/99/rerun"}, absent: []string{"Unknown check"},
 		},
 		"should withhold an image wait retry when Build is unavailable": {
@@ -286,6 +287,18 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 				first, second = "unit-tests", "build-images (linux, amd64)"
 			}
 			checks := []string{failedCheck(41, first, "github-actions", 15368), failedCheck(42, second, "github-actions", 15368)}
+			if tc.imagePublishersPassed {
+				for i, name := range []string{
+					"build-and-push-db",
+					"build-operator-bundle",
+					"push-main-manifests (RHACS_BRANDING)",
+					"push-matching-collector-scanner (RHACS_BRANDING)",
+					"push-scanner-manifests (default, quay.io/rhacs-eng)",
+					"push-operator-manifests (RHACS_BRANDING, amd64,arm64)",
+				} {
+					checks = append(checks, fmt.Sprintf(`{"id":%d,"name":%q,"status":"completed","conclusion":"success","head_sha":%q,"app":{"slug":"github-actions","id":15368},"check_suite":{"id":35}}`, 50+i, name, sha))
+				}
+			}
 			if tc.newerRunPR > 0 {
 				checks[0] = strings.Replace(checks[0], `"conclusion":"failure"`, `"conclusion":"cancelled"`, 1)
 				checks = append(checks, fmt.Sprintf(`{"id":44,"name":%q,"status":"completed","conclusion":"success","head_sha":%q,"app":{"slug":"github-actions","id":15368},"check_suite":{"id":12}}`, first, sha))
