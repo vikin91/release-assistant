@@ -28,7 +28,7 @@
 {{end}}
 
 {{define "retry-offers"}}
-    {{range .Authority}}<div class="offer-card" data-live-key="authority:{{.View.Target}}"><h3>{{.View.Target}} <span class="muted">SHA {{.View.SHA}}</span></h3><p>RW {{if .View.Granted}}allowed{{else}}not allowed{{end}} · {{if .View.Ignored}}ignored{{else}}monitored{{end}}{{if .View.OptOut}} · no-release-assistant disables writes{{end}}</p>{{if .View.Message}}<p>{{.View.Message}}</p>{{end}}{{if .View.Warnings}}<ol>{{range .View.Warnings}}<li class="warning">{{.}}</li>{{end}}</ol>{{end}}
+    {{range .Authority}}<div class="offer-card" data-live-key="authority:{{.View.Target}}"><h3>{{.View.Target}} <span class="muted">SHA {{.View.SHA}}</span></h3><p>{{if $.AutomaticRetryPermissions}}Automatic posting {{if .View.Granted}}allowed{{else}}permission required{{end}} · {{end}}{{if .View.Ignored}}ignored{{else}}monitored{{end}}{{if .View.OptOut}} · no-release-assistant disables writes{{end}}</p>{{if .View.Message}}<p>{{.View.Message}}</p>{{end}}{{if .View.Warnings}}<ol>{{range .View.Warnings}}<li class="warning">{{.}}</li>{{end}}</ol>{{end}}
       {{range .View.Offers}}<div class="offer" data-live-key="offer:{{.ID}}"><p>{{.Proposal.Target}} · SHA {{.Proposal.SHA}} · {{.Proposal.Job}} · run {{.Proposal.RunID}} · failures {{.Failures}}</p><p>{{if .CommentSent}}Comment sent{{else if .Reason}}{{.Reason}}{{else if $.Snapshot.Interactive}}Ready to review{{else}}Eligible for automatic retry{{end}}{{if not .WaitingUntil.IsZero}} · wait until {{when .WaitingUntil}}{{end}}</p>{{template "retry-comment-controls" .Proposal}}
         {{if .Queueable}}{{template "retest-queue-link"}}{{end}}
       </div>{{else}}<p class="muted">No current offers.</p>{{end}}

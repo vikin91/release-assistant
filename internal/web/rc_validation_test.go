@@ -103,8 +103,8 @@ func TestRCValidationShowsExceptionsAndReusesExactTagRetest(t *testing.T) {
 			if strings.Contains(validation, "Open Retest Queue") != mode.writes {
 				t.Error("every mode with a pending offer should link to the queue")
 			}
-			if strings.Contains(validation, `action="/action#rc-validation"`) != mode.writes {
-				t.Error("tag permission should return to validation")
+			if strings.Contains(validation, `action="/action#rc-validation"`) != (mode.writes && !mode.interactive) {
+				t.Error("the automatic posting permission control should return to validation")
 			}
 		})
 	}

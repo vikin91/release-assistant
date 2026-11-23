@@ -74,12 +74,12 @@ func (p *pageModel) prepareRC() {
 
 	p.RC.CommitURL = repoURL + "/commit/" + url.PathEscape(plan.SHA)
 	p.RC.ChecksURL = p.RC.CommitURL + "/checks"
-	if group.Authority != nil && group.Authority.SHA == plan.SHA && p.Snapshot.WritesEnabled &&
+	if group.Authority != nil && group.Authority.SHA == plan.SHA && p.AutomaticRetryPermissions() &&
 		(len(plan.Proposals) > 0 || group.Authority.Granted) {
 		p.RC.Permission = &tagModel{
 			Tag: release.Tag{Name: target.Tag, SHA: plan.SHA}, Repo: target.Repo,
-			Authority: group.Authority, WritesEnabled: p.Snapshot.WritesEnabled,
-			Tab: p.Tab, CSRF: p.CSRF, Generation: p.Snapshot.Generation, GrantAnchor: "rc-validation",
+			Authority: group.Authority,
+			Tab:       p.Tab, CSRF: p.CSRF, Generation: p.Snapshot.Generation, GrantAnchor: "rc-validation",
 		}
 	}
 	runs := make(map[string]release.Run, len(plan.Runs))

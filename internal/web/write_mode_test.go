@@ -28,7 +28,7 @@ func TestWriteModeControls(t *testing.T) {
 
 		wantHeader string
 	}{
-		{name: "startup read-only", interactive: true, wantDisabled: true, wantHeader: "Read-only"},
+		{name: "startup read-only", interactive: true, wantHeader: "Read-only"},
 		{name: "writes enabled", writesEnabled: true, interactive: true, wantHeader: "Interactive"},
 		{name: "automatic with opt-out", writesEnabled: true, optOut: true, wantDisabled: true, wantHeader: "Full auto"},
 		{name: "only labeled", writesEnabled: true, requireLabel: true, wantHeader: "Only labeled"},
@@ -82,17 +82,20 @@ func TestWriteModeControls(t *testing.T) {
 			if got := strings.Contains(prCard, "Allowed by label"); got != (tc.requireLabel && !tc.missingLabel) {
 				t.Errorf("label badge present = %t", got)
 			}
-			prGrant := grantForm(t, prCard)
-			assertCheckboxDisabled(t, "PR RW grant", prGrant, "enabled", tc.wantDisabled)
-			assertButtonTextDisabled(t, "PR noscript grant", prGrant, "Apply RW permission", tc.wantDisabled)
 			if !strings.Contains(prCard, `value="included" aria-pressed="true"`) || strings.Contains(prCard, `name="choice" value="included" aria-pressed="true" disabled`) || !strings.Contains(prCard, "Exclude</button>") || !strings.Contains(prCard, "Ignore &amp; hide") {
 				t.Error("PR inclusion, exclusion, and ignore choices must remain available")
 			}
 
 			tagRow := tagRowContaining(body, "tag-sha")
-			tagGrant := grantForm(t, tagRow)
-			assertCheckboxDisabled(t, "tag RW grant", tagGrant, "enabled", tc.wantDisabled)
-			assertButtonTextDisabled(t, "tag noscript grant", tagGrant, "Apply RW permission", tc.wantDisabled)
+			for target, markup := range map[string]string{"PR": prCard, "tag": tagRow} {
+				if tc.writesEnabled && !tc.interactive {
+					grant := grantForm(t, markup)
+					assertCheckboxDisabled(t, target+" automatic grant", grant, "enabled", tc.wantDisabled)
+					assertButtonTextDisabled(t, target+" noscript grant", grant, "Apply automatic posting permission", tc.wantDisabled)
+				} else if strings.Contains(markup, `name="kind" value="grant"`) {
+					t.Errorf("%s has automatic posting controls in %s mode", target, tc.wantHeader)
+				}
+			}
 			if !strings.Contains(body, "Switch to fact 3.25.8") {
 				t.Error("tag switch must remain available")
 			}

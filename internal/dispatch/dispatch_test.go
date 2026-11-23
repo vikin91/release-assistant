@@ -64,6 +64,7 @@ func TestDispatchWithholdsUnsafeWrites(t *testing.T) {
 		"new run":               func(_ *Dispatcher, f *fake) { f.plan.Proposals[0].RunID = "2" },
 		"payload changed":       func(_ *Dispatcher, f *fake) { f.plan.Proposals[0].Payload = "different" },
 		"configuration changed": func(d *Dispatcher, f *fake) { f.readHook = d.Reset },
+		"write mode changed":    func(d *Dispatcher, f *fake) { f.readHook = func() { d.Interactive(false) } },
 		"server stop":           func(d *Dispatcher, f *fake) { f.readHook = d.Stop },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -85,6 +86,7 @@ func TestPRCommentLabelGate(t *testing.T) {
 	}{
 		"label requirement off":       {wantWrite: true},
 		"automatic eligible PR":       {required: true, observed: true, current: true, wantWrite: true},
+		"interactive eligible PR":     {interactive: true, required: true, observed: true, current: true, wantWrite: true},
 		"unlabeled PR":                {required: true},
 		"label removed before write":  {required: true, observed: true},
 		"confirmed but label removed": {interactive: true, required: true, observed: true},
@@ -102,7 +104,7 @@ func TestPRCommentLabelGate(t *testing.T) {
 			f.identity.CommentLabel = tc.observed
 			d.ObserveIdentity(f.identity)
 			d.ObservePlan(f.plan)
-			if err := d.Grant(f.identity.Target, f.identity.SHA, true); err != nil {
+			if err := d.Grant(f.identity.Target, f.identity.SHA, !tc.interactive); err != nil {
 				t.Fatal(err)
 			}
 			f.identity.CommentLabel = tc.current
@@ -295,23 +297,20 @@ func TestStartupWritePermissionCannotBeBypassed(t *testing.T) {
 	}
 }
 
-func TestStartupWriteOptInStillRequiresTargetGrant(t *testing.T) {
+func TestStartupWriteOptInDefaultsToSingleUseConfirmation(t *testing.T) {
 	_, f, _ := setup(t)
 	d := New(f, f, f, Options{EnableWrites: true})
 	d.ObserveIdentity(f.identity)
 	d.ObservePlan(f.plan)
 	p := f.plan.Proposals[0]
-	if !d.WritesEnabled() {
-		t.Fatal("explicit startup permission missing")
+	if !d.WritesEnabled() || !d.IsInteractive() {
+		t.Fatal("expected Interactive mode with explicit startup permission")
 	}
-	if _, err := d.Send(t.Context(), p.Target, ID(p), true); err == nil || f.writes.Load() != 0 {
-		t.Fatal("startup permission bypassed target grant")
-	}
-	if err := d.Grant(p.Target, p.SHA, true); err != nil {
-		t.Fatal(err)
+	if _, err := d.Send(t.Context(), p.Target, ID(p), false); err == nil || f.writes.Load() != 0 {
+		t.Fatal("startup permission bypassed Interactive confirmation")
 	}
 	if _, err := d.Send(t.Context(), p.Target, ID(p), true); err != nil || f.writes.Load() != 1 {
-		t.Fatalf("explicitly authorized send: %v", err)
+		t.Fatalf("Interactive confirmation should work without an automatic posting grant: %v", err)
 	}
 	d.Reset()
 	if !d.WritesEnabled() {

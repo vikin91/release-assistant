@@ -9,9 +9,9 @@
     {{else}}
       <p class="muted">Commit and check links · Waiting for verified RC build checks.</p>
     {{end}}
-    {{with .RC.Permission}}{{template "tag-comment-permission" .}}{{else}}
+    {{if .AutomaticRetryPermissions}}{{with .RC.Permission}}{{template "tag-comment-permission" .}}{{else}}
       <label class="check disabled-control"><input type="checkbox" disabled> {{retryCommentPermissionLabel}}</label>
-    {{end}}
+    {{end}}{{end}}
     {{if .RC.ValidationRows}}{{template "rc-validation-status" .}}{{end}}
     <div class="component-image-table-scroll" role="region" aria-label="RC validation checks" tabindex="0">
       <table class="rc-validation-checks" aria-labelledby="rc-validation-heading">

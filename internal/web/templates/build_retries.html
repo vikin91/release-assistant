@@ -41,8 +41,9 @@
             {{else}}<p>No build observations are available for this target.</p>{{end}}
             {{with .Authority}}
               {{if .OptOut}}<p>Retry comments disabled by the opt-out label.</p>
-              {{else if .Granted}}<p>Retry comment permission granted.</p>
-              {{else}}<p>Retry comment permission required.</p>{{end}}
+              {{else if $.AutomaticRetryPermissions}}
+                <p>Automatic posting permission {{if .Granted}}granted{{else}}required{{end}}.</p>
+              {{end}}
               {{if .Warnings}}<ol>{{range .Warnings}}<li>{{.}}</li>{{end}}</ol>{{end}}
             {{end}}
           </details>

@@ -19,7 +19,7 @@ var renderedFormRE = regexp.MustCompile(`(?s)<form\b[^>]*>.*?</form>`)
 func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) {
 	observed := release.Evidence{Known: true, At: time.Now()}
 	application := &fakeApplication{snapshot: app.Snapshot{
-		Config: validACS5Config(), Generation: 23,
+		Config: validACS5Config(), Generation: 23, WritesEnabled: true,
 		Choices: release.Choices{
 			Tags: map[string]string{"fact": "3.25.1", "collector": "3.25.4"},
 			PRs:  map[release.Target]release.Choice{{Repo: "acme/fact", PR: 11}: release.Included},
@@ -140,7 +140,7 @@ func TestPRChoiceControlsSubmitOneExplicitDecisionAndKeepGrantSeparate(t *testin
 	excluded := release.Target{Repo: "acme/fact", PR: 17}
 	undecided := release.Target{Repo: "acme/fact", PR: 18}
 	application := &fakeApplication{snapshot: app.Snapshot{
-		Config: validACS5Config(), Generation: 31,
+		Config: validACS5Config(), Generation: 31, WritesEnabled: true,
 		Choices: release.Choices{PRs: map[release.Target]release.Choice{excluded: release.Excluded}},
 		Repositories: []release.Repository{{Source: release.Source{Name: "fact", Repo: "acme/fact", Branch: "release-3.25"}, PRs: []release.PR{
 			{Target: excluded, SHA: "excluded-head-sha", Title: "Excluded PR", State: "open", Evidence: release.Evidence{Known: true, At: time.Now()}},

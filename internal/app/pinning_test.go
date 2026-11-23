@@ -77,14 +77,13 @@ func TestConfiguredPinningPRIsIncludedWithoutWritePermission(t *testing.T) {
 	if len(x.Authority) != 1 || x.Authority[0].Granted || f.writes != 0 {
 		t.Fatal("pinning monitoring enabled writes")
 	}
-	apply(t, s, Action{Kind: "grant", Target: config.PinningTarget(), SHA: f.plan.SHA, Enabled: true})
 	apply(t, s, Action{Kind: "queue-send", QueueID: queueID(t, s, f.plan.Proposals[0])})
 	if f.writes != 1 {
 		t.Fatal("explicitly approved fake retry was not delivered")
 	}
 }
 
-func TestChangingConfiguredPinningPRRevokesItsGrant(t *testing.T) {
+func TestChangingConfiguredPinningPRWithdrawsItsRetries(t *testing.T) {
 	for name, number := range map[string]int{"replacement": 456, "removed": 0} {
 		t.Run(name, func(t *testing.T) {
 			s, f, config := newPinningSession(t)

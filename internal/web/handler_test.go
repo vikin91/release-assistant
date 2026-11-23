@@ -409,7 +409,7 @@ func TestIgnoredPRIsHiddenAndConfirmedTagHasIndependentRWControl(t *testing.T) {
 	prTarget := release.Target{Repo: "acme/rox", PR: 8}
 	tagTarget := release.Target{Repo: "acme/fact", Tag: "3.25.7"}
 	appFake := &fakeApplication{snapshot: app.Snapshot{
-		Config:  validACS5Config(),
+		Config: validACS5Config(), WritesEnabled: true,
 		Choices: release.Choices{PRs: map[release.Target]release.Choice{prTarget: release.Ignored}, Tags: map[string]string{"fact": "3.25.7"}},
 		Repositories: []release.Repository{
 			{Source: release.Source{Name: "acs", Repo: "acme/rox", Branch: "release-5.0"}, PRs: []release.PR{{Target: prTarget, SHA: "ignored-sha", Title: "Ignored PR", State: "open"}}},
@@ -586,8 +586,8 @@ func TestComponentPRSelectionShowsAuthorsAndSummarizesUnverifiedChecks(t *testin
 		t.Fatal("the component PR should show unverified status without exposing the check table")
 	}
 	if !strings.Contains(card, `name="sha" value="exact-pr-head"`) ||
-		!strings.Contains(card, `value="included" aria-pressed="true"`) || !strings.Contains(card, `value="true"  disabled> `+retryCommentPermissionLabel) {
-		t.Fatal("inclusion must stay selected independently of the unchecked RW permission")
+		!strings.Contains(card, `value="included" aria-pressed="true"`) || strings.Contains(card, `name="kind" value="grant"`) {
+		t.Fatal("Read-only mode should keep the selection controls and omit automatic posting controls")
 	}
 }
 

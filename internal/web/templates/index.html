@@ -16,7 +16,7 @@
   <details data-fold-key="write-mode" name="header-menu" class="header-menu">
     <summary>Write mode · {{if not .Snapshot.WritesEnabled}}Read-only{{else if .Snapshot.Interactive}}Interactive{{if .Snapshot.RequirePRLabel}} · Only labeled{{end}}{{else if .Snapshot.RequirePRLabel}}Only labeled{{else}}Full auto{{end}}</summary>
     <div class="menu-content write-mode-help">
-      <p>Each retry comment requires permission for its PR or tag. The label requirement applies only to PRs.</p>
+      <p>Use <b>Send</b> to approve one comment in Interactive mode. Automatic posting requires permission for each PR or tag.</p>
       <ol>
         <li><strong>Read-only</strong>{{if not .Snapshot.WritesEnabled}} (active){{end}}. The assistant reads GitHub and posts no comments. Start the assistant without <code>--enable-writes</code>.</li>
         <li><strong>Interactive</strong>{{if and .Snapshot.WritesEnabled .Snapshot.Interactive}} (active){{end}}. Select <b>Send</b> for each eligible comment in the <a href="/?tab=retest-queue#retest-queue" data-open-section>Retest Queue</a>. If the label requirement is on, GitHub must also report the label for the PR. Select <b>Confirm each retry comment</b> to enable this mode.</li>

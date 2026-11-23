@@ -27,7 +27,7 @@ import (
 var assets embed.FS
 
 const (
-	retryCommentPermissionLabel = "Allow posting retry comments"
+	retryCommentPermissionLabel = "Allow automatic retry comments"
 	maxFormBytes                = 64 << 10
 	csrfCookie                  = "release_assistant_csrf"
 )

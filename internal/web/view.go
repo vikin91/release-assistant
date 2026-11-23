@@ -87,7 +87,6 @@ type (
 		CSRF            string
 		Generation      uint64
 		Switch          bool
-		WritesEnabled   bool
 		MergeCoverage   []mergeCoverageModel
 	}
 	tagSelectionCounts struct {
@@ -130,6 +129,11 @@ type (
 	authorityModel struct{ View dispatch.View }
 	historyModel   struct{ Cycle app.Cycle }
 )
+
+// AutomaticRetryPermissions reports whether the dashboard can configure automatic posting.
+func (p pageModel) AutomaticRetryPermissions() bool {
+	return p.Snapshot.WritesEnabled && !p.Snapshot.Interactive
+}
 
 func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 	model := pageModel{
@@ -314,8 +318,7 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 				Tag:      tag,
 				Proposed: snapshot.Assessment.ProposedTags[repo.Source.Name] == tag.Name, Authority: authority,
 				Component: repo.Source.Name, Repo: repo.Source.Repo, CSRF: csrf, Generation: snapshot.Generation, Tab: "component-releases",
-				WritesEnabled: snapshot.WritesEnabled,
-				Switch:        r.CurrentTag != "" && tag.Name != r.CurrentTag,
+				Switch: r.CurrentTag != "" && tag.Name != r.CurrentTag,
 			}
 			for _, pr := range repo.PRs {
 				if snapshot.Choices.PRs[pr.Target] == release.Included && pr.Merged && pr.MergeSHA != "" {

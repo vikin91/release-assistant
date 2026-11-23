@@ -501,7 +501,7 @@ func (s *Session) setPRChoice(target release.Target, sha string, choice release.
 	} else {
 		s.choices.PRs[target] = choice
 	}
-	ignored := choice == release.Ignored || choice == release.Excluded
+	ignored := choice != release.Included
 	s.dispatcher.Ignore(target, ignored)
 	if ignored {
 		delete(s.plans, target)

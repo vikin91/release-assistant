@@ -74,7 +74,7 @@ func TestConfiguredPinningPRMonitoringAndGrant(t *testing.T) {
 	if grantForm == "" {
 		t.Fatal("configured pinning PR has no RW permission form")
 	}
-	if !strings.Contains(grantForm, "Allow posting retry comments</label>") {
+	if !strings.Contains(grantForm, retryCommentPermissionLabel+"</label>") {
 		t.Errorf("pinning grant form missing retry comment permission label")
 	}
 	assertGrantFields(t, grantForm, b, target, "pin-sha", 73, true)
@@ -167,8 +167,8 @@ func TestConfiguredPinningPRGrantIsDisabledWhenIdentityOrWritesAreUnsafe(t *test
 					grantFound = true
 				}
 			}
-			if !grantFound {
-				t.Error("configured pinning PR has no RW permission checkbox")
+			if grantFound != tc.writes {
+				t.Error("automatic posting permission should appear only when writes are enabled")
 			}
 			if tc.pr.State != "open" && strings.Contains(section, "href=\"/?tab=acs-prs#acs-prs-retry-details\"") {
 				t.Error("non-open pinning PR has a retry invitation")

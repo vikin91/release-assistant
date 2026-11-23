@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 
+	"release-assistant/internal/dispatch"
 	"release-assistant/internal/release"
 )
 
@@ -86,7 +87,6 @@ func (s *Session) clearPinningSelection() {
 	s.clearRCPlan()
 	if s.config.PinningPR > 0 {
 		t := s.config.PinningTarget()
-		_ = s.dispatcher.Grant(t, "", false)
 		if s.priorPinChoice == "" {
 			delete(s.choices.PRs, t)
 		} else {
@@ -95,10 +95,13 @@ func (s *Session) clearPinningSelection() {
 		if s.priorPinChoice != release.Included {
 			delete(s.pendingPRChecks, t)
 			delete(s.prRetryChecks, t)
+			delete(s.plans, t)
+			s.dispatcher.ObserveIdentity(dispatch.Identity{Target: t})
+		} else {
+			_ = s.dispatcher.Grant(t, "", false)
 		}
 		if s.priorPinChoice == release.Ignored || s.priorPinChoice == release.Excluded {
 			s.dispatcher.Ignore(t, true)
-			delete(s.plans, t)
 		}
 	}
 	repo, exists := s.repos["acs"]

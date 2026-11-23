@@ -2,19 +2,22 @@
 
 Every write to GitHub or Konflux must pass through the authorization boundary
 in `internal/dispatch` before an adapter sends it. Enforce this in the Go
-code for every caller, including background polling. UI controls and the
-presence of write-capable credentials confer no permission.
+code for every caller, including background polling. The presence of UI
+controls or write-capable credentials confers no permission.
 
-1. Start read-only. Deny every external write unless the user explicitly
-   enables writes with `--enable-writes` and grants access to the exact target.
-   Release inclusion confers no write permission.
-2. Start in interactive mode. While it is enabled, require a separate,
-   single-use user confirmation for each write. Bind it to the exact target,
-   current revision, run, and payload. A grant alone cannot send a write.
-3. With interactive mode disabled, automatic writes still require global
-   write enablement, a current per-target grant, and verified eligibility.
-   Revalidate before sending and deny the write if authorization or evidence
-   is missing, stale, or revoked.
+1. Start read-only unless the user passes `--enable-writes`. Enforce the
+   startup flag in `internal/dispatch` for every external write. Keep UI
+   actions that send writes or enable automatic posting unavailable in
+   Read-only mode.
+2. Start in Interactive mode when writes are enabled. Require a **Send**
+   click in the Retest Queue for each eligible comment. The click is the
+   single-use authorization bound to the exact target, current revision,
+   run, and payload. Target grants apply only to automatic posting.
+3. Automatic posting requires `--enable-writes`, Interactive mode disabled,
+   a current automatic posting grant for the exact target, and verified
+   eligibility. Release inclusion confers no automatic posting permission.
+   Revalidate authorization and evidence immediately before dispatch in
+   every mode.
 4. Start with **Require the label for PR comments** unchecked. When enabled,
    require the `allow-release-assistant` label for every PR retry comment,
    including comments the user confirms. Check the label in `internal/dispatch`
@@ -47,9 +50,9 @@ presence of write-capable credentials confer no permission.
    retry evidence. Keep eligible entries visible when posting is blocked and
    show the reason, such as missing permission, a missing required label, or
    a cooldown.
-2. In Interactive mode, wait for the user to confirm each write. In automatic
-   modes, send eligible writes when `internal/dispatch` authorizes them. Apply
-   the external write authorization rules above in every mode.
+2. In Interactive mode, the user's **Send** click authorizes that comment.
+   In automatic modes, send eligible writes when `internal/dispatch` authorizes
+   them. Apply the external write authorization rules above in every mode.
 3. Test that eligible retries appear across modes and remain visible when
    posting is blocked. Verify that interactive writes wait for confirmation.
 

@@ -87,7 +87,7 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 		section = "acs-prs-pr-selection"
 	}
 	application := &fakeApplication{snapshot: app.Snapshot{
-		Config: config,
+		Config: config, WritesEnabled: true,
 		Choices: release.Choices{PRs: map[release.Target]release.Choice{
 			open.Target: release.Included, closed.Target: release.Included, stale.Target: release.Included,
 			merged.Target: release.Included, excluded.Target: release.Excluded,

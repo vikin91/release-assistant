@@ -143,9 +143,8 @@ func TestRetestQueueShowsBlockedCommentsAcrossWriteModes(t *testing.T) {
 		blocker                                          string
 	}{
 		"read-only":             {interactive: true, blocker: "writes disabled"},
-		"interactive":           {writes: true, interactive: true, blocker: "RW permission required"},
-		"interactive and label": {writes: true, interactive: true, requireLabel: true, grant: true, blocker: "allow-release-assistant"},
-		"automatic":             {writes: true, blocker: "RW permission required"},
+		"interactive and label": {writes: true, interactive: true, requireLabel: true, blocker: "allow-release-assistant"},
+		"automatic":             {writes: true, blocker: "Automatic posting permission required"},
 		"automatic and label":   {writes: true, requireLabel: true, grant: true, blocker: "allow-release-assistant"},
 		"PR opts out":           {writes: true, interactive: true, optOut: true, blocker: "no-release-assistant disables writes"},
 	} {
@@ -168,7 +167,7 @@ func TestRetestQueueShowsBlockedCommentsAcrossWriteModes(t *testing.T) {
 				t.Fatalf("want two visible retry comments, got %+v", items)
 			}
 			wantDisabled := 0
-			if test.interactive {
+			if test.writes && test.interactive {
 				wantDisabled = len(items)
 			}
 			if count := strings.Count(body, `<button type="submit" disabled>Send</button>`); count != wantDisabled {
@@ -192,11 +191,11 @@ func TestRetestQueueShowsBlockedCommentsAcrossWriteModes(t *testing.T) {
 func TestInteractiveRetestQueueRequiresASeparateSendForEachComment(t *testing.T) {
 	now := time.Now()
 	session, fixture, source := newRetestQueueSession(t, dispatch.Options{EnableWrites: true, Now: func() time.Time { return now }})
-	applyRetestAction(t, session, app.Action{Kind: "grant", Target: fixture.pr.Target, SHA: fixture.pr.SHA, Enabled: true})
 	refreshRetestQueue(t, session, source)
 	browser := openRetestQueue(t, session)
 	initial := session.Snapshot().RetestQueue
-	if len(initial) != 2 || len(fixture.posted) != 0 {
+	if len(initial) != 2 || len(fixture.posted) != 0 ||
+		strings.Count(browser.get(t).Body.String(), `<button type="submit">Send</button>`) != 2 {
 		t.Fatalf("expected two unconfirmed rows and no writes: %+v, %v", initial, fixture.posted)
 	}
 	first, second := initial[0], initial[1]

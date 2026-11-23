@@ -56,7 +56,7 @@
                   <li>{{if url .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer">{{.Name}}</a>{{else}}{{.Name}}{{end}} · {{if .Conclusion}}{{.Conclusion}}{{else}}{{.Status}}{{end}}</li>
                 {{end}}</ol>{{else if .Evidence.Fresh}}<p>No checks reported for this commit.</p>{{else if not .Evidence.Error}}<p>Waiting for GitHub check results.</p>{{end}}
               {{end}}
-              {{template "tag-comment-permission" .}}
+              {{if $.AutomaticRetryPermissions}}{{template "tag-comment-permission" .}}{{end}}
             {{else}}{{if and .CurrentTag (not .Coverage.Reason)}}<p class="muted">The selected tag is absent from current discovery.</p>{{end}}{{end}}
           </details>
         </article>

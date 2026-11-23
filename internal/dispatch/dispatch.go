@@ -137,7 +137,8 @@ func (d *Dispatcher) observe(i Identity) {
 	s.identity = i
 }
 
-// Grant requires enabled writes and the exact observed commit; Ignore and opt-out override it.
+// Grant sets automatic posting permission for the exact observed commit.
+// Automatic posting still requires enabled writes and current eligibility.
 func (d *Dispatcher) Grant(t release.Target, sha string, allowed bool) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -288,8 +289,8 @@ func (d *Dispatcher) offer(s *targetState, p release.Proposal) Offer {
 		o.Reason = "PR requires the " + release.PRCommentLabel + " label"
 	case p.RunID == "":
 		o.Reason = "stable run evidence unavailable; copy only"
-	case !s.granted:
-		o.Reason = "RW permission required"
+	case !d.interactive && !s.granted:
+		o.Reason = "Automatic posting permission required"
 	case o.CommentSent:
 		o.Reason = "comment already sent for this run"
 	}
@@ -406,7 +407,8 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 		matches = slices.ContainsFunc(fresh.Proposals, func(p release.Proposal) bool { return ID(p) == id && p.RunID != "" })
 	}
 	labelMissing := d.requirePRLabel && t.PR > 0 && !identity.CommentLabel
-	if !matches || labelMissing || s.epoch != epoch || !s.granted || s.ignored || d.stopped || !d.options.EnableWrites || (d.interactive && !s.approved[id]) {
+	authorized := (d.interactive && s.approved[id]) || (!d.interactive && s.granted)
+	if !matches || labelMissing || s.epoch != epoch || !authorized || s.ignored || d.stopped || !d.options.EnableWrites {
 		clear(s.approved)
 		s.message = "Approval became stale; refreshed evidence does not support dispatch"
 		reason := "stale"

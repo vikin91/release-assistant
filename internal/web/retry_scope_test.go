@@ -41,7 +41,7 @@ func TestRetryAndCommentSectionsUseExplicitCurrentScope(t *testing.T) {
 		}}}
 	}
 	application := &fakeApplication{snapshot: app.Snapshot{
-		Config: validACS5Config(), Generation: 44,
+		Config: validACS5Config(), Generation: 44, WritesEnabled: true,
 		Choices: release.Choices{
 			Tags: map[string]string{"fact": "3.25.2", "collector": "3.25.4"},
 			PRs: map[release.Target]release.Choice{
