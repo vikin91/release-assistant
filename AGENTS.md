@@ -40,6 +40,19 @@ presence of write-capable credentials confer no permission.
    even when the Konflux planner offers no comment. This applies to the
    dashboard and the CLI.
 
+## Retest Queue
+
+1. Add every eligible retry for a monitored target to the Retest Queue in
+   every mode, including Read-only. Determine queue membership from current
+   retry evidence. Keep eligible entries visible when posting is blocked and
+   show the reason, such as missing permission, a missing required label, or
+   a cooldown.
+2. In Interactive mode, wait for the user to confirm each write. In automatic
+   modes, send eligible writes when `internal/dispatch` authorizes them. Apply
+   the external write authorization rules above in every mode.
+3. Test that eligible retries appear across modes and remain visible when
+   posting is blocked. Verify that interactive writes wait for confirmation.
+
 ## Repository orientation
 
 This local Go app monitors one ACS patch release. `cmd/release-assistant`
