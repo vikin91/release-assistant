@@ -69,6 +69,7 @@ func startupConfig(ctx context.Context, lookups Lookups, command func(context.Co
 	server := command(ctx, "oc", "whoami", "--show-server")
 	if u, err := url.Parse(server); err == nil && u.Scheme == "https" {
 		clusterHost = u.Hostname()
+		c.apiHost, c.apiPort = clusterHost, u.Port()
 		clusterBearer = command(ctx, "oc", "whoami", "--show-token")
 	}
 	c.KonfluxToken = func(_ context.Context, host string) (string, error) {

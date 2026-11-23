@@ -172,31 +172,56 @@ func TestReadBackoffReportsUnauthorizedUntilSuccessfulRead(t *testing.T) {
 }
 
 func TestAdapterDefersLiveLookupsButStillReadsGitHubAndArchive(t *testing.T) {
-	var liveCalls, archiveCalls, checkReads int
-	a := New(Config{
-		KonfluxToken: func(context.Context, string) (string, error) { return "fixture", nil },
-		HTTPClient: &http.Client{Transport: roundTrip(func(req *http.Request) (*http.Response, error) {
-			body := ""
-			status := http.StatusOK
-			switch req.URL.Host {
-			case "api.example.openshiftapps.com":
-				liveCalls++
-				status = http.StatusServiceUnavailable
-			case "tekton-results-tekton-results.apps.example.openshiftapps.com":
-				archiveCalls++
-				body = `{"records":[]}`
-			case "api.github.com":
-				body = `{"sha":"head"}`
-				if strings.HasSuffix(req.URL.Path, "/check-runs") {
-					checkReads++
-					body = `{"check_runs":[{"id":17,"name":"Red Hat Konflux / fact-on-push","app":{"id":296509},"status":"completed","conclusion":"failure","details_url":"https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelinerun/run"}]}`
-				}
-			default:
-				t.Fatalf("unexpected request %s", req.URL)
-			}
-			return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body))}, nil
-		})},
+	const apiAuthority = "api.example.openshiftapps.com:6443"
+	t.Setenv("GH_TOKEN", "github-fixture")
+	lookups := Lookups{}
+	if err := lookups.Add("296509,api.example.openshiftapps.com,builds"); err != nil {
+		t.Fatal(err)
+	}
+	config := startupConfig(t.Context(), lookups, func(_ context.Context, _ string, args ...string) string {
+		if args[1] == "--show-server" {
+			return "https://" + apiAuthority
+		}
+		return "cluster-fixture"
 	})
+	var liveCalls, archiveCalls, checkReads int
+	now := time.Now()
+	config.HTTPClient = &http.Client{Transport: roundTrip(func(req *http.Request) (*http.Response, error) {
+		body := ""
+		status := http.StatusOK
+		switch req.URL.Host {
+		case apiAuthority:
+			if req.Host != apiAuthority || req.Header.Get("Authorization") != "Bearer cluster-fixture" {
+				t.Fatal("live read missing the configured authority or cluster authentication")
+			}
+			liveCalls++
+			if liveCalls < 3 {
+				status = http.StatusServiceUnavailable
+			} else {
+				body = `{"metadata":{"name":"run","namespace":"builds","annotations":{
+					"pipelinesascode.tekton.dev/check-run-id":"17",
+					"pipelinesascode.tekton.dev/sha":"head",
+					"pipelinesascode.tekton.dev/repo-url":"https://github.com/stackrox/fact",
+					"pipelinesascode.tekton.dev/event-type":"push",
+					"pipelinesascode.tekton.dev/branch":"refs/tags/v0.3.77"
+				}}}`
+			}
+		case "tekton-results-tekton-results.apps.example.openshiftapps.com":
+			archiveCalls++
+			body = `{"records":[]}`
+		case "api.github.com":
+			body = `{"sha":"head"}`
+			if strings.HasSuffix(req.URL.Path, "/check-runs") {
+				checkReads++
+				body = `{"check_runs":[{"id":17,"name":"Red Hat Konflux / fact-on-push","app":{"id":296509},"status":"completed","conclusion":"failure","details_url":"https://konflux-ui.apps.example.openshiftapps.com/ns/builds/pipelinerun/run"}]}`
+			}
+		default:
+			t.Fatalf("unexpected request %s", req.URL)
+		}
+		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}
+	a := New(config)
+	a.reads.now = func() time.Time { return now }
 	target := release.Target{Repo: "stackrox/fact", Tag: "v0.3.77"}
 	for i := range 3 {
 		plan, err := a.Plan(t.Context(), target)
@@ -212,5 +237,13 @@ func TestAdapterDefersLiveLookupsButStillReadsGitHubAndArchive(t *testing.T) {
 	}
 	if liveCalls != 2 || archiveCalls != 3 || checkReads != 3 {
 		t.Fatalf("expected only live reads to back off: live=%d archive=%d checks=%d", liveCalls, archiveCalls, checkReads)
+	}
+	now = now.Add(firstPause)
+	plan, err := a.Plan(t.Context(), target)
+	if err != nil || len(plan.Runs) != 1 || plan.Runs[0].ID != "17" || len(a.ReadIssues()) != 0 {
+		t.Fatalf("recovery probe did not verify the live PipelineRun: %+v, %v", plan, err)
+	}
+	if liveCalls != 3 || archiveCalls != 3 {
+		t.Fatalf("expected the recovery probe to use only the live API: live=%d archive=%d", liveCalls, archiveCalls)
 	}
 }

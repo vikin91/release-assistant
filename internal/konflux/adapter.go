@@ -25,6 +25,8 @@ type (
 		AllowKonfluxLookup func(context.Context, int64, string, string) bool
 		// OnReadPauseChange receives endpoint transitions. A zero RetryAt means reads resumed.
 		OnReadPauseChange func(ReadIssue)
+
+		apiHost, apiPort string
 	}
 	observationError struct {
 		message string
@@ -71,7 +73,10 @@ func New(c Config) *Adapter {
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	reads := &readBackoff{base: base, now: time.Now, endpoints: make(map[string]*endpointBackoff), onPauseChange: c.OnReadPauseChange}
+	reads := &readBackoff{
+		base: base, now: time.Now, endpoints: make(map[string]*endpointBackoff), onPauseChange: c.OnReadPauseChange,
+		apiHost: c.apiHost, apiPort: c.apiPort,
+	}
 	client.Transport = reads
 	return &Adapter{
 		config: retry.Config{

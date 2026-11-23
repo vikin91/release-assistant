@@ -20,6 +20,8 @@ const (
 	firstPause   = time.Minute
 	maxPause     = 5 * time.Minute
 	issueWindow  = 10 * time.Minute
+
+	pipelineRunAPI = "PipelineRun API"
 )
 
 type (
@@ -38,11 +40,12 @@ type (
 	planReadsKey struct{}
 	planReads    struct{ unavailable, deferred atomic.Bool }
 	readBackoff  struct {
-		base          http.RoundTripper
-		now           func() time.Time
-		mu            sync.Mutex
-		endpoints     map[string]*endpointBackoff
-		onPauseChange func(ReadIssue)
+		base             http.RoundTripper
+		apiHost, apiPort string
+		now              func() time.Time
+		mu               sync.Mutex
+		endpoints        map[string]*endpointBackoff
+		onPauseChange    func(ReadIssue)
 	}
 	endpointBackoff struct {
 		ReadIssue
@@ -95,6 +98,12 @@ func (t *readBackoff) RoundTrip(req *http.Request) (*http.Response, error) {
 	if cluster == "" {
 		return t.base.RoundTrip(req)
 	}
+	// The retry library derives the API URL from the check. The matching oc server supplies its port.
+	if endpoint == pipelineRunAPI && t.apiPort != "" && req.URL.Hostname() == t.apiHost {
+		req = req.Clone(req.Context())
+		req.URL.Host = net.JoinHostPort(t.apiHost, t.apiPort)
+		req.Host = req.URL.Host
+	}
 	ctx := req.Context()
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -105,7 +114,7 @@ func (t *readBackoff) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	deadline, hasDeadline := ctx.Deadline()
 	enoughTime := !hasDeadline || time.Until(deadline) >= probeTimeout
-	host := req.URL.Hostname()
+	host := req.URL.Host
 	now := t.now()
 	t.mu.Lock()
 	state := t.endpoints[host]
@@ -259,7 +268,7 @@ func readEndpoint(req *http.Request) (cluster, endpoint string) {
 	switch {
 	case strings.HasPrefix(req.URL.Path, "/apis/tekton.dev/"):
 		if cluster, ok := strings.CutPrefix(host, "api."); ok {
-			return cluster, "PipelineRun API"
+			return cluster, pipelineRunAPI
 		}
 	case strings.HasPrefix(req.URL.Path, "/apis/results.tekton.dev/"):
 		if cluster, ok := strings.CutPrefix(host, "tekton-results-tekton-results.apps."); ok {
