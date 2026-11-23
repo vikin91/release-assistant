@@ -13,6 +13,7 @@ func TestRetestQueueRendersOnlySupportedActions(t *testing.T) {
 	config := validACS5Config()
 	pr := release.Target{Repo: config.ACS().Repo, PR: 17}
 	tag := release.Target{Repo: config.ACS().Repo, Tag: "5.0.1-rc.1"}
+	now := time.Now()
 	snapshot := app.Snapshot{
 		Config: config, Generation: 8, Interactive: true, WritesEnabled: true,
 		RetestQueue: []app.RetestItem{
@@ -22,7 +23,9 @@ func TestRetestQueueRendersOnlySupportedActions(t *testing.T) {
 			{ID: 5, Target: pr, Kind: "konflux", Payload: "/konflux-retest main-on-push", Job: "main-on-push", MissingBuild: true},
 		},
 		RetestLog: []app.RetestDecision{{
-			At: time.Now(), ID: 4, Target: tag, Payload: "/retest sensor tag:5.0.1-rc.1", Result: "Sent",
+			At: now.Add(-time.Minute), ID: 4, Target: tag, Payload: "/retest sensor tag:5.0.1-rc.1", Result: "Skipped",
+		}, {
+			At: now, ID: 4, Target: tag, Payload: "/retest sensor tag:5.0.1-rc.1", Result: "Sent",
 			Detail: "GitHub confirmed the comment.", URL: "https://example.com/comment/4",
 		}},
 	}
@@ -49,5 +52,10 @@ func TestRetestQueueRendersOnlySupportedActions(t *testing.T) {
 	}
 	if strings.Count(panel, `name="kind" value="queue-send"`) != 2 || strings.Count(panel, `name="kind" value="queue-skip"`) != 4 {
 		t.Fatal("only Konflux comments should have Send, and every item should have Skip")
+	}
+	log := between(t, panel, `id="retest-log-heading"`, "</table>")
+	sent, skipped := strings.Index(log, "<td>Sent</td>"), strings.Index(log, "<td>Skipped</td>")
+	if sent < 0 || skipped < 0 || sent >= skipped {
+		t.Fatal("the queue log should list the latest decision first")
 	}
 }

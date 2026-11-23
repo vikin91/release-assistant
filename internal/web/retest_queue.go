@@ -2,7 +2,9 @@ package web
 
 import (
 	"fmt"
+	"iter"
 	"net/url"
+	"slices"
 
 	"release-assistant/internal/app"
 	"release-assistant/internal/release"
@@ -19,6 +21,11 @@ type (
 		Items                     []app.RetestItem
 	}
 )
+
+// RetestLogNewestFirst presents the latest recorded decisions at the top of the queue log.
+func (p pageModel) RetestLogNewestFirst() iter.Seq2[int, app.RetestDecision] {
+	return slices.Backward(p.Snapshot.RetestLog)
+}
 
 // RetestBuckets groups consecutive queue items while preserving their session order.
 func (p pageModel) RetestBuckets() []retestBucket {
