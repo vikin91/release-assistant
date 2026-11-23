@@ -226,10 +226,10 @@ button[aria-pressed=true], .settings-footer button:enabled { color: var(--canvas
 .pr-list-disclosures details[open] { flex-basis: 100%; }
 .pr-list-retry > summary { font-weight: var(--emphasis-weight); }
 .pr-list-filter-empty, .pr-list-filter-help, .pr-list-all-hidden { display: none; margin: .5rem 0 0; }
-.pr-list-ignore-all { font-size: .86rem; }
+.pr-list-bulk { font-size: .86rem; }
 .pr-list:has(.pr-list-filters input[value="all"]:checked) .pr-list-all-hidden { display: block; }
 .pr-list:not(:has(.pr-list-filters input[value="ignored"]:checked)) .pr-card[data-release-choice="ignored"] { display: none; }
-.pr-list:has(.pr-list-filters input[value="ignored"]:checked) :is(.pr-card:not([data-release-choice="ignored"]), .pr-repo:not(:has(.pr-card[data-release-choice="ignored"])), .merged-prs, .pr-list-ignore-all) { display: none; }
+.pr-list:has(.pr-list-filters input[value="ignored"]:checked) :is(.pr-card:not([data-release-choice="ignored"]), .pr-repo:not(:has(.pr-card[data-release-choice="ignored"])), .merged-prs, .pr-list-bulk) { display: none; }
 .pr-list-filter-help { font-size: .85rem; }
 .pr-list:has(.pr-list-filters input[value="attention"]:checked) .pr-list-filter-help { display: block; }
 .pr-list:has(.pr-list-filters input[value="attention"]:checked) .pr-card:not([data-pr-attention]),

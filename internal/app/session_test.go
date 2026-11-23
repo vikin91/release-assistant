@@ -339,7 +339,7 @@ func TestIgnoreAndHeadChangePreserveInclusion(t *testing.T) {
 	}
 }
 
-func TestIgnoreAllComponentPRsLeavesOtherTargetsAndKeepsHiddenPRsRestorable(t *testing.T) {
+func TestBulkComponentPRChoices(t *testing.T) {
 	s, f := newFixture()
 	config := configuration()
 	apply(t, s, Action{Kind: "configure", Config: config})
@@ -349,32 +349,51 @@ func TestIgnoreAllComponentPRsLeavesOtherTargetsAndKeepsHiddenPRsRestorable(t *t
 	mergedPR := release.Target{Repo: fact.Source.Repo, PR: 43}
 	acrossRepos := release.Target{Repo: collector.Source.Repo, PR: 44}
 	acsPR := release.Target{Repo: acs.Source.Repo, PR: 45}
+	hiddenPR := release.Target{Repo: fact.Source.Repo, PR: 46}
 	fact.PRs = []release.PR{
 		{Target: factPR, SHA: "fact-head", Title: "Fact change", State: "open", Base: fact.Source.Branch, Evidence: observed()},
 		{Target: closedPR, State: "closed"},
 		{Target: mergedPR, State: "closed", Merged: true},
+		{Target: hiddenPR, State: "open"},
 	}
 	collector.PRs = []release.PR{{Target: acrossRepos, State: "open"}}
 	acs.PRs = []release.PR{{Target: acsPR, State: "open"}}
 	f.repos["fact"], f.repos["collector"], f.repos["acs"] = fact, collector, acs
 	refreshAll(t, s)
-	for _, target := range []release.Target{factPR, closedPR, mergedPR, acsPR} {
+	for _, target := range []release.Target{closedPR, mergedPR, acsPR} {
 		apply(t, s, Action{Kind: "choice", Target: target, Choice: release.Included})
 	}
+	apply(t, s, Action{Kind: "choice", Target: factPR, Choice: release.Excluded})
+	apply(t, s, Action{Kind: "choice", Target: hiddenPR, Choice: release.Ignored})
+
+	checkChoices := func(choice release.Choice) {
+		t.Helper()
+		choices := s.Snapshot().Choices.PRs
+		for _, target := range []release.Target{factPR, closedPR, acrossRepos} {
+			if choices[target] != choice {
+				t.Errorf("choice for %s = %q, want %q", target, choices[target], choice)
+			}
+		}
+		if choices[acsPR] != release.Included || choices[mergedPR] != release.Included || choices[hiddenPR] != release.Ignored {
+			t.Errorf("bulk %s changed an ACS, merged, or hidden PR", choice)
+		}
+	}
+	apply(t, s, Action{Kind: "component-pr-choices", Choice: release.Included})
+	checkChoices(release.Included)
+	apply(t, s, Action{Kind: "component-pr-choices", Choice: release.Excluded})
+	checkChoices(release.Excluded)
+
+	apply(t, s, Action{Kind: "choice", Target: closedPR, Choice: release.Included})
+	apply(t, s, Action{Kind: "choice", Target: factPR, Choice: release.Included})
 	apply(t, s, Action{Kind: "grant", Target: factPR, SHA: "fact-head", Enabled: true})
 	s.plans[factPR] = release.Plan{Target: factPR}
 	s.plans[acsPR] = release.Plan{Target: acsPR}
 
-	apply(t, s, Action{Kind: "ignore-component-prs"})
+	apply(t, s, Action{Kind: "component-pr-choices", Choice: release.Ignored})
+	checkChoices(release.Ignored)
 	snapshot := s.Snapshot()
-	for _, target := range []release.Target{factPR, closedPR, acrossRepos} {
-		if snapshot.Choices.PRs[target] != release.Ignored {
-			t.Errorf("bulk action missed %s", target)
-		}
-	}
-	if snapshot.Choices.PRs[acsPR] != release.Included || snapshot.Choices.PRs[mergedPR] != release.Included ||
-		s.plans[acsPR].Target != acsPR {
-		t.Fatal("bulk action changed another activity or an already merged PR")
+	if s.plans[acsPR].Target != acsPR {
+		t.Fatal("bulk action removed the ACS retry plan")
 	}
 	if _, found := s.plans[factPR]; found {
 		t.Fatal("ignored PR kept its retry plan")

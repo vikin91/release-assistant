@@ -252,11 +252,17 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		case s.changed <- struct{}{}:
 		default:
 		}
-	case "choice", "ignore-component-prs":
-		if a.Kind == "choice" {
-			if a.Choice != "" && a.Choice != release.Included && a.Choice != release.Excluded && a.Choice != release.Ignored {
-				return fmt.Errorf("invalid inclusion choice")
+	case "choice", "component-pr-choices":
+		switch a.Choice {
+		case release.Included, release.Excluded, release.Ignored:
+		case "":
+			if a.Kind == "component-pr-choices" {
+				return fmt.Errorf("bulk selection requires an inclusion choice")
 			}
+		default:
+			return fmt.Errorf("invalid inclusion choice")
+		}
+		if a.Kind == "choice" {
 			if a.Target.PR > 0 && a.Target == s.config.PinningTarget() {
 				return fmt.Errorf("the confirmed pinning PR is always included")
 			}
@@ -264,7 +270,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 				return fmt.Errorf("unknown target")
 			}
 			s.setPRChoice(a.Target, a.SHA, a.Choice)
-		} else if !s.ignoreComponentPRs() {
+		} else if !s.setComponentPRChoices(a.Choice) {
 			return nil
 		}
 		s.workRevision++
@@ -461,15 +467,16 @@ func (s *Session) setPRChoice(target release.Target, sha string, choice release.
 	s.record(target, sha, "inclusion", "", string(choice), "user")
 }
 
-func (s *Session) ignoreComponentPRs() bool {
+func (s *Session) setComponentPRChoices(choice release.Choice) bool {
 	changed := false
 	pinning := s.config.PinningTarget()
 	for _, source := range s.config.Components {
 		for _, pr := range s.repos[source.Name].PRs {
-			if pr.Target.Repo != source.Repo || pr.Target == pinning || !pr.Selectable(s.choices.PRs[pr.Target]) {
+			current := s.choices.PRs[pr.Target]
+			if pr.Target.Repo != source.Repo || pr.Target == pinning || current == choice || !pr.Selectable(current) {
 				continue
 			}
-			s.setPRChoice(pr.Target, pr.SHA, release.Ignored)
+			s.setPRChoice(pr.Target, pr.SHA, choice)
 			changed = true
 		}
 	}

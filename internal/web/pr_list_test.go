@@ -83,10 +83,10 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 	if tab == "acs-prs" && (strings.Count(tabBody, "Open pinning PR #8</a>") != 1 || strings.Count(body, "change-8") != 1 || !strings.Contains(body, "Confirmed pinning PR")) {
 		t.Fatal("expected one confirmed pinning PR row")
 	}
-	hasBulkAction := strings.Contains(body, "Ignore &amp; hide all")
+	hasBulkAction := strings.Contains(body, `value="component-pr-choices"`)
 	hasIgnoredFilter := strings.Contains(body, `-filter" value="ignored"`)
 	if hasBulkAction != (tab == "component-prs") || hasIgnoredFilter != (tab == "component-prs") {
-		t.Fatal("bulk ignore and the ignored filter belong on Component PRs")
+		t.Fatal("bulk actions and the ignored filter belong on Component PRs")
 	}
 	undecided := 2
 	if tab == "acs-prs" {
@@ -192,7 +192,7 @@ func TestPRMergeStatusUsesGitHubVerdict(t *testing.T) {
 	}
 }
 
-func TestIgnoreAllComponentPRsSubmitsTheCurrentGeneration(t *testing.T) {
+func TestBulkComponentPRChoicesSubmitTheCurrentGeneration(t *testing.T) {
 	config := validACS5Config()
 	source := config.Components[0]
 	application := &fakeApplication{snapshot: app.Snapshot{
@@ -202,22 +202,32 @@ func TestIgnoreAllComponentPRsSubmitsTheCurrentGeneration(t *testing.T) {
 		}}}},
 	}}
 	browser := newBrowser(t, application)
-	form := formContaining(t, browser.getBody(t), "Ignore &amp; hide all")
+	form := formContaining(t, browser.getBody(t), `class="control-row pr-list-bulk"`)
 	values := url.Values{}
 	for _, field := range []string{"tab", "kind", "generation"} {
 		values.Set(field, formInputValue(t, form, field))
 	}
-	if response := browser.post(values); response.Code != http.StatusSeeOther ||
-		response.Header().Get("Location") != "/?tab=component-prs" {
-		t.Fatal("bulk action failed or lost its tab")
-	}
-	if len(application.actions) != 1 || application.actions[0].Kind != "ignore-component-prs" ||
-		application.actions[0].Generation != 12 {
-		t.Fatalf("unexpected bulk action: %+v", application.actions)
+	for choice, label := range map[release.Choice]string{
+		release.Included: "Include all", release.Excluded: "Exclude all", release.Ignored: "Ignore &amp; hide all",
+	} {
+		t.Run(label, func(t *testing.T) {
+			if !strings.Contains(form, fmt.Sprintf(`name="choice" value="%s">%s</button>`, choice, label)) {
+				t.Fatalf("missing enabled %s button", label)
+			}
+			values.Set("choice", string(choice))
+			if response := browser.post(values); response.Code != http.StatusSeeOther ||
+				response.Header().Get("Location") != "/?tab=component-prs" {
+				t.Fatal("bulk action failed or lost its tab")
+			}
+			action := application.actions[len(application.actions)-1]
+			if action.Kind != "component-pr-choices" || action.Choice != choice || action.Generation != 12 {
+				t.Fatalf("unexpected bulk action: %+v", action)
+			}
+		})
 	}
 	values.Set("tab", "acs-prs")
 	if response := browser.post(values); response.Code != http.StatusBadRequest {
-		t.Fatal("bulk ignore was accepted from the ACS list")
+		t.Fatal("bulk action was accepted from the ACS list")
 	}
 }
 
