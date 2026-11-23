@@ -31,7 +31,7 @@ type (
 		ID                  string
 		Proposal            release.Proposal
 		Allowed, CanApprove bool
-		// Queueable remains true during a cooldown or an in-flight write on the target.
+		// Queueable reports whether the offer is still pending, including when posting is blocked.
 		Queueable bool
 		Failures  int
 		// CommentSent reports successful delivery of this exact proposal.
@@ -41,8 +41,10 @@ type (
 	}
 	// View exposes authority separately from release inclusion.
 	View struct {
-		Target                   release.Target
-		SHA                      string
+		Target release.Target
+		SHA    string
+		// PlanAt is the observation time of the proposal list.
+		PlanAt                   time.Time
 		Granted, Ignored, OptOut bool
 		Offers                   []Offer
 		Message                  string
@@ -61,6 +63,7 @@ type (
 	}
 	targetState struct {
 		identity                   Identity
+		planAt                     time.Time
 		granted, ignored, inFlight bool
 		epoch                      uint64
 		proposals                  []release.Proposal
@@ -125,6 +128,7 @@ func (d *Dispatcher) observe(i Identity) {
 		clear(s.approved)
 		s.epoch++
 		if s.identity.SHA != i.SHA {
+			s.planAt = time.Time{}
 			clear(s.jobs)
 			clear(s.sent)
 			s.proposals = nil
@@ -236,6 +240,7 @@ func (d *Dispatcher) plan(p release.Plan) {
 		return
 	}
 	s.proposals = slices.Clone(p.Proposals)
+	s.planAt = p.Evidence.At
 	for _, r := range p.Runs {
 		if r.ID == "" {
 			continue
@@ -288,8 +293,8 @@ func (d *Dispatcher) offer(s *targetState, p release.Proposal) Offer {
 	case o.CommentSent:
 		o.Reason = "comment already sent for this run"
 	}
-	o.Queueable = o.Reason == ""
-	if o.Queueable && s.inFlight {
+	o.Queueable = !o.CommentSent
+	if o.Reason == "" && s.inFlight {
 		o.Reason = "comment dispatch in progress"
 	}
 	until := s.last.Add(d.options.Gap)
@@ -321,7 +326,7 @@ func (d *Dispatcher) Views() []View {
 	defer d.mu.Unlock()
 	v := make([]View, 0, len(d.targets))
 	for t, s := range d.targets {
-		x := View{Target: t, SHA: s.identity.SHA, Granted: s.granted, Ignored: s.ignored, OptOut: s.identity.OptOut, Message: s.message}
+		x := View{Target: t, SHA: s.identity.SHA, PlanAt: s.planAt, Granted: s.granted, Ignored: s.ignored, OptOut: s.identity.OptOut, Message: s.message}
 		for job, state := range s.jobs {
 			if state.count >= d.options.Threshold {
 				x.Warnings = append(x.Warnings, fmt.Sprintf("%s: %d distinct unsuccessful eligible runs; retry gap %s", job, state.count, d.options.SlowGap))

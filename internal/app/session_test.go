@@ -612,7 +612,7 @@ func TestReadOnlySessionRejectsForgedGrantAndSend(t *testing.T) {
 		want   string
 	}{
 		{Action{Kind: "grant", Target: target, SHA: "head", Enabled: true}, "-enable-writes"},
-		{Action{Kind: "queue-send", QueueID: 1}, "no longer pending"},
+		{Action{Kind: "queue-send", QueueID: 1}, "writes disabled"},
 	} {
 		action := tc.action
 		action.Generation = s.Snapshot().Generation

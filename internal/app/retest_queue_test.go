@@ -28,8 +28,9 @@ func TestRetestQueueSkipAndDelivery(t *testing.T) {
 	if err := s.Refresh(t.Context(), s.Snapshot().Generation, config.ACS(), true); err != nil {
 		t.Fatal(err)
 	}
-	if len(s.Snapshot().RetestQueue) != 0 {
-		t.Fatal("inclusion without a grant queued a comment")
+	blocked := s.Snapshot().RetestQueue
+	if len(blocked) != 2 || blocked[0].Blocked != "RW permission required" || blocked[1].Blocked != "RW permission required" {
+		t.Fatalf("eligible retries should show why posting is blocked: %+v", blocked)
 	}
 	apply(t, s, Action{Kind: "grant", Target: proposal.Target, SHA: proposal.SHA, Enabled: true})
 	job := release.ManualJob{ID: 91, Name: "integration", URL: "https://github.com/example/actions/runs/8/job/91"}
@@ -39,6 +40,13 @@ func TestRetestQueueSkipAndDelivery(t *testing.T) {
 	before := s.Snapshot()
 	if len(before.RetestQueue) != 3 {
 		t.Fatalf("queue has %d items, want 3", len(before.RetestQueue))
+	}
+	for _, row := range blocked {
+		if !slices.ContainsFunc(before.RetestQueue, func(item RetestItem) bool {
+			return item.ID == row.ID && item.Blocked == ""
+		}) {
+			t.Fatalf("grant changed the ID instead of unlocking queue item %d", row.ID)
+		}
 	}
 	first := before.RetestQueue[0]
 	apply(t, s, Action{Kind: "queue-skip", QueueID: first.ID})

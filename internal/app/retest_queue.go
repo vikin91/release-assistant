@@ -34,7 +34,10 @@ type (
 		target              release.Target
 		sha, kind, evidence string
 	}
-	retestTarget struct{ sha, title, branch string }
+	retestTarget struct {
+		sha, title, branch string
+		noCIFailuresAt     time.Time
+	}
 )
 
 // retestTargets limits the queue to verified release targets. The caller holds s.mu.
@@ -47,7 +50,11 @@ func (s *Session) retestTargets() map[release.Target]retestTarget {
 		addPR := func(pr release.PR) {
 			if s.choices.PRs[pr.Target] == release.Included && pr.State == "open" && !pr.Merged &&
 				pr.Base == repo.Source.Branch && pr.Evidence.Fresh() && pr.SHA != "" {
-				targets[pr.Target] = retestTarget{pr.SHA, pr.Title, pr.Base}
+				target := retestTarget{sha: pr.SHA, title: pr.Title, branch: pr.Base}
+				if checksWithoutFailures(pr) {
+					target.noCIFailuresAt = pr.CheckResultsEvidence.At
+				}
+				targets[pr.Target] = target
 			}
 		}
 		for _, pr := range repo.PRs {
@@ -75,27 +82,67 @@ func (s *Session) syncRetestQueue(views []dispatch.View, reports []release.Manua
 		pending[key] = RetestItem{Target: target, Title: meta.title, Branch: meta.branch, Kind: kind,
 			Payload: payload, Job: job, URL: url, Blocked: blocked, key: key}
 	}
+	authority := make(map[release.Target]dispatch.View, len(views))
+	for _, view := range views {
+		authority[view.Target] = view
+	}
+	ci := make(map[release.Target]release.ManualRetryReport, len(reports))
+	for _, report := range reports {
+		ci[report.Target] = report
+	}
 	rc := s.repos["acs"].Candidate.Target
-	if s.dispatcher.IsInteractive() {
-		for _, view := range views {
-			plan := s.plans[view.Target]
-			if plan.SHA != view.SHA || (view.Target == rc && !s.rcRetriesReady()) {
-				continue
+	rcReady, writes := s.rcRetriesReady(), s.dispatcher.WritesEnabled()
+	for target, meta := range targets {
+		plan, view, report := s.plans[target], authority[target], ci[target]
+		offers := make(map[string]dispatch.Offer, len(view.Offers))
+		for _, offer := range view.Offers {
+			offers[offer.ID] = offer
+		}
+		if check := s.prRetryChecks[target]; check.SHA == meta.sha {
+			if check.Konflux.Evidence.At.After(plan.Evidence.At) && check.Konflux.Evidence.At.After(view.PlanAt) {
+				plan = check.Konflux
 			}
-			for _, offer := range view.Offers {
-				if !offer.Queueable {
-					continue
-				}
-				p := offer.Proposal
-				var jobURL string
-				if i := slices.IndexFunc(plan.Runs, func(run release.Run) bool { return run.ID == p.RunID && run.Job == p.Job }); i >= 0 {
-					jobURL = plan.Runs[i].URL
-				}
-				add(p.Target, p.SHA, "konflux", offer.ID, p.Payload, p.Job, jobURL, offer.Reason)
+			if check.CI.At.After(report.At) {
+				report = check.CI
 			}
 		}
-	}
-	for _, report := range reports {
+		// A newer dispatch read may withdraw a scheduled proposal before the next poll.
+		proposals := plan.Proposals
+		if view.SHA == meta.sha && !plan.Evidence.At.After(view.PlanAt) {
+			proposals = nil
+			for _, offer := range view.Offers {
+				proposals = append(proposals, offer.Proposal)
+			}
+		}
+		for _, proposal := range proposals {
+			if proposal.Target != target || proposal.SHA != meta.sha {
+				continue
+			}
+			id := dispatch.ID(proposal)
+			offer, observed := offers[id]
+			if offer.CommentSent {
+				continue
+			}
+			blocked := offer.Reason
+			switch {
+			case !writes && blocked == "":
+				blocked = "Writes are disabled."
+			case target == rc && !rcReady:
+				blocked = "Waiting for verified release component pins before posting."
+			case !observed:
+				blocked = "Waiting for the posting eligibility check."
+			}
+			var jobURL string
+			if i := slices.IndexFunc(plan.Runs, func(run release.Run) bool {
+				return run.ID == proposal.RunID && run.Job == proposal.Job
+			}); i >= 0 {
+				jobURL = plan.Runs[i].URL
+			}
+			add(target, proposal.SHA, "konflux", id, proposal.Payload, proposal.Job, jobURL, blocked)
+		}
+		if report.Target != target || report.Pending || meta.noCIFailuresAt.After(report.At) {
+			continue
+		}
 		for _, job := range report.Jobs {
 			if strings.EqualFold(job.WorkflowName, "Test Konflux builds") {
 				continue
@@ -158,6 +205,11 @@ func (s *Session) compareRetestTargets(a, b release.Target) int {
 		cmp.Compare(a.PR, b.PR), cmp.Compare(a.Tag, b.Tag))
 }
 
+// MatchesProposal reports whether the queue item represents this exact Konflux retry.
+func (item RetestItem) MatchesProposal(proposal release.Proposal) bool {
+	return item.Kind == "konflux" && item.Target == proposal.Target && item.key.evidence == dispatch.ID(proposal)
+}
+
 // applyRetestDecision consumes the ID of the displayed item. It releases s.mu
 // before dispatch so fresh GitHub reads never block queue rendering.
 func (s *Session) applyRetestDecision(ctx context.Context, a Action) error {
@@ -182,7 +234,11 @@ func (s *Session) applyRetestDecision(ctx context.Context, a Action) error {
 		s.mu.Unlock()
 		return nil
 	}
-	if item.Kind != "konflux" || item.Blocked != "" {
+	if item.Blocked != "" {
+		s.mu.Unlock()
+		return fmt.Errorf("queue item %d: %s", item.ID, item.Blocked)
+	}
+	if item.Kind != "konflux" || !s.dispatcher.IsInteractive() {
 		s.mu.Unlock()
 		return fmt.Errorf("queue item %d cannot be sent now", a.QueueID)
 	}

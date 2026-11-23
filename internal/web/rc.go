@@ -3,9 +3,11 @@ package web
 import (
 	"cmp"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
+	"release-assistant/internal/app"
 	"release-assistant/internal/release"
 )
 
@@ -126,7 +128,10 @@ func rcRetryMatches(candidate *buildRetryCandidate, run release.Run, sha string)
 func (p pageModel) rcRetry(candidate *buildRetryCandidate) rcRetryModel {
 	return rcRetryModel{
 		Candidate: candidate,
-		Queued:    p.Snapshot.Interactive && candidate.Offer != nil && candidate.Offer.Queueable,
+		Queued: candidate.Offer != nil && candidate.Offer.Queueable ||
+			slices.ContainsFunc(p.Snapshot.RetestQueue, func(item app.RetestItem) bool {
+				return item.MatchesProposal(candidate.Proposal)
+			}),
 	}
 }
 

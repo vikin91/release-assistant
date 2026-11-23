@@ -100,8 +100,8 @@ func TestRCValidationShowsExceptionsAndReusesExactTagRetest(t *testing.T) {
 				strings.Index(validation, "Canceled") > strings.Index(validation, "gke-qa-e2e-tests-konflux") {
 				t.Error("show the exact tag retry once and place failures and cancellations first")
 			}
-			if strings.Contains(validation, "Open Retest Queue") != mode.interactive {
-				t.Error("only interactive mode should link the proposal to the queue")
+			if strings.Contains(validation, "Open Retest Queue") != mode.writes {
+				t.Error("every mode with a pending offer should link to the queue")
 			}
 			if strings.Contains(validation, `action="/action#rc-validation"`) != mode.writes {
 				t.Error("tag permission should return to validation")

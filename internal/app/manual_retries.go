@@ -21,7 +21,7 @@ func (s *Session) manualRetryHeads(repo release.Repository) map[release.Target]s
 			return
 		}
 		// A complete set of passing or pending results needs no further GitHub reads.
-		if pr.CheckResultsEvidence.Fresh() && !slices.ContainsFunc(pr.Checks, func(c release.Check) bool { return c.Result() == release.No }) {
+		if checksWithoutFailures(pr) {
 			return
 		}
 		heads[pr.Target] = pr.SHA
@@ -37,6 +37,12 @@ func (s *Session) manualRetryHeads(repo release.Repository) map[release.Target]s
 		heads[target] = sha
 	}
 	return heads
+}
+
+func checksWithoutFailures(pr release.PR) bool {
+	return pr.CheckResultsEvidence.Fresh() && !slices.ContainsFunc(pr.Checks, func(check release.Check) bool {
+		return check.Result() == release.No
+	})
 }
 
 // currentManualRetries copies only reports still backed by the current selection and revision.

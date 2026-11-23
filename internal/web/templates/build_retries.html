@@ -25,7 +25,7 @@
               </summary>
               <p class="build-retry-note">Commit <code>{{.Proposal.SHA}}</code>{{with .Offer}}{{if .Failures}} · {{.Failures}} eligible failures{{end}}{{end}}</p>
               {{template "retry-comment-controls" .Proposal}}
-              {{with .Offer}}{{if and $.Snapshot.Interactive .Queueable}}{{template "retest-queue-link"}}{{end}}{{end}}
+              {{with .Offer}}{{if .Queueable}}{{template "retest-queue-link"}}{{end}}{{end}}
             </details>
           {{end}}
           {{with .Manual}}

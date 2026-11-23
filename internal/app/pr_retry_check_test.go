@@ -41,7 +41,8 @@ func TestCheckPRRetriesUsesBothReadersForIncludedHead(t *testing.T) {
 
 			action := Action{Kind: "check-pr-retries", Generation: session.generation, Target: target, SHA: pr.SHA}
 			err := session.Apply(t.Context(), action)
-			result := session.Snapshot().PRRetryChecks[target]
+			snapshot := session.Snapshot()
+			result := snapshot.PRRetryChecks[target]
 			if scenario.choice != release.Included {
 				if err == nil || konfluxCalls != 0 || ciCalls != 0 || result.SHA != "" {
 					t.Fatalf("unauthorized retry check read or published evidence: %v, %+v", err, result)
@@ -54,6 +55,13 @@ func TestCheckPRRetriesUsesBothReadersForIncludedHead(t *testing.T) {
 			if scenario.ciSHA == pr.SHA {
 				if len(result.Konflux.Proposals) != 1 || len(result.CI.Jobs) != 1 {
 					t.Fatalf("expected both retry commands, got %+v", result)
+				}
+				if queue := snapshot.RetestQueue; len(queue) != 2 ||
+					!slices.ContainsFunc(queue, func(item RetestItem) bool { return item.Kind == "actions" }) ||
+					!slices.ContainsFunc(queue, func(item RetestItem) bool {
+						return item.Kind == "konflux" && item.Blocked == "Waiting for the posting eligibility check."
+					}) {
+					t.Fatalf("expected both on-demand retries in the queue, got %+v", queue)
 				}
 			} else if len(result.Konflux.Proposals) != 0 || len(result.CI.Jobs) != 0 ||
 				result.Konflux.Evidence.Error == "" || !result.CI.Incomplete {
