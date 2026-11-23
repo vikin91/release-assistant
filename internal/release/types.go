@@ -199,10 +199,12 @@ type (
 	}
 	// Advisory is a separately acknowledged finding, never an implicit gate.
 	Advisory struct{ ID, Name, Message, URL string }
-	// Proposal binds one exact comment to one observed run.
+	// Proposal binds one exact comment to one planner-approved attempt.
 	Proposal struct {
-		Target                   Target
-		SHA, Job, RunID, Payload string
+		Target            Target
+		SHA, Job, Payload string
+		// RunID identifies a verified PipelineRun or a PR-scoped GitHub check.
+		RunID string
 		// CommentFooter adds attribution to the posted body while leaving Payload copyable as a command.
 		CommentFooter string
 		At            time.Time
@@ -277,6 +279,8 @@ type (
 )
 
 const (
+	// PRCheckEvidencePrefix distinguishes PR check evidence from PipelineRun evidence in a proposal.
+	PRCheckEvidencePrefix = "check:"
 	// Yes is positively established evidence.
 	Yes Truth = "yes"
 	// No is a positively established negative result.

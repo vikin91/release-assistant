@@ -146,3 +146,64 @@ func TestCreationFailureDoesNotSuppressIndependentEligibleRetry(t *testing.T) {
 		t.Fatalf("creation diagnostics changed independent library retry: plan=%+v err=%v", plan, err)
 	}
 }
+
+func TestProposalRequiresPlannerApprovedCheckEvidenceForExactPR(t *testing.T) {
+	for name, tc := range map[string]struct {
+		change   func(*release.Target, *retry.Result)
+		want     string
+		withheld bool
+	}{
+		"should use the associated check": {want: "check:42"},
+		"should leave a tag copy-only": {change: func(target *release.Target, _ *retry.Result) {
+			target.PR, target.Tag = 0, "4.11.2"
+		}},
+		"should withhold an unproposed job": {withheld: true, change: func(_ *release.Target, result *retry.Result) {
+			result.Jobs = nil
+		}},
+		"should leave an ineligible run copy-only": {change: func(_ *release.Target, result *retry.Result) {
+			result.Runs[0].Eligible = false
+		}},
+		"should require a positive check ID": {change: func(_ *release.Target, result *retry.Result) {
+			result.Runs[0].ID, result.StartFailures[0].CheckID = 0, 0
+		}},
+		"should require the same check ID": {change: func(_ *release.Target, result *retry.Result) {
+			result.StartFailures[0].CheckID++
+		}},
+		"should require the same job": {change: func(_ *release.Target, result *retry.Result) {
+			result.StartFailures[0].Job = "other-job"
+		}},
+		"should require the same PR": {change: func(_ *release.Target, result *retry.Result) {
+			result.StartFailures[0].PRNumber++
+		}},
+		"should use a verified PipelineRun": {want: "42", change: func(_ *release.Target, result *retry.Result) {
+			result.Runs[0].IdentityKnown = true
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			target := release.Target{Repo: "stackrox/stackrox", PR: 23854}
+			result := retry.Result{SHA: "head", Jobs: []string{"checks"},
+				Runs:          []retry.Run{{ID: 42, Job: "checks", Eligible: true}},
+				StartFailures: []retry.StartFailure{{CheckID: 42, Job: "checks", PRNumber: target.PR}},
+			}
+			if tc.change != nil {
+				tc.change(&target, &result)
+			}
+			a := New(Config{})
+			a.pr = func(context.Context, retry.Config, string, int) (retry.Result, error) { return result, nil }
+			a.tag = func(context.Context, retry.Config, string, string) (retry.Result, error) { return result, nil }
+			plan, err := a.Plan(t.Context(), target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.withheld {
+				if len(plan.Proposals) != 0 {
+					t.Fatalf("unproposed job was offered: %+v", plan.Proposals)
+				}
+				return
+			}
+			if len(plan.Proposals) != 1 || plan.Proposals[0].RunID != tc.want {
+				t.Fatalf("proposal evidence = %+v, want %q", plan.Proposals, tc.want)
+			}
+		})
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -101,7 +102,7 @@ func (a *Adapter) ReadIssues() []ReadIssue {
 	return a.reads.issues()
 }
 
-// Plan preserves partial results. Missing stable run evidence prevents automatic dispatch.
+// Plan preserves partial results. Posting requires stable evidence for each proposed job.
 func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, error) {
 	if ctx.Value(readCycleKey{}) == nil {
 		ctx = WithReadCycle(ctx)
@@ -165,18 +166,33 @@ func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, err
 		if t.Tag != "" {
 			payload = "/retest " + job + " tag:" + t.Tag
 		}
-		runID := ""
-		for _, run := range p.Runs {
-			if run.Job == job && run.Eligible {
-				runID = run.ID
-			}
-		}
 		p.Proposals = append(p.Proposals, release.Proposal{
-			RunID: runID, Target: t, SHA: r.SHA, Job: job, Payload: payload,
+			RunID: proposalEvidence(t, job, r), Target: t, SHA: r.SHA, Job: job, Payload: payload,
 			CommentFooter: a.commentFooter, At: p.Evidence.At,
 		})
 	}
 	return p, err
+}
+
+func proposalEvidence(target release.Target, job string, result retry.Result) string {
+	var checkID int64
+	for _, run := range result.Runs {
+		if run.Job != job || !run.Eligible || run.ID <= 0 {
+			continue
+		}
+		if run.IdentityKnown {
+			return strconv.FormatInt(run.ID, 10)
+		}
+		if target.PR > 0 && target.Valid() && slices.ContainsFunc(result.StartFailures, func(failure retry.StartFailure) bool {
+			return failure.Job == job && failure.CheckID == run.ID && failure.PRNumber == target.PR
+		}) {
+			checkID = run.ID
+		}
+	}
+	if checkID > 0 {
+		return release.PRCheckEvidencePrefix + strconv.FormatInt(checkID, 10)
+	}
+	return ""
 }
 
 var (

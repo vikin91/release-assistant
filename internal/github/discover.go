@@ -888,7 +888,7 @@ func (c *Client) ReadTarget(ctx context.Context, target release.Target) (dispatc
 		return identity, fmt.Errorf("invalid GitHub target")
 	}
 	if target.PR > 0 {
-		pr, err := c.readPR(ctx, target)
+		pr, err := c.ReadPR(ctx, target)
 		if err != nil {
 			return identity, err
 		}

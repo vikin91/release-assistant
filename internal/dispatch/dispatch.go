@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -233,7 +234,7 @@ func (d *Dispatcher) Stop() {
 	}
 }
 
-// ObservePlan uses distinct stable runs, never polls or comments, for failure counts.
+// ObservePlan counts distinct eligible attempts using their stable evidence identities.
 func (d *Dispatcher) ObservePlan(p release.Plan) { d.mu.Lock(); defer d.mu.Unlock(); d.plan(p) }
 func (d *Dispatcher) plan(p release.Plan) {
 	s := d.state(p.Target)
@@ -246,20 +247,37 @@ func (d *Dispatcher) plan(p release.Plan) {
 		if r.ID == "" {
 			continue
 		}
-		j := s.jobs[r.Job]
-		if j == nil {
-			j = &jobState{seen: map[string]bool{}}
-			s.jobs[r.Job] = j
-		}
+		j := s.job(r.Job)
 		if r.Status == "completed" && r.Outcome == "success" {
 			j.count = 0
 			j.seen[r.ID] = true
 			continue
 		}
-		if r.Eligible && !j.seen[r.ID] {
-			j.count++
-			j.seen[r.ID] = true
+		if r.Eligible {
+			j.recordFailure(r.ID)
 		}
+	}
+	for _, proposal := range p.Proposals {
+		if p.Target.PR > 0 && proposal.Target == p.Target && proposal.SHA == p.SHA &&
+			strings.HasPrefix(proposal.RunID, release.PRCheckEvidencePrefix) {
+			s.job(proposal.Job).recordFailure(proposal.RunID)
+		}
+	}
+}
+
+func (s *targetState) job(name string) *jobState {
+	j := s.jobs[name]
+	if j == nil {
+		j = &jobState{seen: map[string]bool{}}
+		s.jobs[name] = j
+	}
+	return j
+}
+
+func (j *jobState) recordFailure(id string) {
+	if !j.seen[id] {
+		j.count++
+		j.seen[id] = true
 	}
 }
 
@@ -360,7 +378,7 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 	s := d.state(t)
 	var proposal release.Proposal
 	for _, p := range s.proposals {
-		if ID(p) == id {
+		if p.Target == t && ID(p) == id {
 			proposal = p
 			break
 		}
@@ -399,7 +417,7 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 		d.mu.Unlock()
 		return Delivery{}, fmt.Errorf("permission changed; approval is stale")
 	}
-	if readErr != nil {
+	if readErr != nil || identity.Target != t {
 		identity = Identity{Target: t, SHA: s.identity.SHA}
 		identity.Evidence.Error = "fresh authorization unavailable"
 	}
@@ -427,12 +445,7 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 	delete(s.approved, id)
 	now := d.options.Now()
 	s.last = now
-	j := s.jobs[proposal.Job]
-	if j == nil {
-		j = &jobState{seen: map[string]bool{}}
-		s.jobs[proposal.Job] = j
-	}
-	j.last = now
+	s.job(proposal.Job).last = now
 	d.event(t, proposal.SHA, "dispatch", body, "attempt", "system")
 	d.mu.Unlock()
 	result, err := d.writer.Write(ctx, proposal)

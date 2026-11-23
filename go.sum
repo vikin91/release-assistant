@@ -2,7 +2,7 @@ github.com/distribution/reference v0.6.0 h1:0IXCQ5g4/QMHHkarYzh5l+u8T3t73zM5Qvfr
 github.com/distribution/reference v0.6.0/go.mod h1:BbU0aIcezP1/5jX/8MP0YiH4SdvB5Y4f/wlDRiLyi3E=
 github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8Oi/yOhh5U=
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
-github.com/vikin91/konflux-retest v0.1.1-0.20261120120337-586bd6089ee7 h1:7eC35Ki4HX7Iz+b562bgXeUnD0glmsEBkx4LnxR1p30=
-github.com/vikin91/konflux-retest v0.1.1-0.20261120120337-586bd6089ee7/go.mod h1:C8xkaZ25gUvE3/hAuWSWYDzHh35Gt4tW+Bth3NwhXic=
+github.com/vikin91/konflux-retest v0.1.1-0.20261123123351-7e2485d2abee h1:xkekA0QemFztNRd3yq3Kz2pAPjQYQRZJ146aj85YLnA=
+github.com/vikin91/konflux-retest v0.1.1-0.20261123123351-7e2485d2abee/go.mod h1:C8xkaZ25gUvE3/hAuWSWYDzHh35Gt4tW+Bth3NwhXic=
 go.yaml.in/yaml/v3 v3.0.6 h1:zcDfvjXEqTQmpjniUBLc91xYJMB2c4QOFxEF/LCEckM=
 go.yaml.in/yaml/v3 v3.0.6/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=
