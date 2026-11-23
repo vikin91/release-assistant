@@ -21,11 +21,11 @@
   {{range .Jobs}}
     <div class="proposal" data-live-key="manual-job:{{$report.Target}}:{{.ID}}">
       <a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">{{if .WorkflowName}}{{.WorkflowName}} / {{end}}{{.Name}}</a>
-      <div class="copyable-text rerun-command">
+      {{if not $report.Target.PR}}<div class="copyable-text rerun-command">
         <pre><code>{{.RerunCommand $report.Target.Repo}}</code></pre>
         <button type="button" data-copy-text>Copy command</button>
         <span role="status" data-copy-status data-live-preserve></span>
-      </div>
+      </div>{{else}}<code>{{.RerunCommand $report.Target.Repo}}</code>{{end}}
     </div>
   {{end}}
   {{if .Prow}}

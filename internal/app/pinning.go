@@ -72,6 +72,9 @@ func (s *Session) includePinningPR() {
 	}
 	s.priorPinChoice = s.choices.PRs[t]
 	s.choices.PRs[t] = release.Included
+	if s.priorPinChoice != release.Included {
+		s.pendingPRChecks[t] = true
+	}
 	if s.priorPinChoice == release.Ignored || s.priorPinChoice == release.Excluded {
 		s.dispatcher.Ignore(t, false)
 	}
@@ -88,6 +91,10 @@ func (s *Session) clearPinningSelection() {
 			delete(s.choices.PRs, t)
 		} else {
 			s.choices.PRs[t] = s.priorPinChoice
+		}
+		if s.priorPinChoice != release.Included {
+			delete(s.pendingPRChecks, t)
+			delete(s.prRetryChecks, t)
 		}
 		if s.priorPinChoice == release.Ignored || s.priorPinChoice == release.Excluded {
 			s.dispatcher.Ignore(t, true)

@@ -1,0 +1,33 @@
+{{define "pr-retry-check"}}
+  <div id="{{.Anchor}}" data-live-key="{{.Anchor}}">
+    <form method="post" action="/action#{{.Anchor}}" class="inline-form">
+      <input type="hidden" name="kind" value="check-pr-retries"><input type="hidden" name="tab" value="{{.Page.Tab}}">
+      <input type="hidden" name="csrf" value="{{.Page.CSRF}}"><input type="hidden" name="generation" value="{{.Page.Snapshot.Generation}}">
+      <input type="hidden" name="repo" value="{{.PR.Target.Repo}}"><input type="hidden" name="pr" value="{{.PR.Target.PR}}"><input type="hidden" name="sha" value="{{.PR.SHA}}">
+      <button type="submit">Check retries now</button>
+    </form>
+    <p class="muted">
+      {{with .Konflux}}Konflux {{if .Evidence.At.IsZero}}awaiting check{{else}}checked {{when .Evidence.At}}{{if not .Evidence.Fresh}} · incomplete{{end}}{{end}}{{end}}
+      · {{with .CI}}CI {{if .At.IsZero}}awaiting check{{else}}checked {{when .At}}{{if .Incomplete}} · incomplete{{end}}{{end}}{{end}}
+    </p>
+    {{if .Commands}}
+      <div class="copyable-text">
+        <pre><code>{{.Commands}}</code></pre>
+        <button type="button" data-copy-text>Copy retry commands</button>
+        <span role="status" data-copy-status data-live-preserve></span>
+      </div>
+      <p class="muted">Post slash commands as PR comments. Run <code>gh api</code> commands in a terminal.</p>
+    {{else if and .Konflux.Evidence.Fresh (not .CI.At.IsZero) (not .CI.Incomplete)}}
+      <p>No retry commands available for this commit.</p>
+    {{end}}
+    {{with .Konflux.Message}}<p class="muted">{{.}}</p>{{end}}
+    {{if or .Konflux.Evidence.Error .Konflux.Warnings .CI.Warnings .CI.OtherChecks}}
+      <details data-fold-key="{{.Anchor}}-diagnostics">
+        <summary>Retry diagnostics</summary>
+        {{with .Konflux.Evidence.Error}}<p>{{.}}</p>{{end}}
+        {{if .Konflux.Warnings}}<ol>{{range .Konflux.Warnings}}<li>{{.}}</li>{{end}}</ol>{{end}}
+        {{if or .CI.Warnings .CI.OtherChecks}}<ol>{{range .CI.Warnings}}<li>{{.}}</li>{{end}}{{range .CI.OtherChecks}}<li>{{.}}</li>{{end}}</ol>{{end}}
+      </details>
+    {{end}}
+  </div>
+{{end}}

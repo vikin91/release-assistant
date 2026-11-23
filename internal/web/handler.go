@@ -224,6 +224,8 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 		destination = "/?tab=settings&saved=application#retry-settings"
 	case "clear-cache":
 		destination = "/?tab=settings&saved=cache-clear#retry-settings"
+	case "check-pr-retries":
+		destination += "#" + prRetryAnchor(action.Target)
 	}
 	http.Redirect(w, r, destination, http.StatusSeeOther)
 }
@@ -308,6 +310,10 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 	case "use-pinning-pr":
 		if a.Target.PR < 1 || !a.Target.Valid() || a.SHA == "" {
 			return a, fmt.Errorf("pinning PR selection requires the reviewed PR and SHA")
+		}
+	case "check-pr-retries":
+		if a.Target.PR < 1 || !a.Target.Valid() || a.SHA == "" {
+			return a, fmt.Errorf("retry check requires the displayed PR and SHA")
 		}
 	case "choice":
 		a.Choice = release.Choice(lastFormValue(form, "choice"))

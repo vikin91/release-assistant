@@ -59,7 +59,11 @@ func TestBuildRetriesMergeOnlyExactComments(t *testing.T) {
 				t.Fatalf("got %d retry rows, want one per exact comment", got)
 			}
 			for _, proposal := range []release.Proposal{verified, copyOnly, waiting} {
-				if got := strings.Count(body, "<pre><code>"+proposal.Payload+"</code></pre>"); got != 1 {
+				markup := "<code>" + proposal.Payload + "</code>"
+				if target.Tag != "" {
+					markup = "<pre>" + markup + "</pre>"
+				}
+				if got := strings.Count(body, markup); got != 1 {
 					t.Errorf("comment %q appeared %d times, want one", proposal.Payload, got)
 				}
 			}

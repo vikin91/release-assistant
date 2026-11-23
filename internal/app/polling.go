@@ -129,6 +129,16 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 				next = at
 			}
 		}
+		if s.initiallyLoaded[source.Name] {
+			priority := func(job pollJob) int {
+				if (job.kind == pollChecks || job.kind == pollBuilds) &&
+					s.polls[pollID{source.Repo, job.kind}].finished.IsZero() {
+					return 0
+				}
+				return 1
+			}
+			slices.SortStableFunc(due, func(a, b pollJob) int { return priority(a) - priority(b) })
+		}
 		changed := s.pollChanged
 		revision := s.workRevision
 		startupTags := s.duringStartup() && source.Name != "acs" && s.choices.Tags[source.Name] == ""

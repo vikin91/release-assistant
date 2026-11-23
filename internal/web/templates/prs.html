@@ -35,6 +35,7 @@
     <p class="pr-list-filter-help muted">Included PRs that closed without merging or have a failed check.</p>
     <p class="pr-list-filter-empty muted">No PRs match this filter.</p>
     {{range $triage.Repos}}
+      {{$branch := .Repository.Source.Branch}}
       <article class="pr-repo" data-live-key="pr-repo:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}">
         {{with .Repository.Source}}<h3>{{title .Name}} <span class="muted">{{.Repo}} · {{if and $component .Repo .Branch}}<a aria-describedby="new-tab-description" href="https://github.com/{{.Repo}}/commits/{{.Branch | urlquery}}" target="_blank" rel="noreferrer">{{.Branch}}</a>{{else}}{{.Branch}}{{end}}</span></h3>{{end}}
         {{range .PRs}}
@@ -74,6 +75,7 @@
             </div>{{end}}
             {{if ne .Choice "ignored"}}<div class="pr-list-disclosures">
               <form method="post" action="/action#{{$.PRSection}}" class="inline-form grant-form" data-autosubmit><input type="hidden" name="tab" value="{{$.Tab}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="grant"><input type="hidden" name="repo" value="{{.PR.Target.Repo}}"><input type="hidden" name="pr" value="{{.PR.Target.PR}}"><input type="hidden" name="sha" value="{{.PR.SHA}}"><input type="hidden" name="enabled" value="false"><label class="check{{if not .CanGrant}} disabled-control{{end}}" title="Saves immediately"><input type="checkbox" name="enabled" value="true" {{if and .Authority .Authority.Granted}}checked{{end}}{{if not .CanGrant}} disabled{{end}}> {{retryCommentPermissionLabel}}</label><noscript><button type="submit"{{if not .CanGrant}} disabled{{end}}>Apply RW permission</button></noscript>{{if .PR.OptOut}}<span class="error-text">Writes disabled by opt-out label</span>{{end}}</form>
+              {{with $.PRRetryStatus .PR $branch}}{{template "pr-retry-check" .}}{{end}}
               {{$target := .PR.Target}}
               {{with $row.Retry}}
                 <details class="pr-list-retry" data-fold-key="pr-retry:{{$target}}">

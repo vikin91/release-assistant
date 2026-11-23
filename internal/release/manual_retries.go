@@ -3,6 +3,7 @@ package release
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // ManualRetryWarning explains the limits of job eligibility to the engineer.
@@ -13,6 +14,7 @@ type (
 	ManualRetryReport struct {
 		Target   Target
 		SHA, URL string
+		At       time.Time
 		Jobs     []ManualJob
 		Prow     []ProwRetry
 		Warnings []string

@@ -46,6 +46,7 @@ type (
 		Inventory                    release.Inventory
 		Plans                        []release.Plan
 		ManualRetries                []release.ManualRetryReport
+		PRRetryChecks                map[release.Target]PRRetryCheck
 		RetestQueue                  []RetestItem
 		RetestLog                    []RetestDecision
 		Assessment                   release.Assessment
@@ -94,6 +95,8 @@ type (
 		prRefreshHeads  map[release.Target]string
 		tagChecks       map[string]tagCheckObservation
 		manualRetries   map[release.Target]release.ManualRetryReport
+		prRetryChecks   map[release.Target]PRRetryCheck
+		pendingPRChecks map[release.Target]bool
 		retestQueue     []RetestItem
 		retestLog       []RetestDecision
 		nextRetestID    uint64
@@ -162,6 +165,8 @@ func (s *Session) reset() {
 	s.plans = map[release.Target]release.Plan{}
 	s.prRefreshHeads = map[release.Target]string{}
 	s.manualRetries = map[release.Target]release.ManualRetryReport{}
+	s.prRetryChecks = map[release.Target]PRRetryCheck{}
+	s.pendingPRChecks = map[release.Target]bool{}
 	s.retestQueue = nil
 	s.tagChecks = make(map[string]tagCheckObservation)
 	s.confirmedSHAs = map[string]string{}
@@ -217,6 +222,9 @@ func (s *Session) recordReadResult(target release.Target, operation, message str
 func (s *Session) Apply(ctx context.Context, a Action) error {
 	if a.Kind == "use-pinning-pr" {
 		return s.confirmPinningPR(ctx, a)
+	}
+	if a.Kind == "check-pr-retries" {
+		return s.checkPRRetries(ctx, a)
 	}
 	s.mu.Lock()
 	if a.Kind != "configure" && a.Generation != s.generation {
@@ -480,8 +488,13 @@ func (s *Session) selectComponentTag(source release.Source, tag, sha string) {
 
 func (s *Session) setPRChoice(target release.Target, sha string, choice release.Choice) {
 	if choice == release.Included && s.choices.PRs[target] != release.Included {
+		s.pendingPRChecks[target] = true
 		delete(s.polls, pollID{target.Repo, pollChecks})
 		delete(s.polls, pollID{target.Repo, pollBuilds})
+	}
+	if choice != release.Included {
+		delete(s.prRetryChecks, target)
+		delete(s.pendingPRChecks, target)
 	}
 	if choice == "" {
 		delete(s.choices.PRs, target)
@@ -539,7 +552,12 @@ func (s *Session) Snapshot() Snapshot {
 	x := Snapshot{
 		RefreshIntervals: maps.Clone(s.options.RefreshIntervals), Config: c, Choices: choices, Error: s.errorText, Generation: s.generation,
 		Interactive: s.dispatcher.IsInteractive(), RequirePRLabel: s.dispatcher.RequiresPRLabel(), WritesEnabled: s.dispatcher.WritesEnabled(),
-		Authority: s.dispatcher.Views(),
+		Authority: s.dispatcher.Views(), PRRetryChecks: make(map[release.Target]PRRetryCheck, len(s.prRetryChecks)),
+	}
+	for target, check := range s.prRetryChecks {
+		check.Konflux = clonePlan(check.Konflux)
+		check.CI = cloneManualRetryReport(check.CI)
+		x.PRRetryChecks[target] = check
 	}
 	if s.options.GitHubReads != nil {
 		x.StartupReadLimit, x.OngoingReadLimit = s.options.GitHubReads.ReadLimits()
@@ -572,6 +590,11 @@ func (s *Session) Snapshot() Snapshot {
 	for _, r := range s.repos {
 		x.ManualRetries = append(x.ManualRetries, s.currentManualRetries(r)...)
 		x.Repositories = append(x.Repositories, cloneRepository(r))
+		for _, pr := range r.PRs {
+			if s.pendingPRChecks[pr.Target] && pr.State == "open" && pr.Evidence.Fresh() {
+				x.Loading = true
+			}
+		}
 	}
 	slices.SortFunc(x.ManualRetries, func(a, b release.ManualRetryReport) int { return strings.Compare(a.Target.String(), b.Target.String()) })
 	s.syncRetestQueue(x.Authority, x.ManualRetries)
@@ -740,6 +763,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			}
 		}
 	}
+	s.prioritizeNewPRs(request.Tracked)
 	if initial {
 		message := fmt.Sprintf("Checking %s on %s.", discoverySubject(request), consoleBranch(source))
 		s.record(release.Target{Repo: source.Repo}, "", "github-start", "", message, "system", message)
@@ -881,6 +905,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			}
 			s.dispatcher.ObserveIdentity(dispatch.Identity{Target: p.Target, SHA: p.SHA, Base: p.Base, Open: p.State == "open" && p.Base == source.Branch, OptOut: p.OptOut, CommentLabel: p.CommentLabel, Evidence: p.Evidence})
 			if p.State != "open" {
+				delete(s.pendingPRChecks, p.Target)
 				if plan, exists := s.plans[p.Target]; exists {
 					plan.Proposals = nil
 					plan.Evidence.Known = false
@@ -961,6 +986,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	if work.plans && includeRC {
 		targets = append(targets, rc.Target)
 	}
+	s.prioritizeNewPRs(targets)
 	s.mu.Unlock()
 	if work.images && (includeRC || !earlyComponentImages) {
 		imageReads.Go(func() { imageErr = s.refreshImagesScoped(ctx, generation, initial, includeRC, true) })
@@ -1041,10 +1067,14 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		}
 		if err != nil && plan.SHA == "" {
 			old := clonePlan(s.plans[target])
+			delete(s.pendingPRChecks, target)
 			old.Proposals = nil
 			old.Evidence.Known = false
 			old.Target = target
 			old.Evidence.Error = message
+			if old.Evidence.At.IsZero() {
+				old.SHA, old.Evidence.At = expected, plan.Evidence.At
+			}
 			old.StartFailures = staleStartFailures(old.StartFailures, message)
 			for i := range old.Runs {
 				if old.Runs[i].Image.Reference == "" && old.Runs[i].Image.Evidence.Error == "" {
@@ -1057,6 +1087,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			s.dispatcher.ObservePlan(release.Plan{Target: target, SHA: expected})
 		}
 		if plan.SHA == expected && expected != "" {
+			delete(s.pendingPRChecks, target)
 			oldPlan := s.plans[target]
 			retainVerifiedBuilds(oldPlan, &plan)
 			if err != nil && len(plan.StartFailures) == 0 && oldPlan.SHA == plan.SHA {

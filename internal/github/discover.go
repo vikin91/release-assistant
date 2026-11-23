@@ -234,7 +234,15 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		}
 		result.PRs = append(result.PRs, p)
 	}
-	for number := range resolve {
+	numbers := make([]int, 0, len(resolve))
+	for _, target := range req.Tracked {
+		if target.Repo == source.Repo && resolve[target.PR] {
+			numbers = append(numbers, target.PR)
+			delete(resolve, target.PR)
+		}
+	}
+	numbers = append(numbers, slices.Sorted(maps.Keys(resolve))...)
+	for _, number := range numbers {
 		if ignored[number] || hasPR(result.PRs, number) {
 			continue
 		}

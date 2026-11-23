@@ -24,7 +24,7 @@
                 <span class="pill">{{.Status}}{{with .Offer}}{{if not .WaitingUntil.IsZero}} · until {{when .WaitingUntil}}{{end}}{{end}}</span>
               </summary>
               <p class="build-retry-note">Commit <code>{{.Proposal.SHA}}</code>{{with .Offer}}{{if .Failures}} · {{.Failures}} eligible failures{{end}}{{end}}</p>
-              {{template "manual-comment" .Proposal}}
+              {{template "retry-comment-controls" .Proposal}}
               {{with .Offer}}{{if and $.Snapshot.Interactive .Queueable}}{{template "retest-queue-link"}}{{end}}{{end}}
             </details>
           {{end}}

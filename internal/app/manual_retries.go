@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
@@ -49,13 +50,43 @@ func (s *Session) currentManualRetries(repo release.Repository) []release.Manual
 			}
 			continue
 		}
-		r.Jobs = slices.Clone(r.Jobs)
-		r.Prow = slices.Clone(r.Prow)
-		r.Warnings = slices.Clone(r.Warnings)
-		r.OtherChecks = slices.Clone(r.OtherChecks)
-		reports = append(reports, r)
+		reports = append(reports, cloneManualRetryReport(r))
 	}
 	return reports
+}
+
+func cloneManualRetryReport(r release.ManualRetryReport) release.ManualRetryReport {
+	r.Jobs = slices.Clone(r.Jobs)
+	r.Prow = slices.Clone(r.Prow)
+	r.Warnings = slices.Clone(r.Warnings)
+	r.OtherChecks = slices.Clone(r.OtherChecks)
+	return r
+}
+
+// readManualRetry only keeps commands backed by the requested PR or tag head.
+func readManualRetry(ctx context.Context, reader ManualRetryReader, target release.Target, sha string) (release.ManualRetryReport, bool, error) {
+	at := time.Now()
+	if reader == nil {
+		return release.ManualRetryReport{Target: target, SHA: sha, At: at, Incomplete: true,
+			Warnings: []string{"GitHub Actions and Prow retry checks are unavailable."}}, false, nil
+	}
+	report, err := reader.ManualRetries(ctx, target)
+	report.At = at
+	if err != nil {
+		report.Incomplete = true
+		report.Warnings = append(report.Warnings, err.Error())
+	}
+	headChanged := report.Target == target && report.SHA != "" && report.SHA != sha
+	if report.Target != target || report.SHA != sha {
+		report.Jobs, report.Prow, report.OtherChecks = nil, nil, nil
+		report.Target, report.SHA = target, sha
+		report.Incomplete = true
+		if err == nil {
+			report.Warnings = append(report.Warnings, "The target revision changed during the retry check.")
+			err = fmt.Errorf("manual retry check for %s observed a different revision", target)
+		}
+	}
+	return report, headChanged, err
 }
 
 // refreshManualRetries spends the remaining source-cycle read budget on display-only offers.
@@ -83,29 +114,21 @@ func (s *Session) readManualRetries(ctx context.Context, generation, revision ui
 	}
 	repo := s.repos[source.Name]
 	heads := s.manualRetryHeads(repo)
+	targets := make([]release.Target, 0, len(heads))
+	for target := range heads {
+		if inScope(target) {
+			targets = append(targets, target)
+		}
+	}
+	s.prioritizeNewPRs(targets)
 	s.mu.Unlock()
 	ctx = githubread.WithPriority(ctx, githubread.Background, source.Repo)
 	reports := make(map[release.Target]release.ManualRetryReport)
 	var errs []error
-	for target, sha := range heads {
-		if !inScope(target) {
-			continue
-		}
-		report, err := reader.ManualRetries(ctx, target)
+	for _, target := range targets {
+		report, _, err := readManualRetry(ctx, reader, target, heads[target])
 		if err != nil {
 			errs = append(errs, err)
-			report.Incomplete = true
-			report.Warnings = append(report.Warnings, err.Error())
-		}
-		if report.Target != target || report.SHA != sha {
-			// Diagnostics may describe an unavailable read; commands always require a matching revision.
-			report.Jobs, report.Prow, report.OtherChecks = nil, nil, nil
-			report.Target, report.SHA = target, sha
-			report.Incomplete = true
-			if err == nil {
-				report.Warnings = append(report.Warnings, "The target revision changed during the manual retry check.")
-				errs = append(errs, fmt.Errorf("manual retry check for %s observed a different revision", target))
-			}
 		}
 		if target == repo.Candidate.Target || (source.Name == "acs" && target.PR > 0) || len(report.Jobs)+len(report.Prow)+len(report.Warnings)+len(report.OtherChecks) > 0 {
 			reports[target] = report
