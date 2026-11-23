@@ -1,4 +1,4 @@
-// Command ci-retest prints Konflux retry comments followed by supported Actions and Prow retries.
+// Command ci-retest prints retry instructions for GitHub Actions and Prow.
 package main
 
 import (
@@ -18,7 +18,7 @@ import (
 	"release-assistant/internal/apilog"
 	"release-assistant/internal/app"
 	"release-assistant/internal/github"
-	"release-assistant/internal/konflux"
+	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
 )
 
@@ -31,36 +31,28 @@ func main() {
 
 type (
 	cliOptions struct {
-		lookups  konflux.Lookups
 		optional bool
 		debugLog bool
 	}
 
-	readers struct {
-		konfluxPlan   func(context.Context, release.Target) (release.Plan, error)
-		manualRetries func(context.Context, release.Target, bool) (release.ManualRetryReport, error)
-	}
+	retryReader func(context.Context, release.Target, bool) (release.ManualRetryReport, error)
 )
 
-func newReader(ctx context.Context, lookups konflux.Lookups, log *app.Log) (readers, error) {
-	config := konflux.StartupConfig(ctx, lookups)
-	if config.GitHubToken == "" {
-		return readers{}, errors.New("set GH_TOKEN or GITHUB_TOKEN, or sign in with gh auth login --hostname github.com")
+func newReader(ctx context.Context, log *app.Log) (retryReader, error) {
+	token := githubread.AuthToken(ctx)
+	if token == "" {
+		return nil, errors.New("set GH_TOKEN or GITHUB_TOKEN, or sign in with gh auth login --hostname github.com")
 	}
-	config.HTTPClient = &http.Client{
+	client := &http.Client{
 		Timeout:   30 * time.Second,
 		Transport: apilog.Transport{Base: http.DefaultTransport, Calling: log.CallingAPI},
 	}
-	return readers{
-		konfluxPlan:   konflux.New(config).Plan,
-		manualRetries: github.New("", config.GitHubToken, config.HTTPClient).ManualRetriesWithOptional,
-	}, nil
+	return github.New("", token, client).ManualRetriesWithOptional, nil
 }
 
 func targets(args []string, diagnostics io.Writer, options *cliOptions) ([]release.Target, error) {
 	fs := flag.NewFlagSet("ci-retest", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	fs.Func("allow-konflux-lookup", "allow a Konflux lookup for APP_ID,API_HOST,NAMESPACE (repeatable)", options.lookups.Add)
 	fs.BoolVar(&options.optional, "optional", false, "include configured optional CI jobs")
 	fs.BoolVar(&options.debugLog, "v", false, "show Debug messages on stderr")
 	repo := fs.String("repo", "stackrox", "repository")
@@ -72,12 +64,10 @@ func targets(args []string, diagnostics io.Writer, options *cliOptions) ([]relea
 
 Choose one list and put it last. Spaces and commas are accepted. Short
 repository names use the stackrox owner. Default: stackrox/stackrox.
-Prints eligible Konflux retry comments first, then supported Actions reruns and
-Prow comments. By default CI retries cover PR merge requirements and their
+Prints supported GitHub Actions reruns and Prow retry comments.
+By default CI retries cover PR merge requirements and their
 prerequisites. Add --optional to include configured optional CI jobs on PRs or tags.
 Pass -v before the target list to show Debug messages on stderr.
-For verified Konflux reads, use the active oc login and pass
---allow-konflux-lookup APP_ID,API_HOST,NAMESPACE before the target list.
 GitHub authentication: GH_TOKEN,
 GITHUB_TOKEN, or a saved gh login. Read access to Actions, checks,
 commit statuses, contents and pull requests is needed.`)
@@ -131,8 +121,8 @@ commit statuses, contents and pull requests is needed.`)
 	return result, nil
 }
 
-func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader func(context.Context, konflux.Lookups, *app.Log) (readers, error)) int {
-	options := cliOptions{lookups: make(konflux.Lookups)}
+func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader func(context.Context, *app.Log) (retryReader, error)) int {
+	var options cliOptions
 	targets, err := targets(args, diagnostics, &options)
 	if errors.Is(err, flag.ErrHelp) {
 		return 0
@@ -141,7 +131,7 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader 
 		fmt.Fprintln(diagnostics, err)
 		return 2
 	}
-	c, err := reader(ctx, options.lookups, app.NewLog(diagnostics, options.debugLog))
+	readRetries, err := reader(ctx, app.NewLog(diagnostics, options.debugLog))
 	if err != nil {
 		fmt.Fprintln(diagnostics, err)
 		return 1
@@ -151,22 +141,9 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader 
 		if i > 0 {
 			fmt.Fprintln(out)
 		}
-		plan, planErr := c.konfluxPlan(ctx, t)
-		report, err := c.manualRetries(ctx, t, options.optional)
-		for _, warning := range plan.Warnings {
-			report.Warnings = append(report.Warnings, "Konflux: "+warning)
-		}
-		if planErr != nil {
-			report.Warnings = append(report.Warnings, "Konflux: "+planErr.Error())
-			code = 1
-		}
+		report, err := readRetries(ctx, t, options.optional)
 		if err != nil {
 			report.Warnings = append(report.Warnings, err.Error())
-			code = 1
-		}
-		if len(plan.Proposals) > 0 && (plan.SHA == "" || plan.Target != t || report.SHA != plan.SHA) {
-			report.Warnings = append(report.Warnings, "The Konflux and CI checks could not confirm the same target revision. Run ci-retest again.")
-			plan.Proposals = nil
 			code = 1
 		}
 		fmt.Fprintf(out, "---\n%s\n", report.URL)
@@ -174,15 +151,12 @@ func run(ctx context.Context, args []string, out, diagnostics io.Writer, reader 
 			fmt.Fprintf(out, "Tag: %s\n", t.Tag)
 		}
 		switch {
-		case len(plan.Proposals)+len(report.Jobs)+len(report.Prow) > 0:
+		case len(report.Jobs)+len(report.Prow) > 0:
 			fmt.Fprintln(out, "\nAvailable retries")
 		case len(report.OtherChecks)+len(report.Warnings) > 0:
 			fmt.Fprintln(out, "\nNext action: Investigate")
 		default:
 			fmt.Fprintln(out, "\nNext action: None")
-		}
-		for _, proposal := range plan.Proposals {
-			fmt.Fprintf(out, "Post this Konflux comment on %s (commit %s)\n%s\n\n", plan.Evidence.URL, proposal.SHA, proposal.Payload)
 		}
 		for j, job := range report.Jobs {
 			if j > 0 {

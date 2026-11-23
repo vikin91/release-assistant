@@ -14,7 +14,6 @@ import (
 
 	"release-assistant/internal/app"
 	"release-assistant/internal/github"
-	"release-assistant/internal/konflux"
 	"release-assistant/internal/release"
 )
 
@@ -30,9 +29,10 @@ func TestTargetLists(t *testing.T) {
 		"missing targets":                {nil, ""},
 		"invalid PR":                     {[]string{"--prs", "x"}, ""},
 		"invalid ref":                    {[]string{"--tags", "v1/.hidden"}, ""},
+		"Konflux lookup flag":            {[]string{"--allow-konflux-lookup", "296509,api.example.openshiftapps.com,builds", "--prs", "1"}, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got, err := targets(tc.args, new(bytes.Buffer), &cliOptions{lookups: make(konflux.Lookups)})
+			got, err := targets(tc.args, new(bytes.Buffer), &cliOptions{})
 			if tc.want == "" {
 				if err == nil {
 					t.Fatal("expected usage error")
@@ -46,73 +46,27 @@ func TestTargetLists(t *testing.T) {
 	}
 }
 
-func TestKonfluxCommentsPrecedeManualRetries(t *testing.T) {
-	const repo = "stackrox/stackrox"
-	const sha = "abcd"
+func TestDebugAPIRequestsUseStderr(t *testing.T) {
 	for name, tc := range map[string]struct {
-		args                    []string
-		url, comment, manualSHA string
+		args []string
+		want bool
 	}{
-		"PR comment":         {[]string{"--prs", "7"}, "https://github.com/" + repo + "/pull/7", "/konflux-retest central-db-on-push", sha},
-		"tag commit comment": {[]string{"-v", "--tags", "5.0.1-rc.0"}, "https://github.com/" + repo + "/commit/" + sha, "/retest central-db-on-push tag:5.0.1-rc.0", sha},
-		"moved PR":           {[]string{"--prs", "7"}, "https://github.com/" + repo + "/pull/7", "/konflux-retest central-db-on-push", "new-head"},
+		"default": {[]string{"--prs", "7"}, false},
+		"verbose": {[]string{"-v", "--prs", "7"}, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var out, diagnostics bytes.Buffer
-			var planned bool
-			read := func(_ context.Context, _ konflux.Lookups, log *app.Log) (readers, error) {
-				log.CallingAPI("GitHub", "GET", "/repos/"+repo)
-				return readers{
-					konfluxPlan: func(_ context.Context, target release.Target) (release.Plan, error) {
-						planned = true
-						return release.Plan{Target: target, SHA: sha, Evidence: release.Evidence{URL: tc.url},
-							Proposals: []release.Proposal{{Target: target, SHA: sha, Payload: tc.comment}}}, nil
-					},
-					manualRetries: func(_ context.Context, target release.Target, _ bool) (release.ManualRetryReport, error) {
-						if !planned {
-							t.Fatal("CI checked the target before Konflux")
-						}
-						return release.ManualRetryReport{Target: target, SHA: tc.manualSHA, URL: tc.url, Jobs: []release.ManualJob{{ID: 17, Name: "scan"}}}, nil
-					},
+			const message = "Debug: Calling API: GitHub GET /repos/stackrox/stackrox"
+			code := run(t.Context(), tc.args, &out, &diagnostics, func(_ context.Context, log *app.Log) (retryReader, error) {
+				return func(context.Context, release.Target, bool) (release.ManualRetryReport, error) {
+					log.CallingAPI("GitHub", "GET", "/repos/stackrox/stackrox")
+					return release.ManualRetryReport{URL: "https://github.com/stackrox/stackrox/pull/7"}, nil
 				}, nil
-			}
-			code := run(t.Context(), tc.args, &out, &diagnostics, read)
-			if got := strings.Contains(diagnostics.String(), "Debug: Calling API:"); got != (tc.args[0] == "-v") {
-				t.Fatalf("unexpected debug output for %v: %q", tc.args, diagnostics.String())
-			}
-			beforeCI, _, found := strings.Cut(out.String(), "gh api --method POST")
-			if !found {
-				t.Fatalf("missing CI job: %s", &out)
-			}
-			if tc.manualSHA != sha {
-				if code != 1 || strings.Contains(out.String(), tc.comment) {
-					t.Fatalf("stale proposal: %s", &out)
-				}
-				return
-			}
-			if code != 0 || !strings.Contains(beforeCI, tc.url+" (commit "+sha+")\n"+tc.comment+"\n") || strings.Count(out.String(), tc.comment) != 1 {
+			})
+			if code != 0 || strings.Contains(diagnostics.String(), message) != tc.want || strings.Contains(out.String(), message) {
 				t.Fatalf("code=%d, output=%s, diagnostics=%s", code, &out, &diagnostics)
 			}
 		})
-	}
-}
-
-func TestKonfluxIdentityWarningWithoutPlannerError(t *testing.T) {
-	const warning = "identity unknown: PipelineRun event identity unavailable"
-	var out, diagnostics bytes.Buffer
-	code := run(t.Context(), []string{"--prs", "7"}, &out, &diagnostics, func(context.Context, konflux.Lookups, *app.Log) (readers, error) {
-		return readers{
-			konfluxPlan: func(_ context.Context, target release.Target) (release.Plan, error) {
-				return release.Plan{Target: target, SHA: "head", Action: "Wait", Warnings: []string{warning}}, nil
-			},
-			manualRetries: func(_ context.Context, target release.Target, _ bool) (release.ManualRetryReport, error) {
-				return release.ManualRetryReport{Target: target, SHA: "head", URL: "https://github.com/stackrox/stackrox/pull/7"}, nil
-			},
-		}, nil
-	})
-	if code != 0 || diagnostics.Len() != 0 || !strings.Contains(out.String(), "Next action: Investigate") ||
-		!strings.Contains(out.String(), "Konflux: "+warning) {
-		t.Fatalf("code=%d, output=%s, diagnostics=%s", code, &out, &diagnostics)
 	}
 }
 
@@ -178,7 +132,7 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 		"only configured optional jobs on a tag": {
 			optional: true, args: []string{"--tags", "rc"}, repo: "stackrox/fact", workflowName: "Main CI", workflowPath: ".github/workflows/ci.yml", workflow: "on:\n  push:\n    tags: ['*']\n", mixed: true,
 			want:   []string{"gh api --method POST repos/stackrox/fact/actions/jobs/99/rerun"},
-			absent: []string{"/jobs/101/rerun", "Red Hat Konflux", "Handled by konflux-retest", "Unknown check", "vendor/gate"},
+			absent: []string{"/jobs/101/rerun", "Konflux", "konflux-retest", "Unknown check", "vendor/gate"},
 		},
 		"tag without optional has no manual CI": {args: []string{"--tags", "rc"}, absent: []string{"gh api --method", "Unknown check", "Warnings:"}},
 		"PR defaults to the required job's transitive prerequisite": {
@@ -435,11 +389,8 @@ gh api --method POST repos/stackrox/stackrox/actions/jobs/101/rerun`
 				args = append(args, "--optional")
 			}
 			args = append(args, tc.args...)
-			code := run(t.Context(), args, &out, &diag, func(context.Context, konflux.Lookups, *app.Log) (readers, error) {
-				return readers{
-					konfluxPlan:   func(context.Context, release.Target) (release.Plan, error) { return release.Plan{}, nil },
-					manualRetries: github.New(server.URL, "", server.Client()).ManualRetriesWithOptional,
-				}, nil
+			code := run(t.Context(), args, &out, &diag, func(context.Context, *app.Log) (retryReader, error) {
+				return github.New(server.URL, "", server.Client()).ManualRetriesWithOptional, nil
 			})
 			if code != tc.code || diag.Len() != 0 {
 				t.Fatalf("code=%d, stderr=%s, stdout=%s", code, &diag, &out)

@@ -173,7 +173,6 @@ func TestReadBackoffReportsUnauthorizedUntilSuccessfulRead(t *testing.T) {
 
 func TestAdapterDefersLiveLookupsButStillReadsGitHubAndArchive(t *testing.T) {
 	const apiAuthority = "api.example.openshiftapps.com:6443"
-	t.Setenv("GH_TOKEN", "github-fixture")
 	lookups := Lookups{}
 	if err := lookups.Add("296509,api.example.openshiftapps.com,builds"); err != nil {
 		t.Fatal(err)
@@ -184,6 +183,7 @@ func TestAdapterDefersLiveLookupsButStillReadsGitHubAndArchive(t *testing.T) {
 		}
 		return "cluster-fixture"
 	})
+	config.GitHubToken = "github-fixture"
 	var liveCalls, archiveCalls, checkReads int
 	now := time.Now()
 	config.HTTPClient = &http.Client{Transport: roundTrip(func(req *http.Request) (*http.Response, error) {

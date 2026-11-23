@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"release-assistant/internal/githubread"
 )
 
 type (
@@ -45,21 +47,17 @@ func (lookups Lookups) allows(_ context.Context, appID int64, host, namespace st
 
 // StartupConfig reads GitHub, Quay and cluster credentials for the approved lookups.
 func StartupConfig(ctx context.Context, lookups Lookups) Config {
-	return startupConfig(ctx, lookups, commandOutput)
+	token := githubread.AuthToken(ctx)
+	config := startupConfig(ctx, lookups, commandOutput)
+	config.GitHubToken = token
+	return config
 }
 
 func startupConfig(ctx context.Context, lookups Lookups, command func(context.Context, string, ...string) string) Config {
 	c := Config{
 		AllowKonfluxLookup: lookups.allows,
-		GitHubToken:        strings.TrimSpace(os.Getenv("GH_TOKEN")),
 		QuayUsername:       os.Getenv("QUAY_USERNAME"),
 		QuayPassword:       os.Getenv("QUAY_PASSWORD"),
-	}
-	if c.GitHubToken == "" {
-		c.GitHubToken = strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
-	}
-	if c.GitHubToken == "" {
-		c.GitHubToken = command(ctx, "gh", "auth", "token", "--hostname", "github.com")
 	}
 	if c.QuayUsername == "" && c.QuayPassword == "" {
 		c.QuayUsername = os.Getenv("QUAY_RHACS_ENG_RO_USERNAME")

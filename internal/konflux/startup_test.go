@@ -2,40 +2,21 @@ package konflux
 
 import (
 	"context"
-	"strings"
 	"testing"
 )
 
-func TestStartupCredentials(t *testing.T) {
-	for name, tc := range map[string]struct {
-		gh, github, want string
-		wantGH           bool
-	}{"GH_TOKEN first": {"explicit", "second", "explicit", false}, "GITHUB_TOKEN second": {"", "second", "second", false}, "existing gh login": {"", "", "login", true}} {
-		t.Run(name, func(t *testing.T) {
-			t.Setenv("GH_TOKEN", tc.gh)
-			t.Setenv("GITHUB_TOKEN", tc.github)
-			called := false
-			command := func(_ context.Context, name string, args ...string) string {
-				if name == "gh" {
-					called = true
-					return "login"
-				}
-				if strings.Contains(strings.Join(args, " "), "server") {
-					return "https://api.example.openshiftapps.com:6443"
-				}
-				return "cluster-token"
-			}
-			c := startupConfig(t.Context(), nil, command)
-			if c.GitHubToken != tc.want || called != tc.wantGH {
-				t.Fatal("credential precedence incorrect")
-			}
-			if token, err := c.KonfluxToken(t.Context(), "api.example.openshiftapps.com"); err != nil || token != "cluster-token" {
-				t.Fatal("startup cluster session not reused")
-			}
-			if _, err := c.KonfluxToken(t.Context(), "api.other.openshiftapps.com"); err == nil {
-				t.Fatal("cluster token sent to another host")
-			}
-		})
+func TestStartupClusterCredentials(t *testing.T) {
+	c := startupConfig(t.Context(), nil, func(_ context.Context, _ string, args ...string) string {
+		if args[1] == "--show-server" {
+			return "https://api.example.openshiftapps.com:6443"
+		}
+		return "cluster-token"
+	})
+	if token, err := c.KonfluxToken(t.Context(), "api.example.openshiftapps.com"); err != nil || token != "cluster-token" {
+		t.Fatal("startup cluster session not reused")
+	}
+	if _, err := c.KonfluxToken(t.Context(), "api.other.openshiftapps.com"); err == nil {
+		t.Fatal("cluster token sent to another host")
 	}
 }
 

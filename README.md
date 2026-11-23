@@ -187,22 +187,21 @@ and decisions are available for the current assistant process.
 
 ## Standalone CI retry CLI
 
-Use `ci-retest` to check GitHub Actions jobs and OpenShift CI presubmits independently of the dashboard. It accepts the same target lists and GitHub credentials as `konflux-retest`.
+Use `ci-retest` to check GitHub Actions jobs and OpenShift CI presubmits independently of the dashboard. Use the standalone `konflux-retest` command for Konflux builds. Both commands accept the same target lists and GitHub credentials.
 
 The CLI and dashboard use the PR base branch’s classic protection and active rulesets to identify merge-required checks. For Actions, they follow direct and transitive `needs` at the PR workflow revision, including local reusable workflows. The report offers a failed job after its prerequisites pass. If a prerequisite fails, the report offers that job when it is ready. Independent jobs can appear together.
 
 The [CI retry dependency rules](internal/github/retry_dependency_rules.go) record the audited trees for StackRox, Collector, FACT, and Scanner. Edit `retryDependencies` when a required job consumes another workflow’s output. The image wait checks the jobs that publish its images. GitHub’s current branch rules identify required checks. For workflow revisions with a matching fingerprint in `retryWorkflowTrees`, the planner uses the recorded edges. For other revisions, it reads the edges from the workflow YAML. The report shows an error when it cannot read those rules or files. Dependencies inside external reusable workflows are outside prerequisite discovery.
 
-Pass `--optional` to include configured standalone jobs outside the merge dependency trees. Tags have no PR merge requirements, so their manual Actions retries require `--optional`. Konflux selects its own jobs and prerequisites for PRs and tags.
+Pass `--optional` to include configured standalone jobs outside the merge dependency trees. Tags have no PR merge requirements, so their manual Actions retries require `--optional`.
 
 The CLI and dashboard share hardcoded [retry ownership and optional-job lists](internal/github/ci_retest_config.go). To classify an unknown check, patch that file and add a regression case. Verify the repository, the reporting provider, and the caller workflow path and job name from the Actions run. For Prow, verify the context in the repository’s OpenShift CI presubmit configuration. Use a whole-workflow rule only when every job has the same retry owner.
 
-For each target, `konflux-retest` runs first. Post each suggested comment separately on the linked PR or tagged commit. The CI check then silently skips deny-listed jobs, including collector and FACT’s `Test Konflux builds` workflows. An allow-listed failure gets a command only after the usual target, revision, and job checks pass. Unlisted failures in the merge scope appear as **Unknown check — patch ci-retest to classify it**.
+The CI check skips deny-listed jobs, including collector and FACT’s `Test Konflux builds` workflows. An allow-listed failure gets a command only after the usual target, revision, and job checks pass. Unlisted failures in the merge scope appear as **Unknown check — patch ci-retest to classify it**.
 
 ```sh
-APP_ID=296509
-go run ./cmd/ci-retest --allow-konflux-lookup "${APP_ID},api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant" --repo stackrox --prs 24136 24135
-go run ./cmd/ci-retest --optional --allow-konflux-lookup "${APP_ID},api.stone-prd-rh01.pg1f.p1.openshiftapps.com,rh-acs-tenant" --repo stackrox --tags 4.11.8-rc.0,5.0.0-rc.0
+go run ./cmd/ci-retest --repo stackrox --prs 24136 24135
+go run ./cmd/ci-retest --optional --repo stackrox --tags 4.11.8-rc.0,5.0.0-rc.0
 ```
 
 Open an offered Actions job link and select the job rerun control on GitHub. For Prow, post the printed comment on the linked PR. It contains one configured `/test <job>` line per verified failed presubmit. Prow evaluates the PR when it processes the comment. The CLI performs only reads. Each target gets a separate report, including warnings when the run, tag trigger or current attempt cannot be verified. Run `go run ./cmd/ci-retest --help` for authentication and input details.
