@@ -103,6 +103,7 @@ func run() error {
 	options.ManualRetries = gh
 	plannerConfig.HTTPClient = client
 	plannerConfig.OnReadPauseChange = log.KonfluxReadPauseChanged
+	plannerConfig.CommentFooter = "*posted from release-assistant " + buildVersion() + "*"
 	planner := konflux.New(plannerConfig)
 	options.KonfluxProbe = planner.ProbeHealth
 	inspector := images.New(client, plannerConfig.QuayUsername, plannerConfig.QuayPassword)

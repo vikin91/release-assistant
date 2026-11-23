@@ -27,7 +27,7 @@ the assistant.
 
 ```sh
 GH_TOKEN='YOUR_GITHUB_TOKEN' QUAY_USERNAME='YOUR_QUAY_USERNAME' QUAY_PASSWORD='YOUR_QUAY_PASSWORD' \
-  go run ./cmd/release-assistant --version 5.0.1 --branch release-5.0
+  go run -buildvcs=true ./cmd/release-assistant --version 5.0.1 --branch release-5.0
 ```
 
 Open the [local assistant](http://127.0.0.1:8080). [Setup details](#setup-details)
@@ -102,8 +102,8 @@ at startup. Restart it after changing a token or login.
 
 ## Release configuration
 
-You can also run `go run ./cmd/release-assistant` and fill in **Configure
-release** in the browser. Enter the ACS patch version and target branch,
+You can also run `go run -buildvcs=true ./cmd/release-assistant` and fill in
+**Configure release** in the browser. Enter the ACS patch version and target branch,
 then each component’s repository and major.minor release stream. The form
 derives the component branch as `release-<stream>`. Use a CLI branch flag
 for an override. Add a pinning PR number when you have one. Saving valid
@@ -125,7 +125,7 @@ Use a final patch version in ACS 4.10 or later 4.x, or ACS 5.x. For a later 4.x 
 This example supplies all component streams explicitly for ACS 4.11.1. The CLI derives the component branches from those streams.
 
 ```sh
-go run ./cmd/release-assistant \
+go run -buildvcs=true ./cmd/release-assistant \
   --version 4.11.1 --branch release-4.11 \
   --fact-stream 0.3 --collector-stream 3.25 --scanner-stream 2.40
 ```
@@ -161,6 +161,10 @@ Review and copy proposed comments in Read-only mode. Start with `--enable-writes
 2. For automatic posting, clear **Confirm each retry comment** under **Application settings** and select **Save settings**. Then select **Allow automatic retry comments** on each PR or tag you want the assistant to retry. Use **Require the label for PR comments** to require the label in either mode.
 
 The retry library decides which Konflux jobs are eligible. PR retries use `/konflux-retest <job>`. Tag retries use `/retest <job> tag:<tag>` on the resolved commit. GitHub required-check settings inform the status display. Marking a Conforma advisory as reviewed only records your review for the session.
+
+Posted comments end with the Release Assistant version or short Git SHA.
+Without either, the footer says `dev version`. When you launch with `go run`,
+use `-buildvcs=true` to embed the version information.
 
 A PR head or target branch change revokes its automatic posting grant. The `no-release-assistant` label blocks posting and clears the automatic grant. Tag grants bind the repository, tag name, and commit. Clearing or switching a tag selection revokes the old grant. A request already in progress may complete.
 

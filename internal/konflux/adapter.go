@@ -25,6 +25,8 @@ type (
 		AllowKonfluxLookup func(context.Context, int64, string, string) bool
 		// OnReadPauseChange receives endpoint transitions. A zero RetryAt means reads resumed.
 		OnReadPauseChange func(ReadIssue)
+		// CommentFooter attributes posted retries to the running build.
+		CommentFooter string
 
 		apiHost, apiPort string
 		lookups          Lookups
@@ -35,11 +37,12 @@ type (
 	}
 	// Adapter reads Konflux health and delegates retry planning to konflux-retest.
 	Adapter struct {
-		config retry.Config
-		reads  *readBackoff
-		health healthProbe
-		pr     func(context.Context, retry.Config, string, int) (retry.Result, error)
-		tag    func(context.Context, retry.Config, string, string) (retry.Result, error)
+		config        retry.Config
+		reads         *readBackoff
+		health        healthProbe
+		commentFooter string
+		pr            func(context.Context, retry.Config, string, int) (retry.Result, error)
+		tag           func(context.Context, retry.Config, string, string) (retry.Result, error)
 	}
 )
 
@@ -86,9 +89,10 @@ func New(c Config) *Adapter {
 			VerifyRunIdentity: true, GitHubToken: c.GitHubToken, QuayUsername: c.QuayUsername, QuayPassword: c.QuayPassword,
 			HTTPClient: &client, KonfluxToken: c.KonfluxToken, AllowKonfluxLookup: c.AllowKonfluxLookup,
 		},
-		reads:  reads,
-		health: health,
-		pr:     retry.CheckPR, tag: retry.CheckTag,
+		reads:         reads,
+		health:        health,
+		commentFooter: c.CommentFooter,
+		pr:            retry.CheckPR, tag: retry.CheckTag,
 	}
 }
 
@@ -167,7 +171,10 @@ func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, err
 				runID = run.ID
 			}
 		}
-		p.Proposals = append(p.Proposals, release.Proposal{RunID: runID, Target: t, SHA: r.SHA, Job: job, Payload: payload, At: p.Evidence.At})
+		p.Proposals = append(p.Proposals, release.Proposal{
+			RunID: runID, Target: t, SHA: r.SHA, Job: job, Payload: payload,
+			CommentFooter: a.commentFooter, At: p.Evidence.At,
+		})
 	}
 	return p, err
 }

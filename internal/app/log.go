@@ -81,7 +81,7 @@ func (l *Log) GitHubCommentAttempt(p release.Proposal) error {
 	}
 	return l.append(Record{
 		At: time.Now(), Target: p.Target, SHA: p.SHA, Decision: "github-comment-attempt", Origin: "system",
-		Result: fmt.Sprintf("Posting GitHub comment %q to %s.", p.Payload, destination),
+		Result: fmt.Sprintf("Posting GitHub comment %q to %s.", p.CommentBody(), destination),
 	})
 }
 

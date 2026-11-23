@@ -16,6 +16,7 @@ import (
 )
 
 func TestConversion(t *testing.T) {
+	const footer = "*posted from release-assistant v1.2.3*"
 	for name, tc := range map[string]struct {
 		target  release.Target
 		result  retry.Result
@@ -28,15 +29,17 @@ func TestConversion(t *testing.T) {
 		"none":    {release.Target{Repo: "stackrox/fact", PR: 3}, retry.Result{Action: retry.ActionNone}, nil, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
-			a := New(Config{})
+			a := New(Config{CommentFooter: footer})
 			a.pr = func(context.Context, retry.Config, string, int) (retry.Result, error) { return tc.result, tc.err }
 			a.tag = func(context.Context, retry.Config, string, string) (retry.Result, error) { return tc.result, tc.err }
 			p, err := a.Plan(t.Context(), tc.target)
 			if (err != nil) != (tc.err != nil) || p.SHA != tc.result.SHA || len(p.Warnings) != len(tc.result.Warnings) {
 				t.Fatal(p, err)
 			}
-			if tc.payload != "" && (len(p.Proposals) != 1 || p.Proposals[0].Payload != tc.payload) {
-				t.Fatal(p)
+			if tc.payload != "" {
+				if len(p.Proposals) != 1 || p.Proposals[0].Payload != tc.payload || p.Proposals[0].CommentFooter != footer {
+					t.Fatalf("expected a copyable command and a comment footer, got %+v", p.Proposals)
+				}
 			}
 			if tc.payload == "" && len(p.Proposals) != 0 {
 				t.Fatal(p)

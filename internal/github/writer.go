@@ -29,7 +29,7 @@ func (w *Writer) Write(ctx context.Context, proposal release.Proposal) (dispatch
 		return dispatch.Delivery{Status: "failed"}, fmt.Errorf("invalid GitHub comment proposal")
 	}
 	var endpoint string
-	payload := map[string]string{"body": proposal.Payload}
+	payload := map[string]string{"body": proposal.CommentBody()}
 	if proposal.Target.PR > 0 {
 		endpoint = repoPath(proposal.Target.Repo) + "/issues/" + strconv.Itoa(proposal.Target.PR) + "/comments"
 	} else {

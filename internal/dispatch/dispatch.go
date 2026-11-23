@@ -265,7 +265,9 @@ func (d *Dispatcher) plan(p release.Plan) {
 
 // ID binds approval to an exact immutable proposal.
 func ID(p release.Proposal) string {
-	return fmt.Sprintf("%x", sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%s\x00%s\x00%s", p.Target, p.SHA, p.Job, p.RunID, p.Payload)))
+	return fmt.Sprintf("%x", sha256.Sum256(fmt.Appendf(nil,
+		"%s\x00%s\x00%s\x00%s\x00%s", p.Target, p.SHA, p.Job, p.RunID, p.CommentBody(),
+	)))
 }
 func (d *Dispatcher) offer(s *targetState, p release.Proposal) Offer {
 	id := ID(p)
@@ -382,9 +384,10 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 	}
 	epoch := s.epoch
 	s.inFlight = true
+	body := proposal.CommentBody()
 	if d.interactive {
 		s.approved[id] = true
-		d.event(t, proposal.SHA, "approve", proposal.Payload, "single use", "user")
+		d.event(t, proposal.SHA, "approve", body, "single use", "user")
 	}
 	d.mu.Unlock()
 	defer func() { d.mu.Lock(); s.inFlight = false; d.mu.Unlock() }()
@@ -416,7 +419,7 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 			reason = "label-unverified"
 			s.message = "GitHub did not verify the " + release.PRCommentLabel + " label for this PR"
 		}
-		d.event(t, proposal.SHA, "withheld", proposal.Payload, reason, "system")
+		d.event(t, proposal.SHA, "withheld", body, reason, "system")
 		message := s.message
 		d.mu.Unlock()
 		return Delivery{}, fmt.Errorf("%s", message)
@@ -430,7 +433,7 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 		s.jobs[proposal.Job] = j
 	}
 	j.last = now
-	d.event(t, proposal.SHA, "dispatch", proposal.Payload, "attempt", "system")
+	d.event(t, proposal.SHA, "dispatch", body, "attempt", "system")
 	d.mu.Unlock()
 	result, err := d.writer.Write(ctx, proposal)
 	d.mu.Lock()
@@ -445,6 +448,6 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 	if result.URL != "" {
 		s.message += " " + result.URL
 	}
-	d.event(t, proposal.SHA, "delivery", proposal.Payload, result.Status, "system")
+	d.event(t, proposal.SHA, "delivery", body, result.Status, "system")
 	return result, err
 }

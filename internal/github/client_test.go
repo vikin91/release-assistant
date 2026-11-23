@@ -512,6 +512,7 @@ func pinningDiscoveryServer(t *testing.T, pr string, refs map[string]bool, value
 }
 
 func TestWriterUsesPRIssueAndCommitCommentEndpoints(t *testing.T) {
+	const footer = "*posted from release-assistant v1.2.3*"
 	tests := []struct {
 		name                           string
 		target                         release.Target
@@ -535,7 +536,7 @@ func TestWriterUsesPRIssueAndCommitCommentEndpoints(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 					t.Fatal(err)
 				}
-				if body["body"] != tt.comment {
+				if body["body"] != tt.comment+"\n\n"+footer {
 					t.Errorf("payload=%q", body["body"])
 				}
 				want := fmt.Sprintf("Posting GitHub comment %q to %s.", body["body"], tt.destination)
@@ -549,7 +550,9 @@ func TestWriterUsesPRIssueAndCommitCommentEndpoints(t *testing.T) {
 			}))
 			defer srv.Close()
 			c := New(srv.URL, "test-secret", srv.Client())
-			delivery, err := NewWriter(c, log).Write(t.Context(), release.Proposal{Target: tt.target, SHA: "commit-sha", Payload: tt.comment})
+			delivery, err := NewWriter(c, log).Write(t.Context(), release.Proposal{
+				Target: tt.target, SHA: "commit-sha", Payload: tt.comment, CommentFooter: footer,
+			})
 			if err != nil || delivery.Status != "sent" || delivery.URL == "" || !called {
 				t.Fatalf("delivery=%+v err=%v called=%t", delivery, err, called)
 			}

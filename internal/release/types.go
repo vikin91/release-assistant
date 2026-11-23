@@ -203,7 +203,9 @@ type (
 	Proposal struct {
 		Target                   Target
 		SHA, Job, RunID, Payload string
-		At                       time.Time
+		// CommentFooter adds attribution to the posted body while leaving Payload copyable as a command.
+		CommentFooter string
+		At            time.Time
 	}
 	// Plan preserves useful partial retry decisions and uncertainty.
 	Plan struct {
@@ -419,6 +421,14 @@ func (c Check) Running() bool {
 	default:
 		return false
 	}
+}
+
+// CommentBody returns the exact text to authorize and post to GitHub.
+func (p Proposal) CommentBody() string {
+	if p.CommentFooter == "" {
+		return p.Payload
+	}
+	return p.Payload + "\n\n" + p.CommentFooter
 }
 
 // BuildStatus reports failures or success for verified runs and identifies active builds separately.

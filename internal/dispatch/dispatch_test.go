@@ -63,6 +63,7 @@ func TestDispatchWithholdsUnsafeWrites(t *testing.T) {
 		"withdrawn":             func(_ *Dispatcher, f *fake) { f.plan.Proposals = nil },
 		"new run":               func(_ *Dispatcher, f *fake) { f.plan.Proposals[0].RunID = "2" },
 		"payload changed":       func(_ *Dispatcher, f *fake) { f.plan.Proposals[0].Payload = "different" },
+		"footer changed":        func(_ *Dispatcher, f *fake) { f.plan.Proposals[0].CommentFooter = "new footer" },
 		"configuration changed": func(d *Dispatcher, f *fake) { f.readHook = d.Reset },
 		"write mode changed":    func(d *Dispatcher, f *fake) { f.readHook = func() { d.Interactive(false) } },
 		"server stop":           func(d *Dispatcher, f *fake) { f.readHook = d.Stop },
