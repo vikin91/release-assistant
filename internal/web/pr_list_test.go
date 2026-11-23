@@ -41,11 +41,14 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 		release.Check{Required: release.Yes, Status: "in_progress"},
 		release.Check{Required: release.Yes, Status: "queued"},
 		release.Check{Required: release.Yes, Conclusion: "success"},
+		release.Check{Required: release.No, Status: "in_progress"},
 		release.Check{Name: "GitHub Actions tests", Required: release.No, Conclusion: "failure"},
 		release.Check{Name: "Konflux tests", Required: release.No, Conclusion: "failure"},
 	)
 	closed := pr(2, "closed", "success")
 	candidate := pr(3, "open", "failure")
+	candidate.Checks[0].Required = release.No
+	candidate.Checks = append(candidate.Checks, release.Check{Required: release.Yes, Status: "in_progress"})
 	stale := pr(4, "open", "failure")
 	stale.ChecksEvidence.Error = "read timed out"
 	clean := pr(5, "open", "success")
@@ -137,7 +140,10 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 		}
 	}
 	mixed := prCardContaining(body, "change-1")
-	for _, want := range []string{"❌", "3 checks failed, including 1 required", "/pull/1/checks", `<span class="pill no">Merge blocked</span>`} {
+	for _, want := range []string{
+		"❌", "3 checks failed, including 1 required", "2 required checks running",
+		"/pull/1/checks", `<span class="pill no">Merge blocked</span>`,
+	} {
 		if !strings.Contains(mixed, want) {
 			t.Errorf("mixed check summary missing %q", want)
 		}
@@ -155,6 +161,12 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 	application.snapshot.Choices.PRs[candidate.Target] = release.Included
 	updated := activityPanel(t, browser.getBody(t), tab)
 	assertPROrder(between(t, updated, `id="`+section+`-panel"`, "</section>"))
+	included := prCardContaining(updated, "change-3")
+	for _, want := range []string{"1 check failed, including 0 required", "1 required check running"} {
+		if !strings.Contains(included, want) {
+			t.Errorf("PR with only optional failures missing %q", want)
+		}
+	}
 }
 
 func TestPRMergeStatusUsesGitHubVerdict(t *testing.T) {

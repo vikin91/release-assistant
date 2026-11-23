@@ -25,9 +25,9 @@ type (
 		HasProposal        bool
 	}
 	prCheckSummary struct {
-		URL, RetryURL, Problem            string
-		Available, Partial, RequiredKnown bool
-		Failed, RequiredFailed, Running   int
+		URL, RetryURL, Problem                           string
+		Available, Partial, RequiredKnown                bool
+		Failed, RequiredFailed, Running, RequiredRunning int
 	}
 	requiredCheckCounts struct {
 		Failed, Running int
@@ -205,6 +205,9 @@ func summarizePRChecks(pr release.PR) prCheckSummary {
 		}
 		if check.Running() {
 			summary.Running++
+			if check.Required == release.Yes {
+				summary.RequiredRunning++
+			}
 		}
 	}
 	return summary

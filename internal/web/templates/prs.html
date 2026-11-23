@@ -112,7 +112,9 @@
   <div class="pr-list-checks">
     {{if not .Available}}<span>Checks unavailable{{if .Problem}} · {{.Problem}}{{end}}</span>
     {{else}}
-      {{if .Failed}}<span><span aria-hidden="true">❌</span> {{if .Partial}}At least {{end}}{{.Failed}} {{if eq .Failed 1}}check{{else}}checks{{end}} failed{{if .RequiredKnown}}, including {{.RequiredFailed}} required{{end}}</span>
+      {{if .Failed}}
+        <span><span aria-hidden="true">❌</span> {{if .Partial}}At least {{end}}{{.Failed}} {{if eq .Failed 1}}check{{else}}checks{{end}} failed{{if .RequiredKnown}}, including {{.RequiredFailed}} required{{end}}</span>
+        {{if and .RequiredKnown .RequiredRunning}}<span>· {{if .Partial}}at least {{end}}{{.RequiredRunning}} required {{if eq .RequiredRunning 1}}check{{else}}checks{{end}} running</span>{{end}}
       {{else if .Running}}<span>{{.Running}} {{if eq .Running 1}}check{{else}}checks{{end}} running</span>
       {{else if not .Partial}}<span>No failed checks</span>{{end}}
       {{if not .RequiredKnown}}<span>{{if or .Failed .Running (not .Partial)}}· couldn’t{{else}}Couldn’t{{end}} verify which checks are required</span>{{end}}
