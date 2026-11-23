@@ -87,7 +87,8 @@ func New(c Config) *Adapter {
 	client.Transport = reads
 	return &Adapter{
 		config: retry.Config{
-			VerifyRunIdentity: true, GitHubToken: c.GitHubToken, QuayUsername: c.QuayUsername, QuayPassword: c.QuayPassword,
+			VerifyRunIdentity: true, VerifyMissingPRTriggers: true,
+			GitHubToken: c.GitHubToken, QuayUsername: c.QuayUsername, QuayPassword: c.QuayPassword,
 			HTTPClient: &client, KonfluxToken: c.KonfluxToken, AllowKonfluxLookup: c.AllowKonfluxLookup,
 		},
 		reads:         reads,
@@ -161,15 +162,25 @@ func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, err
 			Message: advisory.Name + ": " + advisory.Conclusion, URL: advisory.URL,
 		})
 	}
-	for _, job := range r.Jobs {
+	addProposal := func(job, evidence string) {
 		payload := "/konflux-retest " + job
 		if t.Tag != "" {
 			payload = "/retest " + job + " tag:" + t.Tag
 		}
 		p.Proposals = append(p.Proposals, release.Proposal{
-			RunID: proposalEvidence(t, job, r), Target: t, SHA: r.SHA, Job: job, Payload: payload,
+			RunID: evidence, Target: t, SHA: r.SHA, Job: job, Payload: payload,
 			CommentFooter: a.commentFooter, At: p.Evidence.At,
 		})
+	}
+	for _, job := range r.Jobs {
+		addProposal(job, proposalEvidence(t, job, r))
+	}
+	if t.PR > 0 && t.Valid() && r.SHA != "" {
+		for _, job := range r.MissingPRJobs {
+			if !slices.Contains(r.Jobs, job) {
+				addProposal(job, release.PRMissingBuildEvidence)
+			}
+		}
 	}
 	return p, err
 }

@@ -48,6 +48,32 @@ func TestConversion(t *testing.T) {
 	}
 }
 
+func TestMissingBuildProposalsRequireAPRHead(t *testing.T) {
+	for name, tc := range map[string]struct {
+		target release.Target
+		sha    string
+		want   int
+	}{
+		"should offer a verified start for a PR": {target: release.Target{Repo: "stackrox/fact", PR: 3}, sha: "head", want: 1},
+		"should withhold without a head":         {target: release.Target{Repo: "stackrox/fact", PR: 3}},
+		"should withhold for a tag":              {target: release.Target{Repo: "stackrox/fact", Tag: "0.4.7"}, sha: "head"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := New(Config{})
+			result := retry.Result{SHA: tc.sha, MissingPRJobs: []string{"fact-on-push"}}
+			a.pr = func(context.Context, retry.Config, string, int) (retry.Result, error) { return result, nil }
+			a.tag = func(context.Context, retry.Config, string, string) (retry.Result, error) { return result, nil }
+			plan, err := a.Plan(t.Context(), tc.target)
+			if err != nil || len(plan.Proposals) != tc.want {
+				t.Fatalf("unexpected missing build proposals: %+v, error=%v", plan.Proposals, err)
+			}
+			if tc.want > 0 && !plan.Proposals[0].StartsMissingPRBuild() {
+				t.Fatalf("missing build proposal does not identify its evidence: %+v", plan.Proposals[0])
+			}
+		})
+	}
+}
+
 func TestPublicAdapterSuppressesActiveRunsAndScopesTags(t *testing.T) {
 	for name, tc := range map[string]struct {
 		status, outcome, branch string
@@ -167,6 +193,8 @@ func TestPublicAdapterPreservesActionableIdentityErrors(t *testing.T) {
 		case req.URL.Host == "api.github.com" && strings.HasSuffix(req.URL.Path, "/check-runs"):
 			data, _ := json.Marshal(map[string]any{"check_runs": []map[string]any{{"id": 17, "name": "Red Hat Konflux / main-on-push", "app": map[string]int{"id": 296509}, "status": "completed", "conclusion": "failure", "details_url": checkURL}}})
 			body = string(data)
+		case req.URL.Host == "api.github.com" && strings.HasPrefix(req.URL.Path, "/repos/stackrox/stackrox/contents/.tekton/") && req.URL.Query().Get("ref") == "head":
+			status = http.StatusNotFound
 		case req.URL.Host == "api.example.openshiftapps.com":
 			status, body = http.StatusForbidden, `{"message":"User builder cannot get pipelineruns; cluster-secret"}`
 		case req.URL.Host == "tekton-results-tekton-results.apps.example.openshiftapps.com":

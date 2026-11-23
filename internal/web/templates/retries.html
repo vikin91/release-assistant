@@ -23,13 +23,13 @@
 
 {{define "retry-plans"}}
     {{range .Plans}}<div class="plan-card" data-live-key="plan:{{.Plan.Target}}"><div class="section-heading"><h3>{{.Plan.Target}} {{if .Plan.Target.PR}}<span class="pill">{{if .Pinning}}Pinning PR{{else}}Included PR{{end}}</span>{{else}}<span class="pill">Selected tag</span>{{end}}</h3><span>{{.Plan.Action}}</span></div><p>{{.Plan.Message}}</p>{{template "retry-plan-evidence" ($.RetryPlanEvidence .)}}
-      {{if .Plan.Proposals}}<h4>Retry comments</h4>{{range .Plan.Proposals}}<div class="proposal"><p>{{.Target}} · SHA <code>{{.SHA}}</code> · {{.Job}} · run {{.RunID}}</p>{{template "retry-comment-controls" .}}</div>{{end}}{{end}}
+      {{if .Plan.Proposals}}<h4>Retry comments</h4>{{range .Plan.Proposals}}<div class="proposal"><p>{{.Target}} · SHA <code>{{.SHA}}</code> · {{.Job}} · {{if .StartsMissingPRBuild}}missing build{{else}}run {{.RunID}}{{end}}</p>{{template "retry-comment-controls" .}}</div>{{end}}{{end}}
     </div>{{end}}
 {{end}}
 
 {{define "retry-offers"}}
     {{range .Authority}}<div class="offer-card" data-live-key="authority:{{.View.Target}}"><h3>{{.View.Target}} <span class="muted">SHA {{.View.SHA}}</span></h3><p>{{if $.AutomaticRetryPermissions}}Automatic posting {{if .View.Granted}}allowed{{else}}permission required{{end}} · {{end}}{{if .View.Ignored}}ignored{{else}}monitored{{end}}{{if .View.OptOut}} · no-release-assistant disables writes{{end}}</p>{{if .View.Message}}<p>{{.View.Message}}</p>{{end}}{{if .View.Warnings}}<ol>{{range .View.Warnings}}<li class="warning">{{.}}</li>{{end}}</ol>{{end}}
-      {{range .View.Offers}}<div class="offer" data-live-key="offer:{{.ID}}"><p>{{.Proposal.Target}} · SHA {{.Proposal.SHA}} · {{.Proposal.Job}} · run {{.Proposal.RunID}} · failures {{.Failures}}</p><p>{{if .CommentSent}}Comment sent{{else if .Reason}}{{.Reason}}{{else if $.Snapshot.Interactive}}Ready to review{{else}}Eligible for automatic retry{{end}}{{if not .WaitingUntil.IsZero}} · wait until {{when .WaitingUntil}}{{end}}</p>{{template "retry-comment-controls" .Proposal}}
+      {{range .View.Offers}}<div class="offer" data-live-key="offer:{{.ID}}"><p>{{.Proposal.Target}} · SHA {{.Proposal.SHA}} · {{.Proposal.Job}} · {{if .Proposal.StartsMissingPRBuild}}missing build{{else}}run {{.Proposal.RunID}} · failures {{.Failures}}{{end}}</p><p>{{if .CommentSent}}Comment sent{{else if .Reason}}{{.Reason}}{{else if $.Snapshot.Interactive}}Ready to review{{else}}Eligible for automatic retry{{end}}{{if not .WaitingUntil.IsZero}} · wait until {{when .WaitingUntil}}{{end}}</p>{{template "retry-comment-controls" .Proposal}}
         {{if .Queueable}}{{template "retest-queue-link"}}{{end}}
       </div>{{else}}<p class="muted">No current offers.</p>{{end}}
     </div>{{end}}

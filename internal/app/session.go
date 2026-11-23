@@ -1138,7 +1138,11 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			s.recordStartFailures(oldPlan, plan)
 			for _, proposal := range plan.Proposals {
 				if !slices.ContainsFunc(oldPlan.Proposals, func(old release.Proposal) bool { return dispatch.ID(old) == dispatch.ID(proposal) }) {
-					s.record(target, proposal.SHA, "proposal", proposal.Payload, "run "+proposal.RunID, "system", fmt.Sprintf("A retry is available for %s in %s (run %s).", proposal.Job, consoleRevision(target, proposal.SHA), proposal.RunID))
+					if proposal.StartsMissingPRBuild() {
+						s.record(target, proposal.SHA, "proposal", proposal.Payload, "missing build", "system", fmt.Sprintf("A start comment is available for %s in %s.", proposal.Job, consoleRevision(target, proposal.SHA)))
+					} else {
+						s.record(target, proposal.SHA, "proposal", proposal.Payload, "run "+proposal.RunID, "system", fmt.Sprintf("A retry is available for %s in %s (run %s).", proposal.Job, consoleRevision(target, proposal.SHA), proposal.RunID))
+					}
 				}
 			}
 			if oldPlan.Action != plan.Action || oldPlan.Evidence.Fresh() != plan.Evidence.Fresh() {

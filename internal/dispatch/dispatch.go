@@ -307,8 +307,8 @@ func (d *Dispatcher) offer(s *targetState, p release.Proposal) Offer {
 		o.Reason = "current target identity unknown or changed"
 	case d.requirePRLabel && p.Target.PR > 0 && !s.identity.CommentLabel:
 		o.Reason = "PR requires the " + release.PRCommentLabel + " label"
-	case p.RunID == "":
-		o.Reason = "stable run evidence unavailable; copy only"
+	case p.RunID == "" || (p.StartsMissingPRBuild() && (p.Target.PR <= 0 || !p.Target.Valid())):
+		o.Reason = "stable retry evidence unavailable; copy only"
 	case !d.interactive && !s.granted:
 		o.Reason = "Automatic posting permission required"
 	case o.CommentSent:

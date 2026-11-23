@@ -20,8 +20,10 @@ type (
 		Title, Branch           string
 		Kind, Payload, Job, URL string
 		Blocked                 string
-		Sending                 bool
-		key                     retestKey
+		// MissingBuild marks a planner-verified start for a build with no observed run.
+		MissingBuild bool
+		Sending      bool
+		key          retestKey
 	}
 	// RetestDecision records a queue action or the withdrawal of a pending item.
 	RetestDecision struct {
@@ -73,14 +75,14 @@ func (s *Session) retestTargets() map[release.Target]retestTarget {
 func (s *Session) syncRetestQueue(views []dispatch.View, reports []release.ManualRetryReport) {
 	targets := s.retestTargets()
 	pending := make(map[retestKey]RetestItem)
-	add := func(target release.Target, sha, kind, evidence, payload, job, url, blocked string) {
-		meta, ok := targets[target]
+	add := func(sha, evidence string, item RetestItem) {
+		meta, ok := targets[item.Target]
 		if !ok || meta.sha != sha {
 			return
 		}
-		key := retestKey{target, sha, kind, evidence}
-		pending[key] = RetestItem{Target: target, Title: meta.title, Branch: meta.branch, Kind: kind,
-			Payload: payload, Job: job, URL: url, Blocked: blocked, key: key}
+		item.Title, item.Branch = meta.title, meta.branch
+		item.key = retestKey{item.Target, sha, item.Kind, evidence}
+		pending[item.key] = item
 	}
 	authority := make(map[release.Target]dispatch.View, len(views))
 	for _, view := range views {
@@ -138,7 +140,10 @@ func (s *Session) syncRetestQueue(views []dispatch.View, reports []release.Manua
 			}); i >= 0 {
 				jobURL = plan.Runs[i].URL
 			}
-			add(target, proposal.SHA, "konflux", id, proposal.Payload, proposal.Job, jobURL, blocked)
+			add(proposal.SHA, id, RetestItem{
+				Target: target, Kind: "konflux", Payload: proposal.Payload, Job: proposal.Job,
+				URL: jobURL, Blocked: blocked, MissingBuild: proposal.StartsMissingPRBuild(),
+			})
 		}
 		if report.Target != target || report.Pending || meta.noCIFailuresAt.After(report.At) {
 			continue
@@ -151,10 +156,14 @@ func (s *Session) syncRetestQueue(views []dispatch.View, reports []release.Manua
 			if job.WorkflowName != "" {
 				name = job.WorkflowName + " / " + name
 			}
-			add(report.Target, report.SHA, "actions", fmt.Sprint(job.ID), job.RerunCommand(report.Target.Repo), name, job.URL, "")
+			add(report.SHA, fmt.Sprint(job.ID), RetestItem{
+				Target: report.Target, Kind: "actions", Payload: job.RerunCommand(report.Target.Repo), Job: name, URL: job.URL,
+			})
 		}
 		for _, job := range report.Prow {
-			add(report.Target, report.SHA, "prow", job.Context+"\x00"+job.URL+"\x00"+job.Command, job.Command, job.Context, job.URL, "")
+			add(report.SHA, job.Context+"\x00"+job.URL+"\x00"+job.Command, RetestItem{
+				Target: report.Target, Kind: "prow", Payload: job.Command, Job: job.Context, URL: job.URL,
+			})
 		}
 	}
 	kept := s.retestQueue[:0]

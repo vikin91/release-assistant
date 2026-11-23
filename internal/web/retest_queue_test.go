@@ -19,6 +19,7 @@ func TestRetestQueueRendersOnlySupportedActions(t *testing.T) {
 			{ID: 1, Target: tag, Kind: "konflux", Payload: "/retest main tag:5.0.1-rc.1", Job: "main", URL: "https://example.com/main"},
 			{ID: 2, Target: pr, Kind: "actions", Payload: "gh api --method POST repos/acme/rox/actions/jobs/91/rerun", Job: "E2E / Upgrade", URL: "https://example.com/job/91", Title: "Backport <fix>", Branch: config.Branch},
 			{ID: 3, Target: pr, Kind: "prow", Payload: "/test gke", Job: "ci/prow/gke", URL: "https://example.com/prow", Title: "Backport <fix>", Branch: config.Branch},
+			{ID: 5, Target: pr, Kind: "konflux", Payload: "/konflux-retest main-on-push", Job: "main-on-push", MissingBuild: true},
 		},
 		RetestLog: []app.RetestDecision{{
 			At: time.Now(), ID: 4, Target: tag, Payload: "/retest sensor tag:5.0.1-rc.1", Result: "Sent",
@@ -27,7 +28,7 @@ func TestRetestQueueRendersOnlySupportedActions(t *testing.T) {
 	}
 	body := newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t)
 	tab := between(t, body, `id="tab-retest-queue"`, "</a>")
-	if !strings.Contains(tab, "<span>Retest Queue (3)</span>") {
+	if !strings.Contains(tab, "<span>Retest Queue (4)</span>") {
 		t.Fatal("the navigation count should include pending rows only")
 	}
 	panel := activityPanel(t, body, "retest-queue")
@@ -37,6 +38,7 @@ func TestRetestQueueRendersOnlySupportedActions(t *testing.T) {
 		`name="queue_id" value="1"`, `<button type="submit">Send</button>`,
 		`<code data-copy-value>gh api --method POST repos/acme/rox/actions/jobs/91/rerun</code>`,
 		`<button type="button" disabled>Execute</button>`, "Post manually on GitHub",
+		"main-on-push has not started",
 	} {
 		if !strings.Contains(panel, needle) {
 			t.Errorf("queue is missing %q", needle)
@@ -45,7 +47,7 @@ func TestRetestQueueRendersOnlySupportedActions(t *testing.T) {
 	if strings.Index(panel, "ACS tags") > strings.Index(panel, "ACS PRs against the release branch") {
 		t.Fatal("the candidate should be ahead of ACS PRs")
 	}
-	if strings.Count(panel, `name="kind" value="queue-send"`) != 1 || strings.Count(panel, `name="kind" value="queue-skip"`) != 3 {
-		t.Fatal("only the Konflux comment should have Send, and every item should have Skip")
+	if strings.Count(panel, `name="kind" value="queue-send"`) != 2 || strings.Count(panel, `name="kind" value="queue-skip"`) != 4 {
+		t.Fatal("only Konflux comments should have Send, and every item should have Skip")
 	}
 }

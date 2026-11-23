@@ -203,7 +203,7 @@ type (
 	Proposal struct {
 		Target            Target
 		SHA, Job, Payload string
-		// RunID identifies a verified PipelineRun or a PR-scoped GitHub check.
+		// RunID identifies a verified PipelineRun, PR check, or missing-build trigger.
 		RunID string
 		// CommentFooter adds attribution to the posted body while leaving Payload copyable as a command.
 		CommentFooter string
@@ -281,6 +281,8 @@ type (
 const (
 	// PRCheckEvidencePrefix distinguishes PR check evidence from PipelineRun evidence in a proposal.
 	PRCheckEvidencePrefix = "check:"
+	// PRMissingBuildEvidence identifies a verified start command bound to the proposal's PR, head, and job.
+	PRMissingBuildEvidence = "missing-pr-build"
 	// Yes is positively established evidence.
 	Yes Truth = "yes"
 	// No is a positively established negative result.
@@ -426,6 +428,9 @@ func (c Check) Running() bool {
 		return false
 	}
 }
+
+// StartsMissingPRBuild reports whether the planner verified a start for a missing build.
+func (p Proposal) StartsMissingPRBuild() bool { return p.RunID == PRMissingBuildEvidence }
 
 // CommentBody returns the exact text to authorize and post to GitHub.
 func (p Proposal) CommentBody() string {

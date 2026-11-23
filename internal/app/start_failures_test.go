@@ -158,6 +158,9 @@ func TestDeveloperConformaAdvisoryDoesNotBackOffMonitoring(t *testing.T) {
 		apply(t, s, Action{Kind: "choice", Target: target, Choice: release.Included})
 		calls := 0
 		s.planner = konflux.New(konflux.Config{HTTPClient: &http.Client{Transport: advisoryTransport(func(req *http.Request) (*http.Response, error) {
+			if req.URL.Path == "/repos/stackrox/fact/contents/.tekton/fact-build.yaml" && req.URL.Query().Get("ref") == "head" {
+				return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody}, nil
+			}
 			calls++
 			body := `{"state":"open","head":{"sha":"head"}}`
 			if strings.HasSuffix(req.URL.Path, "/check-runs") {
