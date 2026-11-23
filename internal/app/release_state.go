@@ -16,23 +16,31 @@ import (
 )
 
 type (
-	// PRState holds one session's local PR decisions for all ACS patch releases.
-	PRState struct {
+	// ReleaseState holds one session's local choices for all ACS patch releases.
+	ReleaseState struct {
 		path string
-		file prStateFile
+		file releaseStateFile
 	}
 
-	prStateFile struct {
-		Releases map[string]map[string]release.Choice `json:"releases"`
+	releaseStateFile struct {
+		Releases      map[string]map[string]release.Choice    `json:"releases"`
+		ComponentTags map[string]map[string]savedComponentTag `json:"component_tags,omitempty"`
+	}
+
+	savedComponentTag struct {
+		Repo   string `json:"repo"`
+		Branch string `json:"branch"`
+		Tag    string `json:"tag,omitempty"`
+		SHA    string `json:"sha,omitempty"`
 	}
 )
 
-// OpenPRState loads local decisions and initializes the file on first use.
-func OpenPRState(path string, log *Log) (*PRState, error) {
+// OpenReleaseState loads local decisions and initializes the file on first use.
+func OpenReleaseState(path string, log *Log) (*ReleaseState, error) {
 	if path == "" {
-		return nil, errors.New("PR state file path is empty")
+		return nil, errors.New("release state file path is empty")
 	}
-	state := &PRState{path: path}
+	state := &ReleaseState{path: path}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		if log != nil {
@@ -43,15 +51,15 @@ func OpenPRState(path string, log *Log) (*PRState, error) {
 		}
 		state.file.Releases = make(map[string]map[string]release.Choice)
 		if err := state.write(state.file); err != nil {
-			return nil, fmt.Errorf("create PR state %q: %w", path, err)
+			return nil, fmt.Errorf("create release state %q: %w", path, err)
 		}
 		return state, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read PR state %q: %w", path, err)
+		return nil, fmt.Errorf("read release state %q: %w", path, err)
 	}
 	if err := json.Unmarshal(data, &state.file); err != nil {
-		return nil, fmt.Errorf("decode PR state %q: %w", path, err)
+		return nil, fmt.Errorf("decode release state %q: %w", path, err)
 	}
 	if state.file.Releases == nil {
 		return nil, fmt.Errorf("PR state %q must contain a releases object", path)
@@ -82,10 +90,10 @@ func statePRTarget(key string) release.Target {
 }
 
 func (s *Session) restorePRChoices() {
-	if s.options.PRState == nil {
+	if s.options.ReleaseState == nil {
 		return
 	}
-	choices := s.options.PRState.file.Releases[strings.TrimPrefix(s.config.Version, "v")]
+	choices := s.options.ReleaseState.file.Releases[strings.TrimPrefix(s.config.Version, "v")]
 	for key, choice := range choices {
 		target := statePRTarget(key)
 		if target.Repo != s.config.ACS().Repo && !slices.ContainsFunc(s.config.Components, func(source release.Source) bool {
@@ -100,9 +108,9 @@ func (s *Session) restorePRChoices() {
 	}
 }
 
-// save commits the whole action before its choices take effect in the session.
+// savePRChoices commits the whole action before its choices take effect in the session.
 // The caller holds the session lock.
-func (s *PRState) save(version string, targets map[release.Target]string, choice release.Choice) error {
+func (s *ReleaseState) savePRChoices(version string, targets map[release.Target]string, choice release.Choice) error {
 	if s == nil {
 		return nil
 	}
@@ -116,22 +124,27 @@ func (s *PRState) save(version string, targets map[release.Target]string, choice
 			choices[target.String()] = choice
 		}
 	}
-	next := prStateFile{Releases: maps.Clone(s.file.Releases)}
+	next := s.file
+	next.Releases = maps.Clone(next.Releases)
 	if len(choices) == 0 {
 		delete(next.Releases, version)
 	} else {
 		next.Releases[version] = choices
 	}
+	return s.commit(next)
+}
+
+func (s *ReleaseState) commit(next releaseStateFile) error {
 	if err := s.write(next); err != nil {
-		return fmt.Errorf("save PR state %q: %w", s.path, err)
+		return fmt.Errorf("save release state %q: %w", s.path, err)
 	}
 	s.file = next
 	return nil
 }
 
 // write stages the replacement beside the destination so the rename is atomic.
-func (s *PRState) write(state prStateFile) error {
-	file, err := os.CreateTemp(filepath.Dir(s.path), ".pr-state-*")
+func (s *ReleaseState) write(state releaseStateFile) error {
+	file, err := os.CreateTemp(filepath.Dir(s.path), ".release-state-*")
 	if err != nil {
 		return err
 	}

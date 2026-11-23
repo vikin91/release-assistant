@@ -254,7 +254,10 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 	}
 	for _, repo := range displayRepositories(snapshot) {
 		r := repoModel{Repository: repo, CurrentTag: snapshot.Choices.Tags[repo.Source.Name]}
-		if r.CurrentTag != "" {
+		savedTag := snapshot.PendingTags[repo.Source.Name]
+		if savedTag != "" {
+			r.CurrentTag = savedTag
+		} else if r.CurrentTag != "" {
 			for _, condition := range snapshot.Assessment.Conditions {
 				if condition.Name == "tag "+repo.Source.Name {
 					r.Coverage = condition
@@ -326,6 +329,9 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 				}
 			}
 			if tag.Name == r.CurrentTag {
+				if savedTag != "" {
+					continue
+				}
 				for _, plan := range snapshot.Plans {
 					if plan.Target == (release.Target{Repo: repo.Source.Repo, Tag: tag.Name}) && plan.SHA == tag.SHA {
 						t.Validation = plan.Validation

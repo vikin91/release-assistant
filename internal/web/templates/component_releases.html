@@ -16,7 +16,8 @@
             <tr><th scope="row"><a aria-describedby="new-tab-description" href="https://github.com/{{$source.Repo}}/tree/refs/tags/{{.CurrentTag}}" target="_blank" rel="noreferrer"><code>{{.CurrentTag}}</code></a></th>
             <td class="component-tag-coverage"><strong>Selected</strong>
               <span class="pill {{truth .Coverage.Status}}">
-                {{- if eq (truth .Coverage.Status) "yes"}}Covers included changes
+                {{- if index $.Snapshot.PendingTags $source.Name}}Waiting for tag verification
+                {{- else if eq (truth .Coverage.Status) "yes"}}Covers included changes
                 {{- else if eq (truth .Coverage.Status) "no"}}
                   {{- if eq .Coverage.TagIssue "missing-merge"}}Missing an included merge
                   {{- else if eq .Coverage.TagIssue "pr-unmerged"}}Included PR not merged into branch
@@ -57,7 +58,7 @@
                 {{end}}</ol>{{else if .Evidence.Fresh}}<p>No checks reported for this commit.</p>{{else if not .Evidence.Error}}<p>Waiting for GitHub check results.</p>{{end}}
               {{end}}
               {{if $.AutomaticRetryPermissions}}{{template "tag-comment-permission" .}}{{end}}
-            {{else}}{{if and .CurrentTag (not .Coverage.Reason)}}<p class="muted">The selected tag is absent from current discovery.</p>{{end}}{{end}}
+            {{else}}{{if and .CurrentTag (not .Coverage.Reason) (not (index $.Snapshot.PendingTags $source.Name))}}<p class="muted">The selected tag is absent from current discovery.</p>{{end}}{{end}}
           </details>
         </article>
       {{else}}<p class="muted">No component tag observations yet.</p>{{end}}

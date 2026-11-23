@@ -37,7 +37,7 @@ func run() error {
 	var options app.Options
 	var limits dispatch.Options
 	var port int
-	statePath := flag.String("state-file", "./state.json", "local JSON file for PR decisions by ACS release")
+	statePath := flag.String("state-file", "./state.json", "local JSON file for PR and component tag choices by ACS release")
 	debugLog := flag.Bool("v", false, "show Debug messages in the terminal and dashboard Log tab")
 	allowedLookups := make(konflux.Lookups)
 	flag.StringVar(&config.Version, "version", "", "ACS patch version, e.g. 5.0.1")
@@ -87,11 +87,11 @@ func run() error {
 		return err
 	}
 	log := app.NewLog(os.Stdout, *debugLog)
-	state, err := app.OpenPRState(*statePath, log)
+	state, err := app.OpenReleaseState(*statePath, log)
 	if err != nil {
 		return err
 	}
-	options.PRState = state
+	options.ReleaseState = state
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	plannerConfig := konflux.StartupConfig(ctx, allowedLookups)

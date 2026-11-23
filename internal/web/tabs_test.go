@@ -87,6 +87,19 @@ func TestActivityTabsWorkWithoutComponentTags(t *testing.T) {
 	}
 }
 
+func TestComponentReleasesShowsSavedTagWhileItIsBeingVerified(t *testing.T) {
+	browser := newBrowser(t, &fakeApplication{snapshot: app.Snapshot{
+		Config:      validACS5Config(),
+		PendingTags: map[string]string{"fact": "v0.4.7"},
+	}})
+	panel := activityPanel(t, browser.getBody(t), "component-releases")
+	for _, want := range []string{"<code>v0.4.7</code>", "1 of 2 selected", "Waiting for tag verification", "Clear selection"} {
+		if !strings.Contains(panel, want) {
+			t.Errorf("component release panel missing %q", want)
+		}
+	}
+}
+
 func TestACSNextStepsSummarizeOpenPRs(t *testing.T) {
 	s := workflowStatusSnapshot()
 	repo := &s.Repositories[len(s.Repositories)-1]

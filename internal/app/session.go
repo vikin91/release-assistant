@@ -27,8 +27,8 @@ type (
 		ManualRetries                        ManualRetryReader
 		// KonfluxProbe reads service health independently of tracked release builds.
 		KonfluxProbe func(context.Context) konflux.Health
-		// PRState persists the user's pull request choices across sessions.
-		PRState *PRState
+		// ReleaseState persists the user's PR and component tag choices across sessions.
+		ReleaseState *ReleaseState
 	}
 	// Cycle retains observed builds and images when a confirmed component tag changes.
 	Cycle struct {
@@ -66,6 +66,8 @@ type (
 		KonfluxReadIssues []konflux.ReadIssue
 		// KonfluxHealth holds the latest independent health observation, when enabled.
 		KonfluxHealth *konflux.Health
+		// PendingTags holds saved selections awaiting current GitHub evidence.
+		PendingTags map[string]string
 		// Loading keeps the dashboard refreshing during startup and while included ACS PRs await CI results.
 		Loading bool
 	}
@@ -102,6 +104,7 @@ type (
 		nextRetestID    uint64
 		inventory       release.Inventory
 		confirmedSHAs   map[string]string
+		pendingTags     map[string]savedComponentTag
 		tagInitialized  map[string]bool
 		polls           map[pollID]pollRecord
 		pollChanged     chan struct{}
@@ -154,6 +157,7 @@ func New(d Discoverer, p Planner, i Inspector, dispatcher *dispatch.Dispatcher, 
 			s.errorText = err.Error()
 		} else {
 			s.restorePRChoices()
+			s.restoreComponentTags()
 			s.includePinningPR()
 		}
 	}
@@ -170,6 +174,7 @@ func (s *Session) reset() {
 	s.retestQueue = nil
 	s.tagChecks = make(map[string]tagCheckObservation)
 	s.confirmedSHAs = map[string]string{}
+	s.pendingTags = map[string]savedComponentTag{}
 	s.tagInitialized = map[string]bool{}
 	s.polls = make(map[pollID]pollRecord)
 	s.initiallyLoaded = map[string]bool{}
@@ -255,6 +260,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		s.config = a.Config
 		if !sameContext {
 			s.restorePRChoices()
+			s.restoreComponentTags()
 		}
 		if pinChanged {
 			s.includePinningPR()
@@ -301,7 +307,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 				return nil
 			}
 		}
-		if err := s.options.PRState.save(s.config.Version, targets, a.Choice); err != nil {
+		if err := s.options.ReleaseState.savePRChoices(s.config.Version, targets, a.Choice); err != nil {
 			return err
 		}
 		for target, sha := range targets {
@@ -391,7 +397,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		}
 		var found *release.Tag
 		for _, tag := range r.Tags {
-			if tag.Name == a.Tag && tag.SHA == a.SHA && tag.Belongs == release.Yes && tag.Evidence.Fresh() {
+			if tag.Name == a.Tag && tag.SHA != "" && tag.SHA == a.SHA && tag.Belongs == release.Yes && tag.Evidence.Fresh() {
 				found = &tag
 				break
 			}
@@ -399,6 +405,10 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		if found == nil {
 			return fmt.Errorf("tag evidence changed or eligibility unknown; reload")
 		}
+		if err := s.options.ReleaseState.saveComponentTag(s.config.Version, configuredSource, a.Tag, a.SHA); err != nil {
+			return err
+		}
+		delete(s.pendingTags, a.Component)
 		if old := s.choices.Tags[a.Component]; old != "" && old != a.Tag {
 			s.archiveTag(a.Component, r.Source.Repo)
 		}
@@ -421,9 +431,13 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		if source.Name == "" {
 			return fmt.Errorf("unknown component")
 		}
+		if err := s.options.ReleaseState.saveComponentTag(s.config.Version, source, "", ""); err != nil {
+			return err
+		}
 		s.archiveTag(a.Component, source.Repo)
 		delete(s.choices.Tags, a.Component)
 		delete(s.confirmedSHAs, a.Component)
+		delete(s.pendingTags, a.Component)
 		s.tagInitialized[a.Component] = true
 		s.workRevision++
 		s.record(release.Target{Repo: source.Repo}, "", "tag-cleared", "", "Preparing a new component tag.", "user", fmt.Sprintf("Preparing a new %s tag. Pull request monitoring continues.", a.Component))
@@ -553,6 +567,12 @@ func (s *Session) Snapshot() Snapshot {
 		RefreshIntervals: maps.Clone(s.options.RefreshIntervals), Config: c, Choices: choices, Error: s.errorText, Generation: s.generation,
 		Interactive: s.dispatcher.IsInteractive(), RequirePRLabel: s.dispatcher.RequiresPRLabel(), WritesEnabled: s.dispatcher.WritesEnabled(),
 		Authority: s.dispatcher.Views(), PRRetryChecks: make(map[release.Target]PRRetryCheck, len(s.prRetryChecks)),
+	}
+	if len(s.pendingTags) > 0 {
+		x.PendingTags = make(map[string]string, len(s.pendingTags))
+		for component, saved := range s.pendingTags {
+			x.PendingTags[component] = saved.Tag
+		}
 	}
 	for target, check := range s.prRetryChecks {
 		check.Konflux = clonePlan(check.Konflux)
@@ -749,6 +769,10 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	}
 	if work.tagInventory {
 		request.ConfirmedTag = ""
+	} else if work.scope == ReadTags {
+		if saved := s.pendingTags[source.Name]; saved.Tag != "" {
+			request.ConfirmedTag = saved.Tag
+		}
 	}
 	revision := s.workRevision
 	for t, choice := range s.choices.PRs {
@@ -946,7 +970,8 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 				}
 			}
 		}
-		if s.initializePinnedTags() {
+		restored := s.verifySavedTag(source, r.Tags)
+		if s.initializePinnedTags() || restored {
 			select {
 			case s.changed <- struct{}{}:
 			default:

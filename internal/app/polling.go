@@ -191,11 +191,27 @@ func (s *Session) fetchPoll(ctx context.Context, generation, revision uint64, so
 		ctx = githubread.WithPriority(ctx, githubread.Tags, source.Repo)
 		if source.Name == "acs" {
 			work.scope = ReadRC | ReadPreviousPins
-		} else if startupTags {
-			return s.readStartupTags(ctx, generation, revision, source, usage)
-		} else {
-			work.scope, work.tagInventory = ReadTags, true
+			break
 		}
+		work.scope = ReadTags
+		s.mu.Lock()
+		hasSavedTag := s.pendingTags[source.Name].Tag != ""
+		s.mu.Unlock()
+		var savedTagErr error
+		if hasSavedTag {
+			savedTagErr = s.refresh(ctx, generation, source, true, work)
+			s.mu.Lock()
+			current := generation == s.generation && revision == s.workRevision
+			s.mu.Unlock()
+			if !current {
+				return savedTagErr
+			}
+		}
+		if startupTags {
+			return errors.Join(savedTagErr, s.readStartupTags(ctx, generation, revision, source, usage))
+		}
+		work.tagInventory = true
+		return errors.Join(savedTagErr, s.refresh(ctx, generation, source, true, work))
 	case pollTagChecks:
 		return s.refreshTagChecks(ctx, generation, revision, source)
 	case pollBuilds:

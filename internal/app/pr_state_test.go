@@ -15,7 +15,7 @@ import (
 func TestPRStateRestoresChoicesByPatchRelease(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	var output bytes.Buffer
-	state, err := OpenPRState(path, NewLog(&output, false))
+	state, err := OpenReleaseState(path, NewLog(&output, false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,9 +38,9 @@ func TestPRStateRestoresChoicesByPatchRelease(t *testing.T) {
 		}
 		services.repos[name] = repo
 	}
-	session := func(state *PRState, initial release.Config) *Session {
+	session := func(state *ReleaseState, initial release.Config) *Session {
 		return New(services, services, services, dispatch.New(services, services, services, dispatch.Options{}), nil,
-			Options{Initial: initial, PRState: state})
+			Options{Initial: initial, ReleaseState: state})
 	}
 	original := session(state, release.Config{})
 	apply(t, original, Action{Kind: "configure", Config: config})
@@ -59,7 +59,7 @@ func TestPRStateRestoresChoicesByPatchRelease(t *testing.T) {
 	refreshAll(t, original)
 	apply(t, original, Action{Kind: "choice", Target: fact, Choice: release.Excluded})
 
-	reloaded, err := OpenPRState(path, nil)
+	reloaded, err := OpenReleaseState(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,11 +91,11 @@ func TestPRStateSaveFailureLeavesBulkChoicesIntact(t *testing.T) {
 	s, f := newFixture()
 	c := configuration()
 	path := filepath.Join(t.TempDir(), "state.json")
-	state, err := OpenPRState(path, nil)
+	state, err := OpenReleaseState(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.options.PRState = state
+	s.options.ReleaseState = state
 	apply(t, s, Action{Kind: "configure", Config: c})
 	repo := f.repos["fact"]
 	for _, number := range []int{12, 13} {
@@ -109,14 +109,14 @@ func TestPRStateSaveFailureLeavesBulkChoicesIntact(t *testing.T) {
 	before := s.Snapshot()
 	state.path = t.TempDir()
 	err = s.Apply(t.Context(), Action{Kind: "component-pr-choices", Generation: before.Generation, Choice: release.Ignored})
-	if err == nil || !strings.Contains(err.Error(), "save PR state") {
+	if err == nil || !strings.Contains(err.Error(), "save release state") {
 		t.Fatalf("bulk action returned %v", err)
 	}
 	after := s.Snapshot()
 	if !maps.Equal(before.Choices.PRs, after.Choices.PRs) {
 		t.Fatalf("failed bulk action changed choices from %v to %v", before.Choices.PRs, after.Choices.PRs)
 	}
-	disk, err := OpenPRState(path, nil)
+	disk, err := OpenReleaseState(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

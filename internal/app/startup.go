@@ -68,7 +68,8 @@ func (s *Session) readStartupTags(ctx context.Context, generation, revision uint
 		}
 		s.recordReadResult(release.Target{Repo: source.Repo}, "tags", message, "release tags on "+consoleBranch(source))
 		s.mergeStartupTags(source, repo)
-		if s.initializePinnedTags() {
+		restored := s.verifySavedTag(source, s.repos[source.Name].Tags)
+		if s.initializePinnedTags() || restored {
 			select {
 			case s.changed <- struct{}{}:
 			default:
