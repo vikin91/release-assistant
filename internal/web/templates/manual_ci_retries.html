@@ -29,12 +29,8 @@
     </div>
   {{end}}
   {{if .Prow}}
-    <p>Failed Prow checks: {{range $i, $job := .Prow}}{{if $i}}, {{end}}{{$job.Context}}{{end}}</p>
-    <p>Retry the listed checks by posting this comment on <a aria-describedby="new-tab-description" href="{{url .URL}}#new_comment_field" target="_blank" rel="noreferrer">PR #{{.Target.PR}}</a>.</p>
-    <div class="copyable-text">
-      <pre><code>{{.ProwComment}}</code></pre>
-      <div class="copy-text-actions"><button type="button" data-copy-text>Copy comment</button><span role="status" data-copy-status data-live-preserve></span></div>
-    </div>
+    <p>Rerun the failed Prow checks on {{if url .URL}}<a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">PR #{{.Target.PR}}</a>{{else}}PR #{{.Target.PR}}{{end}}.</p>
+    <ol>{{range .Prow}}<li>{{if url .URL}}<a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">{{.Context}}</a>{{else}}{{.Context}}{{end}}</li>{{end}}</ol>
   {{end}}
   {{if .OtherChecks}}<ol>{{range .OtherChecks}}<li>{{.}}</li>{{end}}</ol>{{end}}
   {{if .Warnings}}<details data-fold-key="manual-ci-warnings:{{.Target}}"><summary>Retry diagnostics</summary><ol>{{range .Warnings}}<li>{{.}}</li>{{end}}</ol></details>{{end}}

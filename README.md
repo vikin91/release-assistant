@@ -164,7 +164,7 @@ A PR head or target branch change revokes its grant. The `no-release-assistant` 
 
 Before sending, the assistant rechecks the target, current permission, eligible run, and exact comment. By default, it waits at least one minute between comments on a target. After ten distinct consecutive unsuccessful eligible runs for a job on the same target and commit, it waits at least an hour between comments for that job. Repeated polls do not increase the failure count. If delivery is uncertain, the assistant records it and waits for the cooldown before reconsidering.
 
-On the **ACS PRs** tab, **Checks of Included PRs** groups Konflux retry comments, GitHub Actions rerun commands, and Prow comments by PR. On the other workflow tabs, **Manual CI retries** shows GitHub Actions job links and copyable `gh api` commands for monitored targets. For failed Prow presubmits, copy the listed `/test <job>` commands and post them together on the linked PR. These options are available in read-only mode.
+On the **ACS PRs** tab, **Checks of Included PRs** groups Konflux retry comments, GitHub Actions rerun commands, and failed Prow checks by PR. For Prow, the panel identifies which checks to rerun and links to the PR and failed builds. On the other workflow tabs, **Manual CI retries** shows GitHub Actions job links and copyable `gh api` commands for monitored targets. These options are available in read-only mode.
 
 ### Retest Queue
 

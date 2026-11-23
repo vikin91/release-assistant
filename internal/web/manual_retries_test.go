@@ -7,14 +7,14 @@ import (
 	"release-assistant/internal/release"
 )
 
-func TestManualRetriesRenderCopyOnlyInTargetTab(t *testing.T) {
+func TestManualRetriesRenderGuidanceInTargetTab(t *testing.T) {
 	s := workflowStatusSnapshot()
 	pr := release.Target{Repo: s.Config.ACS().Repo, PR: 7}
 	s.Choices.PRs[pr] = release.Included
 	rc := s.Candidate().Target
 	const unknown = "stackrox/stackrox / github-actions / .github/workflows/new.yml / test · Unknown check — patch ci-retest to classify it"
 	s.ManualRetries = []release.ManualRetryReport{
-		{Target: pr, SHA: "reviewed", URL: "https://github.com/" + pr.Repo + "/pull/7", Prow: []release.ProwRetry{{Context: "ci/prow/test", Command: "/test test"}, {Context: "ci/prow/build", Command: "/test build"}}, Warnings: []string{"Actions read unavailable"}},
+		{Target: pr, SHA: "reviewed", URL: "https://github.com/" + pr.Repo + "/pull/7", Prow: []release.ProwRetry{{Context: "ci/prow/test", Command: "/test test", URL: "https://prow.ci.openshift.org/view/build/test"}, {Context: "ci/prow/build", Command: "/test build"}}, Warnings: []string{"Actions read unavailable"}},
 		{Target: rc, SHA: s.Candidate().SHA, Jobs: []release.ManualJob{{ID: 99, Name: "Konflux: release-main", WorkflowName: "Scan images for vulnerabilities", URL: "https://github.com/" + rc.Repo + "/actions/runs/22/job/99"}}},
 	}
 	s.ManualRetries[1].OtherChecks = []string{unknown}
@@ -24,24 +24,27 @@ func TestManualRetriesRenderCopyOnlyInTargetTab(t *testing.T) {
 			f := &fakeApplication{snapshot: s}
 			body := newBrowser(t, f).getBody(t)
 			for tab, want := range map[string][]string{
-				"acs-prs": {"ci/prow/test", "<pre><code>/test test\n/test build</code></pre>", s.ManualRetries[0].URL + "#new_comment_field", "Copy comment", "Actions read unavailable"},
-				"acs-rcs": {"Scan images for vulnerabilities / Konflux: release-main", s.ManualRetries[1].Jobs[0].URL, "gh api --method POST repos/" + rc.Repo + "/actions/jobs/99/rerun", "Copy command", unknown},
+				"acs-prs": {"Rerun the failed Prow checks on", "PR #7</a>.", "ci/prow/test", "<li>ci/prow/build</li>", s.ManualRetries[0].Prow[0].URL, `href="` + s.ManualRetries[0].URL + `"`, "Actions read unavailable"},
+				"acs-rcs": {"Scan images for vulnerabilities / Konflux: release-main", s.ManualRetries[1].Jobs[0].URL, "gh api --method POST repos/" + rc.Repo + "/actions/jobs/99/rerun", `type="button" data-copy-text`, "Copy command", unknown},
 			} {
 				start := `aria-label="Manual CI retries"`
 				if tab == "acs-prs" {
 					start = `id="acs-pr-retries-7"`
 				}
 				panel := between(t, activityPanel(t, body, tab), start, "</section>")
-				for _, text := range append(want, release.ManualRetryWarning, `type="button" data-copy-text`) {
+				for _, text := range append(want, release.ManualRetryWarning) {
 					if !strings.Contains(panel, text) {
 						t.Errorf("%s missing %q", tab, text)
 					}
+				}
+				if tab == "acs-prs" && (strings.Contains(panel, "/test ") || strings.Contains(panel, "Copy comment") || strings.Contains(panel, "#new_comment_field")) {
+					t.Errorf("Prow guidance prescribed posting a comment: %s", panel)
 				}
 				if strings.Contains(panel, "<form") || strings.Contains(panel, `type="submit"`) {
 					t.Errorf("%s has an execution control: %s", tab, panel)
 				}
 			}
-			if strings.Count(body, `aria-label="Manual CI retries"`) != 1 || strings.Contains(body, ">/retest</code>") || strings.Count(body, ">/test test\n/test build</code>") != 1 || strings.Count(body, "actions/jobs/99/rerun") != 1 || len(f.actions) != 0 {
+			if strings.Count(body, `aria-label="Manual CI retries"`) != 1 || strings.Contains(body, ">/retest</code>") || strings.Count(body, "Rerun the failed Prow checks on") != 1 || strings.Count(body, "actions/jobs/99/rerun") != 1 || len(f.actions) != 0 {
 				t.Fatal("manual results leaked to another tab or produced an action")
 			}
 		})

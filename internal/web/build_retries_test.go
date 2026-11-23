@@ -126,7 +126,7 @@ func TestACSChecksGroupActionsByIncludedPR(t *testing.T) {
 	}}}
 	s.ManualRetries = []release.ManualRetryReport{
 		{Target: target(41), SHA: "head", Jobs: []release.ManualJob{{ID: 201}},
-			Prow: []release.ProwRetry{{Command: "/test unit"}}},
+			Prow: []release.ProwRetry{{Context: "ci/prow/unit", Command: "/test unit"}}},
 		{Target: target(43), Warnings: []string{"excluded result"}},
 	}
 	panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-prs")
@@ -141,7 +141,7 @@ func TestACSChecksGroupActionsByIncludedPR(t *testing.T) {
 		!strings.Contains(heading, ">"+target(41).String()+"</a>") {
 		t.Errorf("unexpected PR heading: %s", heading)
 	}
-	for _, action := range []string{"/konflux-retest build", "actions/jobs/201/rerun", "/test unit"} {
+	for _, action := range []string{"/konflux-retest build", "actions/jobs/201/rerun", "ci/prow/unit"} {
 		if strings.Count(active, action) != 1 || strings.Count(checks, action) != 1 {
 			t.Errorf("expected %q only under PR 41", action)
 		}
@@ -161,7 +161,7 @@ func TestACSChecksShowProgressPerPR(t *testing.T) {
 	pr := func(n int) release.Target { return release.Target{Repo: s.Config.ACS().Repo, PR: n} }
 	s.ManualRetries = []release.ManualRetryReport{
 		{Target: pr(1), Pending: true},
-		{Target: pr(2), Incomplete: true, Warnings: []string{"Actions read deferred"}, Prow: []release.ProwRetry{{Command: "/test unit"}}},
+		{Target: pr(2), Incomplete: true, Warnings: []string{"Actions read deferred"}, Prow: []release.ProwRetry{{Context: "ci/prow/unit", Command: "/test unit"}}},
 		{Target: pr(3)},
 		{Target: pr(4), Jobs: []release.ManualJob{{ID: 201}}},
 	}
@@ -172,7 +172,7 @@ func TestACSChecksShowProgressPerPR(t *testing.T) {
 	panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-prs")
 	for id, want := range map[string][]string{
 		"1": {"Loading GitHub Actions and Prow results", "Investigate the admission policy"},
-		"2": {"results are incomplete", "/test unit", "Actions read deferred"},
+		"2": {"results are incomplete", "ci/prow/unit", "Actions read deferred"},
 		"3": {"No verified GitHub Actions or Prow retries"},
 		"4": {"actions/jobs/201/rerun"},
 	} {
