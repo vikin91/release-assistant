@@ -151,7 +151,10 @@ func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, err
 		})
 	}
 	for _, advisory := range r.Advisories {
-		p.Advisories = append(p.Advisories, release.Advisory{ID: t.String() + ":" + strconv.FormatInt(advisory.ID, 10), Message: advisory.Name + ": " + advisory.Conclusion, URL: advisory.URL})
+		p.Advisories = append(p.Advisories, release.Advisory{
+			ID: t.String() + ":" + strconv.FormatInt(advisory.ID, 10), Name: advisory.Name,
+			Message: advisory.Name + ": " + advisory.Conclusion, URL: advisory.URL,
+		})
 	}
 	for _, job := range r.Jobs {
 		payload := "/konflux-retest " + job

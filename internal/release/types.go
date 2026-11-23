@@ -198,7 +198,7 @@ type (
 		Evidence Evidence
 	}
 	// Advisory is a separately acknowledged finding, never an implicit gate.
-	Advisory struct{ ID, Message, URL string }
+	Advisory struct{ ID, Name, Message, URL string }
 	// Proposal binds one exact comment to one observed run.
 	Proposal struct {
 		Target                   Target

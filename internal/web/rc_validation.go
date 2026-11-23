@@ -63,7 +63,7 @@ func (p *pageModel) prepareRCValidation(plan release.Plan, runs map[string]relea
 		job, prefixed := strings.CutPrefix(check.Name, "Red Hat Konflux / ")
 		if prefixed || strings.Contains(strings.ToLower(observed.App), "konflux") {
 			scenario, policy := conformaScenario(job)
-			if policy && (scenario == "acs-conforma-dev" || strings.HasPrefix(scenario, "acs-conforma-dev-")) {
+			if isDevConformaScenario(scenario) {
 				continue
 			}
 			if seenKonflux[job] || imageJobs[job] || (!policy && runs[job].ID != "") {
@@ -91,6 +91,10 @@ func (p *pageModel) prepareRCValidation(plan release.Plan, runs map[string]relea
 func conformaScenario(name string) (string, bool) {
 	scenario, _, _ := strings.Cut(name, " / ")
 	return scenario, strings.HasPrefix(scenario, "acs-conforma-")
+}
+
+func isDevConformaScenario(scenario string) bool {
+	return scenario == "acs-conforma-dev" || strings.HasPrefix(scenario, "acs-conforma-dev-")
 }
 
 func (p pageModel) rcValidationRow(check release.Check, key, workflowURL string) rcValidationRow {

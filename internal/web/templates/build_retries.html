@@ -14,8 +14,19 @@
           {{else}}<h3>{{.Target}}</h3>{{end}}
           {{if not .ClosedState}}
           {{with .Authority}}{{if .Message}}<p class="build-retry-note">{{.Message}}</p>{{end}}{{end}}
-          {{if and .Candidates .RequiredStartFailureSummary}}<p class="build-retry-note"><strong>Konflux:</strong> {{.RequiredStartFailureSummary}}</p>{{end}}
-          <p class="build-retry-note"><strong>{{if eq $.Tab "acs-prs"}}Konflux{{else}}Next action{{end}}:</strong> {{.NextAction}}</p>
+          {{if and (or .Candidates .Comment) .RequiredStartFailureSummary}}<p class="build-retry-note"><strong>Konflux:</strong> {{.RequiredStartFailureSummary}}</p>{{end}}
+          {{if .NextAction}}<p class="build-retry-note"><strong>{{if eq $.Tab "acs-prs"}}Konflux{{else}}Next action{{end}}:</strong> {{.NextAction}}</p>{{end}}
+          {{if .Target.PR}}
+            {{if .Comment}}<div class="copyable-text">
+              <pre><code>{{.Comment}}</code></pre>
+              <div class="copy-text-actions">
+                <button type="button" data-copy-text>Copy comment</button>
+                <a aria-describedby="new-tab-description" href="https://github.com/{{.Target.Repo}}/pull/{{.Target.PR}}#new_comment_field" target="_blank" rel="noreferrer">Comment on PR #{{.Target.PR}} on GitHub</a>
+                {{if .Queueable}}{{template "retest-queue-link"}}{{end}}
+                <span role="status" data-copy-status data-live-preserve></span>
+              </div>
+            </div>{{else if .Queueable}}{{template "retest-queue-link"}}{{end}}
+          {{else}}
           {{range .Candidates}}
             <details class="build-retry-row" data-fold-key="build-retry:{{.Key}}">
               <summary>
@@ -28,12 +39,21 @@
               {{with .Offer}}{{if .Queueable}}{{template "retest-queue-link"}}{{end}}{{end}}
             </details>
           {{end}}
+          {{end}}
           {{with .Manual}}
             {{if .Pending}}<p class="build-retry-note" role="status">Loading GitHub Actions and Prow results…</p>
             {{else if .Incomplete}}<p class="build-retry-note" role="status">GitHub Actions and Prow results are incomplete. The next poll will check again. See retry diagnostics below.</p>
             {{else if not (or .Jobs .Prow)}}<p class="build-retry-note">No verified GitHub Actions or Prow retries for this commit.{{if .Warnings}} See retry diagnostics below.{{end}}</p>{{end}}
             {{template "manual-ci-instructions" .}}
           {{end}}
+          {{if .Target.PR}}
+          {{with .Plan}}{{with $.ConformaDevChecks .}}{{if .Plan.Plan.Advisories}}
+          <details class="build-retry-evidence" data-fold-key="conforma-dev-checks:{{.Plan.Plan.Target}}">
+            <summary>Conforma dev checks</summary>
+            {{template "conforma-advisories" .}}
+          </details>
+          {{end}}{{end}}{{end}}
+          {{else}}
           <details class="build-retry-evidence" data-fold-key="build-retry-evidence:{{.Target}}">
             <summary>Check details</summary>
             {{if .Plan}}
@@ -47,6 +67,7 @@
               {{if .Warnings}}<ol>{{range .Warnings}}<li>{{.}}</li>{{end}}</ol>{{end}}
             {{end}}
           </details>
+          {{end}}
           {{end}}
         </article>
       {{else}}

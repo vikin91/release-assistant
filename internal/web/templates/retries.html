@@ -36,18 +36,23 @@
 {{end}}
 
 {{define "retry-plan-evidence"}}
-  {{$page := .Page}}
   {{$plan := .Plan.Plan}}
   <p>SHA <code>{{$plan.SHA}}</code> · observed at {{when $plan.Evidence.At}} · {{if $plan.Evidence.Known}}known{{else}}unknown{{end}}</p>{{if $plan.Evidence.Error}}<p class="error-text">{{$plan.Evidence.Error}}</p>{{end}}
       {{if and $plan.Runs (not .Plan.Pinning)}}<h4>Observed runs</h4><table><thead><tr><th>Job</th><th>Run</th><th>Status</th><th>Outcome</th><th>Retry eligible</th></tr></thead><tbody>{{range $plan.Runs}}<tr><td>{{.Job}}</td><td>{{if url .URL}}<a href="{{url .URL}}">{{.ID}}</a>{{else}}{{.ID}}{{end}}</td><td>{{.Status}}</td><td>{{.Outcome}}</td><td>{{if .Eligible}}yes{{else}}no or unknown{{end}}</td></tr>{{end}}</tbody></table>{{end}}
       {{template "last-verified-builds" $plan.Runs}}
       {{if $plan.Warnings}}<h4>Warnings</h4><ol>{{range $plan.Warnings}}<li>{{.}}</li>{{end}}</ol>{{end}}
-      {{if $plan.Advisories}}<h4>Conforma advisories</h4><p class="muted" id="review-help-{{$plan.Target}}">Mark as reviewed records that you have read an advisory for this session and adds an action-log entry. It does not change check results, retry eligibility, write permissions, or release readiness. Reviews reset on restart.</p>{{range $plan.Advisories}}<div class="advisory">
+      {{if $plan.Advisories}}<h4>Conforma advisories</h4>{{template "conforma-advisories" .}}{{end}}
+{{end}}
+
+{{define "conforma-advisories"}}
+  {{$page := .Page}}
+  {{$plan := .Plan.Plan}}
+  <p class="muted" id="review-help-{{$plan.Target}}">Mark as reviewed records that you have read an advisory for this session and adds an action-log entry. It does not change check results, retry eligibility, write permissions, or release readiness. Reviews reset on restart.</p>{{range $plan.Advisories}}<div class="advisory">
         <p>{{.Message}}</p>
         {{if url .URL}}<a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">Evidence</a>{{end}}
         {{if index $page.Snapshot.Choices.Acknowledged .ID}}<p class="review-status"><span class="pill selected">Reviewed for this session</span></p>{{end}}
         <form method="post" action="/action#{{$page.RetrySection}}" class="inline-form"><input type="hidden" name="tab" value="{{$page.Tab}}"><input type="hidden" name="csrf" value="{{$page.CSRF}}"><input type="hidden" name="generation" value="{{$page.Snapshot.Generation}}"><input type="hidden" name="kind" value="acknowledge"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="repo" value="{{$plan.Target.Repo}}"><input type="hidden" name="pr" value="{{if $plan.Target.PR}}{{$plan.Target.PR}}{{end}}"><input type="hidden" name="tag" value="{{$plan.Target.Tag}}"><input type="hidden" name="sha" value="{{$plan.SHA}}"><input type="hidden" name="enabled" value="{{if index $page.Snapshot.Choices.Acknowledged .ID}}false{{else}}true{{end}}"><button type="submit" aria-describedby="review-help-{{$plan.Target}}">{{if index $page.Snapshot.Choices.Acknowledged .ID}}Mark as unreviewed{{else}}Mark as reviewed{{end}}</button></form>
-      </div>{{end}}{{end}}
+      </div>{{end}}
 {{end}}
 
 {{define "retest-queue-link"}}

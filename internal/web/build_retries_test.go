@@ -23,6 +23,11 @@ func TestBuildRetriesMergeOnlyExactComments(t *testing.T) {
 			waiting := verified
 			waiting.RunID = "124"
 			waiting.Payload = "retry comment in cooldown"
+			if target.PR > 0 {
+				verified.Job, verified.Payload = "central-db-on-push", "/konflux-retest central-db-on-push"
+				copyOnly.Job, copyOnly.Payload = "retag-collector", "/konflux-retest retag-collector"
+				waiting.Job, waiting.Payload = "retag-scanner", "/konflux-retest retag-scanner"
+			}
 			until := time.Date(2026, 11, 18, 10, 45, 0, 0, time.UTC)
 			choices := release.Choices{
 				Tags: map[string]string{config.Components[0].Name: "3.25.7"},
@@ -34,6 +39,10 @@ func TestBuildRetriesMergeOnlyExactComments(t *testing.T) {
 					Target: target, SHA: verified.SHA, Message: "Observed build failures",
 					Proposals: []release.Proposal{verified, copyOnly},
 					Warnings:  []string{"A run observation is incomplete"},
+					Advisories: []release.Advisory{
+						{ID: "dev", Name: "Red Hat Konflux / acs-conforma-dev-5-0 / main", Message: "developer finding"},
+						{ID: "prod", Name: "Red Hat Konflux / acs-conforma-prod / main", Message: "production finding"},
+					},
 				}},
 				Authority: []dispatch.View{{
 					Target: target, SHA: verified.SHA, Granted: true,
@@ -46,11 +55,24 @@ func TestBuildRetriesMergeOnlyExactComments(t *testing.T) {
 			b := newBrowser(t, application)
 			retrySection := "<section class=\"panel\" id=\"" + tab + "-retry\">"
 			body := between(t, activityPanel(t, b.getBody(t), tab), retrySection, "</section>")
-			heading := "Konflux check retries"
-			if tab == "acs-prs" {
-				heading = "Checks of Included PRs"
+			if target.PR > 0 {
+				comment := strings.Join([]string{verified.Payload, copyOnly.Payload, waiting.Payload}, "\n")
+				for _, want := range []string{
+					"Checks of Included PRs", "<pre><code>" + comment + "</code></pre>", "Copy comment", "Open Retest Queue",
+					"Comment on PR #82 on GitHub", "<summary>Conforma dev checks</summary>", "developer finding", `name="id" value="dev"`,
+				} {
+					if strings.Count(body, want) != 1 {
+						t.Errorf("expected one occurrence of %q in the PR retry card", want)
+					}
+				}
+				for _, absent := range []string{`class="build-retry-row"`, "Check details", "A run observation is incomplete", "production finding"} {
+					if strings.Contains(body, absent) {
+						t.Errorf("PR retry card still shows %q", absent)
+					}
+				}
+				return
 			}
-			for _, want := range []string{heading, "Check details", "A run observation is incomplete"} {
+			for _, want := range []string{"Konflux check retries", "Check details", "A run observation is incomplete", "production finding"} {
 				if !strings.Contains(body, want) {
 					t.Errorf("Build retries missing %q", want)
 				}
@@ -59,10 +81,7 @@ func TestBuildRetriesMergeOnlyExactComments(t *testing.T) {
 				t.Fatalf("got %d retry rows, want one per exact comment", got)
 			}
 			for _, proposal := range []release.Proposal{verified, copyOnly, waiting} {
-				markup := "<code>" + proposal.Payload + "</code>"
-				if target.Tag != "" {
-					markup = "<pre>" + markup + "</pre>"
-				}
+				markup := "<pre><code>" + proposal.Payload + "</code></pre>"
 				if got := strings.Count(body, markup); got != 1 {
 					t.Errorf("comment %q appeared %d times, want one", proposal.Payload, got)
 				}

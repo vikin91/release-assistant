@@ -10,6 +10,9 @@
       {{with .Konflux}}Konflux {{if .Evidence.At.IsZero}}awaiting check{{else}}checked {{when .Evidence.At}}{{if not .Evidence.Fresh}} · incomplete{{end}}{{end}}{{end}}
       · {{with .CI}}CI {{if .At.IsZero}}awaiting check{{else}}checked {{when .At}}{{if .Incomplete}} · incomplete{{end}}{{end}}{{end}}
     </p>
+    {{if and (eq .Page.Tab "acs-prs") .KonfluxCommands}}
+      <p><a href="/?tab=acs-prs#acs-pr-retries-{{.PR.Target.PR}}" data-open-section>View Konflux retry comment</a></p>
+    {{end}}
     {{if .Commands}}
       <div class="copyable-text">
         <pre><code>{{.Commands}}</code></pre>
@@ -17,7 +20,7 @@
         <span role="status" data-copy-status data-live-preserve></span>
       </div>
       <p class="muted">Post slash commands as PR comments. Run <code>gh api</code> commands in a terminal.</p>
-    {{else if and .Konflux.Evidence.Fresh (not .CI.At.IsZero) (not .CI.Incomplete)}}
+    {{else if and (not .KonfluxCommands) .Konflux.Evidence.Fresh (not .CI.At.IsZero) (not .CI.Incomplete)}}
       <p>No retry commands available for this commit.</p>
     {{end}}
     {{with .Konflux.Message}}<p class="muted">{{.}}</p>{{end}}

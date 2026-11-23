@@ -17,6 +17,8 @@ type (
 		Plan                        *planModel
 		Authority                   *dispatch.View
 		Candidates                  []*buildRetryCandidate
+		Comment                     string
+		Queueable                   bool
 		NextAction                  string
 		RequiredStartFailureSummary string
 		Manual                      *release.ManualRetryReport
@@ -101,10 +103,33 @@ func (p pageModel) BuildRetries() []*buildRetryTarget {
 		})
 	}
 	for _, group := range targets {
+		if group.Target.PR > 0 {
+			group.Comment = group.prComment(p.PRRetryStatus(group.PR, p.Snapshot.Config.Branch))
+			group.Queueable = slices.ContainsFunc(group.Candidates, func(candidate *buildRetryCandidate) bool {
+				return candidate.Offer != nil && candidate.Offer.Queueable
+			})
+		}
 		group.RequiredStartFailureSummary = group.requiredStartFailureSummary()
 		group.NextAction = group.nextAction(p.Snapshot.Interactive)
 	}
 	return targets
+}
+
+func (g buildRetryTarget) prComment(latest *prRetryStatus) string {
+	var payloads []string
+	if latest != nil && !latest.Konflux.Evidence.At.IsZero() &&
+		(g.Plan == nil || latest.Konflux.Evidence.At.After(g.Plan.Plan.Evidence.At)) {
+		payloads = slices.Clone(latest.KonfluxCommands)
+	} else {
+		for _, candidate := range g.Candidates {
+			proposal := candidate.Proposal
+			if proposal.Target == g.Target && (g.PR.SHA == "" || proposal.SHA == g.PR.SHA) && proposal.Payload != "" {
+				payloads = append(payloads, proposal.Payload)
+			}
+		}
+	}
+	slices.Sort(payloads)
+	return strings.Join(slices.Compact(payloads), "\n")
 }
 
 func (g *buildRetryTarget) setPRDetails(pr release.PR) {
@@ -157,7 +182,7 @@ func (g buildRetryTarget) nextAction(interactive bool) string {
 				sent++
 			} else if offer.CanApprove {
 				if interactive {
-					return "Review the proposed retry comment in the Retest Queue."
+					return "Review the proposed retries in the Retest Queue."
 				}
 				return "Wait for the automatic retry comment to be posted."
 			}
@@ -165,7 +190,13 @@ func (g buildRetryTarget) nextAction(interactive bool) string {
 		if sent == len(g.Candidates) {
 			return "Wait for Konflux to start a new run after the retry comment."
 		}
+		if g.Target.PR > 0 {
+			return ""
+		}
 		return "Review the retry status for each job below."
+	}
+	if g.Comment != "" {
+		return ""
 	}
 	if g.Plan == nil {
 		return "Wait for the first Konflux check observation."
@@ -183,6 +214,9 @@ func (g buildRetryTarget) nextAction(interactive bool) string {
 		}
 	}
 	if plan.Evidence.Error != "" {
+		if g.Target.PR > 0 {
+			return "Could not verify Konflux checks. See Log."
+		}
 		return "Review the observation error in Check details."
 	}
 	if plan.Action == "Wait" {
@@ -231,4 +265,14 @@ func (p pageModel) retryStatus(offer *dispatch.Offer) string {
 // RetryPlanEvidence supplies the live session values for build evidence and review forms.
 func (p pageModel) RetryPlanEvidence(plan planModel) retryPlanEvidence {
 	return retryPlanEvidence{Page: p, Plan: plan}
+}
+
+// ConformaDevChecks selects developer policy findings for the PR disclosure.
+func (p pageModel) ConformaDevChecks(plan planModel) retryPlanEvidence {
+	plan.Plan.Advisories = slices.DeleteFunc(slices.Clone(plan.Plan.Advisories), func(advisory release.Advisory) bool {
+		name, _ := strings.CutPrefix(advisory.Name, "Red Hat Konflux / ")
+		scenario, _ := conformaScenario(name)
+		return !isDevConformaScenario(scenario)
+	})
+	return p.RetryPlanEvidence(plan)
 }

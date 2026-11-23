@@ -9,12 +9,13 @@ import (
 )
 
 type prRetryStatus struct {
-	Page     pageModel
-	PR       release.PR
-	Konflux  release.Plan
-	CI       release.ManualRetryReport
-	Anchor   string
-	Commands string
+	Page            pageModel
+	PR              release.PR
+	Konflux         release.Plan
+	CI              release.ManualRetryReport
+	Anchor          string
+	Commands        string
+	KonfluxCommands []string
 }
 
 func prRetryAnchor(target release.Target) string {
@@ -48,11 +49,14 @@ func (p pageModel) PRRetryStatus(pr release.PR, branch string) *prRetryStatus {
 		status.CI = release.ManualRetryReport{Target: pr.Target, SHA: pr.SHA, At: pr.CheckResultsEvidence.At}
 	}
 
-	var commands []string
 	for _, proposal := range status.Konflux.Proposals {
-		if proposal.Target == pr.Target && proposal.SHA == pr.SHA {
-			commands = append(commands, proposal.Payload)
+		if proposal.Target == pr.Target && proposal.SHA == pr.SHA && proposal.Payload != "" {
+			status.KonfluxCommands = append(status.KonfluxCommands, proposal.Payload)
 		}
+	}
+	var commands []string
+	if p.Tab != "acs-prs" {
+		commands = append(commands, status.KonfluxCommands...)
 	}
 	for _, job := range status.CI.Jobs {
 		commands = append(commands, job.RerunCommand(pr.Target.Repo))
