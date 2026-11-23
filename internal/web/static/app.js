@@ -133,6 +133,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const retestSearch = document.getElementById("retest-search");
   const retestFilterKey = `release-assistant:retest-search:${document.body.dataset.session}`;
+  let updateRetestSendAll;
   const filterRetests = () => {
     if (!retestSearch) return;
     document.getElementById("retest-filter").hidden = false;
@@ -155,6 +156,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     const emptySearch = document.getElementById("retest-no-matches");
     if (emptySearch) emptySearch.hidden = visible;
+    updateRetestSendAll?.();
   };
   if (retestSearch) {
     try { retestSearch.value = window.sessionStorage.getItem(retestFilterKey) || ""; } catch {}
@@ -280,24 +282,71 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("input", rememberEdit, true);
   document.addEventListener("change", rememberEdit, true);
   let submitting = false;
-  let sendingRow;
-  let sendingButtons = [];
+  let retestRevision = 0;
+  const pendingRetests = new Set();
+  const eligibleRetestForms = () => Array.from(dashboard.querySelectorAll("[data-retest-send]"))
+    .filter((form) => !form.closest("[hidden]") && !form.querySelector("button").disabled);
+  updateRetestSendAll = () => {
+    const button = document.getElementById("retest-send-all");
+    if (!button) return;
+    button.hidden = false;
+    button.disabled = eligibleRetestForms().length === 0;
+  };
+  updateRetestSendAll();
+
+  const sendRetests = async (forms) => {
+    if (!forms.length) return;
+    const data = new URLSearchParams(new FormData(forms[0]));
+    data.delete("queue_id");
+    const rows = forms.map((form) => {
+      const row = form.closest("[data-retest-row]");
+      const id = form.querySelector('input[name="queue_id"]').value;
+      data.append("queue_id", id);
+      pendingRetests.add(row.dataset.liveKey);
+      const buttons = Array.from(row.querySelectorAll("button:not(:disabled)"));
+      for (const button of buttons) button.disabled = true;
+      row.querySelector("[data-retest-sending]").hidden = false;
+      row.querySelector("[data-retest-result]").textContent = "";
+      return { row, id, buttons };
+    });
+    updateRetestSendAll();
+    let results;
+    try {
+      const response = await fetch(forms[0].getAttribute("action"), {
+        method: "POST", headers: { Accept: "application/json" }, body: data,
+      });
+      if (!response.ok) throw new Error("Queue request failed");
+      results = await response.json();
+    } catch {}
+    for (const { row, id, buttons } of rows) {
+      pendingRetests.delete(row.dataset.liveKey);
+      if (results?.[id] === "") {
+        row.remove();
+      } else {
+        row.querySelector("[data-retest-sending]").hidden = true;
+        row.querySelector("[data-retest-result]").textContent = results?.[id] ||
+          "Could not confirm the result. Check the Queue log before retrying.";
+        for (const button of buttons) button.disabled = false;
+      }
+    }
+    retestRevision++;
+    filterRetests();
+    refreshQueueOnOpen();
+  };
   document.addEventListener("submit", (event) => {
-    submitting = true;
-    if (!event.target.matches?.("[data-retest-send]")) return;
-    sendingRow = event.target.closest("[data-retest-row]");
-    sendingButtons = Array.from(sendingRow.querySelectorAll("button:not(:disabled)"));
-    for (const button of sendingButtons) button.disabled = true;
-    sendingRow.querySelector("[data-retest-sending]").hidden = false;
+    const form = event.target;
+    if (form.matches?.("[data-retest-send]")) {
+      event.preventDefault();
+      if (!form.querySelector("button").disabled) void sendRetests([form]);
+    } else {
+      submitting = true;
+    }
   });
-  window.addEventListener("pageshow", () => {
-    submitting = false;
-    if (!sendingRow) return;
-    for (const button of sendingButtons) button.disabled = false;
-    sendingRow.querySelector("[data-retest-sending]").hidden = true;
-    sendingRow = undefined;
-    sendingButtons = [];
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest?.("#retest-send-all");
+    if (button && !button.disabled) void sendRetests(eligibleRetestForms());
   });
+  window.addEventListener("pageshow", () => { submitting = false; });
 
   const nodeKey = (node) => {
     if (node.nodeType !== 1) return "";
@@ -315,7 +364,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (current.nodeValue !== incoming.nodeValue) current.nodeValue = incoming.nodeValue;
       return;
     }
-    if (current.hasAttribute("data-live-preserve")) return;
+    if (current.hasAttribute("data-live-preserve") || pendingRetests.has(current.dataset.liveKey)) return;
     const keepInput = current.tagName === "INPUT" && editedControls.has(current) && !incoming.disabled;
     const value = current.value;
     const checked = current.checked;
@@ -364,6 +413,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const refreshDashboard = async () => {
     if (dashboardRefreshing) return;
     dashboardRefreshing = true;
+    const revision = retestRevision;
     try {
       if (document.hidden || submitting) return;
       const response = await fetch(`/?tab=${activeTab}`, { cache: "no-store", signal: AbortSignal.timeout(5_000) });
@@ -374,7 +424,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (incoming.body.dataset.session !== document.body.dataset.session) {
         throw new Error("Release configuration changed. Reload the page to continue.");
       }
-      if (document.hidden || submitting) return;
+      if (document.hidden || submitting || revision !== retestRevision) return;
       saveSections();
       const active = document.activeElement;
       const scrollX = window.scrollX;
@@ -399,7 +449,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const { loading, konfluxHealth } = document.body.dataset;
       const regularDelay = konfluxHealth === "unverified" ? 30_000 : 60_000;
       const delay = loading === "true" || konfluxHealth === "pending" ? 1_000 : activeTab === "retest-queue" ? 5_000 : regularDelay;
-      dashboardTimer = window.setTimeout(refreshDashboard, delay);
+      dashboardTimer = window.setTimeout(refreshDashboard, revision === retestRevision ? delay : 0);
     }
   };
   refreshQueueOnOpen = () => {

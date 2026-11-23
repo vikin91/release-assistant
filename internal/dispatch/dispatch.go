@@ -59,24 +59,31 @@ type (
 		writer                               Writer
 		options                              Options
 		targets                              map[release.Target]*targetState
+		attempts                             map[commentKey]commentAttempt
 		interactive, requirePRLabel, stopped bool
 		events                               []Event
 	}
 	targetState struct {
-		identity                   Identity
-		planAt                     time.Time
-		granted, ignored, inFlight bool
-		epoch                      uint64
-		proposals                  []release.Proposal
-		approved, sent             map[string]bool
-		jobs                       map[string]*jobState
-		last                       time.Time
-		message                    string
+		identity         Identity
+		planAt           time.Time
+		granted, ignored bool
+		epoch            uint64
+		proposals        []release.Proposal
+		approved, sent   map[string]bool
+		jobs             map[string]*jobState
+		message          string
+	}
+	commentKey struct {
+		target    release.Target
+		sha, body string
+	}
+	commentAttempt struct {
+		inFlight bool
+		last     time.Time
 	}
 	jobState struct {
 		seen  map[string]bool
 		count int
-		last  time.Time
 	}
 )
 
@@ -94,7 +101,8 @@ func New(r Reader, p Planner, w Writer, o Options) *Dispatcher {
 	if o.Now == nil {
 		o.Now = time.Now
 	}
-	return &Dispatcher{reader: r, planner: p, writer: w, options: o, targets: map[release.Target]*targetState{}, interactive: true}
+	return &Dispatcher{reader: r, planner: p, writer: w, options: o,
+		targets: map[release.Target]*targetState{}, attempts: map[commentKey]commentAttempt{}, interactive: true}
 }
 func (d *Dispatcher) state(t release.Target) *targetState {
 	s := d.targets[t]
@@ -315,17 +323,15 @@ func (d *Dispatcher) offer(s *targetState, p release.Proposal) Offer {
 		o.Reason = "comment already sent for this run"
 	}
 	o.Queueable = !o.CommentSent
-	if o.Reason == "" && s.inFlight {
+	attempt := d.attempts[commentKey{p.Target, p.SHA, p.CommentBody()}]
+	if o.Reason == "" && attempt.inFlight {
 		o.Reason = "comment dispatch in progress"
 	}
-	until := s.last.Add(d.options.Gap)
-	if s.last.IsZero() {
-		until = time.Time{}
+	gap := d.options.Gap
+	if j != nil && j.count >= d.options.Threshold {
+		gap = max(gap, d.options.SlowGap)
 	}
-	if j != nil && j.count >= d.options.Threshold && !j.last.IsZero() {
-		until = maxTime(until, j.last.Add(d.options.SlowGap))
-	}
-	if d.options.Now().Before(until) {
+	if until := attempt.last.Add(gap); !attempt.last.IsZero() && d.options.Now().Before(until) {
 		o.WaitingUntil = until
 		if o.Reason == "" {
 			o.Reason = "waiting for comment rate limit"
@@ -333,12 +339,6 @@ func (d *Dispatcher) offer(s *targetState, p release.Proposal) Offer {
 	}
 	o.CanApprove = o.Reason == ""
 	return o
-}
-func maxTime(a, b time.Time) time.Time {
-	if a.After(b) {
-		return a
-	}
-	return b
 }
 
 // Views returns copied display state; callers cannot mutate authority.
@@ -401,14 +401,27 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 		return Delivery{}, fmt.Errorf("interactive mode is no longer enabled")
 	}
 	epoch := s.epoch
-	s.inFlight = true
 	body := proposal.CommentBody()
+	key := commentKey{t, proposal.SHA, body}
+	attempt := d.attempts[key]
+	attempt.inFlight = true
+	d.attempts[key] = attempt
 	if d.interactive {
 		s.approved[id] = true
 		d.event(t, proposal.SHA, "approve", body, "single use", "user")
 	}
 	d.mu.Unlock()
-	defer func() { d.mu.Lock(); s.inFlight = false; d.mu.Unlock() }()
+	defer func() {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		delete(s.approved, id)
+		if attempt.last.IsZero() {
+			delete(d.attempts, key)
+		} else {
+			attempt.inFlight = false
+			d.attempts[key] = attempt
+		}
+	}()
 	// Partial planner errors do not invalidate independently approved, identified jobs.
 	fresh, _ := d.planner.Plan(ctx, t)
 	identity, readErr := d.reader.ReadTarget(ctx, t)
@@ -417,20 +430,24 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 		d.mu.Unlock()
 		return Delivery{}, fmt.Errorf("permission changed; approval is stale")
 	}
-	if readErr != nil || identity.Target != t {
-		identity = Identity{Target: t, SHA: s.identity.SHA}
-		identity.Evidence.Error = "fresh authorization unavailable"
+	verified := readErr == nil && identity.Target == t && identity.Evidence.Fresh() && ctx.Err() == nil
+	if verified && !identity.Evidence.At.Before(s.identity.Evidence.At) {
+		d.observe(identity)
 	}
-	d.observe(identity)
-	matches := readErr == nil && identity.Evidence.Fresh() && identity.Open && !identity.OptOut && identity.SHA == proposal.SHA && fresh.Target == t && fresh.SHA == proposal.SHA
+	matches := verified && identity.Open && !identity.OptOut && identity.SHA == proposal.SHA &&
+		s.identity.Evidence.Fresh() && s.identity.Open && !s.identity.OptOut &&
+		s.identity.SHA == identity.SHA && s.identity.Base == identity.Base &&
+		fresh.Target == t && fresh.SHA == proposal.SHA
 	if matches {
-		d.plan(fresh)
-		matches = slices.ContainsFunc(fresh.Proposals, func(p release.Proposal) bool { return ID(p) == id && p.RunID != "" })
+		if !fresh.Evidence.At.Before(s.planAt) {
+			d.plan(fresh)
+		}
+		matchingProposal := func(p release.Proposal) bool { return ID(p) == id }
+		matches = slices.ContainsFunc(fresh.Proposals, matchingProposal) && slices.ContainsFunc(s.proposals, matchingProposal)
 	}
-	labelMissing := d.requirePRLabel && t.PR > 0 && !identity.CommentLabel
+	labelMissing := d.requirePRLabel && t.PR > 0 && (!verified || !identity.CommentLabel || !s.identity.CommentLabel)
 	authorized := (d.interactive && s.approved[id]) || (!d.interactive && s.granted)
 	if !matches || labelMissing || s.epoch != epoch || !authorized || s.ignored || d.stopped || !d.options.EnableWrites {
-		clear(s.approved)
 		s.message = "Approval became stale; refreshed evidence does not support dispatch"
 		reason := "stale"
 		if labelMissing {
@@ -443,9 +460,8 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 		return Delivery{}, fmt.Errorf("%s", message)
 	}
 	delete(s.approved, id)
-	now := d.options.Now()
-	s.last = now
-	s.job(proposal.Job).last = now
+	attempt.last = d.options.Now()
+	d.attempts[key] = attempt
 	d.event(t, proposal.SHA, "dispatch", body, "attempt", "system")
 	d.mu.Unlock()
 	result, err := d.writer.Write(ctx, proposal)

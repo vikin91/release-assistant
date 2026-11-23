@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -17,6 +18,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"release-assistant/internal/app"
@@ -204,6 +206,10 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "form token is invalid", http.StatusForbidden)
 		return
 	}
+	if r.PostForm.Get("kind") == "queue-send" && r.Header.Get("Accept") == "application/json" {
+		s.sendQueue(w, r)
+		return
+	}
 	snapshot := s.app.Snapshot()
 	current := snapshot.Config
 	if snapshot.PendingPinningPR > 0 {
@@ -233,6 +239,44 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 		destination += "#" + prRetryAnchor(action.Target)
 	}
 	http.Redirect(w, r, destination, http.StatusSeeOther)
+}
+
+// sendQueue dispatches only the IDs captured by the click, with a result for each row.
+func (s *server) sendQueue(w http.ResponseWriter, r *http.Request) {
+	action, err := parseAction(r, release.Config{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	ids := make(map[uint64]struct{}, len(r.PostForm["queue_id"]))
+	for _, value := range r.PostForm["queue_id"] {
+		id, err := strconv.ParseUint(value, 10, 64)
+		if err != nil || id == 0 {
+			http.Error(w, "a valid queue item ID is required", http.StatusBadRequest)
+			return
+		}
+		ids[id] = struct{}{}
+	}
+	results := make(map[uint64]string, len(ids))
+	var sends sync.WaitGroup
+	var resultsMu sync.Mutex
+	for id := range ids {
+		sends.Go(func() {
+			a := action
+			a.QueueID = id
+			var message string
+			if err := s.app.Apply(r.Context(), a); err != nil {
+				message = err.Error()
+			}
+			resultsMu.Lock()
+			results[id] = message
+			resultsMu.Unlock()
+		})
+	}
+	sends.Wait()
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(results)
 }
 
 func (s *server) validCSRF(r *http.Request) bool {

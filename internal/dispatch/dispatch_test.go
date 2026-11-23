@@ -238,20 +238,40 @@ func TestUncertainDeliveryStillReservesGap(t *testing.T) {
 		t.Fatal("uncertain attempt immediately replayed")
 	}
 }
-func TestTargetGapAppliesAcrossJobs(t *testing.T) {
+func TestCommentGapAppliesAcrossRunsForTheSameBody(t *testing.T) {
 	d, f, _ := setup(t)
 	p := f.plan.Proposals[0]
 	second := p
-	second.Job = "another-library-job"
 	second.RunID = "second"
-	second.Payload = "/konflux-retest another-library-job"
-	f.plan.Proposals = append(f.plan.Proposals, second)
+	different := second
+	different.CommentFooter = "*different exact comment*"
+	f.plan.Proposals = append(f.plan.Proposals, second, different)
 	d.ObservePlan(f.plan)
 	if _, err := d.Send(t.Context(), p.Target, ID(p), true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.Send(t.Context(), second.Target, ID(second), true); err == nil {
-		t.Fatal("target cooldown bypassed through another job")
+	if _, err := d.Send(t.Context(), second.Target, ID(second), true); err == nil || !strings.Contains(err.Error(), "rate limit") {
+		t.Fatalf("same comment with different run evidence: %v", err)
+	}
+	if _, err := d.Send(t.Context(), different.Target, ID(different), true); err != nil || f.writes.Load() != 2 {
+		t.Fatalf("different comment on the same target: writes = %d, error = %v", f.writes.Load(), err)
+	}
+}
+
+func TestFailedIdentityReadLeavesOtherCommentsEligibleForVerification(t *testing.T) {
+	d, f, _ := setup(t)
+	first := f.plan.Proposals[0]
+	second := first
+	second.Job, second.RunID, second.Payload = "another-job", "2", "/konflux-retest another-job"
+	f.plan.Proposals = append(f.plan.Proposals, second)
+	d.ObservePlan(f.plan)
+	f.readErr = errors.New("GitHub unavailable")
+	if _, err := d.Send(t.Context(), first.Target, ID(first), true); err == nil || f.writes.Load() != 0 {
+		t.Fatalf("unverified comment: error = %v, writes = %d", err, f.writes.Load())
+	}
+	f.readErr = nil
+	if _, err := d.Send(t.Context(), second.Target, ID(second), true); err != nil || f.writes.Load() != 1 {
+		t.Fatalf("independent comment: error = %v, writes = %d", err, f.writes.Load())
 	}
 }
 

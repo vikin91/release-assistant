@@ -176,8 +176,8 @@ func TestTemporaryAdmissionDenialUsesCLIJobsAndRevalidatesDispatch(t *testing.T)
 			if err != nil || fixture.prReads != reads+2 || !slices.Equal(writer.writes, []release.Proposal{proposal}) {
 				t.Fatalf("dispatch did not revalidate and post the exact proposal: reads = %d, writes = %v, error = %v", fixture.prReads-reads, writer.writes, err)
 			}
-			if _, err := d.Send(ctx, target, dispatch.ID(plan.Proposals[0]), true); err == nil {
-				t.Fatal("target cooldown allowed another job immediately")
+			if _, err := d.Send(ctx, target, dispatch.ID(plan.Proposals[0]), true); err != nil {
+				t.Fatalf("another job on the same target should be eligible: %v", err)
 			}
 			now = now.Add(time.Minute)
 			if _, err := d.Send(ctx, target, dispatch.ID(proposal), true); err == nil {
@@ -195,7 +195,7 @@ func TestTemporaryAdmissionDenialUsesCLIJobsAndRevalidatesDispatch(t *testing.T)
 			if offer.Failures != 2 || offer.CanApprove || !offer.WaitingUntil.Equal(now.Add(59*time.Minute)) {
 				t.Fatalf("expected slow cooldown for two distinct failed checks: %+v", offer)
 			}
-			if _, err := d.Send(ctx, target, offer.ID, true); err == nil || len(writer.writes) != 1 {
+			if _, err := d.Send(ctx, target, offer.ID, true); err == nil || len(writer.writes) != 2 {
 				t.Fatalf("cooldown or duplicate called the writer: writes = %v, error = %v", writer.writes, err)
 			}
 		})

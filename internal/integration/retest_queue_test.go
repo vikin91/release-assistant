@@ -2,12 +2,15 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,8 +21,13 @@ import (
 )
 
 type retestQueueFixture struct {
-	pr     release.PR
-	posted []string
+	pr           release.PR
+	jobs         []string
+	mu           sync.Mutex
+	posted       []string
+	writeStarted chan release.Proposal
+	writeRelease <-chan struct{}
+	targetReads  atomic.Int32
 }
 
 func (f *retestQueueFixture) Discover(_ context.Context, request app.DiscoveryRequest) (release.Repository, error) {
@@ -36,7 +44,7 @@ func (f *retestQueueFixture) InspectReference(context.Context, string) (release.
 
 func (f *retestQueueFixture) Plan(_ context.Context, target release.Target) (release.Plan, error) {
 	plan := release.Plan{Target: target, SHA: f.pr.SHA, Evidence: observation(), Action: "Retest"}
-	for _, job := range []string{"central-db-on-push", "retag-scanner"} {
+	for _, job := range f.jobs {
 		plan.Proposals = append(plan.Proposals, release.Proposal{
 			Target: target, SHA: plan.SHA, Job: job, RunID: "run-" + job, Payload: "/konflux-retest " + job,
 		})
@@ -45,13 +53,24 @@ func (f *retestQueueFixture) Plan(_ context.Context, target release.Target) (rel
 }
 
 func (f *retestQueueFixture) ReadTarget(_ context.Context, target release.Target) (dispatch.Identity, error) {
+	f.targetReads.Add(1)
 	return dispatch.Identity{
 		Target: target, SHA: f.pr.SHA, Base: f.pr.Base, Open: true,
 		CommentLabel: f.pr.CommentLabel, OptOut: f.pr.OptOut, Evidence: observation(),
 	}, nil
 }
 
-func (f *retestQueueFixture) Write(_ context.Context, proposal release.Proposal) (dispatch.Delivery, error) {
+func (f *retestQueueFixture) Write(ctx context.Context, proposal release.Proposal) (dispatch.Delivery, error) {
+	if f.writeStarted != nil {
+		f.writeStarted <- proposal
+		select {
+		case <-f.writeRelease:
+		case <-ctx.Done():
+			return dispatch.Delivery{Status: "uncertain"}, ctx.Err()
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.posted = append(f.posted, proposal.Payload)
 	return dispatch.Delivery{Status: "sent"}, nil
 }
@@ -90,18 +109,26 @@ func (b retestQueueBrowser) get(t *testing.T) *httptest.ResponseRecorder {
 
 func (b retestQueueBrowser) send(t *testing.T, id uint64) int {
 	t.Helper()
+	return b.post(t.Context(), "", id).Code
+}
+
+func (b retestQueueBrowser) post(ctx context.Context, accept string, ids ...uint64) *httptest.ResponseRecorder {
 	const origin = "http://localhost"
 	values := url.Values{
-		"kind": {"queue-send"}, "tab": {"retest-queue"}, "queue_id": {strconv.FormatUint(id, 10)},
+		"kind": {"queue-send"}, "tab": {"retest-queue"},
 		"csrf": {b.cookie.Value}, "generation": {strconv.FormatUint(b.session.Snapshot().Generation, 10)},
 	}
-	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, origin+"/action", strings.NewReader(values.Encode()))
+	for _, id := range ids {
+		values.Add("queue_id", strconv.FormatUint(id, 10))
+	}
+	r := httptest.NewRequestWithContext(ctx, http.MethodPost, origin+"/action", strings.NewReader(values.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Set("Accept", accept)
 	r.Header.Set("Origin", origin)
 	r.AddCookie(b.cookie)
 	w := httptest.NewRecorder()
 	b.handler.ServeHTTP(w, r)
-	return w.Code
+	return w
 }
 
 func newRetestQueueSession(t *testing.T, options dispatch.Options) (*app.Session, *retestQueueFixture, release.Source) {
@@ -111,7 +138,7 @@ func newRetestQueueSession(t *testing.T, options dispatch.Options) (*app.Session
 		{Name: "collector", Repo: "stackrox/collector", Branch: "release-3.26", Stream: "3.26"},
 	}}
 	source := config.ACS()
-	fixture := &retestQueueFixture{pr: release.PR{
+	fixture := &retestQueueFixture{jobs: []string{"central-db-on-push", "retag-scanner"}, pr: release.PR{
 		Target: release.Target{Repo: source.Repo, PR: 23986}, SHA: "pr-head", State: "open", Base: source.Branch,
 		Title: "Verify queued retry comments", Evidence: observation(),
 	}}
@@ -199,8 +226,7 @@ func TestRetestQueueShowsBlockedCommentsAcrossWriteModes(t *testing.T) {
 }
 
 func TestInteractiveRetestQueueRequiresASeparateSendForEachComment(t *testing.T) {
-	now := time.Now()
-	session, fixture, source := newRetestQueueSession(t, dispatch.Options{EnableWrites: true, Now: func() time.Time { return now }})
+	session, fixture, source := newRetestQueueSession(t, dispatch.Options{EnableWrites: true})
 	refreshRetestQueue(t, session, source)
 	browser := openRetestQueue(t, session)
 	initial := session.Snapshot().RetestQueue
@@ -213,16 +239,11 @@ func TestInteractiveRetestQueueRequiresASeparateSendForEachComment(t *testing.T)
 		t.Fatalf("first Send returned %d and posted %v", status, fixture.posted)
 	}
 	remaining := session.Snapshot().RetestQueue
-	if len(remaining) != 1 || remaining[0].ID != second.ID || !strings.Contains(remaining[0].Blocked, "rate limit") {
-		t.Fatalf("second retry should remain visible during cooldown: %+v", remaining)
+	if len(remaining) != 1 || remaining[0].ID != second.ID || remaining[0].Blocked != "" {
+		t.Fatalf("second retry should remain eligible after the first send: %+v", remaining)
 	}
 	if status := browser.send(t, first.ID); status != http.StatusConflict {
 		t.Fatalf("replayed approval returned %d", status)
-	}
-	now = now.Add(2 * time.Minute)
-	refreshRetestQueue(t, session, source)
-	if len(fixture.posted) != 1 {
-		t.Fatalf("the second retry posted without confirmation: %v", fixture.posted)
 	}
 	if status := browser.send(t, second.ID); status != http.StatusSeeOther ||
 		!slices.Equal(fixture.posted, []string{first.Payload, second.Payload}) {
@@ -230,6 +251,94 @@ func TestInteractiveRetestQueueRequiresASeparateSendForEachComment(t *testing.T)
 	}
 	if remaining := session.Snapshot().RetestQueue; len(remaining) != 0 {
 		t.Fatalf("confirmed retries remain in the queue: %+v", remaining)
+	}
+}
+
+func TestInteractiveRetestQueueSendsConcurrentlyWithoutDuplicates(t *testing.T) {
+	for _, order := range []string{"batch only", "single then batch", "batch then single"} {
+		t.Run(order, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			session, fixture, source := newRetestQueueSession(t, dispatch.Options{EnableWrites: true})
+			fixture.jobs = append(fixture.jobs, "roxctl-on-push")
+			refreshRetestQueue(t, session, source)
+			browser := openRetestQueue(t, session)
+			items := session.Snapshot().RetestQueue
+			if len(items) != 3 {
+				t.Fatalf("expected three rows, got %+v", items)
+			}
+			first, second, excluded := items[0], items[1], items[2]
+			releaseWrites := make(chan struct{})
+			fixture.writeStarted = make(chan release.Proposal, len(items))
+			fixture.writeRelease = releaseWrites
+			start := func(ids ...uint64) <-chan *httptest.ResponseRecorder {
+				response := make(chan *httptest.ResponseRecorder, 1)
+				go func() { response <- browser.post(ctx, "application/json", ids...) }()
+				return response
+			}
+			readResult := func(response <-chan *httptest.ResponseRecorder) map[uint64]string {
+				t.Helper()
+				select {
+				case w := <-response:
+					var result map[uint64]string
+					if err := json.Unmarshal(w.Body.Bytes(), &result); w.Code != http.StatusOK || err != nil {
+						t.Fatalf("queue response %d: %s", w.Code, w.Body)
+					}
+					return result
+				case <-ctx.Done():
+					t.Fatal("queue request did not finish")
+					return nil
+				}
+			}
+			waitForWriter := func() release.Proposal {
+				t.Helper()
+				select {
+				case proposal := <-fixture.writeStarted:
+					return proposal
+				case <-ctx.Done():
+					t.Fatal("a second comment on the same PR could not reach the writer concurrently")
+					return release.Proposal{}
+				}
+			}
+
+			var firstRequest, batch <-chan *httptest.ResponseRecorder
+			if order == "single then batch" {
+				firstRequest = start(first.ID)
+			} else {
+				batch = start(first.ID, second.ID, first.ID)
+			}
+			started := waitForWriter()
+			if order == "single then batch" {
+				batch = start(first.ID, second.ID, second.ID)
+			}
+			other := waitForWriter()
+			if started.Payload == other.Payload || started.Target != other.Target || fixture.targetReads.Load() != 2 {
+				t.Fatalf("concurrent writes did not verify both distinct comments: %+v, %+v", started, other)
+			}
+			if order == "batch then single" {
+				duplicate := readResult(start(first.ID))
+				if len(duplicate) != 1 || !strings.Contains(duplicate[first.ID], "already sending") {
+					t.Fatalf("overlapping single send: %v", duplicate)
+				}
+			}
+			close(releaseWrites)
+			if firstRequest != nil {
+				if result := readResult(firstRequest); len(result) != 1 || result[first.ID] != "" {
+					t.Fatalf("single result: %v", result)
+				}
+			}
+			batchResult := readResult(batch)
+			firstMessage := batchResult[first.ID]
+			duplicate := strings.Contains(firstMessage, "already sending") || strings.Contains(firstMessage, "no longer pending")
+			if len(batchResult) != 2 || batchResult[second.ID] != "" ||
+				(order == "single then batch" && !duplicate) || (order != "single then batch" && firstMessage != "") {
+				t.Fatalf("batch result: %v", batchResult)
+			}
+			if remaining := session.Snapshot().RetestQueue; len(remaining) != 1 || remaining[0].ID != excluded.ID ||
+				!slices.Equal(slices.Sorted(slices.Values(fixture.posted)), []string{first.Payload, second.Payload}) {
+				t.Fatalf("batch posted %v and left %+v", fixture.posted, remaining)
+			}
+		})
 	}
 }
 
@@ -250,7 +359,7 @@ func TestAutomaticRetestQueueShowsPendingCommentsAndUsesBackgroundDispatch(t *te
 	}
 	refreshRetestQueue(t, session, source)
 	remaining := session.Snapshot().RetestQueue
-	if len(fixture.posted) != 1 || len(remaining) != 1 || !strings.Contains(remaining[0].Blocked, "rate limit") {
-		t.Fatalf("automatic polling should post one comment and show the remaining blocked retry: %v, %+v", fixture.posted, remaining)
+	if len(fixture.posted) != 1 || len(remaining) != 1 || remaining[0].Blocked != "" {
+		t.Fatalf("automatic polling should post one comment and keep the other eligible: %v, %+v", fixture.posted, remaining)
 	}
 }

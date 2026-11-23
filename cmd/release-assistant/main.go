@@ -55,8 +55,8 @@ func run() error {
 	flag.DurationVar(&options.Discovery, "discover", 0, "override initial refresh intervals for PR and tag discovery")
 	flag.DurationVar(&options.BackoffCap, "backoff-cap", 5*time.Minute, "maximum per-source access-error backoff")
 	flag.DurationVar(&options.Timeout, "timeout", 2*time.Minute, "maximum work duration per source cycle")
-	flag.DurationVar(&limits.Gap, "comment-gap", time.Minute, "minimum comment gap per target")
-	flag.DurationVar(&limits.SlowGap, "slow-gap", time.Hour, "per-job gap at failure threshold")
+	flag.DurationVar(&limits.Gap, "comment-gap", time.Minute, "minimum gap for the same comment on the same target and commit")
+	flag.DurationVar(&limits.SlowGap, "slow-gap", time.Hour, "minimum gap for repeating the same comment at the job failure threshold")
 	flag.IntVar(&limits.Threshold, "failure-threshold", 10, "distinct consecutive failed runs before slowdown")
 	flag.BoolVar(&limits.EnableWrites, "enable-writes", false, "allow retry comments after per-target RW permission and required confirmation")
 	flag.Func("allow-konflux-lookup",

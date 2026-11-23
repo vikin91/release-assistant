@@ -157,7 +157,7 @@ The image views distinguish **Available**, **Not found**, and **Unable to check*
 
 Review and copy proposed comments in Read-only mode. Start with `--enable-writes` to let Release Assistant post retry comments using your configured GitHub credentials. Startup with writes enabled defaults to Interactive mode.
 
-1. In Interactive mode, select **Send** in the Retest Queue to approve one exact comment. Repeat for each comment you want posted.
+1. In Interactive mode, select **Send** to approve one comment or **Send all** to approve every eligible comment visible in the Retest Queue, including when you filter the list. The assistant sends the approved comments concurrently and verifies each one before posting.
 2. For automatic posting, clear **Confirm each retry comment** under **Application settings** and select **Save settings**. Then select **Allow automatic retry comments** on each PR or tag you want the assistant to retry. Use **Require the label for PR comments** to require the label in either mode.
 
 The retry library decides which Konflux jobs are eligible. PR retries use `/konflux-retest <job>`. Tag retries use `/retest <job> tag:<tag>` on the resolved commit. GitHub required-check settings inform the status display. Marking a Conforma advisory as reviewed only records your review for the session.
@@ -168,7 +168,7 @@ use `-buildvcs=true` to embed the version information.
 
 A PR head or target branch change revokes its automatic posting grant. The `no-release-assistant` label blocks posting and clears the automatic grant. Tag grants bind the repository, tag name, and commit. Clearing or switching a tag selection revokes the old grant. A request already in progress may complete.
 
-Before sending, the assistant rechecks the target, current permission, eligible run, and exact comment. By default, it waits at least one minute between comments on a target. After ten distinct consecutive unsuccessful eligible runs for a job on the same target and commit, it waits at least an hour between comments for that job. Repeated polls do not increase the failure count. If delivery is uncertain, the assistant records it and waits for the cooldown before reconsidering.
+Before sending, the assistant rechecks the target, current permission, eligible run, and exact comment. The default cooldown is one minute for the same target, commit, and exact comment text. After ten distinct consecutive unsuccessful eligible runs for a job, the cooldown for repeating its comment increases to one hour. Repeated polls do not increase the failure count. An uncertain delivery also starts the cooldown for that comment.
 
 On the **ACS PRs** tab, **Checks of Included PRs** groups Konflux retry comments, GitHub Actions rerun commands, and failed Prow checks by PR. For Prow, the panel identifies which checks to rerun and links to the PR and failed builds. On the other workflow tabs, **Manual CI retries** shows GitHub Actions job links and copyable `gh api` commands for monitored targets. These options are available in read-only mode.
 

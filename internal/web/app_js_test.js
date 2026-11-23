@@ -25,7 +25,7 @@ function makeDetails({ id = "", foldKey = "", open = false } = {}) {
   return emitter({ id, dataset: foldKey ? { foldKey } : {}, open, tagName: "DETAILS" });
 }
 
-function makePage({ sections = [], storage = new Map(), session = "session:1", hash = "", storageFails = false, activityLog, fetchActivity, livePage, fetchDashboard, parseDashboard, clipboard, jumpToLatest } = {}) {
+function makePage({ sections = [], storage = new Map(), session = "session:1", hash = "", storageFails = false, activityLog, fetchActivity, livePage, fetchDashboard, fetchQueue, parseDashboard, clipboard, jumpToLatest } = {}) {
   const byId = new Map(sections.filter((section) => section.id).map((section) => [section.id, section]));
   if (activityLog) {
     byId.set("activity-log", activityLog);
@@ -92,7 +92,13 @@ function makePage({ sections = [], storage = new Map(), session = "session:1", h
     start() {
       vm.runInNewContext(appSource, {
         document, window, AbortSignal, URLSearchParams,
-        fetch: (url, options) => url === "/activity" ? fetchActivity(url, options) : fetchDashboard(url, options),
+        FormData: class {
+          constructor(form) { return form.querySelectorAll('input[type="hidden"]').map(({ name, value }) => [name, value]); }
+        },
+        fetch: (url, options) => ({
+          "/activity": fetchActivity,
+          "/action": fetchQueue,
+        }[url] || fetchDashboard)(url, options),
         DOMParser: class { parseFromString(text) { return parseDashboard(text); } },
       });
       document.emit("DOMContentLoaded");
@@ -348,7 +354,11 @@ test("activity updates preserve scrolling when session storage is unavailable", 
 });
 
 function matches(node, selector) {
-  if (selector === "details") return node.tagName === "DETAILS";
+  if (selector === "details" || selector === "button") return node.tagName.toLowerCase() === selector;
+  if (selector.startsWith("#")) return node.id === selector.slice(1);
+  if (selector === "[hidden]") return node.hidden;
+  if (selector === "button:not(:disabled)") return node.tagName === "BUTTON" && !node.disabled;
+  if (selector === 'input[name="queue_id"]') return node.tagName === "INPUT" && node.name === "queue_id";
   if (selector === 'input[type="hidden"]') return node.tagName === "INPUT" && node.type === "hidden";
   if (/^\[[^\]]+\]$/.test(selector)) return node.hasAttribute(selector.slice(1, -1));
   return false;
@@ -362,6 +372,7 @@ function domNode(tag, attrs = {}, children = []) {
     id: attrs.id || "", type: attrs.type || "text", name: attrs.name || "", value: attrs.value || "",
     checked: "checked" in attrs, disabled: "disabled" in attrs, open: "open" in attrs, hidden: "hidden" in attrs, isConnected: true,
     focus() { this.focused = true; },
+    matches(selector) { return matches(this, selector); },
     closest(selector) { for (let current = this; current; current = current.parentNode) if (matches(current, selector)) return current; return null; },
     get attributes() { return Array.from(attributes, ([name, value]) => ({ name, value })); },
     get firstChild() { return this.childNodes[0] || null; },
@@ -383,6 +394,7 @@ function domNode(tag, attrs = {}, children = []) {
     querySelectorAll(selector) {
       return this.childNodes.flatMap((child) => [...(matches(child, selector) ? [child] : []), ...child.querySelectorAll(selector)]);
     },
+    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
     cloneNode() { return domNode(tag, Object.fromEntries(attributes), this.childNodes.map((child) => child.cloneNode(true))); },
     classList: { add() {}, remove() {} },
   };
@@ -488,6 +500,67 @@ test("keeps the queue search and row identities across a live refresh", async ()
   assert.equal(page.document.getElementById("retest-no-matches").hidden, false);
   assert.equal(page.document.querySelectorAll("[data-retest-bucket]")[0].hidden, true);
   assert.equal(storage.get("release-assistant:retest-search:session:1"), "missing");
+});
+
+test("Send all captures visible eligible rows and leaves independent sends running", async () => {
+  const row = (id, title, disabled = false) => domNode("TR", {
+    "data-live-key": `retest:${id}`, "data-retest-row": `${id} ${title}`,
+  }, [
+    domNode("SMALL", { "data-retest-sending": "", hidden: "" }),
+    domNode("SMALL", { "data-retest-result": "", "data-live-preserve": "" }),
+    domNode("FORM", { action: "/action", "data-retest-send": "" }, [
+      domNode("INPUT", { type: "hidden", name: "queue_id", value: id }),
+      domNode("BUTTON", disabled ? { disabled: "" } : {}),
+    ]),
+  ]);
+  const search = emitter(domNode("INPUT", { id: "retest-search", type: "search" }));
+  const button = domNode("BUTTON", { id: "retest-send-all", hidden: "" });
+  const rows = [
+    row("1", "included"), row("2", "included"), row("3", "included"),
+    row("4", "filtered"), row("5", "included", true),
+  ];
+  const group = domNode("SECTION", { "data-retest-group": "PR #42" }, rows);
+  const initial = livePage({ activeTab: "retest-queue", children: [
+    domNode("DIV", { id: "retest-filter" }, [search, button]),
+    domNode("SECTION", { "data-retest-bucket": "" }, [group]),
+  ] });
+  const requests = [];
+  const page = dashboardPage(initial, {
+    fetchQueue: (_url, { body }) => new Promise((resolve) => {
+      requests.push({ ids: body.getAll("queue_id"), resolve });
+    }),
+  });
+  page.start();
+  await new Promise(setImmediate);
+  search.value = "included";
+  search.emit("input");
+  const send = (item) => {
+    let prevented = false;
+    page.document.emit("submit", {
+      target: item.querySelector("[data-retest-send]"),
+      preventDefault() { prevented = true; },
+    });
+    assert.equal(prevented, true);
+  };
+  send(rows[0]);
+  page.document.emit("click", { target: button });
+  send(rows[1]);
+  assert.deepEqual(requests.map(({ ids }) => ids), [["1"], ["2", "3"]]);
+  assert.equal(button.disabled, true);
+  assert.equal(rows[0].querySelector("[data-retest-sending]").hidden, false);
+
+  search.value = "";
+  search.emit("input");
+  assert.equal(button.disabled, false);
+  assert.deepEqual(requests.map(({ ids }) => ids), [["1"], ["2", "3"]]);
+  requests[1].resolve({ ok: true, json: async () => ({ "2": "", "3": "PR no longer eligible" }) });
+  await new Promise(setImmediate);
+  assert.equal(rows[1].parentNode, null);
+  assert.equal(rows[2].querySelector("[data-retest-result]").textContent, "PR no longer eligible");
+  assert.equal(rows[0].querySelector("button").disabled, true);
+  requests[0].resolve({ ok: true, json: async () => ({ "1": "" }) });
+  await new Promise(setImmediate);
+  assert.equal(rows[0].parentNode, null);
 });
 
 test("refreshes the dashboard promptly while Konflux health is unverified", async () => {
