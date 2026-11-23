@@ -386,6 +386,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (active && active.isConnected && document.activeElement !== active) active.focus({ preventScroll: true });
       window.scrollTo(scrollX, scrollY);
       document.body.dataset.loading = incoming.body.dataset.loading;
+      document.body.dataset.konfluxHealth = incoming.body.dataset.konfluxHealth ?? "";
       lastUpdated = new Date().toLocaleTimeString();
       refreshStatus.textContent = `Last updated ${lastUpdated}.`;
       refreshStatus.classList.remove("error-text");
@@ -395,7 +396,9 @@ document.addEventListener("DOMContentLoaded", () => {
       refreshStatus.classList.add("error-text");
     } finally {
       dashboardRefreshing = false;
-      const delay = document.body.dataset.loading === "true" ? 1_000 : activeTab === "retest-queue" ? 5_000 : 60_000;
+      const { loading, konfluxHealth } = document.body.dataset;
+      const regularDelay = konfluxHealth === "unverified" ? 30_000 : 60_000;
+      const delay = loading === "true" || konfluxHealth === "pending" ? 1_000 : activeTab === "retest-queue" ? 5_000 : regularDelay;
       dashboardTimer = window.setTimeout(refreshDashboard, delay);
     }
   };

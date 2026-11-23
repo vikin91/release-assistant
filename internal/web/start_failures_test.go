@@ -243,8 +243,11 @@ func TestOnlyExplicitSupersessionMovesCreationFailuresToEarlierAttempts(t *testi
 	}
 	body := newBrowser(t, application).getBody(t)
 	if !strings.Contains(body, "Earlier creation attempts") || !strings.Contains(body, "Newer verified run observed") ||
-		!strings.Contains(body, "admission-policy-marker") || !strings.Contains(body, "Current cluster availability is unknown") {
+		!strings.Contains(body, "admission-policy-marker") || !strings.Contains(body, "See the Konflux badge for current health.") {
 		t.Fatal("superseded facts were lost or presented as cluster recovery")
+	}
+	if !strings.Contains(body, `<details id="component-prs-earlier-start-failures">`) {
+		t.Fatal("earlier attempts should start collapsed")
 	}
 	if !reflect.DeepEqual(application.snapshot.Plans[0].Runs, []release.Run{{Job: "build", Status: "completed", Outcome: "success"}}) {
 		t.Fatal("diagnostic grouping changed retry evidence")

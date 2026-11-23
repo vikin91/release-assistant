@@ -27,15 +27,17 @@ type (
 		OnReadPauseChange func(ReadIssue)
 
 		apiHost, apiPort string
+		lookups          Lookups
 	}
 	observationError struct {
 		message string
 		cause   error
 	}
-	// Adapter calls only the dependency's public read-only entrypoints.
+	// Adapter reads Konflux health and delegates retry planning to konflux-retest.
 	Adapter struct {
 		config retry.Config
 		reads  *readBackoff
+		health healthProbe
 		pr     func(context.Context, retry.Config, string, int) (retry.Result, error)
 		tag    func(context.Context, retry.Config, string, string) (retry.Result, error)
 	}
@@ -69,6 +71,7 @@ func New(c Config) *Adapter {
 	if c.HTTPClient != nil {
 		client = *c.HTTPClient
 	}
+	health := newHealthProbe(c, client)
 	base := client.Transport
 	if base == nil {
 		base = http.DefaultTransport
@@ -83,8 +86,9 @@ func New(c Config) *Adapter {
 			VerifyRunIdentity: true, GitHubToken: c.GitHubToken, QuayUsername: c.QuayUsername, QuayPassword: c.QuayPassword,
 			HTTPClient: &client, KonfluxToken: c.KonfluxToken, AllowKonfluxLookup: c.AllowKonfluxLookup,
 		},
-		reads: reads,
-		pr:    retry.CheckPR, tag: retry.CheckTag,
+		reads:  reads,
+		health: health,
+		pr:     retry.CheckPR, tag: retry.CheckTag,
 	}
 }
 

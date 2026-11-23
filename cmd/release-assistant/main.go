@@ -98,6 +98,7 @@ func run() error {
 	plannerConfig.HTTPClient = client
 	plannerConfig.OnReadPauseChange = log.KonfluxReadPauseChanged
 	planner := konflux.New(plannerConfig)
+	options.KonfluxProbe = planner.ProbeHealth
 	inspector := images.New(client, plannerConfig.QuayUsername, plannerConfig.QuayPassword)
 	dispatcher := dispatch.New(gh, planner, github.NewWriter(gh, log), limits)
 	session := app.New(gh, planner, inspector, dispatcher, log, options)

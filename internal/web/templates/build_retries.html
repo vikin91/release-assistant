@@ -14,6 +14,7 @@
           {{else}}<h3>{{.Target}}</h3>{{end}}
           {{if not .ClosedState}}
           {{with .Authority}}{{if .Message}}<p class="build-retry-note">{{.Message}}</p>{{end}}{{end}}
+          {{if and .Candidates .RequiredStartFailureSummary}}<p class="build-retry-note"><strong>Konflux:</strong> {{.RequiredStartFailureSummary}}</p>{{end}}
           <p class="build-retry-note"><strong>{{if eq $.Tab "acs-prs"}}Konflux{{else}}Next action{{end}}:</strong> {{.NextAction}}</p>
           {{range .Candidates}}
             <details class="build-retry-row" data-fold-key="build-retry:{{.Key}}">

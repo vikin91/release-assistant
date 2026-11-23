@@ -640,7 +640,9 @@ func (c *Client) readChecks(ctx context.Context, src release.Source, p *release.
 		p.Checks = append(p.Checks, check)
 	}
 	for _, run := range runs {
-		addResult(run.check(), run.App.ID)
+		check := run.check()
+		check.CheckRunID = run.ID
+		addResult(check, run.App.ID)
 	}
 	// Commit statuses arrive newest first and do not identify their GitHub App.
 	// A status and a check run with the same name can both be required.

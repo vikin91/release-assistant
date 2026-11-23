@@ -118,16 +118,12 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 		}
 		var due []pollJob
 		var next time.Time
-		delete(s.nextSourceCheck, source.Repo)
 		for _, job := range s.pollJobs(source) {
 			record := s.polls[pollID{source.Repo, job.kind}]
 			at := record.next(s.options.RefreshIntervals[job.setting], s.startupUntil)
 			if record.due(job.identity, now, at) {
 				due = append(due, job)
 				continue
-			}
-			if job.kind == pollBuilds {
-				s.nextSourceCheck[source.Repo] = at
 			}
 			if next.IsZero() || at.Before(next) {
 				next = at

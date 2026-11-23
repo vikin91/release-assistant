@@ -2,7 +2,9 @@ package web
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
+	"strings"
 
 	"release-assistant/internal/dispatch"
 	"release-assistant/internal/release"
@@ -10,15 +12,16 @@ import (
 
 type (
 	buildRetryTarget struct {
-		Target      release.Target
-		Title       string
-		Plan        *planModel
-		Authority   *dispatch.View
-		Candidates  []*buildRetryCandidate
-		NextAction  string
-		Manual      *release.ManualRetryReport
-		ClosedState string
-		PR          release.PR
+		Target                      release.Target
+		Title                       string
+		Plan                        *planModel
+		Authority                   *dispatch.View
+		Candidates                  []*buildRetryCandidate
+		NextAction                  string
+		RequiredStartFailureSummary string
+		Manual                      *release.ManualRetryReport
+		ClosedState                 string
+		PR                          release.PR
 	}
 	buildRetryCandidate struct {
 		Key      string
@@ -98,6 +101,7 @@ func (p pageModel) BuildRetries() []*buildRetryTarget {
 		})
 	}
 	for _, group := range targets {
+		group.RequiredStartFailureSummary = group.requiredStartFailureSummary()
 		group.NextAction = group.nextAction(p.Snapshot.Interactive)
 	}
 	return targets
@@ -109,6 +113,34 @@ func (g *buildRetryTarget) setPRDetails(pr release.PR) {
 		g.ClosedState = "Merged"
 	} else if pr.State == "closed" {
 		g.ClosedState = "Closed"
+	}
+}
+
+func (g buildRetryTarget) requiredStartFailureSummary() string {
+	if g.Plan == nil || g.PR.SHA == "" || g.PR.SHA != g.Plan.Plan.SHA || !g.PR.Evidence.Fresh() || !g.PR.ChecksEvidence.Fresh() {
+		return ""
+	}
+	var names []string
+	for _, check := range g.PR.Checks {
+		if check.CheckRunID <= 0 || check.Required != release.Yes || check.Result() != release.No {
+			continue
+		}
+		if slices.ContainsFunc(g.Plan.Plan.StartFailures, func(failure release.StartFailure) bool {
+			return failure.CheckID == check.CheckRunID && !failure.Superseded && failure.Evidence.Fresh()
+		}) {
+			name, _ := strings.CutPrefix(check.Name, "Red Hat Konflux / ")
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	names = slices.Compact(names)
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return fmt.Sprintf("1 required check failed to start (%s). Waiting for a new attempt.", names[0])
+	default:
+		return fmt.Sprintf("%d required checks failed to start (%s). Waiting for new attempts.", len(names), strings.Join(names, ", "))
 	}
 }
 
@@ -138,16 +170,16 @@ func (g buildRetryTarget) nextAction(interactive bool) string {
 	if g.Plan == nil {
 		return "Wait for the first Konflux check observation."
 	}
+	if g.RequiredStartFailureSummary != "" {
+		return g.RequiredStartFailureSummary
+	}
 	plan := g.Plan.Plan
 	if plan.KonfluxAPIUnavailable {
 		return "Wait for the Konflux API to recover. It was unavailable at the last check."
 	}
 	for _, failure := range plan.StartFailures {
 		if !failure.Superseded && failure.Evidence.Fresh() {
-			if failure.Category == "admission_policy" {
-				return "Investigate the admission policy that blocked pipeline creation."
-			}
-			return "Investigate the reported pipeline creation failure."
+			return "A PipelineRun failed to start. See Reported build creation failures."
 		}
 	}
 	if plan.Evidence.Error != "" {
@@ -161,6 +193,8 @@ func (g buildRetryTarget) nextAction(interactive bool) string {
 		}
 	}
 	switch plan.Message {
+	case "PipelineRun creation failed for a check with unknown PR or tag.":
+		return "Wait for the next Konflux check observation."
 	case "No verified build checks match the requested tag or PR.", "GitHub returned no check runs for this commit.":
 		return "Wait for a matching Konflux build check to appear on this commit."
 	case "Waiting for usable input images.":

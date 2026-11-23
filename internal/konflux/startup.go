@@ -56,6 +56,7 @@ func StartupConfig(ctx context.Context, lookups Lookups) Config {
 func startupConfig(ctx context.Context, lookups Lookups, command func(context.Context, string, ...string) string) Config {
 	c := Config{
 		AllowKonfluxLookup: lookups.allows,
+		lookups:            lookups,
 		QuayUsername:       os.Getenv("QUAY_USERNAME"),
 		QuayPassword:       os.Getenv("QUAY_PASSWORD"),
 	}

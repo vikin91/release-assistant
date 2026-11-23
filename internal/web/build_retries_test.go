@@ -91,7 +91,7 @@ func TestKonfluxRetryNextAction(t *testing.T) {
 		plan release.Plan
 		want string
 	}{
-		"admission denied":     {release.Plan{Action: "Wait", StartFailures: []release.StartFailure{{Category: "admission_policy", Evidence: evidence}}}, "Investigate the admission policy"},
+		"admission denied":     {release.Plan{Action: "Wait", StartFailures: []release.StartFailure{{Category: "admission_policy", Evidence: evidence}}}, "A PipelineRun failed to start"},
 		"endpoint unavailable": {release.Plan{KonfluxAPIUnavailable: true}, "Wait for the Konflux API to recover"},
 		"waiting for check":    {release.Plan{Action: "Wait", Runs: []release.Run{{ID: "123", Job: "main", Status: "in_progress"}}}, "Wait for the main check to finish"},
 		"no matching run":      {release.Plan{Action: "Wait", Message: "No verified build checks match the requested tag or PR."}, "Wait for a matching Konflux build check"},
@@ -171,7 +171,7 @@ func TestACSChecksShowProgressPerPR(t *testing.T) {
 	s.Plans = []release.Plan{{Target: pr(1), StartFailures: []release.StartFailure{{Category: "admission_policy", Evidence: release.Evidence{Known: true, At: time.Now()}}}}}
 	panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-prs")
 	for id, want := range map[string][]string{
-		"1": {"Loading GitHub Actions and Prow results", "Investigate the admission policy"},
+		"1": {"Loading GitHub Actions and Prow results", "A PipelineRun failed to start"},
 		"2": {"results are incomplete", "ci/prow/unit", "Actions read deferred"},
 		"3": {"No verified GitHub Actions or Prow retries"},
 		"4": {"actions/jobs/201/rerun"},
@@ -185,5 +185,46 @@ func TestACSChecksShowProgressPerPR(t *testing.T) {
 		if id != "1" && strings.Contains(card, "Loading GitHub Actions and Prow results") {
 			t.Errorf("PR %s still shows a loading message", id)
 		}
+	}
+}
+
+func TestACSShowsRequiredKonfluxCreationFailuresByExactCheck(t *testing.T) {
+	s := workflowStatusSnapshot()
+	acs := &s.Repositories[len(s.Repositories)-1]
+	target := release.Target{Repo: s.Config.ACS().Repo, PR: 24152}
+	observed := release.Evidence{Known: true, At: time.Now()}
+	pr := release.PR{
+		Target: target, SHA: "head", State: "open", Base: acs.Source.Branch,
+		Evidence: observed, ChecksEvidence: observed,
+	}
+	plan := release.Plan{Target: target, SHA: pr.SHA, Action: "Wait", Evidence: observed}
+	for i, name := range []string{"checks", "create-custom-snapshot", "operator-index-on-push", "operator-index-on-push", "optional-job", "ordinary-failure"} {
+		id := int64(i + 1)
+		check := release.Check{CheckRunID: id, Name: "Red Hat Konflux / " + name, Required: release.Yes, Conclusion: "failure"}
+		if name == "optional-job" {
+			check.Required = release.No
+		}
+		pr.Checks = append(pr.Checks, check)
+		if name != "ordinary-failure" {
+			plan.StartFailures = append(plan.StartFailures, release.StartFailure{CheckID: id, Job: name, Category: "admission_policy", Evidence: observed})
+		}
+	}
+	acs.PRs = append(acs.PRs, pr)
+	s.Choices.PRs[target] = release.Included
+	s.Plans = []release.Plan{plan}
+	application := &fakeApplication{snapshot: s}
+	browser := newBrowser(t, application)
+	row := func() string {
+		return between(t, browser.getBody(t), `id="acs-pr-retries-24152"`, `</article>`)
+	}
+	want := "3 required checks failed to start (checks, create-custom-snapshot, operator-index-on-push). Waiting for new attempts."
+	if got := row(); !strings.Contains(got, want) || strings.Contains(got, "Investigate the admission policy") {
+		t.Fatalf("missing required failure summary: %s", got)
+	}
+	for i := range application.snapshot.Plans[0].StartFailures {
+		application.snapshot.Plans[0].StartFailures[i].Superseded = true
+	}
+	if got := row(); strings.Contains(got, "failed to start") {
+		t.Fatalf("superseded failures still shown as the next action: %s", got)
 	}
 }

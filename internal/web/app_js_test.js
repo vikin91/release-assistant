@@ -490,6 +490,27 @@ test("keeps the queue search and row identities across a live refresh", async ()
   assert.equal(storage.get("release-assistant:retest-search:session:1"), "missing");
 });
 
+test("refreshes the dashboard promptly while Konflux health is unverified", async () => {
+  const initial = livePage();
+  initial.body.dataset.konfluxHealth = "pending";
+  const page = dashboardPage(initial);
+  page.start();
+  await new Promise(setImmediate);
+  assert.equal(page.timeouts[0].delay, 1_000);
+
+  const reached = livePage();
+  reached.body.dataset.konfluxHealth = "unverified";
+  page.updateTo(reached);
+  await page.timeouts.shift()();
+  assert.equal(page.timeouts[0].delay, 30_000);
+
+  const healthy = livePage();
+  healthy.body.dataset.konfluxHealth = "healthy";
+  page.updateTo(healthy);
+  await page.timeouts.shift()();
+  assert.equal(page.timeouts[0].delay, 60_000);
+});
+
 test("serializes requests, pauses while hidden, and discards a response after form submission", async () => {
   let respond;
   let requests = 0;

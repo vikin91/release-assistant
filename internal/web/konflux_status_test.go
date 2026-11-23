@@ -1,6 +1,7 @@
 package web
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +30,8 @@ func TestDashboardShowsRecentKonfluxEvidenceAcrossTabs(t *testing.T) {
 
 	application := &fakeApplication{snapshot: app.Snapshot{
 		Config: config, Choices: release.Choices{Tags: map[string]string{source.Name: target.Tag}},
-		Plans: []release.Plan{{Target: target, SHA: "head", StartFailures: []release.StartFailure{failure, earlier, superseded, unknownAge}}},
+		Plans:         []release.Plan{{Target: target, SHA: "head", StartFailures: []release.StartFailure{failure, earlier, superseded, unknownAge}}},
+		KonfluxHealth: &konflux.Health{CheckedAt: now, APIReadable: true, AdmittedAt: now},
 		KonfluxReadIssues: []konflux.ReadIssue{{
 			Cluster: failure.Cluster, Endpoint: "Tekton Results", Reason: "request timed out",
 			LastFailure: now, RetryAt: now.Add(time.Minute),
@@ -37,7 +39,7 @@ func TestDashboardShowsRecentKonfluxEvidenceAcrossTabs(t *testing.T) {
 	}}
 	body := newBrowser(t, application).getBody(t)
 	header := between(t, body, "<header", "</header>")
-	if !strings.Contains(header, "Konflux · Unhealthy</summary>") || !strings.Contains(header, failure.Reason) || !strings.Contains(header, "View Konflux diagnostics") || strings.Contains(header, "View creation failure") || strings.Contains(header, "release-context") {
+	if !strings.Contains(header, "Konflux · Healthy</summary>") || strings.Contains(header, failure.Reason) || !strings.Contains(header, "View Konflux diagnostics") || strings.Contains(header, "View creation failure") || strings.Contains(header, "release-context") {
 		t.Fatalf("unexpected header: %s", header)
 	}
 	banner := between(t, body, `<section id="konflux-status"`, `</section>`)
@@ -58,72 +60,54 @@ func TestDashboardShowsRecentKonfluxEvidenceAcrossTabs(t *testing.T) {
 func TestKonfluxAdmission(t *testing.T) {
 	now := time.Now()
 	for name, tc := range map[string]struct {
-		run    release.Run
-		age    time.Duration
-		issues []konfluxClusterStatus
-		want   string
+		health konflux.Health
+		label  string
+		class  string
 	}{
-		"verified active run":     {run: release.Run{ID: "12", Status: "in_progress"}, want: "accepted"},
-		"unverified identity":     {run: release.Run{Status: "in_progress"}, want: "unverified"},
-		"completed build failure": {run: release.Run{ID: "12", Status: "completed", Outcome: "failure"}, want: "unverified"},
-		"old observation":         {run: release.Run{ID: "12", Status: "in_progress"}, age: time.Hour, want: "unverified"},
-		"read issue":              {run: release.Run{ID: "12", Status: "in_progress"}, issues: []konfluxClusterStatus{{Reads: []konflux.ReadIssue{{}}}}, want: "unavailable"},
+		"recent admission":         {konflux.Health{APIReadable: true, AdmittedAt: now}, "Healthy", "accepted"},
+		"reachable without proof":  {konflux.Health{APIReadable: true}, "Unverified", "unverified"},
+		"missing credentials":      {konflux.Health{APIStatus: http.StatusUnauthorized}, "Sign-in required", "unavailable"},
+		"insufficient permissions": {konflux.Health{APIStatus: http.StatusForbidden}, "API access denied", "unavailable"},
+		"server unavailable":       {konflux.Health{APIStatus: http.StatusServiceUnavailable}, "API unavailable", "unavailable"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			page := pageModel{Plans: []planModel{{Plan: release.Plan{
-				Evidence: release.Evidence{Known: true, At: now.Add(-tc.age)}, Runs: []release.Run{tc.run},
-			}}}, KonfluxStatus: tc.issues}
-			if got := page.KonfluxAdmission(); got.Class != tc.want {
-				t.Errorf("got %q, want %q", got.Class, tc.want)
+			tc.health.CheckedAt, tc.health.Next = now, now.Add(30*time.Second)
+			page := pageModel{Snapshot: app.Snapshot{KonfluxHealth: &tc.health}}
+			status := page.KonfluxAdmission()
+			if status.Label != tc.label || status.Class != tc.class || status.Last != tc.health.CheckedAt || status.Next != tc.health.Next {
+				t.Fatalf("unexpected status: %+v", status)
 			}
 		})
 	}
 }
 
-func TestAdmissionKeepsLastReportedErrorAfterHealthEvidenceExpires(t *testing.T) {
+func TestKonfluxPillShowsOnlyCurrentHealth(t *testing.T) {
 	now := time.Now()
-	next := now.Add(time.Minute)
-	target := release.Target{Repo: "acme/fact", PR: 1}
-	page := pageModel{
-		Snapshot: app.Snapshot{NextSourceCheck: map[string]time.Time{target.Repo: next}},
-		Plans: []planModel{{Plan: release.Plan{Target: target, StartFailures: []release.StartFailure{{
-			Reason: "An admission policy denied PipelineRun creation.", CheckStartedAt: now.Add(-time.Hour),
-			Evidence: release.Evidence{Known: true, At: now},
-		}}}}},
-	}
-	status := page.KonfluxAdmission()
-	if status.Label != "Unverified" || status.Detail != page.Plans[0].Plan.StartFailures[0].Reason || !status.Last.Equal(now) || !status.Next.Equal(next) {
-		t.Fatalf("unexpected diagnostic: %+v", status)
-	}
-}
-
-func TestKonfluxPillShowsTimeoutAndSignIn(t *testing.T) {
-	now := time.Now()
-	issue := konflux.ReadIssue{Endpoint: "PipelineRun API", Reason: "request timed out", LastFailure: now, RetryAt: now.Add(time.Minute)}
-	application := &fakeApplication{snapshot: app.Snapshot{Config: validACS5Config()}}
+	application := &fakeApplication{snapshot: app.Snapshot{
+		Config: validACS5Config(), KonfluxHealth: &konflux.Health{},
+	}}
 	browser := newBrowser(t, application)
 	header := func() string { return between(t, browser.getBody(t), "<header", "</header>") }
 	if got := header(); !strings.Contains(got, `class="konflux-pill pending">Konflux · Unknown`) {
 		t.Fatalf("unexpected initial header: %s", got)
 	}
-	application.snapshot.KonfluxReadIssues = []konflux.ReadIssue{issue}
+
+	application.snapshot.KonfluxHealth = &konflux.Health{
+		CheckedAt: now, Next: now.Add(30 * time.Second), Problem: "PipelineRun API: request timed out",
+	}
 	got := header()
-	for _, want := range []string{`class="konflux-pill unavailable">Konflux · API unavailable`, "PipelineRun API read failed: request timed out", formatTime(issue.LastFailure), formatTime(issue.RetryAt)} {
+	for _, want := range []string{`class="konflux-pill unavailable">Konflux · API unavailable`, "request timed out", formatTime(now), formatTime(now.Add(30 * time.Second))} {
 		if !strings.Contains(got, want) {
 			t.Errorf("header missing %q: %s", want, got)
 		}
 	}
-	application.snapshot.KonfluxReadIssues = append(application.snapshot.KonfluxReadIssues, konflux.ReadIssue{
-		Cluster: "example.openshiftapps.com", Endpoint: "Tekton Results", Reason: "HTTP 401 Unauthorized",
-		LastFailure: now.Add(-time.Second), Unauthorized: true,
-	})
+
+	application.snapshot.KonfluxHealth = &konflux.Health{
+		CheckedAt: now, APIStatus: http.StatusUnauthorized, Cluster: "example.openshiftapps.com",
+	}
 	got = header()
-	for _, want := range []string{
-		"Konflux · Sign-in required", "Tekton Results returned HTTP 401 Unauthorized", "PipelineRun API read failed: request timed out",
-		"Run <code>oc login</code> for <code>example.openshiftapps.com</code>, then restart Release Assistant.", formatTime(issue.RetryAt),
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("header missing %q: %s", want, got)
-		}
+	if !strings.Contains(got, "Konflux · Sign-in required") ||
+		!strings.Contains(got, "Run <code>oc login</code> for <code>example.openshiftapps.com</code>, then restart Release Assistant.") {
+		t.Fatalf("missing sign-in instructions: %s", got)
 	}
 }

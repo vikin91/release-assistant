@@ -19,6 +19,34 @@ func creationFailure(checkID int64) release.StartFailure {
 	return release.StartFailure{CheckID: checkID, Job: "main-on-push", Cluster: "example.openshiftapps.com", Category: "admission_policy", Reason: "ValidatingAdmissionPolicy deny-pipelinerun-create denied request", Evidence: observed()}
 }
 
+func TestCreationFailuresBecomeHistoryAfterNewerVerifiedRun(t *testing.T) {
+	previous := release.Plan{SHA: "commit", StartFailures: []release.StartFailure{creationFailure(42)}}
+	for name, tc := range map[string]struct {
+		sha  string
+		run  release.Run
+		want int
+	}{
+		"should retain a superseded failure": {"commit", release.Run{Job: "main-on-push", ID: "43", CheckID: 43}, 1},
+		"should ignore an unverified run":    {"commit", release.Run{Job: "main-on-push", CheckID: 43}, 0},
+		"should ignore an earlier run":       {"commit", release.Run{Job: "main-on-push", ID: "41", CheckID: 41}, 0},
+		"should ignore another job":          {"commit", release.Run{Job: "checks", ID: "43", CheckID: 43}, 0},
+		"should ignore a different commit":   {"other", release.Run{Job: "main-on-push", ID: "43", CheckID: 43}, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			current := release.Plan{SHA: tc.sha, Runs: []release.Run{tc.run}}
+			retainSupersededStartFailures(previous, &current)
+			if len(current.StartFailures) != tc.want || tc.want > 0 && !current.StartFailures[0].Superseded {
+				t.Fatalf("unexpected failure history: %+v", current.StartFailures)
+			}
+			next := release.Plan{SHA: current.SHA}
+			retainSupersededStartFailures(current, &next)
+			if len(next.StartFailures) != tc.want {
+				t.Fatalf("later observation lost history: %+v", next.StartFailures)
+			}
+		})
+	}
+}
+
 func TestCreationFailureSnapshotsAndFailedReads(t *testing.T) {
 	for name, withSHA := range map[string]bool{"failed target read": false, "partial read at known commit": true} {
 		t.Run(name, func(t *testing.T) {

@@ -4,7 +4,9 @@
     <summary class="konflux-pill {{.Class}}">Konflux · {{.Label}}</summary>
     <div class="menu-content"><dl class="konflux-facts">
       <dt>Status</dt><dd>{{.Label}}</dd>
-      <dt>Error</dt><dd>{{if .Detail}}{{.Detail}}{{else}}None reported{{end}}</dd>
+      {{if .APIReadable}}<dt>PipelineRun API</dt><dd>Reachable</dd>{{end}}
+      {{if not .Created.IsZero}}<dt>Recent PipelineRun admission</dt><dd>{{when .Created}}</dd>{{end}}
+      {{if .Detail}}<dt>Details</dt><dd>{{.Detail}}</dd>{{end}}
       <dt>Last check</dt><dd>{{if .Last.IsZero}}Awaiting first observation{{else}}{{when .Last}}{{end}}</dd>
       <dt>Next check</dt><dd>{{if .Next.IsZero}}Awaiting schedule{{else}}{{when .Next}}{{end}}</dd>
     </dl>

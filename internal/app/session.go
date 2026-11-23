@@ -25,6 +25,8 @@ type (
 		Cache                                DiscoveryCache
 		GitHubReads                          *githubread.Transport
 		ManualRetries                        ManualRetryReader
+		// KonfluxProbe reads service health independently of tracked release builds.
+		KonfluxProbe func(context.Context) konflux.Health
 	}
 	// Cycle retains observed builds and images when a confirmed component tag changes.
 	Cycle struct {
@@ -59,8 +61,8 @@ type (
 		LogEntries      []Record
 		// KonfluxReadIssues reports endpoint reachability independently of release readiness.
 		KonfluxReadIssues []konflux.ReadIssue
-		// NextSourceCheck records the next Konflux build poll for each repository.
-		NextSourceCheck map[string]time.Time
+		// KonfluxHealth holds the latest independent health observation, when enabled.
+		KonfluxHealth *konflux.Health
 		// Loading keeps the dashboard refreshing during startup and while included ACS PRs await CI results.
 		Loading bool
 	}
@@ -99,7 +101,7 @@ type (
 		polls           map[pollID]pollRecord
 		pollChanged     chan struct{}
 		startupUntil    time.Time
-		nextSourceCheck map[string]time.Time
+		konfluxHealth   *konflux.Health
 		initiallyLoaded map[string]bool
 		priorPinChoice  release.Choice
 		workRevision    uint64
@@ -136,6 +138,9 @@ func New(d Discoverer, p Planner, i Inspector, dispatcher *dispatch.Dispatcher, 
 		o.Timeout = 45 * time.Second
 	}
 	s := &Session{discovery: d, planner: p, images: i, dispatcher: dispatcher, log: log, options: o, changed: make(chan struct{}, 1), pollChanged: make(chan struct{})}
+	if o.KonfluxProbe != nil {
+		s.konfluxHealth = &konflux.Health{}
+	}
 	s.reset()
 	s.config = o.Initial
 	s.config.Components = slices.Clone(o.Initial.Components)
@@ -159,7 +164,6 @@ func (s *Session) reset() {
 	s.confirmedSHAs = map[string]string{}
 	s.tagInitialized = map[string]bool{}
 	s.polls = make(map[pollID]pollRecord)
-	s.nextSourceCheck = map[string]time.Time{}
 	s.initiallyLoaded = map[string]bool{}
 	s.workRevision++
 	s.readErrors = map[string]string{}
@@ -243,7 +247,6 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		}
 		s.config.Components = slices.Clone(a.Config.Components)
 		s.polls = make(map[pollID]pollRecord)
-		s.nextSourceCheck = map[string]time.Time{}
 		s.initiallyLoaded = map[string]bool{}
 		s.workRevision++
 		s.errorText = ""
@@ -510,7 +513,7 @@ func (s *Session) Snapshot() Snapshot {
 	x := Snapshot{
 		RefreshIntervals: maps.Clone(s.options.RefreshIntervals), Config: c, Choices: choices, Error: s.errorText, Generation: s.generation,
 		Interactive: s.dispatcher.IsInteractive(), RequirePRLabel: s.dispatcher.RequiresPRLabel(), WritesEnabled: s.dispatcher.WritesEnabled(),
-		Authority: s.dispatcher.Views(), NextSourceCheck: maps.Clone(s.nextSourceCheck),
+		Authority: s.dispatcher.Views(),
 	}
 	if s.options.GitHubReads != nil {
 		x.StartupReadLimit, x.OngoingReadLimit = s.options.GitHubReads.ReadLimits()
@@ -518,6 +521,10 @@ func (s *Session) Snapshot() Snapshot {
 	}
 	if planner, ok := s.planner.(interface{ ReadIssues() []konflux.ReadIssue }); ok {
 		x.KonfluxReadIssues = planner.ReadIssues()
+	}
+	if s.konfluxHealth != nil {
+		health := *s.konfluxHealth
+		x.KonfluxHealth = &health
 	}
 	if s.options.Cache != nil {
 		x.CacheAvailable = true
@@ -599,6 +606,11 @@ func cloneRepository(r release.Repository) release.Repository {
 
 // Run keeps monitoring independently of browser connections and cancels old contexts.
 func (s *Session) Run(ctx context.Context) {
+	var health sync.WaitGroup
+	if s.options.KonfluxProbe != nil {
+		health.Go(func() { s.monitorKonfluxHealth(ctx) })
+	}
+	defer health.Wait()
 	defer func() { s.dispatcher.Stop(); s.mu.Lock(); s.drain(); s.mu.Unlock() }()
 	for {
 		select {
@@ -1020,8 +1032,8 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			retainVerifiedBuilds(oldPlan, &plan)
 			if err != nil && len(plan.StartFailures) == 0 && oldPlan.SHA == plan.SHA {
 				plan.StartFailures = staleStartFailures(oldPlan.StartFailures, message)
-				markSupersededStartFailures(&plan)
 			}
+			retainSupersededStartFailures(oldPlan, &plan)
 			s.recordStartFailures(oldPlan, plan)
 			for _, proposal := range plan.Proposals {
 				if !slices.ContainsFunc(oldPlan.Proposals, func(old release.Proposal) bool { return dispatch.ID(old) == dispatch.ID(proposal) }) {

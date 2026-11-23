@@ -3,7 +3,6 @@ package app
 import (
 	"fmt"
 	"slices"
-	"strconv"
 
 	"release-assistant/internal/release"
 )
@@ -17,15 +16,31 @@ func staleStartFailures(failures []release.StartFailure, reason string) []releas
 	return failures
 }
 
-func markSupersededStartFailures(plan *release.Plan) {
-	for i := range plan.StartFailures {
-		failure := &plan.StartFailures[i]
-		for _, run := range plan.Runs {
-			checkID, err := strconv.ParseInt(run.ID, 10, 64)
-			if err == nil && failure.CheckID > 0 && run.Job == failure.Job && checkID > failure.CheckID {
-				failure.Superseded = true
-				break
-			}
+func retainSupersededStartFailures(previous release.Plan, current *release.Plan) {
+	newerRun := func(failure release.StartFailure) bool {
+		return failure.CheckID > 0 && slices.ContainsFunc(current.Runs, func(run release.Run) bool {
+			return run.ID != "" && run.Job == failure.Job && run.CheckID > failure.CheckID
+		})
+	}
+	for i := range current.StartFailures {
+		failure := &current.StartFailures[i]
+		failure.Superseded = failure.Superseded || newerRun(*failure)
+	}
+	if current.SHA == "" || previous.SHA != current.SHA {
+		return
+	}
+	for _, failure := range previous.StartFailures {
+		if failure.CheckID <= 0 || (!failure.Superseded && !newerRun(failure)) {
+			continue
+		}
+		index := slices.IndexFunc(current.StartFailures, func(observed release.StartFailure) bool {
+			return observed.CheckID == failure.CheckID
+		})
+		if index >= 0 {
+			current.StartFailures[index].Superseded = true
+		} else {
+			failure.Superseded = true
+			current.StartFailures = append(current.StartFailures, failure)
 		}
 	}
 }

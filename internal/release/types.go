@@ -61,6 +61,8 @@ type (
 	Check struct {
 		Name, Status, Conclusion, URL string
 		Required                      Truth
+		// CheckRunID identifies a PR check run. Commit statuses have no check-run ID.
+		CheckRunID int64
 	}
 	// ValidationCheck is GitHub's commit-scoped evidence. Workflow metadata can
 	// identify the reported trigger separately from an identity-verified Konflux run.

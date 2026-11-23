@@ -4,8 +4,7 @@
   <details id="{{.Tab}}-start-failures" open>
     <summary class="section-summary">Reported build creation failures</summary>
     {{if .StartFailureReports}}
-    <p class="creation-failure-intro">GitHub checks reported failed attempts to create Tekton PipelineRuns. Current cluster availability is unknown.</p>
-    <p class="creation-failure-intro">Open the source check and look for a newer run. If the failure recurs, the cluster name and check link give the Konflux team a starting point.</p>
+    <p class="creation-failure-intro">These GitHub checks describe individual attempts to create Tekton PipelineRuns. See the Konflux badge for current health.</p>
     {{range .StartFailureReports}}
       <div data-live-key="creation-report:{{.Key}}">
         {{if .Target.PR}}
@@ -19,7 +18,7 @@
           <p class="creation-failure-intro muted">All reports below have a newer verified run.</p>
         {{end}}
         {{if .Earlier}}
-          <details id="{{.Key}}-earlier-start-failures" open>
+          <details id="{{.Key}}-earlier-start-failures">
             <summary>Earlier creation attempts</summary>
             {{template "start-failure-clusters" .Earlier}}
           </details>
