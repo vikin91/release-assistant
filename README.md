@@ -134,7 +134,7 @@ Run `go run ./cmd/release-assistant --help` for repository and branch overrides,
 
 ## Konflux verification
 
-The assistant uses PipelineRun annotations from the cluster API or Tekton Results archive to verify the repository, commit, check-run ID, and PR number or full tag ref. This matters when a branch build and a tag build share a commit. The header pill shows observed pipeline admission. If reads fail, **Log** shows which endpoint failed or paused and when the assistant can check again. A reported pipeline creation failure describes a specific attempt. Use its evidence link to investigate.
+The assistant uses PipelineRun annotations from the cluster API or Tekton Results archive to verify the repository, commit, check-run ID, and PR number or full tag ref. This matters when a branch build and a tag build share a commit. The header pill shows observed pipeline admission. If reads fail, **Log** shows which endpoint failed or paused and when the assistant can check again. For recent pipeline creation failures, follow the GitHub check link in **Konflux diagnostics**.
 
 ## Work through a release
 

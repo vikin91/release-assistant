@@ -20,7 +20,6 @@ type (
 		Cluster  string
 		Reads    []konflux.ReadIssue
 		Rejected release.StartFailure
-		Tab      string
 	}
 )
 
@@ -38,7 +37,6 @@ func (p pageModel) konfluxStatus(now time.Time) []konfluxClusterStatus {
 		cluster := forCluster(issue.Cluster)
 		cluster.Reads = append(cluster.Reads, issue)
 	}
-	acsRepo := p.Snapshot.Config.ACS().Repo
 	for _, item := range p.Plans {
 		for _, failure := range item.Plan.StartFailures {
 			age := now.Sub(failure.CheckStartedAt)
@@ -48,7 +46,6 @@ func (p pageModel) konfluxStatus(now time.Time) []konfluxClusterStatus {
 			cluster := forCluster(failure.Cluster)
 			if failure.CheckStartedAt.After(cluster.Rejected.CheckStartedAt) {
 				cluster.Rejected = failure
-				cluster.Tab = planTab(item.Plan.Target, acsRepo)
 			}
 		}
 	}
@@ -58,19 +55,6 @@ func (p pageModel) konfluxStatus(now time.Time) []konfluxClusterStatus {
 	}
 	slices.SortFunc(status, func(a, b konfluxClusterStatus) int { return strings.Compare(a.Cluster, b.Cluster) })
 	return status
-}
-
-func planTab(target release.Target, acsRepo string) string {
-	switch {
-	case target.Repo == acsRepo && target.PR > 0:
-		return "acs-prs"
-	case target.Repo == acsRepo:
-		return "acs-rcs"
-	case target.PR > 0:
-		return "component-prs"
-	default:
-		return "component-releases"
-	}
 }
 
 // KonfluxAdmission renders the independent health probe for the header.

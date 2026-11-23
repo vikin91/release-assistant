@@ -210,7 +210,7 @@ func (g buildRetryTarget) nextAction(interactive bool) string {
 	}
 	for _, failure := range plan.StartFailures {
 		if !failure.Superseded && failure.Evidence.Fresh() {
-			return "A PipelineRun failed to start. See Reported build creation failures."
+			return "A PipelineRun failed to start. See Log."
 		}
 	}
 	if plan.Evidence.Error != "" {

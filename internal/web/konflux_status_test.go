@@ -16,7 +16,8 @@ func TestDashboardShowsRecentKonfluxEvidenceAcrossTabs(t *testing.T) {
 	config := validACS5Config()
 	source := config.Components[0]
 	target := release.Target{Repo: source.Repo, Tag: "1.2.3"}
-	evidence := release.Evidence{Known: true, At: now}
+	checkURL := "https://github.com/" + target.Repo + "/runs/12"
+	evidence := release.Evidence{Known: true, At: now, URL: checkURL}
 	failure := release.StartFailure{
 		CheckID: 12, Job: "build", Cluster: "example.openshiftapps.com",
 		Category: "admission_policy", Reason: "Pipeline creation denied by policy.", CheckStartedAt: now.Add(-time.Minute), Evidence: evidence,
@@ -38,15 +39,18 @@ func TestDashboardShowsRecentKonfluxEvidenceAcrossTabs(t *testing.T) {
 		}},
 	}}
 	body := newBrowser(t, application).getBody(t)
+	if strings.Contains(body, "-start-failures") {
+		t.Fatal("dashboard rendered the removed build creation failures section or a link to it")
+	}
 	header := between(t, body, "<header", "</header>")
-	if !strings.Contains(header, "Konflux · Healthy</summary>") || strings.Contains(header, failure.Reason) || !strings.Contains(header, "View Konflux diagnostics") || strings.Contains(header, "View creation failure") || strings.Contains(header, "release-context") {
+	if !strings.Contains(header, "Konflux · Healthy</summary>") || strings.Contains(header, failure.Reason) || !strings.Contains(header, "View Konflux diagnostics") || strings.Contains(header, "Open check on GitHub") || strings.Contains(header, "release-context") {
 		t.Fatalf("unexpected header: %s", header)
 	}
 	banner := between(t, body, `<section id="konflux-status"`, `</section>`)
 	for _, want := range []string{
 		"Pipeline start rejected by an admission policy", "Tekton Results reads paused",
 		"request timed out", "Next recovery check eligible at", formatTime(now),
-		`href="/?tab=component-releases#component-releases-start-failures"`,
+		`href="` + checkURL + `"`, "Open check on GitHub",
 	} {
 		if !strings.Contains(banner, want) {
 			t.Errorf("banner missing %q: %s", want, banner)

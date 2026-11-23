@@ -245,14 +245,14 @@ func TestRCFieldsRemainVisibleAcrossObservations(t *testing.T) {
 		snapshot app.Snapshot
 		want     []string
 	}{
-		"before first poll":      {pending, []string{"Waiting to discover release candidate tags", "Waiting for RC build creation checks", "Waiting for GitHub to verify the current RC tag", "Pending registry checks"}},
-		"discovery failed":       {unavailable, []string{"GitHub unavailable", "Unavailable · RC build creation checks", "Unavailable · The current RC could not be verified"}},
-		"no failures or retries": {observed, []string{"No build creation failures reported for this RC", "No manual CI retries available for this RC"}},
+		"before first poll": {pending, []string{"Waiting to discover release candidate tags", "Waiting for GitHub to verify the current RC tag", "Pending registry checks"}},
+		"discovery failed":  {unavailable, []string{"GitHub unavailable", "Unavailable · The current RC could not be verified"}},
+		"no manual retries": {observed, []string{"No manual CI retries available for this RC"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: tc.snapshot}).getBody(t), "acs-rcs")
 			rest := panel
-			for _, field := range []string{`id="release-images-panel"`, `class="rc-image-table"`, `id="rc-validation"`, `class="rc-validation-checks"`, `id="acs-rcs-start-failures-panel"`, `aria-label="Manual CI retries"`} {
+			for _, field := range []string{`id="release-images-panel"`, `class="rc-image-table"`, `id="rc-validation"`, `class="rc-validation-checks"`, `aria-label="Manual CI retries"`} {
 				var ok bool
 				_, rest, ok = strings.Cut(rest, field)
 				if !ok {

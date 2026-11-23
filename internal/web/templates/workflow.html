@@ -35,6 +35,6 @@
     {{if ne .Tab "component-prs"}}</details>{{end}}
   </section>
   {{end}}
-  {{if eq .Tab "acs-rcs"}}{{template "acs-rcs" .}}{{else}}{{template "start-failures" .}}{{template "retries" .}}{{end}}
+  {{if eq .Tab "acs-rcs"}}{{template "acs-rcs" .}}{{else}}{{template "retries" .}}{{end}}
   {{if and (ne .Tab "acs-prs") (or (eq .Tab "acs-rcs") .ManualRetries)}}{{template "manual-ci-retries" .}}{{end}}
 {{end}}

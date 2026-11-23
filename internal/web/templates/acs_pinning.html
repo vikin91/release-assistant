@@ -55,7 +55,6 @@
       </table>
     {{end}}
     {{if .PinningPR}}{{$pin := .PinningPR.PR}}
-      {{if .PinningStartFailures}}<p><a href="/?tab=acs-prs#acs-prs-start-failures" data-open-section>View reported build creation failures</a>.</p>{{end}}
       {{if and (eq $pin.State "open") (not $pin.Merged)}}
         {{if eq (truth .PinningHealth) "yes"}}<p class="yes">Required checks passed.</p>{{else}}
           {{$results := $pin.CheckResultsEvidence}}{{if $results.At.IsZero}}{{$results = $pin.ChecksEvidence}}{{end}}

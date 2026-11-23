@@ -25,9 +25,9 @@
   {{range .KonfluxStatus}}
   <div data-live-key="konflux-status:{{.Cluster}}">
     <strong>Konflux · {{if .Cluster}}<code>{{.Cluster}}</code>{{else}}Cluster unknown{{end}}</strong>
-    {{if .Tab}}
+    {{if not .Rejected.CheckStartedAt.IsZero}}
       <p>{{if eq .Rejected.Category "admission_policy"}}Pipeline start rejected by an admission policy.{{else}}Pipeline creation failed.{{end}} GitHub check started at {{when .Rejected.CheckStartedAt}}.
-        <a href="/?tab={{.Tab}}#{{.Tab}}-start-failures" data-open-section>View creation failure</a>
+        {{if url .Rejected.Evidence.URL}}<a aria-describedby="new-tab-description" href="{{url .Rejected.Evidence.URL}}" target="_blank" rel="noreferrer">Open check on GitHub</a>{{end}}
       </p>
     {{end}}
     {{range .Reads}}
