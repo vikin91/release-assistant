@@ -83,10 +83,9 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 	if tab == "acs-prs" && (strings.Count(tabBody, "Open pinning PR #8</a>") != 1 || strings.Count(body, "change-8") != 1 || !strings.Contains(body, "Confirmed pinning PR")) {
 		t.Fatal("expected one confirmed pinning PR row")
 	}
-	hasBulkAction := strings.Contains(body, `value="component-pr-choices"`)
 	hasIgnoredFilter := strings.Contains(body, `-filter" value="ignored"`)
-	if hasBulkAction != (tab == "component-prs") || hasIgnoredFilter != (tab == "component-prs") {
-		t.Fatal("bulk actions and the ignored filter belong on Component PRs")
+	if hasIgnoredFilter != (tab == "component-prs") {
+		t.Fatal("only Component PRs should show the ignored filter before there are hidden PRs")
 	}
 	undecided := 2
 	if tab == "acs-prs" {
@@ -167,6 +166,12 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 			t.Errorf("PR with only optional failures missing %q", want)
 		}
 	}
+	application.snapshot.Choices.PRs[closed.Target] = release.Ignored
+	updated = activityPanel(t, browser.getBody(t), tab)
+	if !strings.Contains(updated, `-filter" value="ignored"`) ||
+		!strings.Contains(prCardContaining(updated, "change-2"), `data-release-choice="ignored"`) {
+		t.Fatal("the ignored filter should show closed PRs")
+	}
 }
 
 func TestPRMergeStatusUsesGitHubVerdict(t *testing.T) {
@@ -192,42 +197,50 @@ func TestPRMergeStatusUsesGitHubVerdict(t *testing.T) {
 	}
 }
 
-func TestBulkComponentPRChoicesSubmitTheCurrentGeneration(t *testing.T) {
+func TestBulkPRChoicesSubmitTheCurrentGeneration(t *testing.T) {
 	config := validACS5Config()
-	source := config.Components[0]
-	application := &fakeApplication{snapshot: app.Snapshot{
-		Config: config, Generation: 12,
-		Repositories: []release.Repository{{Source: source, PRs: []release.PR{{
-			Target: release.Target{Repo: source.Repo, PR: 1}, State: "open",
-		}}}},
-	}}
-	browser := newBrowser(t, application)
-	form := formContaining(t, browser.getBody(t), `class="control-row pr-list-bulk"`)
-	values := url.Values{}
-	for _, field := range []string{"tab", "kind", "generation"} {
-		values.Set(field, formInputValue(t, form, field))
-	}
-	for choice, label := range map[release.Choice]string{
-		release.Included: "Include all", release.Excluded: "Exclude all", release.Ignored: "Ignore &amp; hide all",
+	for tab, tc := range map[string]struct {
+		source         release.Source
+		kind, otherTab string
+	}{
+		"component-prs": {config.Components[0], "component-pr-choices", "acs-prs"},
+		"acs-prs":       {config.ACS(), "acs-pr-choices", "component-prs"},
 	} {
-		t.Run(label, func(t *testing.T) {
-			if !strings.Contains(form, fmt.Sprintf(`name="choice" value="%s">%s</button>`, choice, label)) {
-				t.Fatalf("missing enabled %s button", label)
+		t.Run(tab, func(t *testing.T) {
+			application := &fakeApplication{snapshot: app.Snapshot{
+				Config: config, Generation: 12,
+				Repositories: []release.Repository{{Source: tc.source, PRs: []release.PR{{
+					Target: release.Target{Repo: tc.source.Repo, PR: 1}, State: "open",
+				}}}},
+			}}
+			browser := newBrowser(t, application)
+			panel := activityPanel(t, browser.getBody(t), tab)
+			form := formContaining(t, panel, `class="control-row pr-list-bulk"`)
+			values := url.Values{}
+			for _, field := range []string{"tab", "kind", "generation"} {
+				values.Set(field, formInputValue(t, form, field))
 			}
-			values.Set("choice", string(choice))
-			if response := browser.post(values); response.Code != http.StatusSeeOther ||
-				response.Header().Get("Location") != "/?tab=component-prs" {
-				t.Fatal("bulk action failed or lost its tab")
+			for choice, label := range map[release.Choice]string{
+				release.Included: "Include all", release.Excluded: "Exclude all", release.Ignored: "Ignore &amp; hide all",
+			} {
+				if !strings.Contains(form, fmt.Sprintf(`name="choice" value="%s">%s</button>`, choice, label)) {
+					t.Fatalf("missing enabled %s button", label)
+				}
+				values.Set("choice", string(choice))
+				if response := browser.post(values); response.Code != http.StatusSeeOther ||
+					response.Header().Get("Location") != "/?tab="+tab {
+					t.Fatal("bulk action failed or lost its tab")
+				}
+				action := application.actions[len(application.actions)-1]
+				if action.Kind != tc.kind || action.Choice != choice || action.Generation != 12 {
+					t.Fatalf("unexpected bulk action: %+v", action)
+				}
 			}
-			action := application.actions[len(application.actions)-1]
-			if action.Kind != "component-pr-choices" || action.Choice != choice || action.Generation != 12 {
-				t.Fatalf("unexpected bulk action: %+v", action)
+			values.Set("tab", tc.otherTab)
+			if response := browser.post(values); response.Code != http.StatusBadRequest {
+				t.Fatal("bulk action was accepted from the wrong list")
 			}
 		})
-	}
-	values.Set("tab", "acs-prs")
-	if response := browser.post(values); response.Code != http.StatusBadRequest {
-		t.Fatal("bulk action was accepted from the ACS list")
 	}
 }
 
@@ -337,6 +350,10 @@ func TestIncludedPinningPRHasNoChoiceControls(t *testing.T) {
 			}
 			if !strings.Contains(list, count) || strings.Count(list, "Confirmed pinning PR") != 1 || strings.Contains(list, `name="kind" value="choice"`) {
 				t.Fatal("incorrect pinning PR controls or count", list)
+			}
+			form := formContaining(t, list, `class="control-row pr-list-bulk"`)
+			for _, label := range []string{"Include all", "Exclude all", "Ignore &amp; hide all"} {
+				assertButtonTextDisabled(t, label, form, label, true)
 			}
 		})
 	}

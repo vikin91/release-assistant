@@ -270,7 +270,8 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 			if mergedIncluded {
 				r.MergedPRs = append(r.MergedPRs, pr)
 			}
-			showIgnored := choice == release.Ignored && (repo.Source.Name != "acs" || pr.State == "open" && pr.Base == repo.Source.Branch)
+			showIgnored := choice == release.Ignored && (repo.Source.Name != "acs" ||
+				pr.State == "closed" && !pr.Merged || pr.State == "open" && pr.Base == repo.Source.Branch)
 			showPin := pr.Target == pinTarget && pr.Base == repo.Source.Branch && !mergedIncluded
 			if !pr.Selectable(choice) && !showIgnored && !showPin {
 				continue

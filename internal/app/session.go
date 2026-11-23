@@ -255,11 +255,11 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		case s.changed <- struct{}{}:
 		default:
 		}
-	case "choice", "component-pr-choices":
+	case "choice", "component-pr-choices", "acs-pr-choices":
 		switch a.Choice {
 		case release.Included, release.Excluded, release.Ignored:
 		case "":
-			if a.Kind == "component-pr-choices" {
+			if a.Kind != "choice" {
 				return fmt.Errorf("bulk selection requires an inclusion choice")
 			}
 		default:
@@ -273,8 +273,14 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 				return fmt.Errorf("unknown target")
 			}
 			s.setPRChoice(a.Target, a.SHA, a.Choice)
-		} else if !s.setComponentPRChoices(a.Choice) {
-			return nil
+		} else {
+			sources := s.config.Components
+			if a.Kind == "acs-pr-choices" {
+				sources = []release.Source{s.config.ACS()}
+			}
+			if !s.setPRChoices(sources, a.Choice) {
+				return nil
+			}
 		}
 		s.workRevision++
 		select {
@@ -470,10 +476,10 @@ func (s *Session) setPRChoice(target release.Target, sha string, choice release.
 	s.record(target, sha, "inclusion", "", string(choice), "user")
 }
 
-func (s *Session) setComponentPRChoices(choice release.Choice) bool {
+func (s *Session) setPRChoices(sources []release.Source, choice release.Choice) bool {
 	changed := false
 	pinning := s.config.PinningTarget()
-	for _, source := range s.config.Components {
+	for _, source := range sources {
 		for _, pr := range s.repos[source.Name].PRs {
 			current := s.choices.PRs[pr.Target]
 			if pr.Target.Repo != source.Repo || pr.Target == pinning || current == choice || !pr.Selectable(current) {
@@ -814,17 +820,20 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			}
 		}
 		for _, p := range old.PRs {
-			if !slices.ContainsFunc(r.PRs, func(v release.PR) bool { return v.Target == p.Target }) {
-				if source.Name != "acs" || s.choices.PRs[p.Target] != release.Ignored {
-					if p.State == "open" || slices.Contains(request.Tracked, p.Target) {
-						p.Evidence.Known = false
-						p.Evidence.Error = "not returned by latest discovery"
-						p.ChecksEvidence.Known = false
-						p.CheckResultsEvidence.Known = false
-					}
-					r.PRs = append(r.PRs, p)
-				}
+			if slices.ContainsFunc(r.PRs, func(v release.PR) bool { return v.Target == p.Target }) {
+				continue
 			}
+			// Keep ignored PRs that closed without merging available for restoration.
+			if source.Name == "acs" && s.choices.PRs[p.Target] == release.Ignored && (p.State != "closed" || p.Merged) {
+				continue
+			}
+			if p.State == "open" || slices.Contains(request.Tracked, p.Target) {
+				p.Evidence.Known = false
+				p.Evidence.Error = "not returned by latest discovery"
+				p.ChecksEvidence.Known = false
+				p.CheckResultsEvidence.Known = false
+			}
+			r.PRs = append(r.PRs, p)
 		}
 		if request.Reads(ReadPreviousPins) && source.Name == "acs" {
 			s.recordReadResult(release.Target{Repo: source.Repo}, "previous-pins", r.PreviousPins.Evidence.Error, "component versions from the previous ACS release")

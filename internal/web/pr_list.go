@@ -14,7 +14,7 @@ type (
 		Repos                                    []repoModel
 		Rows                                     map[release.Target]prListRow
 		AwaitingMerge, Closed, Undecided, Merged int
-		Open, Active, Ignored                    int
+		Open, Selectable, Ignored                int
 	}
 	prListRow struct {
 		PinRole, PinReason string
@@ -120,7 +120,10 @@ func (p pageModel) PRList() prListModel {
 				continue
 			}
 			view.MergeStatus = prMergeStatus(row.PR)
-			triage.Active++
+			if row.PR.Target.Repo == repo.Repository.Source.Repo && row.PR.Target != p.Snapshot.Config.PinningTarget() &&
+				row.PR.Selectable(row.Choice) {
+				triage.Selectable++
+			}
 			closed := row.PR.State == "closed"
 			switch {
 			case row.Choice == release.Included && closed:

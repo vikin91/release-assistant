@@ -21,19 +21,17 @@
       <label><input type="radio" name="{{.PRSection}}-filter" value="undecided"> Undecided</label>
       {{if or $component $triage.Ignored}}<label><input type="radio" name="{{.PRSection}}-filter" value="ignored"> Ignored &amp; hidden</label>{{end}}
     </fieldset>
-    {{if $component}}
-      <form method="post" action="/action#{{.PRSection}}" class="control-row pr-list-bulk">
-        <input type="hidden" name="tab" value="{{.Tab}}">
-        <input type="hidden" name="csrf" value="{{.CSRF}}">
-        <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
-        <input type="hidden" name="kind" value="component-pr-choices">
-        <button type="submit" name="choice" value="included"{{if not $triage.Active}} disabled{{end}}>Include all</button>
-        <button type="submit" name="choice" value="excluded"{{if not $triage.Active}} disabled{{end}}>Exclude all</button>
-        <button type="submit" name="choice" value="ignored"{{if not $triage.Active}} disabled{{end}}>Ignore &amp; hide all</button>
-        <span class="muted">Applies to all selectable Component PRs across filters.</span>
-      </form>
-      {{if and (not $triage.Active) $triage.Ignored}}<p class="muted pr-list-all-hidden">Use Ignored &amp; hidden to review the PRs you hid.</p>{{end}}
-    {{end}}
+    <form method="post" action="/action#{{.PRSection}}" class="control-row pr-list-bulk">
+      <input type="hidden" name="tab" value="{{.Tab}}">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
+      <input type="hidden" name="kind" value="{{if $component}}component-pr-choices{{else}}acs-pr-choices{{end}}">
+      <button type="submit" name="choice" value="included"{{if not $triage.Selectable}} disabled{{end}}>Include all</button>
+      <button type="submit" name="choice" value="excluded"{{if not $triage.Selectable}} disabled{{end}}>Exclude all</button>
+      <button type="submit" name="choice" value="ignored"{{if not $triage.Selectable}} disabled{{end}}>Ignore &amp; hide all</button>
+      <span class="muted">Applies to all selectable {{if $component}}Component{{else}}ACS release{{end}} PRs across filters.</span>
+    </form>
+    {{if and (not $triage.Selectable) $triage.Ignored}}<p class="muted pr-list-all-hidden">Use Ignored &amp; hidden to review the PRs you hid.</p>{{end}}
     <p class="pr-list-filter-help muted">Included PRs that closed without merging or have a failed check.</p>
     <p class="pr-list-filter-empty muted">No PRs match this filter.</p>
     {{range $triage.Repos}}

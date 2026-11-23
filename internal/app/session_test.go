@@ -413,6 +413,45 @@ func TestBulkComponentPRChoices(t *testing.T) {
 	}
 }
 
+func TestBulkACSPRChoices(t *testing.T) {
+	s, f := newFixture()
+	config := configuration()
+	config.PinningPR = 19
+	apply(t, s, Action{Kind: "configure", Config: config})
+	acs, fact := f.repos["acs"], f.repos["fact"]
+	pinning := config.PinningTarget()
+	backport := release.Target{Repo: acs.Source.Repo, PR: 20}
+	closed := release.Target{Repo: acs.Source.Repo, PR: 21}
+	component := release.Target{Repo: fact.Source.Repo, PR: 22}
+	acs.PRs = []release.PR{
+		{Target: pinning, State: "open", Base: acs.Source.Branch},
+		{Target: backport, State: "open", Base: acs.Source.Branch},
+		{Target: closed, State: "closed", Base: acs.Source.Branch},
+	}
+	fact.PRs = []release.PR{{Target: component, State: "open", Base: fact.Source.Branch}}
+	f.repos["acs"], f.repos["fact"] = acs, fact
+	refreshAll(t, s)
+	apply(t, s, Action{Kind: "choice", Target: component, Choice: release.Excluded})
+	for _, choice := range []release.Choice{release.Included, release.Excluded, release.Ignored} {
+		apply(t, s, Action{Kind: "choice", Target: closed, Choice: release.Included})
+		apply(t, s, Action{Kind: "acs-pr-choices", Choice: choice})
+		choices := s.Snapshot().Choices.PRs
+		if choices[backport] != choice || choices[closed] != choice {
+			t.Errorf("bulk %s missed ACS PRs: %v", choice, choices)
+		}
+		if choices[pinning] != release.Included || choices[component] != release.Excluded {
+			t.Errorf("bulk %s changed the pinning PR or component PR: %v", choice, choices)
+		}
+	}
+	acs.PRs = acs.PRs[:2]
+	f.repos["acs"] = acs
+	refreshAll(t, s)
+	apply(t, s, Action{Kind: "choice", Target: closed, Choice: release.Included})
+	if s.Snapshot().Choices.PRs[closed] != release.Included {
+		t.Fatal("could not restore the ignored, closed ACS PR after refresh")
+	}
+}
+
 type badLog struct{}
 
 func (badLog) Write([]byte) (int, error) { return 0, errors.New("disk full") }
