@@ -26,7 +26,7 @@
                 {{if eq .Kind "actions"}}API call{{else}}Comment{{end}} <code data-copy-value>{{.Payload}}</code>
                 <small class="retest-job muted">{{if url .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer" aria-describedby="new-tab-description">{{.Job}}</a>{{else}}{{.Job}}{{end}} failed</small>
                 {{if eq .Kind "prow"}}<small><a href="{{url $group.URL}}#new_comment_field" target="_blank" rel="noreferrer" aria-describedby="new-tab-description">Post manually on GitHub</a></small>{{end}}
-                {{if .Blocked}}<small class="retest-job muted">{{.Blocked}}</small>{{end}}
+                {{if .Blocked}}<small id="retest-blocker-{{.ID}}" class="retest-job muted">{{.Blocked}}</small>{{end}}
                 {{if and (eq .Kind "konflux") $.AutomaticRetryPermissions (not .Blocked)}}<small class="retest-job muted">Waiting for automatic posting.</small>{{end}}
                 <small class="retest-job muted" data-retest-sending role="status"{{if not .Sending}} hidden{{end}}>Sending…</small>
                 <small role="status" data-copy-status data-live-preserve></small>
@@ -40,6 +40,8 @@
                       <input type="hidden" name="queue_id" value="{{.ID}}">
                       <button type="submit"{{if or .Sending .Blocked}} disabled{{end}}>Send</button>
                     </form>
+                  {{else if and (eq .Kind "konflux") (not $.Snapshot.WritesEnabled)}}
+                    <button type="button" disabled aria-describedby="retest-blocker-{{.ID}}">Send</button>
                   {{else if ne .Kind "konflux"}}
                     <button type="button" data-copy-text>Copy</button>
                     {{if eq .Kind "actions"}}<button type="button" disabled>Execute</button>{{end}}

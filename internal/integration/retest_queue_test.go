@@ -173,9 +173,19 @@ func TestRetestQueueShowsBlockedCommentsAcrossWriteModes(t *testing.T) {
 			if count := strings.Count(body, `<button type="submit" disabled>Send</button>`); count != wantDisabled {
 				t.Errorf("disabled Send controls = %d, want %d", count, wantDisabled)
 			}
+			if !test.writes && strings.Contains(body, `name="kind" value="queue-send"`) {
+				t.Error("Read-only queue rendered a Send form")
+			}
 			for _, item := range items {
 				if !strings.Contains(item.Blocked, test.blocker) || !strings.Contains(body, item.Blocked) {
 					t.Fatalf("queue did not show blocker %q for %+v", test.blocker, item)
+				}
+				if !test.writes {
+					blockerID := "retest-blocker-" + strconv.FormatUint(item.ID, 10)
+					if !strings.Contains(body, `<button type="button" disabled aria-describedby="`+blockerID+`">Send</button>`) ||
+						!strings.Contains(body, `id="`+blockerID+`" class="retest-job muted">`+item.Blocked+`</small>`) {
+						t.Errorf("Read-only queue item %d is missing its disabled Send button or reason", item.ID)
+					}
 				}
 				if status := browser.send(t, item.ID); status != http.StatusConflict {
 					t.Errorf("blocked Send returned %d", status)
