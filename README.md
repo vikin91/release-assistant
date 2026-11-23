@@ -130,7 +130,7 @@ go run ./cmd/release-assistant \
   --fact-stream 0.3 --collector-stream 3.25 --scanner-stream 2.40
 ```
 
-Run `go run ./cmd/release-assistant --help` for repository and branch overrides, `--pinning-pr`, and monitoring and retry settings. Use a different `--port` and distinct targets for each concurrent instance. Each process manages its own permissions and retry limits.
+Run `go run ./cmd/release-assistant --help` for repository and branch overrides, `--pinning-pr`, and monitoring and retry settings. Use a different `--port`, a separate `--state-file`, and distinct targets for each concurrent instance. Each process manages its own permissions and retry limits.
 
 ## Konflux verification
 
@@ -146,6 +146,8 @@ You can switch tabs at any time. Monitoring continues in the background, includi
 4. **ACS RCs.** See the highest-numbered StackRox RC tag on the release branch, how many commits landed after it, and links to their merged PRs. If no RC tag exists, open the linked release workflow. As soon as GitHub verifies the RC tag and its commit, the assistant checks its builds and images. Monitoring works without a pinning PR or selected component tags. **RC validation** shows failed, canceled, and running checks on the candidate commit, including GitHub Actions and Conforma checks. Open GitHub for the full check list or to rerun Actions. Eligible Konflux checks use the tag retry controls.
 
 PR choices apply immediately, and an empty selection is valid. **Excluded** keeps a PR visible and stops detailed monitoring and retries. **Ignore & hide** also removes it from the normal list. **Allow posting retry comments** is the separate permission to send a retry comment.
+
+The assistant saves individual and bulk PR choices to `./state.json` in the working directory and restores them for the configured ACS patch release. It creates the file at startup if needed. Use `--state-file /path/to/state.json` to choose a different location, including with `go run`.
 
 Release preparation requires that the included PRs have merged into their configured branches, the chosen component tags cover the included component changes, the component CI and Konflux images are available, and the actual ACS branch pins match. Readiness is advisory. Candidate images are outputs of the RC build.
 

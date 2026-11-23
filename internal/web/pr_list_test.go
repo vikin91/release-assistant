@@ -24,6 +24,26 @@ func TestPRListsShowSelectionAndObservedChecks(t *testing.T) {
 	}
 }
 
+func TestPRListsShowSavedHiddenPRsWithoutAnObservation(t *testing.T) {
+	config := validACS5Config()
+	for tab, source := range map[string]release.Source{"component-prs": config.Components[0], "acs-prs": config.ACS()} {
+		t.Run(tab, func(t *testing.T) {
+			target := release.Target{Repo: source.Repo, PR: 123}
+			browser := newBrowser(t, &fakeApplication{snapshot: app.Snapshot{
+				Config:  config,
+				Choices: release.Choices{PRs: map[release.Target]release.Choice{target: release.Ignored}},
+			}})
+			panel := activityPanel(t, browser.getBody(t), tab)
+			card := prCardContaining(panel, "https://github.com/"+source.Repo+"/pull/123")
+			if !strings.Contains(panel, `-filter" value="ignored"`) ||
+				!strings.Contains(card, `data-release-choice="ignored"`) ||
+				!strings.Contains(card, `name="choice" value="included"`) {
+				t.Fatalf("missing restorable PR %s in %s", target, tab)
+			}
+		})
+	}
+}
+
 func checkPRList(t *testing.T, config release.Config, source release.Source, tab string) {
 	t.Helper()
 	fresh := release.Evidence{Known: true, At: time.Now()}

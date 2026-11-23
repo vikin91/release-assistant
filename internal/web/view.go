@@ -291,6 +291,19 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 					!pr.OptOut && pr.Base == repo.Source.Branch && pr.Target.Repo == repo.Source.Repo,
 			})
 		}
+		for target, choice := range snapshot.Choices.PRs {
+			if choice != release.Ignored || target.Repo != repo.Source.Repo ||
+				slices.ContainsFunc(repo.PRs, func(pr release.PR) bool { return pr.Target == target }) {
+				continue
+			}
+			r.PRs = append(r.PRs, prModel{
+				PR: release.PR{
+					Target: target,
+					URL:    fmt.Sprintf("https://github.com/%s/pull/%d", target.Repo, target.PR),
+				},
+				Choice: choice, ChoiceLabel: string(choice),
+			})
+		}
 		for _, tag := range repo.Tags {
 			var authority *dispatch.View
 			if v, ok := authorities[release.Target{Repo: repo.Source.Repo, Tag: tag.Name}]; ok {

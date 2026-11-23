@@ -27,6 +27,8 @@ type (
 		ManualRetries                        ManualRetryReader
 		// KonfluxProbe reads service health independently of tracked release builds.
 		KonfluxProbe func(context.Context) konflux.Health
+		// PRState persists the user's pull request choices across sessions.
+		PRState *PRState
 	}
 	// Cycle retains observed builds and images when a confirmed component tag changes.
 	Cycle struct {
@@ -148,6 +150,7 @@ func New(d Discoverer, p Planner, i Inspector, dispatcher *dispatch.Dispatcher, 
 		if err := o.Initial.Validate(); err != nil {
 			s.errorText = err.Error()
 		} else {
+			s.restorePRChoices()
 			s.includePinningPR()
 		}
 	}
@@ -242,6 +245,9 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			s.reset()
 		}
 		s.config = a.Config
+		if !sameContext {
+			s.restorePRChoices()
+		}
 		if pinChanged {
 			s.includePinningPR()
 		}
@@ -265,22 +271,33 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		default:
 			return fmt.Errorf("invalid inclusion choice")
 		}
+		var targets map[release.Target]string
 		if a.Kind == "choice" {
-			if a.Target.PR > 0 && a.Target == s.config.PinningTarget() {
+			if a.Target.PR < 1 || a.Target.Tag != "" {
+				return fmt.Errorf("invalid pull request target")
+			}
+			if a.Target == s.config.PinningTarget() {
 				return fmt.Errorf("the confirmed pinning PR is always included")
 			}
-			if !s.hasTarget(a.Target) {
+			if s.choices.PRs[a.Target] != release.Ignored && !s.hasTarget(a.Target) {
 				return fmt.Errorf("unknown target")
 			}
-			s.setPRChoice(a.Target, a.SHA, a.Choice)
+			targets = map[release.Target]string{a.Target: a.SHA}
 		} else {
 			sources := s.config.Components
 			if a.Kind == "acs-pr-choices" {
 				sources = []release.Source{s.config.ACS()}
 			}
-			if !s.setPRChoices(sources, a.Choice) {
+			targets = s.bulkPRTargets(sources, a.Choice)
+			if len(targets) == 0 {
 				return nil
 			}
+		}
+		if err := s.options.PRState.save(s.config.Version, targets, a.Choice); err != nil {
+			return err
+		}
+		for target, sha := range targets {
+			s.setPRChoice(target, sha, a.Choice)
 		}
 		s.workRevision++
 		select {
@@ -466,7 +483,11 @@ func (s *Session) setPRChoice(target release.Target, sha string, choice release.
 		delete(s.polls, pollID{target.Repo, pollChecks})
 		delete(s.polls, pollID{target.Repo, pollBuilds})
 	}
-	s.choices.PRs[target] = choice
+	if choice == "" {
+		delete(s.choices.PRs, target)
+	} else {
+		s.choices.PRs[target] = choice
+	}
 	ignored := choice == release.Ignored || choice == release.Excluded
 	s.dispatcher.Ignore(target, ignored)
 	if ignored {
@@ -476,8 +497,8 @@ func (s *Session) setPRChoice(target release.Target, sha string, choice release.
 	s.record(target, sha, "inclusion", "", string(choice), "user")
 }
 
-func (s *Session) setPRChoices(sources []release.Source, choice release.Choice) bool {
-	changed := false
+func (s *Session) bulkPRTargets(sources []release.Source, choice release.Choice) map[release.Target]string {
+	targets := make(map[release.Target]string)
 	pinning := s.config.PinningTarget()
 	for _, source := range sources {
 		for _, pr := range s.repos[source.Name].PRs {
@@ -485,11 +506,10 @@ func (s *Session) setPRChoices(sources []release.Source, choice release.Choice) 
 			if pr.Target.Repo != source.Repo || pr.Target == pinning || current == choice || !pr.Selectable(current) {
 				continue
 			}
-			s.setPRChoice(pr.Target, pr.SHA, choice)
-			changed = true
+			targets[pr.Target] = pr.SHA
 		}
 	}
-	return changed
+	return targets
 }
 
 func (s *Session) hasTarget(t release.Target) bool {
