@@ -2,8 +2,7 @@ package release
 
 import (
 	"fmt"
-	"path"
-	"regexp"
+	"io/fs"
 	"sort"
 	"strings"
 )
@@ -13,8 +12,6 @@ const (
 	imageKonflux    = "konflux"
 	openACSPRReason = "Included PR is open; review its checks and merge it into the ACS release branch"
 )
-
-var pinValueRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
 
 // Assess derives release readiness and next steps from the supplied observations.
 func Assess(in Input) Assessment {
@@ -160,6 +157,9 @@ func Assess(in Input) Assessment {
 	}
 
 	assessPinningPR(&a, in, chosenVersions, tagCoverage, imageStatus)
+	if a.PinningRecommendation != "" {
+		a.ACSRecommendations = append(a.ACSRecommendations, a.PinningRecommendation)
+	}
 	for _, repo := range in.Repositories {
 		if repo.PreviousPublished == Yes && repo.Source.Name == "acs" && noOutstandingACSPR(repo) && !componentsAtBaseline {
 			a.ACSRecommendations = append(a.ACSRecommendations, "The previous ACS patch is published and no remaining ACS PRs were observed, so a new patch may be unnecessary.")
@@ -912,22 +912,10 @@ func assessPinningPR(a *Assessment, in Input, versions map[string]string, tagCov
 		return
 	}
 	if acs.PinningPR == nil {
-		if imageStatus != Yes || !pinningReady(in, versions, tagCoverage) {
-			return
-		}
-		if !acs.Pins.Evidence.Fresh() {
-			return
-		}
-		if pinsMatch(acs.Pins.Versions, versions, in.Config.Components) {
-			return
-		}
-		if pinningReady(in, versions, tagCoverage) {
-			commands := pinningCommands(in.Config, acs.Pins.Paths, acs.Pins.Versions, versions, 0)
-			if commands == "" {
-				a.ACSRecommendations = append(a.ACSRecommendations, "Component versions and both image families are ready, but verified pin paths or current pin values are incomplete; refresh ACS pin discovery before generating update commands.")
-			} else {
-				a.ACSRecommendations = append(a.ACSRecommendations, "Component versions and both image families are ready; create an ACS pinning PR using the generated commands.")
-				a.Commands = commands
+		if a.Pins.BranchStatus == No && imageStatus == Yes && pinningReady(in, versions, tagCoverage) {
+			a.PinningRecommendation = pinningRecommendation(in.Config, acs.Pins.Paths, acs.Pins, versions, 0)
+			if a.PinningRecommendation == "" {
+				a.ACSRecommendations = append(a.ACSRecommendations, "Refresh ACS pin discovery to verify the pin files and current versions before creating a pinning PR.")
 			}
 		}
 		return
@@ -942,32 +930,16 @@ func assessPinningPR(a *Assessment, in Input, versions map[string]string, tagCov
 			return
 		}
 		a.ACSRecommendations = append(a.ACSRecommendations, prProblem)
-		if !a.Pins.PROpen || !acs.PinningPins.Evidence.Fresh() {
-			return
-		}
-		if pinsMatch(acs.PinningPins.Versions, versions, in.Config.Components) {
-			return
-		}
-		if imageStatus == Yes && pinningReady(in, versions, tagCoverage) {
-			commands := pinningCommands(in.Config, acs.Pins.Paths, acs.PinningPins.Versions, versions, pr.Target.PR)
-			if commands == "" {
-				a.ACSRecommendations = append(a.ACSRecommendations, "Update the existing pinning PR only after refreshing its per-file versions and verified paths; safe version edit commands cannot be generated from current evidence.")
-			} else {
-				a.ACSRecommendations = append(a.ACSRecommendations, "Update the existing open ACS pinning PR with the current confirmed component versions.")
-				a.Commands = commands
+		if a.Pins.PROpen && a.Pins.PRStatus == No && imageStatus == Yes && pinningReady(in, versions, tagCoverage) {
+			a.PinningRecommendation = pinningRecommendation(in.Config, acs.Pins.Paths, acs.PinningPins, versions, pr.Target.PR)
+			if a.PinningRecommendation == "" {
+				a.ACSRecommendations = append(a.ACSRecommendations, "Refresh the pinning PR to verify its pin files and current versions before updating it.")
 			}
 		}
 		return
 	}
-	if acs.Pins.Evidence.Fresh() && pinsMatch(acs.Pins.Versions, versions, in.Config.Components) {
-		return
-	}
-	if (pr.Merged || strings.EqualFold(pr.State, "closed")) && pr.Evidence.Fresh() && imageStatus == Yes && pinningReady(in, versions, tagCoverage) {
-		commands := pinningCommands(in.Config, acs.Pins.Paths, acs.Pins.Versions, versions, 0)
-		if commands != "" {
-			a.ACSRecommendations = append(a.ACSRecommendations, "The supplied pinning PR is merged; create a new ACS pinning PR if the actual branch pins still need the current component versions.")
-			a.Commands = commands
-		}
+	if a.Pins.BranchStatus == No && (pr.Merged || strings.EqualFold(pr.State, "closed")) && pr.Evidence.Fresh() && imageStatus == Yes && pinningReady(in, versions, tagCoverage) {
+		a.PinningRecommendation = pinningRecommendation(in.Config, acs.Pins.Paths, acs.Pins, versions, 0)
 	}
 }
 
@@ -1053,56 +1025,29 @@ func pinningReady(in Input, versions map[string]string, tagCoverage map[string]C
 	return true
 }
 
-func pinsMatch(actual, versions map[string]string, sources []Source) bool {
-	for _, source := range sources {
-		if actual[source.Name] == "" || actual[source.Name] != versions[source.Name] {
-			return false
-		}
-	}
-	return true
-}
-
-func pinningCommands(config Config, paths, current, versions map[string]string, updatePR int) string {
-	if config.Validate() != nil {
+func pinningRecommendation(config Config, paths map[string]string, current Pins, versions map[string]string, updatePR int) string {
+	if config.Validate() != nil || !current.Evidence.Fresh() || missingVersionFiles(current, config.Components) != "" {
 		return ""
 	}
-	var files []string
+	var changes []string
 	for _, source := range config.Components {
 		file := paths[source.Name]
-		if !safePinPath(file) || !isFinalVersion(versions[source.Name]) || !pinValueRE.MatchString(current[source.Name]) {
+		version := versions[source.Name]
+		if file == "." || !fs.ValidPath(file) || strings.ContainsAny(file, "\r\n") {
 			return ""
 		}
-		files = append(files, file)
+		if current.Versions[source.Name] != version {
+			changes = append(changes, file+" to "+version)
+		}
 	}
-	sort.Strings(files)
-	var b strings.Builder
-	b.WriteString("(\nset -eu\ncdrox\n")
-	b.WriteString("if test -n \"$(git status --porcelain)\"; then echo 'Working tree is not clean; stop.' >&2; exit 1; fi\n")
+	if len(changes) == 0 {
+		return ""
+	}
+	target := "Create an ACS pinning PR against " + config.Branch
 	if updatePR > 0 {
-		fmt.Fprintf(&b, "gh pr checkout %d --repo %s\n", updatePR, config.ACS().Repo)
-	} else {
-		b.WriteString("git switch -c piotr/acs-" + config.Version + "-pinning " + config.Branch + "\n")
+		target = fmt.Sprintf("Update ACS pinning PR #%d", updatePR)
 	}
-	b.WriteString("python3 - <<'PY'\nfrom pathlib import Path\nupdates = [\n")
-	for _, source := range config.Components {
-		fmt.Fprintf(&b, "    ('%s', '%s', '%s'),\n", paths[source.Name], current[source.Name], versions[source.Name])
-	}
-	b.WriteString("]\nchanges = []\nfor name, old, new in updates:\n    path = Path(name)\n    text = path.read_text()\n    if text.count(old) != 1:\n        raise SystemExit(f'{name}: expected exactly one current pin {old!r}')\n    changes.append((path, text.replace(old, new, 1)))\nfor path, text in changes:\n    path.write_text(text)\nPY\n")
-	b.WriteString("git add --")
-	for _, file := range files {
-		b.WriteString(" '" + file + "'")
-	}
-	b.WriteString("\ngit commit -m 'Update ACS component pins for " + config.Version + "'\n)\n")
-	return b.String()
-}
-
-func isFinalVersion(value string) bool {
-	_, _, _, ok := Version(value)
-	return ok
-}
-
-func safePinPath(file string) bool {
-	return file != "" && !path.IsAbs(file) && path.Clean(file) == file && file != "." && file != ".." && !strings.HasPrefix(file, "../") && !strings.ContainsAny(file, "'\n\r;$`\\")
+	return target + " to set " + strings.Join(changes, " and ") + "."
 }
 
 func noOutstandingACSPR(repo Repository) bool {

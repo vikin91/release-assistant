@@ -164,7 +164,7 @@ func TestFixtureReleaseWorkflow(t *testing.T) {
 		apply(t, s, Action{Kind: "tag", Component: source.Name, Tag: tag.Name, SHA: tag.SHA})
 	}
 	refreshAll(t, s)
-	if s.Snapshot().Assessment.Ready || s.Snapshot().Assessment.Commands != "" {
+	if s.Snapshot().Assessment.Ready || s.Snapshot().Assessment.PinningRecommendation != "" {
 		t.Fatal("open selected PR must prevent pinning")
 	}
 	fact.PRs[0].State = "merged"
@@ -174,7 +174,7 @@ func TestFixtureReleaseWorkflow(t *testing.T) {
 	f.repos["fact"] = fact
 	refreshAll(t, s)
 	x := s.Snapshot()
-	if x.Assessment.Commands == "" || x.Assessment.Ready {
+	if x.Assessment.PinningRecommendation == "" || x.Assessment.Ready {
 		t.Fatal("expected pinning recommendation", x.Assessment)
 	}
 	acs := f.repos["acs"]

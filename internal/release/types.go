@@ -249,7 +249,7 @@ type (
 		OpenPRs                           int
 		Evidence                          []Evidence
 	}
-	// Assessment contains derived readiness and copyable recommendations.
+	// Assessment contains derived readiness and recommendations.
 	Assessment struct {
 		Ready           bool
 		Conditions      []Condition
@@ -262,12 +262,13 @@ type (
 		ComponentBaseline []BaselineRecord
 		// ACSRecommendations guides ACS PRs, pinning, and release preparation.
 		ACSRecommendations []string
-		Commands           string
-		ProposedTags       map[string]string
-		ReleaseGuides      map[string]string
-		Images             []ImageStatus
-		ImageProblem       string
-		Pins               PinSummary
+		// PinningRecommendation describes a ready pinning action in ACSRecommendations.
+		PinningRecommendation string
+		ProposedTags          map[string]string
+		ReleaseGuides         map[string]string
+		Images                []ImageStatus
+		ImageProblem          string
+		Pins                  PinSummary
 	}
 )
 

@@ -43,10 +43,10 @@ both component image families to be available, and the actual ACS branch pins
 to match the selected versions. Each inclusion choice takes effect immediately.
 The release assessment accepts an empty selection.
 
-When the component prerequisites are met, the assistant can suggest local
-commands to prepare or update a pinning PR. The user reviews and runs those
-commands. The UI reports proposed pinning PR versions and actual release-branch
-pins separately.
+When the component prerequisites are met, the assistant can recommend creating
+or updating a pinning PR and name the version files and target versions that
+need to change. The UI reports proposed pinning PR versions and actual
+release-branch pins separately.
 
 RC.0 monitoring requires a supplied pinning PR, a verified merge into the
 configured ACS branch, and current branch pins that match selected component

@@ -32,13 +32,6 @@
     {{else if and (eq .Tab "acs-prs") (eq (len .Guidance) 1)}}<p>{{index .Guidance 0}}</p>
     {{else if .Guidance}}<ol>{{range .Guidance}}<li>{{.}}</li>{{end}}</ol>{{else}}<p class="muted">Waiting for the first observations for this activity.</p>{{end}}
     {{if .Problems}}<details id="{{.Tab}}-readiness-details" class="readiness-details" open><summary>Checks that need attention</summary><ol>{{range .Problems}}<li>{{.Reason}}{{range .Evidence}}{{if .Error}} · {{.Error}}{{end}}{{end}}</li>{{end}}</ol></details>{{end}}
-    {{if and (eq .Tab "acs-prs") .Snapshot.Assessment.Commands}}
-      <h3>Pinning commands</h3>
-      <div class="copyable-text">
-        <pre><code>{{.Snapshot.Assessment.Commands}}</code></pre>
-        <div class="copy-text-actions"><button type="button" data-copy-text>Copy commands</button><span role="status" data-copy-status data-live-preserve></span></div>
-      </div>
-    {{end}}
     {{if ne .Tab "component-prs"}}</details>{{end}}
   </section>
   {{end}}

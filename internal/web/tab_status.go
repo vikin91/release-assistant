@@ -308,7 +308,7 @@ func (p pageModel) pinStatus() tabStatus {
 		}
 		switch {
 		case pins.PROpen && pins.PRStatus == release.No:
-			if p.Snapshot.Assessment.Commands != "" {
+			if p.Snapshot.Assessment.PinningRecommendation != "" {
 				return tabStatus{State: tabActionNeeded, Reason: "Update the pinning PR with the selected component versions."}
 			}
 			return tabStatus{State: tabPending}
@@ -317,7 +317,7 @@ func (p pageModel) pinStatus() tabStatus {
 		}
 		return status
 	}
-	if p.Snapshot.Assessment.Commands != "" {
+	if p.Snapshot.Assessment.PinningRecommendation != "" {
 		return tabStatus{State: tabActionNeeded, Reason: "Create an ACS pinning PR for the selected component versions."}
 	}
 	return tabStatus{State: tabPending}

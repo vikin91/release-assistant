@@ -3,6 +3,7 @@ package release
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -123,8 +124,8 @@ func TestAssessTagScenarios(t *testing.T) {
 			if tt.wantProposed != "" && in.Choices.Tags["fact"] != "v0.3.79" {
 				t.Fatalf("confirmed tag changed to %q", in.Choices.Tags["fact"])
 			}
-			if strings.Contains(name, "selected merged PR after") && a.Commands != "" {
-				t.Fatalf("pin update commands were generated despite unsuitable confirmed tag: %s", a.Commands)
+			if strings.Contains(name, "selected merged PR after") && a.PinningRecommendation != "" {
+				t.Fatalf("pinning was recommended despite unsuitable confirmed tag: %s", a.PinningRecommendation)
 			}
 		})
 	}
@@ -132,12 +133,11 @@ func TestAssessTagScenarios(t *testing.T) {
 
 func TestAssessPinsImagesAndSelection(t *testing.T) {
 	tests := map[string]struct {
-		mutate         func(*Input)
-		condition      string
-		wantStatus     Truth
-		wantReason     string
-		wantCommand    bool
-		wantPRCheckout bool
+		mutate      func(*Input)
+		condition   string
+		wantStatus  Truth
+		wantReason  string
+		wantPinning string
 	}{
 		"covered inclusion preserves matching pins": {
 			mutate: func(in *Input) {
@@ -168,7 +168,7 @@ func TestAssessPinsImagesAndSelection(t *testing.T) {
 			condition: "ACS release branch pins", wantStatus: No,
 			wantReason: "fact actual 0.3.78, selected 0.3.79",
 		},
-		"update command checks out the verified open PR number": {
+		"update guidance names the open PR and changed pin": {
 			mutate: func(in *Input) {
 				acs := &in.Repositories[0]
 				acs.Pins.Versions["fact"] = "0.3.78"
@@ -176,7 +176,8 @@ func TestAssessPinsImagesAndSelection(t *testing.T) {
 				acs.PinningPins = Pins{Versions: map[string]string{"fact": "0.3.78", "collector": "0.4.12"}, Evidence: freshEvidence()}
 			},
 			condition: "ACS release branch pins", wantStatus: No,
-			wantReason: "fact actual 0.3.78, selected 0.3.79", wantCommand: true, wantPRCheckout: true,
+			wantReason:  "fact actual 0.3.78, selected 0.3.79",
+			wantPinning: "Update ACS pinning PR #99 to set pkg/fact/version to 0.3.79.",
 		},
 		"merged pinning PR with matching actual pins is already complete": {
 			mutate: func(in *Input) {
@@ -186,7 +187,10 @@ func TestAssessPinsImagesAndSelection(t *testing.T) {
 			wantReason: "Actual branch pins match selected versions",
 		},
 		"missing image blocks pin update": {
-			mutate:    func(in *Input) { in.Inventory.Images[0].Present = No },
+			mutate: func(in *Input) {
+				in.Repositories[0].Pins.Versions["fact"] = "0.3.78"
+				in.Inventory.Images[0].Present = No
+			},
 			condition: "image fact ci", wantStatus: No,
 			wantReason: "missing",
 		},
@@ -205,16 +209,16 @@ func TestAssessPinsImagesAndSelection(t *testing.T) {
 			condition: "image fact ci", wantStatus: "",
 			wantReason: "configured ACS release version",
 		},
-		"safe pinning command names only verified paths": {
+		"new PR guidance names the release branch and changed pin": {
 			mutate: func(in *Input) {
 				in.Repositories[0].Pins.Paths = map[string]string{"fact": "pkg/fact/version", "collector": "pkg/collector/version"}
 				in.Repositories[0].Pins.Versions["fact"] = "0.3.78"
 			},
 			condition: "ACS release branch pins", wantStatus: No,
 			wantReason:  "fact actual 0.3.78, selected 0.3.79",
-			wantCommand: true,
+			wantPinning: "Create an ACS pinning PR against release-5.0 to set pkg/fact/version to 0.3.79.",
 		},
-		"unsafe pin path prevents command generation": {
+		"invalid pin path blocks pinning guidance": {
 			mutate: func(in *Input) {
 				in.Repositories[0].Pins.Paths = map[string]string{"fact": "../../bad;echo", "collector": "pkg/collector/version"}
 				in.Repositories[0].Pins.Versions["fact"] = "0.3.78"
@@ -238,14 +242,11 @@ func TestAssessPinsImagesAndSelection(t *testing.T) {
 			if !strings.Contains(condition.Reason, tt.wantReason) {
 				t.Fatalf("reason %q does not contain %q", condition.Reason, tt.wantReason)
 			}
-			if (a.Commands != "") != tt.wantCommand {
-				t.Fatalf("commands present = %t, want %t: %s", a.Commands != "", tt.wantCommand, a.Commands)
+			if a.PinningRecommendation != tt.wantPinning {
+				t.Fatalf("pinning recommendation = %q, want %q", a.PinningRecommendation, tt.wantPinning)
 			}
-			if tt.wantCommand && (!strings.Contains(a.Commands, "git add -- 'pkg/collector/version' 'pkg/fact/version'") || !strings.Contains(a.Commands, "python3 - <<'PY'") || strings.Contains(a.Commands, "push") || strings.Contains(a.Commands, "git-spice")) {
-				t.Fatalf("unexpected command: %s", a.Commands)
-			}
-			if tt.wantPRCheckout && !strings.Contains(a.Commands, "gh pr checkout 99 --repo stackrox/stackrox") {
-				t.Fatalf("update command does not use the verified pinning PR: %s", a.Commands)
+			if tt.wantPinning != "" && !slices.Contains(a.ACSRecommendations, tt.wantPinning) {
+				t.Fatalf("ACS recommendations omitted %q: %v", tt.wantPinning, a.ACSRecommendations)
 			}
 		})
 	}
@@ -319,8 +320,8 @@ func TestAssessActivityGuidance(t *testing.T) {
 				if !strings.Contains(releases, "Wait for the included fact PRs to merge") || !strings.Contains(a.ReleaseGuides["fact"], "/docs/release.md") {
 					t.Fatalf("release prerequisites and guide missing: %s", releases)
 				}
-				if a.Ready || a.Commands != "" {
-					t.Fatal("missing tag choices allowed release readiness or pinning commands")
+				if a.Ready || a.PinningRecommendation != "" {
+					t.Fatal("missing tag choices allowed release readiness or a pinning recommendation")
 				}
 			},
 		},
@@ -1049,12 +1050,12 @@ func TestReleaseGuideForSelectedChangesWithoutCoveringTag(t *testing.T) {
 		t.Fatal("component release instructions missing")
 	}
 }
-func TestPinningCommandsCanReplaceCurrentPrereleasePins(t *testing.T) {
+func TestPinningRecommendationCanReplaceCurrentPrereleasePins(t *testing.T) {
 	in := readyInput()
 	in.Repositories[0].Pins.Versions["fact"] = "0.3.80-1-gabcdef"
 	a := Assess(in)
-	if a.Commands == "" || !strings.Contains(a.Commands, "0.3.80-1-gabcdef") {
-		t.Fatal("known prerelease pin cannot be updated safely")
+	if !strings.Contains(a.PinningRecommendation, "pkg/fact/version to 0.3.79") {
+		t.Fatal("recommendation omitted the replacement for the prerelease pin")
 	}
 }
 
@@ -1064,7 +1065,7 @@ func TestChangedPinningPRInputDoesNotReuseEarlierProposal(t *testing.T) {
 	in.Repositories[0].Pins.Versions["fact"] = "0.3.78"
 	in.Repositories[0].PinningPR = &PR{Target: Target{Repo: "stackrox/stackrox", PR: 100}, State: "open", Base: in.Config.Branch, Evidence: freshEvidence()}
 	a := Assess(in)
-	if a.Commands != "" || !strings.Contains(strings.Join(a.Recommendations, " "), "Pending: reading pinning PR #200") {
+	if a.PinningRecommendation != "" || !strings.Contains(strings.Join(a.Recommendations, " "), "Pending: reading pinning PR #200") {
 		t.Fatal("old pinning target reused", a)
 	}
 }
@@ -1076,7 +1077,7 @@ func TestAssessIncompletePatternSetPreservesIndependentImageResults(t *testing.T
 	in.Inventory.Images[1].Evidence.Known = false
 	in.Inventory.Images[1].Evidence.Error = in.Inventory.Evidence.Error
 	a := Assess(in)
-	if imageStatusByRef(t, a, in.Inventory.Images[0].Reference).Status != Yes || imageStatusByRef(t, a, in.Inventory.Images[1].Reference).Status != "" || a.Ready || a.Commands != "" {
+	if imageStatusByRef(t, a, in.Inventory.Images[0].Reference).Status != Yes || imageStatusByRef(t, a, in.Inventory.Images[1].Reference).Status != "" || a.Ready || a.PinningRecommendation != "" {
 		t.Fatalf("partial image resolution lost independent results or permitted readiness: %+v", a)
 	}
 	// An incomplete expected image set cannot be accepted even if every returned row is available.
@@ -1110,7 +1111,7 @@ func TestImageAvailabilityDoesNotDependOnGitHubObservations(t *testing.T) {
 					t.Errorf("registry result depends on source availability: %+v", image)
 				}
 			}
-			if result.Ready || result.Commands != "" {
+			if result.Ready || result.PinningRecommendation != "" {
 				t.Fatal("image availability bypassed unknown GitHub readiness prerequisites")
 			}
 		})

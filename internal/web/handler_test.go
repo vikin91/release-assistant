@@ -373,9 +373,12 @@ func TestPageEscapesExternalTextAndShowsUnknownEvidenceAndExactOffer(t *testing.
 		Interactive:  true,
 		Choices:      release.Choices{PRs: map[release.Target]release.Choice{target: release.Included}},
 		Repositories: []release.Repository{{Source: release.Source{Name: "acs", Repo: "acme/rox", Branch: "release"}, PRs: []release.PR{{Target: target, SHA: "head-sha", Title: `<script>alert("x")</script>`, URL: "javascript:alert(1)", State: "open", Base: "release", Evidence: release.Evidence{At: time.Now(), Error: "head observation partial"}}}}},
-		Assessment:   release.Assessment{Conditions: []release.Condition{{Name: "included PR " + target.String(), Status: "", Reason: "Coverage cannot be established", Evidence: []release.Evidence{{Error: "compare API unavailable"}}}}, ACSRecommendations: []string{"Review the proposed <tag>"}, Commands: "cdrox && pin --version 3.25.7"},
-		Plans:        []release.Plan{{Target: target, SHA: "head-sha", Evidence: release.Evidence{Known: false, Error: "partial plan"}, Proposals: []release.Proposal{proposal}}},
-		Authority:    []dispatch.View{{Target: target, SHA: "head-sha", Granted: true, Warnings: []string{"slow retry threshold reached"}, Offers: []dispatch.Offer{{ID: "offer-1", Proposal: proposal, Allowed: true, CanApprove: true, Queueable: true}}}},
+		Assessment: release.Assessment{
+			Conditions:         []release.Condition{{Name: "included PR " + target.String(), Status: "", Reason: "Coverage cannot be established", Evidence: []release.Evidence{{Error: "compare API unavailable"}}}},
+			ACSRecommendations: []string{"Review the proposed <tag>", "Create an ACS pinning PR against release-5.0 to set COLLECTOR_VERSION to 3.25.7."},
+		},
+		Plans:     []release.Plan{{Target: target, SHA: "head-sha", Evidence: release.Evidence{Known: false, Error: "partial plan"}, Proposals: []release.Proposal{proposal}}},
+		Authority: []dispatch.View{{Target: target, SHA: "head-sha", Granted: true, Warnings: []string{"slow retry threshold reached"}, Offers: []dispatch.Offer{{ID: "offer-1", Proposal: proposal, Allowed: true, CanApprove: true, Queueable: true}}}},
 	}}
 	b := newBrowser(t, appFake)
 	body := httptest.NewRecorder()
@@ -386,10 +389,13 @@ func TestPageEscapesExternalTextAndShowsUnknownEvidenceAndExactOffer(t *testing.
 	if strings.Contains(text, `<script>alert("x")</script>`) {
 		t.Fatal("external PR title was rendered as markup")
 	}
-	for _, needle := range []string{"&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", "unknown", "compare API unavailable", "/konflux-retest unit", "run-77", "Open Retest Queue", "Review the proposed &lt;tag&gt;", "cdrox &amp;&amp; pin --version 3.25.7"} {
+	for _, needle := range []string{"&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", "unknown", "compare API unavailable", "/konflux-retest unit", "run-77", "Open Retest Queue", "Review the proposed &lt;tag&gt;", "<li>Create an ACS pinning PR against release-5.0 to set COLLECTOR_VERSION to 3.25.7.</li>"} {
 		if !strings.Contains(text, needle) {
 			t.Errorf("rendered page missing %q", needle)
 		}
+	}
+	if strings.Contains(text, "Pinning commands") || strings.Contains(text, "Copy commands") {
+		t.Fatal("pinning guidance included a command block")
 	}
 	if strings.Contains(text, `href="javascript:alert(1)"`) {
 		t.Fatal("unsafe external URL was emitted")
