@@ -37,7 +37,7 @@ func run() error {
 	var options app.Options
 	var limits dispatch.Options
 	var port int
-	statePath := flag.String("state-file", "./state.json", "local JSON file for PR and component tag choices by ACS release")
+	statePath := flag.String("state-file", "./state.json", "local JSON file for PR, tag, and pinning choices by ACS release")
 	debugLog := flag.Bool("v", false, "show Debug messages in the terminal and dashboard Log tab")
 	allowedLookups := make(konflux.Lookups)
 	flag.StringVar(&config.Version, "version", "", "ACS patch version, e.g. 5.0.1")
@@ -68,6 +68,9 @@ func run() error {
 	}
 	var invalidInterval bool
 	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "pinning-pr" {
+			options.PinningPROverride = true
+		}
 		if (f.Name == "poll" && options.Poll <= 0) || (f.Name == "discover" && options.Discovery <= 0) {
 			invalidInterval = true
 		}

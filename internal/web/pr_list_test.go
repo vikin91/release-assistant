@@ -352,6 +352,36 @@ func TestPinDetectionSetting(t *testing.T) {
 	}
 }
 
+func TestSettingsKeepsPendingPinningChoiceWithItsRelease(t *testing.T) {
+	config := validACS5Config()
+	snapshot := app.Snapshot{Config: config, PendingPinningPR: 46}
+	application := &fakeApplication{snapshot: snapshot}
+	browser := newBrowser(t, application)
+	body := browser.getBody(t)
+	if !strings.Contains(activityPanel(t, body, "acs-prs"), "Pin PR #46: unverified") {
+		t.Fatal("saved pinning choice did not appear before verification")
+	}
+	form := makePage(snapshot, "", "").ConfigForm
+	if form.Get("pinning_pr") != "46" {
+		t.Fatal("settings did not show the saved pinning choice")
+	}
+	form.Set("kind", "configure")
+	form.Set("version", "5.0.2")
+	if response := browser.post(form); response.Code != http.StatusSeeOther {
+		t.Fatalf("changing release returned %d", response.Code)
+	}
+	if got := application.actions[0].Config.PinningPR; got != 0 {
+		t.Fatalf("carried pinning PR %d into another release", got)
+	}
+	form.Set("pinning_pr", "47")
+	if response := browser.post(form); response.Code != http.StatusSeeOther {
+		t.Fatalf("changing release with a new number returned %d", response.Code)
+	}
+	if got := application.actions[1].Config.PinningPR; got != 47 {
+		t.Fatalf("lost explicitly entered pinning PR, got %d", got)
+	}
+}
+
 func TestIncludedPinningPRHasNoChoiceControls(t *testing.T) {
 	for name, merged := range map[string]bool{"awaiting merge": false, "merged": true} {
 		t.Run(name, func(t *testing.T) {

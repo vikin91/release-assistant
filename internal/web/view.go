@@ -152,6 +152,8 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 	}
 	if snapshot.Config.PinningPR != 0 {
 		model.ConfigForm.Set("pinning_pr", strconv.Itoa(snapshot.Config.PinningPR))
+	} else if snapshot.PendingPinningPR > 0 {
+		model.ConfigForm.Set("pinning_pr", strconv.Itoa(snapshot.PendingPinningPR))
 	}
 	for _, source := range snapshot.Config.Components {
 		model.ConfiguredSources[source.Name] = source

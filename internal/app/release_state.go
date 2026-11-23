@@ -25,6 +25,7 @@ type (
 	releaseStateFile struct {
 		Releases      map[string]map[string]release.Choice    `json:"releases"`
 		ComponentTags map[string]map[string]savedComponentTag `json:"component_tags,omitempty"`
+		PinningPRs    map[string]savedPinningChoice           `json:"pinning_prs,omitempty"`
 	}
 
 	savedComponentTag struct {

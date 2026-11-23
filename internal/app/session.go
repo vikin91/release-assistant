@@ -27,8 +27,10 @@ type (
 		ManualRetries                        ManualRetryReader
 		// KonfluxProbe reads service health independently of tracked release builds.
 		KonfluxProbe func(context.Context) konflux.Health
-		// ReleaseState persists the user's PR and component tag choices across sessions.
+		// ReleaseState persists the user's PR, tag, and pinning choices across sessions.
 		ReleaseState *ReleaseState
+		// PinningPROverride indicates that the initial pinning PR was explicitly supplied.
+		PinningPROverride bool
 	}
 	// Cycle retains observed builds and images when a confirmed component tag changes.
 	Cycle struct {
@@ -68,6 +70,8 @@ type (
 		KonfluxHealth *konflux.Health
 		// PendingTags holds saved selections awaiting current GitHub evidence.
 		PendingTags map[string]string
+		// PendingPinningPR holds the saved PR number until discovery verifies its branch.
+		PendingPinningPR int
 		// Loading keeps the dashboard refreshing during startup and while included ACS PRs await CI results.
 		Loading bool
 	}
@@ -124,6 +128,8 @@ type (
 		options         Options
 		changed         chan struct{}
 		history         []Cycle
+
+		pendingPinningPR int
 	}
 )
 
@@ -158,6 +164,9 @@ func New(d Discoverer, p Planner, i Inspector, dispatcher *dispatch.Dispatcher, 
 		} else {
 			s.restorePRChoices()
 			s.restoreComponentTags()
+			if !o.PinningPROverride && s.config.PinningPR == 0 && !s.config.DetectPinningPR {
+				s.pendingPinningPR = o.ReleaseState.restorePinningChoice(&s.config)
+			}
 			s.includePinningPR()
 		}
 	}
@@ -246,8 +255,12 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		if err = a.Config.Validate(); err != nil {
 			return err
 		}
+		pendingPinningPR, err := s.configurePinningChoice(&a.Config)
+		if err != nil {
+			return err
+		}
 		sameContext := s.config.Version == a.Config.Version && s.config.Branch == a.Config.Branch && slices.Equal(s.config.Components, a.Config.Components)
-		pinChanged := !sameContext || s.config.PinningPR != a.Config.PinningPR
+		pinChanged := !sameContext || s.config.PinningPR != a.Config.PinningPR || s.pendingPinningPR != pendingPinningPR
 		if sameContext {
 			if pinChanged {
 				s.clearPinningSelection()
@@ -258,6 +271,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			s.reset()
 		}
 		s.config = a.Config
+		s.pendingPinningPR = pendingPinningPR
 		if !sameContext {
 			s.restorePRChoices()
 			s.restoreComponentTags()
@@ -565,7 +579,8 @@ func (s *Session) Snapshot() Snapshot {
 	choices.Acknowledged = maps.Clone(choices.Acknowledged)
 	x := Snapshot{
 		RefreshIntervals: maps.Clone(s.options.RefreshIntervals), Config: c, Choices: choices, Error: s.errorText, Generation: s.generation,
-		Interactive: s.dispatcher.IsInteractive(), RequirePRLabel: s.dispatcher.RequiresPRLabel(), WritesEnabled: s.dispatcher.WritesEnabled(),
+		PendingPinningPR: s.pendingPinningPR,
+		Interactive:      s.dispatcher.IsInteractive(), RequirePRLabel: s.dispatcher.RequiresPRLabel(), WritesEnabled: s.dispatcher.WritesEnabled(),
 		Authority: s.dispatcher.Views(), PRRetryChecks: make(map[release.Target]PRRetryCheck, len(s.prRetryChecks)),
 	}
 	if len(s.pendingTags) > 0 {
@@ -749,7 +764,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		}
 	}
 	if source.Name == "acs" {
-		request.PinningPR = c.PinningPR
+		request.PinningPR = max(c.PinningPR, s.pendingPinningPR)
 		request.PreviousCandidate = s.repos["acs"].Candidate
 		if request.Reads(ReadPRs) && c.PinningPR == 0 {
 			request.DetectPinningPR = true
@@ -776,7 +791,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	}
 	revision := s.workRevision
 	for t, choice := range s.choices.PRs {
-		if t == c.PinningTarget() && source.Name == "acs" && request.Reads(ReadPins) {
+		if t.PR > 0 && t.PR == request.PinningPR && t.Repo == source.Repo && source.Name == "acs" && request.Reads(ReadPins) {
 			continue
 		}
 		if t.Repo == source.Repo {
@@ -971,7 +986,8 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			}
 		}
 		restored := s.verifySavedTag(source, r.Tags)
-		if s.initializePinnedTags() || restored {
+		pinRestored := source.Name == "acs" && request.Reads(ReadPins) && s.verifySavedPinningPR(request.PinningPR, r.PinningPR)
+		if s.initializePinnedTags() || restored || pinRestored {
 			select {
 			case s.changed <- struct{}{}:
 			default:

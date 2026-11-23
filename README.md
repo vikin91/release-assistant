@@ -147,7 +147,7 @@ You can switch tabs at any time. Monitoring continues in the background, includi
 
 PR choices apply immediately, and an empty selection is valid. **Excluded** keeps a PR visible and stops detailed monitoring and retries. **Ignore & hide** also removes it from the normal list. **Allow automatic retry comments** grants automatic posting permission for the current PR head.
 
-The assistant saves individual and bulk PR choices and your component tag selections to `./state.json` in the working directory. It restores them for the configured ACS patch release and verifies saved tags against GitHub before using them. Clearing a tag selection is saved too. The assistant creates the file at startup if needed. Use `--state-file /path/to/state.json` to choose a different location, including with `go run`.
+The assistant saves PR choices, component tag selections, and your pinning PR choice to `./state.json` in the working directory. It restores them for the configured ACS patch release and verifies saved tags and the pinning PR against GitHub before using them. Clearing a tag or switching back to pinning PR discovery is saved too. An explicit `--pinning-pr` overrides the saved choice at startup. The assistant creates the file at startup if needed. Use `--state-file /path/to/state.json` to choose a different location, including with `go run`.
 
 Release preparation requires that the included PRs have merged into their configured branches, the chosen component tags cover the included component changes, the component CI and Konflux images are available, and the actual ACS branch pins match. Readiness is advisory. Candidate images are outputs of the RC build.
 

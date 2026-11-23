@@ -204,7 +204,12 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "form token is invalid", http.StatusForbidden)
 		return
 	}
-	action, err := parseAction(r, s.app.Snapshot().Config)
+	snapshot := s.app.Snapshot()
+	current := snapshot.Config
+	if snapshot.PendingPinningPR > 0 {
+		current.PinningPR = snapshot.PendingPinningPR
+	}
+	action, err := parseAction(r, current)
 	if err != nil {
 		s.renderError(w, r, err, http.StatusBadRequest)
 		return
@@ -281,6 +286,12 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 			config.DetectPinningPR = true
 			config.ManualPinningPR = config.PinningPR
 			config.PinningPR = 0
+		}
+		// An unchanged field still describes the release shown when the form was opened.
+		if current.Validate() == nil &&
+			(strings.TrimPrefix(version, "v") != strings.TrimPrefix(current.Version, "v") || config.Branch != current.Branch) &&
+			config.PinningPR == current.PinningPR && config.DetectPinningPR == current.DetectPinningPR && config.ManualPinningPR == current.ManualPinningPR {
+			config.PinningPR, config.ManualPinningPR, config.DetectPinningPR = 0, 0, false
 		}
 		for _, name := range []string{"fact", "collector", "scanner"} {
 			if name == "scanner" && major == 5 {

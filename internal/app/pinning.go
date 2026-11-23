@@ -151,7 +151,11 @@ func (s *Session) confirmPinningPR(ctx context.Context, a Action) error {
 	if !valid || !reviewed() {
 		return fmt.Errorf("PR changed; refreshing discovery for another review")
 	}
+	if err := s.options.ReleaseState.savePinningChoice(s.config.Version, savedPinningChoice{Branch: source.Branch, Number: a.Target.PR}); err != nil {
+		return err
+	}
 	s.clearPinningSelection()
+	s.pendingPinningPR = 0
 	s.config.PinningPR = a.Target.PR
 	s.includePinningPR()
 	s.config.DetectPinningPR = false
