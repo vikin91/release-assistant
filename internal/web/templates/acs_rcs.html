@@ -12,7 +12,11 @@
             <a aria-describedby="new-tab-description" href="{{url $.RC.TagURL}}" target="_blank" rel="noreferrer">Open RC.{{.Number}} tag</a>
             {{if $.RC.ChecksURL}}<a aria-describedby="new-tab-description" href="{{url $.RC.ChecksURL}}" target="_blank" rel="noreferrer">View tag checks</a>{{end}}
           </div>
-          {{if eq .Ahead 0}}<p>No commits have landed on the release branch since RC.{{.Number}}.</p>
+          {{if .Evidence.Error}}
+            <p>Unable to verify the current RC. {{.Evidence.Error}} Showing the last observed results for RC.{{.Number}}.</p>
+          {{else if not .Evidence.Fresh}}
+            <p>Rechecking RC.{{.Number}} against the updated release branch. Showing the last observed results.</p>
+          {{else if eq .Ahead 0}}<p>No commits have landed on the release branch since RC.{{.Number}}.</p>
           {{else}}
             <p><a aria-describedby="new-tab-description" href="{{url .CompareURL}}" target="_blank" rel="noreferrer">{{.Ahead}} {{if eq .Ahead 1}}commit{{else}}commits{{end}}</a> landed on the release branch since RC.{{.Number}}.</p>
             {{if .PRs}}<ol>{{range .PRs}}<li><a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">#{{.Number}} {{.Title}}</a></li>{{end}}</ol>

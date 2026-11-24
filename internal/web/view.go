@@ -185,7 +185,8 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 		model.Error += "Action log: " + snapshot.LogError
 	}
 	retryTargets := make(map[release.Target]bool)
-	if rc := snapshot.Candidate(); model.Configured && rc.Target.Valid() && snapshot.RCImageWaitReason() == "" {
+	rc := snapshot.Candidate()
+	if model.Configured && rc.Target.Valid() && snapshot.RCImageWaitReason() == "" {
 		retryTargets[rc.Target] = true
 	}
 	pinTarget := snapshot.Config.PinningTarget()
@@ -448,7 +449,10 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 				model.PinningImages = append(model.PinningImages, row)
 			}
 		}
-		if !retryTargets[plan.Target] || inactivePRs[plan.Target] {
+		if model.Configured && rc.Target.Valid() && plan.Target == rc.Target && rc.SHA != "" && plan.SHA == rc.SHA &&
+			!rc.Evidence.Fresh() {
+			plan.Proposals = nil
+		} else if !retryTargets[plan.Target] || inactivePRs[plan.Target] {
 			continue
 		}
 		model.Plans = append(model.Plans, planModel{Plan: plan, Pinning: plan.Target == pinTarget})

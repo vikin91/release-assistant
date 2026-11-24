@@ -81,6 +81,35 @@ func TestRCTabShowsBuildActionsBesideMissingImages(t *testing.T) {
 	}
 }
 
+func TestRCTabShowsLastResultsWhileRecheckingBranch(t *testing.T) {
+	s := workflowStatusSnapshot()
+	rc := &s.Repositories[len(s.Repositories)-1].Candidate
+	rc.Evidence.Known = false
+	proposal := release.Proposal{
+		Target: rc.Target, SHA: rc.SHA, Job: "main-on-push", RunID: "17",
+		Payload: "/retest main-on-push tag:" + rc.Target.Tag,
+	}
+	s.Plans = []release.Plan{{
+		Target: rc.Target, SHA: rc.SHA, Evidence: s.Inventory.Evidence,
+		Runs: []release.Run{{
+			Job: proposal.Job, ID: proposal.RunID, Status: "completed", Outcome: "failure", Eligible: true,
+		}},
+		Proposals: []release.Proposal{proposal},
+	}}
+	assessWorkflow(&s)
+	panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-rcs")
+	main := between(t, panel, "<code>main</code></th>", "</tr>")
+	for _, want := range []string{"Build failed", "Available", "<time"} {
+		if !strings.Contains(main, want) {
+			t.Errorf("missing %q from retained image row", want)
+		}
+	}
+	if !strings.Contains(panel, "Rechecking RC.2 against the updated release branch.") ||
+		strings.Contains(panel, "No commits have landed") || strings.Contains(panel, proposal.Payload) {
+		t.Fatal("the RC page did not distinguish retained results from the unverified comparison")
+	}
+}
+
 func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 	s := workflowStatusSnapshot()
 	target := s.Candidate().Target

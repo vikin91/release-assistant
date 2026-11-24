@@ -87,7 +87,11 @@ func (s *Session) readSelectedTagChecks(ctx context.Context, generation, revisio
 func (s *releaseWork) plansForDisplay() []release.Plan {
 	plans := maps.Clone(s.plans)
 	for source, observed := range s.tagChecks {
-		target, sha := s.tagCheckTarget(s.repos[source])
+		repo := s.repos[source]
+		target, sha := s.tagCheckTarget(repo)
+		if source == "acs" {
+			target, sha = repo.Candidate.Target, repo.Candidate.SHA
+		}
 		if observed.target != target || observed.sha != sha {
 			continue
 		}

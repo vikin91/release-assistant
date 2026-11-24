@@ -180,9 +180,7 @@ func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) re
 				latest.Candidate.PRs, latest.Candidate.PRError, latest.Candidate.PRsPending = old.Candidate.PRs, old.Candidate.PRError, old.Candidate.PRsPending
 			}
 		case latest.Head != old.Head:
-			latest.Candidate = release.Candidate{Evidence: release.Evidence{
-				At: latest.Evidence.At, Error: "The release branch changed before the RC could be verified.",
-			}}
+			latest.Candidate = release.Candidate{}
 		case !request.Reads(ReadPRs) || !sameCandidateRange(old.Candidate, latest.Candidate):
 			latest.Candidate = old.Candidate
 		}

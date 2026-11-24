@@ -992,10 +992,21 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		if !initial {
 			s.recordDiscoveryChanges(old, r, request)
 		}
-		if source.Name == "acs" && (old.Candidate.Target != r.Candidate.Target || old.Candidate.SHA != r.Candidate.SHA) {
-			s.clearRCPlan()
-			s.inventory.ReleaseImages = nil
-			delete(s.inventory.Versions, "acs")
+		if source.Name == "acs" {
+			if !r.Candidate.Evidence.Fresh() && old.Candidate.Target.Valid() && old.Candidate.SHA != "" {
+				evidence := r.Candidate.Evidence
+				if request.Reads(ReadRC) && err != nil && evidence.Error == "" {
+					evidence.Error = err.Error()
+				}
+				r.Candidate = old.Candidate
+				r.Candidate.Evidence = evidence
+			}
+			if old.Candidate.Target != r.Candidate.Target || old.Candidate.SHA != r.Candidate.SHA {
+				s.clearRCPlan()
+				delete(s.tagChecks, source.Name)
+				s.inventory.ReleaseImages = nil
+				delete(s.inventory.Versions, "acs")
+			}
 		}
 		s.repos[source.Name] = r
 		for _, p := range r.PRs {
@@ -1377,7 +1388,7 @@ func (s *Session) refreshImagesScoped(ctx context.Context, generation uint64, in
 	current := s.repos["acs"].Candidate
 	sameCandidate := rc.Target == current.Target && rc.SHA == current.SHA
 	if generation == s.generation && maps.Equal(versions, s.choices.Tags) && (!scheduled || revision == s.workRevision) &&
-		(!includeRC || (sameCandidate && (!scheduled || s.rcReady()))) {
+		(!includeRC || (sameCandidate && s.rcReady())) {
 		message := ""
 		if err != nil {
 			message = err.Error()
@@ -1403,9 +1414,6 @@ func (s *Session) refreshImagesScoped(ctx context.Context, generation uint64, in
 		}
 		if !includeRC {
 			inventory.ReleaseImages = s.inventory.ReleaseImages
-			if !s.rcReady() {
-				inventory.ReleaseImages = unverifiedImages(inventory.ReleaseImages, "")
-			}
 			if len(inventory.ReleaseImages) > 0 {
 				if inventory.Versions == nil {
 					inventory.Versions = map[string]string{}

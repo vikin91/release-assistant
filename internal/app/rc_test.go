@@ -157,6 +157,88 @@ func TestRCMonitoringRequiresCurrentTagAndCommit(t *testing.T) {
 	}
 }
 
+func TestRCResultsSurviveBranchRecheck(t *testing.T) {
+	for name, change := range map[string]func(*release.Candidate){
+		"should retain the same tag and commit": func(*release.Candidate) {},
+		"should reset for a new tag":            func(rc *release.Candidate) { rc.Target.Tag = "5.0.1-rc.3" },
+		"should reset for a moved tag":          func(rc *release.Candidate) { rc.SHA = "new-commit" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, f, _ := rcFixture(t)
+			source := s.config.ACS()
+			acs := f.repos[source.Name]
+			rc := acs.Candidate
+			s.discovery = tagCheckFixture{f, func(release.Target) (release.Validation, error) {
+				return release.Validation{SHA: rc.SHA, Evidence: observed()}, nil
+			}}
+			s.planner = &rcPlanner{plan: release.Plan{
+				Target: rc.Target, SHA: rc.SHA, Evidence: observed(),
+				Runs: []release.Run{{Job: "main-on-push", ID: "17", Status: "completed", Outcome: "success"}},
+			}}
+			if err := fetchSourcePolls(t, s, source, pollTags, pollPRs, pollTagChecks, pollBuilds, pollImages); err != nil {
+				t.Fatal(err)
+			}
+			before := s.Snapshot()
+			apply(t, s, Action{Kind: "grant", Target: rc.Target, SHA: rc.SHA, Enabled: true})
+			acs.Head = "advanced-branch-head"
+			f.repos[source.Name] = acs
+			if err := fetchSourcePolls(t, s, source, pollPRs, pollImages); err != nil {
+				t.Fatal(err)
+			}
+			assertRetained := func(snapshot Snapshot) {
+				t.Helper()
+				candidate := snapshot.Candidate()
+				if candidate.Target != rc.Target || candidate.SHA != rc.SHA ||
+					len(before.Inventory.ReleaseImages) == 0 ||
+					!slices.Equal(before.Inventory.ReleaseImages, snapshot.Inventory.ReleaseImages) ||
+					!slices.ContainsFunc(snapshot.Plans, func(plan release.Plan) bool {
+						return plan.Target == rc.Target && plan.SHA == rc.SHA && plan.Validation.Evidence.Fresh() &&
+							len(plan.Runs) == 1 && plan.Runs[0].ID == "17"
+					}) {
+					t.Fatalf("lost the last observed RC results: candidate=%+v, images=%+v, plans=%+v",
+						candidate, snapshot.Inventory.ReleaseImages, snapshot.Plans)
+				}
+			}
+			pending := s.Snapshot()
+			assertRetained(pending)
+			if pending.Candidate().Evidence.Fresh() || pending.Candidate().Evidence.Error != "" ||
+				slices.ContainsFunc(pending.Authority, func(view dispatch.View) bool { return view.Target == rc.Target && view.Granted }) {
+				t.Fatal("the pending comparison must not establish current retry authority")
+			}
+
+			f.fail[source.Name] = true
+			if err := fetchSourcePolls(t, s, source, pollTags); err == nil {
+				t.Fatal("expected discovery failure")
+			}
+			failed := s.Snapshot()
+			assertRetained(failed)
+			if failed.Candidate().Evidence.Error == "" {
+				t.Fatal("missing the discovery failure")
+			}
+
+			f.fail[source.Name] = false
+			change(&acs.Candidate)
+			acs.Candidate.Ahead = 1
+			f.repos[source.Name] = acs
+			if err := fetchSourcePolls(t, s, source, pollTags); err != nil {
+				t.Fatal(err)
+			}
+			after := s.Snapshot()
+			candidate := after.Candidate()
+			if !candidate.Evidence.Fresh() || candidate.Ahead != 1 {
+				t.Fatalf("missing the reverified branch comparison: %+v", candidate)
+			}
+			if candidate.Target == rc.Target && candidate.SHA == rc.SHA {
+				assertRetained(after)
+			} else if len(after.Inventory.ReleaseImages) != 0 || slices.ContainsFunc(after.Plans, func(plan release.Plan) bool {
+				return plan.Target == rc.Target && plan.SHA == rc.SHA
+			}) {
+				t.Fatal("old results carried over to a different candidate")
+			}
+		})
+	}
+}
+
 type rcCheckFixture struct {
 	*fixture
 	validation release.Validation

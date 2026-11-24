@@ -37,9 +37,7 @@ func (s *Session) revalidateRCPlan() {
 	if _, ok := s.plans[target]; !ok {
 		return
 	}
-	if !s.rcReady() {
-		s.clearRCPlan()
-	} else if !s.rcRetriesReady() {
+	if !s.rcRetriesReady() {
 		s.dispatcher.ObserveIdentity(dispatch.Identity{Target: target})
 	}
 }
