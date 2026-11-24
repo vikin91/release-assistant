@@ -179,18 +179,63 @@ func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 	}
 }
 
-func TestRCTabLinksReleaseWorkflowWhenNoCandidateExists(t *testing.T) {
-	s := workflowStatusSnapshot()
-	s.Repositories[len(s.Repositories)-1].Candidate = release.Candidate{Evidence: s.Inventory.Evidence}
-	s.Inventory.ReleaseImages = nil
-	delete(s.Inventory.Versions, "acs")
-	assessWorkflow(&s)
-	body := newBrowser(t, &fakeApplication{snapshot: s}).getBody(t)
-	panel := activityPanel(t, body, "acs-rcs")
-	for _, want := range []string{"No release candidate tag exists", "Open release workflow", "/actions/workflows/start-release.yml"} {
-		if !strings.Contains(panel, want) {
-			t.Errorf("missing %q", want)
-		}
+func TestRCTabLinksReleaseWorkflowWhenBranchIsReadyForANewCandidate(t *testing.T) {
+	tests := map[string]struct {
+		change   func(*app.Snapshot, *release.Repository)
+		wantLink bool
+	}{
+		"first RC": {
+			change: func(s *app.Snapshot, acs *release.Repository) {
+				acs.Candidate = release.Candidate{Evidence: s.Inventory.Evidence}
+			},
+			wantLink: true,
+		},
+		"branch advanced after the existing RC": {
+			change:   func(_ *app.Snapshot, acs *release.Repository) { acs.Candidate.Ahead = 2 },
+			wantLink: true,
+		},
+		"existing RC at branch tip": {},
+		"candidate evidence is unavailable": {
+			change: func(_ *app.Snapshot, acs *release.Repository) {
+				acs.Candidate.Ahead = 2
+				acs.Candidate.Evidence.Error = "compare unavailable"
+			},
+		},
+		"an ACS PR is undecided": {
+			change: func(s *app.Snapshot, acs *release.Repository) {
+				acs.Candidate.Ahead = 2
+				acs.PRs = []release.PR{{
+					Target: release.Target{Repo: acs.Source.Repo, PR: 41},
+					Base:   s.Config.Branch, State: "open", Evidence: acs.Evidence,
+				}}
+			},
+		},
+		"the release already has a final tag": {
+			change: func(s *app.Snapshot, acs *release.Repository) {
+				acs.Candidate.Ahead = 2
+				acs.Tags = []release.Tag{{Name: "v" + s.Config.Version}}
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			s := workflowStatusSnapshot()
+			acs := &s.Repositories[len(s.Repositories)-1]
+			if tt.change != nil {
+				tt.change(&s, acs)
+			}
+			assessWorkflow(&s)
+			body := newBrowser(t, &fakeApplication{snapshot: s}).getBody(t)
+			panel := activityPanel(t, body, "acs-rcs")
+			for _, marker := range []string{"The release branch is ready for a new RC.", "Open release workflow", "/actions/workflows/start-release.yml"} {
+				if present := strings.Contains(panel, marker); present != tt.wantLink {
+					t.Errorf("RC handoff marker %q present = %t, want %t", marker, present, tt.wantLink)
+				}
+			}
+			if acs.Candidate.Target.Tag == "" && !strings.Contains(panel, "No release candidate tag exists") {
+				t.Error("RC panel lost the verified absence of a candidate")
+			}
+		})
 	}
 }
 

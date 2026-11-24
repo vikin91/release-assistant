@@ -13,6 +13,11 @@
     {{if $component}}</h3>{{else}}</summary>{{end}}
     {{if and (not $component) $triage.PinDiscoveryStatus}}<p>{{$triage.PinDiscoveryStatus}}</p>{{end}}
     {{if .ComponentPRNotice}}<p class="muted">{{.ComponentPRNotice}}</p>{{end}}
+    {{if .Problems}}
+    <details id="{{.Tab}}-pr-evidence"><summary>Unverified included PRs</summary>
+      <ol>{{range .Problems}}<li>{{.Name}} · {{.Reason}}{{range .Evidence}}{{if .Error}} · {{.Error}}{{end}}{{end}}</li>{{end}}</ol>
+    </details>
+    {{end}}
     <fieldset class="pr-list-filters" data-live-preserve>
       <legend>Filter open and selected PRs</legend>
       <label><input type="radio" name="{{.PRSection}}-filter" value="all" checked> All</label>

@@ -18,7 +18,6 @@ type (
 	pageModel struct {
 		Title, CSRF, Error                                       string
 		Tab, PRSection, RetrySection, RetryDetails, OfferSection string
-		Guidance                                                 []string
 		ComponentPRNotice                                        string
 		TabStatuses                                              map[string]tabStatus
 		Configured                                               bool
@@ -325,7 +324,11 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 			}
 			for _, pr := range repo.PRs {
 				if snapshot.Choices.PRs[pr.Target] == release.Included && pr.Merged && pr.MergeSHA != "" {
-					t.MergeCoverage = append(t.MergeCoverage, mergeCoverageModel{SHA: pr.MergeSHA, Status: tag.Contains[pr.MergeSHA]})
+					coverage := mergeCoverageModel{SHA: pr.MergeSHA}
+					if repo.Evidence.Fresh() && tag.Evidence.Fresh() && pr.Evidence.Fresh() && pr.Base == repo.Source.Branch {
+						coverage.Status = tag.Contains[pr.MergeSHA]
+					}
+					t.MergeCoverage = append(t.MergeCoverage, coverage)
 				}
 			}
 			if tag.Name == r.CurrentTag {
@@ -378,9 +381,7 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 		}
 	}
 	for _, condition := range snapshot.Assessment.Conditions {
-		ownSummary := condition.Name == "configuration" || condition.Name == "component images" || condition.Name == "ACS release branch pins" ||
-			strings.HasPrefix(condition.Name, "tag ") || strings.HasPrefix(condition.Name, "image ")
-		if !ownSummary && condition.Status != release.Yes {
+		if condition.Status == "" && strings.HasPrefix(condition.Name, "included PR ") {
 			model.Problems = append(model.Problems, condition)
 		}
 	}

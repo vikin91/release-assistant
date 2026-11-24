@@ -28,11 +28,6 @@ func TestActivityTabsWorkWithoutComponentTags(t *testing.T) {
 		},
 		Plans:     []release.Plan{{Target: component, Message: "component-build-observation"}, {Target: acs, Message: "acs-build-observation"}},
 		Authority: []dispatch.View{{Target: component, Message: "component-write-offer"}, {Target: acs, Message: "acs-write-offer"}},
-		Assessment: release.Assessment{
-			ComponentPRRecommendations:      []string{"Merge component changes."},
-			ComponentReleaseRecommendations: []string{"Prepare a tag when changes are ready."},
-			ACSRecommendations:              []string{"Merge ACS changes."},
-		},
 	}}
 	browser := newBrowser(t, application)
 	for _, tab := range []string{"component-prs", "component-releases", "acs-prs", "acs-rcs", "activity", "settings"} {
@@ -68,12 +63,12 @@ func TestActivityTabsWorkWithoutComponentTags(t *testing.T) {
 		}
 		componentView := activityPanel(t, body, "component-prs")
 		acsView := activityPanel(t, body, "acs-prs")
-		for _, marker := range []string{"Component change", "component-build-observation", "component-write-offer", "Merge component changes."} {
+		for _, marker := range []string{"Component change", "component-build-observation", "component-write-offer"} {
 			if !strings.Contains(componentView, marker) || strings.Contains(acsView, marker) {
 				t.Fatalf("component activity crossed into ACS view: %s", marker)
 			}
 		}
-		for _, marker := range []string{"ACS change", "acs-build-observation", "acs-write-offer", "Merge ACS changes."} {
+		for _, marker := range []string{"ACS change", "acs-build-observation", "acs-write-offer"} {
 			if !strings.Contains(acsView, marker) || strings.Contains(componentView, marker) {
 				t.Fatalf("ACS activity crossed into component view: %s", marker)
 			}
@@ -100,7 +95,7 @@ func TestComponentReleasesShowsSavedTagWhileItIsBeingVerified(t *testing.T) {
 	}
 }
 
-func TestACSNextStepsSummarizeOpenPRs(t *testing.T) {
+func TestOpenACSPRsDoNotPromptToCutAnRC(t *testing.T) {
 	s := workflowStatusSnapshot()
 	repo := &s.Repositories[len(s.Repositories)-1]
 	for _, n := range []int{41, 42} {
@@ -110,9 +105,63 @@ func TestACSNextStepsSummarizeOpenPRs(t *testing.T) {
 	}
 	assessWorkflow(&s)
 	panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-prs")
-	steps := between(t, panel, `id="acs-prs-next-steps-panel"`, "</section>")
-	if !strings.Contains(steps, "<p>Merge included PRs and cut new RC.</p>") || strings.Contains(steps, "Checks that need attention") {
-		t.Fatalf("unexpected ACS merge guidance: %s", steps)
+	if strings.Contains(panel, "Recommended next steps") || strings.Contains(panel, "Merge included PRs and cut new RC") ||
+		strings.Contains(panel, "Unverified included PRs") {
+		t.Fatal("verified open PRs should be tracked in the PR list")
+	}
+}
+
+func TestACSPatchNoticeRequiresNoOpenPRs(t *testing.T) {
+	s := workflowStatusSnapshot()
+	acs := &s.Repositories[len(s.Repositories)-1]
+	acs.PreviousPins = acs.Pins
+	acs.PreviousPublished = release.Yes
+	assessWorkflow(&s)
+	application := &fakeApplication{snapshot: s}
+	browser := newBrowser(t, application)
+	const notice = "A new patch may be unnecessary."
+	if panel := activityPanel(t, browser.getBody(t), "acs-prs"); !strings.Contains(panel, notice) {
+		t.Fatal("ACS phase lost the previous patch notice")
+	}
+
+	acs.PRs = []release.PR{{
+		Target: release.Target{Repo: acs.Source.Repo, PR: 41},
+		Base:   acs.Source.Branch, State: "open", Evidence: acs.Evidence,
+	}}
+	assessWorkflow(&s)
+	application.snapshot = s
+	if panel := activityPanel(t, browser.getBody(t), "acs-prs"); strings.Contains(panel, notice) {
+		t.Fatal("the previous patch notice ignored an open ACS PR")
+	}
+}
+
+func TestTagOptionShowsCoverageBeforeConfirmation(t *testing.T) {
+	for name, tt := range map[string]struct {
+		coverage release.Truth
+		want     string
+	}{
+		"missing merge":       {coverage: release.No, want: "Missing included merge"},
+		"incomplete coverage": {want: "Coverage unverified for"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := workflowStatusSnapshot()
+			repo := &s.Repositories[0]
+			delete(s.Choices.Tags, repo.Source.Name)
+			target := release.Target{Repo: repo.Source.Repo, PR: 17}
+			repo.PRs = []release.PR{{
+				Target: target, Base: repo.Source.Branch,
+				Merged: true, MergeSHA: "included-merge", Evidence: repo.Evidence,
+			}}
+			s.Choices.PRs[target] = release.Included
+			repo.Tags[0].Contains = map[string]release.Truth{"included-merge": tt.coverage}
+			assessWorkflow(&s)
+			body := newBrowser(t, &fakeApplication{snapshot: s}).getBody(t)
+			panel := activityPanel(t, body, "component-releases")
+			row := between(t, panel, `data-live-key="tag:`+repo.Source.Name+":"+repo.Source.Repo+"@", "</tr>")
+			if !strings.Contains(row, tt.want+" <code>included-merge</code>") || !strings.Contains(row, "Confirm "+repo.Source.Name) {
+				t.Errorf("expected coverage evidence beside the confirmation action: %s", row)
+			}
+		})
 	}
 }
 
@@ -212,17 +261,17 @@ func TestBaselineGuidanceInActivityTabs(t *testing.T) {
 	}
 }
 
-func TestComponentReleaseNextStepsFollowTagSelections(t *testing.T) {
+func TestComponentReleaseTagActionsAndEvidence(t *testing.T) {
 	tests := map[string]struct {
 		collectorTag      string
 		collectorAncestor release.Truth
 		wantGuidance      string
 	}{
-		"should hide next steps when selections and images are verified": {
-			collectorTag: "3.25.5", collectorAncestor: release.Yes,
+		"should show verified coverage beside a selected tag": {
+			collectorTag: "3.25.5", collectorAncestor: release.Yes, wantGuidance: "Covers included changes",
 		},
 		"should prompt for the missing selection": {
-			collectorAncestor: release.Yes, wantGuidance: "Select Collector tag to include in ACS 5.0.1.",
+			collectorAncestor: release.Yes, wantGuidance: "Confirm collector 3.25.5",
 		},
 		"should explain why a selected tag is unsuitable": {
 			collectorTag: "3.25.5", collectorAncestor: release.No,
@@ -258,19 +307,10 @@ func TestComponentReleaseNextStepsFollowTagSelections(t *testing.T) {
 				Assessment: release.Assess(release.Input{Config: config, Choices: choices, Repositories: repos, Inventory: inventory}),
 			}}
 			body := activityPanel(t, newBrowser(t, application).getBody(t), "component-releases")
-			const panel = `id="component-releases-next-steps-panel"`
-			if tt.wantGuidance == "" {
-				if strings.Contains(body, panel) {
-					t.Fatal("next steps appeared with verified selections and images")
-				}
-			} else {
-				guidance := between(t, body, panel, "</section>")
-				if !strings.Contains(guidance, tt.wantGuidance) || strings.Contains(guidance, "3.25.8") ||
-					strings.Contains(guidance, "previous ACS pin") {
-					t.Errorf("unexpected next steps: %s", guidance)
-				}
+			if !strings.Contains(body, tt.wantGuidance) || strings.Contains(body, "Recommended next steps") {
+				t.Errorf("tag section is missing %q or renders a separate recommendations card", tt.wantGuidance)
 			}
-			for _, want := range []string{"Review 3.25.8", "previous ACS pin FACT_VERSION 3.25.2", "Fact release guide"} {
+			for _, want := range []string{"Newer tag available <code>3.25.8</code>", "previous ACS pin FACT_VERSION 3.25.2", "Fact release guide"} {
 				if !strings.Contains(body, want) {
 					t.Errorf("component tag view missing %q", want)
 				}

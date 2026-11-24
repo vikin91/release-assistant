@@ -154,8 +154,6 @@ type (
 		PROpen bool
 		// PRProblems lists version mismatches, missing inputs, or failed PR requests.
 		PRProblems []string
-		// onlyMissingTags marks a PR comparison blocked solely by unselected component tags.
-		onlyMissingTags bool
 	}
 	// Inventory binds image observations to the ACS release and confirmed component versions.
 	Inventory struct {
@@ -257,18 +255,13 @@ type (
 	}
 	// Assessment contains derived readiness and recommendations.
 	Assessment struct {
-		Ready           bool
-		Conditions      []Condition
-		Recommendations []string
-		// ComponentPRRecommendations guides merge preparation without requiring tags.
-		ComponentPRRecommendations []string
-		// ComponentReleaseRecommendations guides tag selection, builds, and images.
-		ComponentReleaseRecommendations []string
+		Ready      bool
+		Conditions []Condition
 		// ComponentBaseline compares configured component tags with the preceding patch's pins.
 		ComponentBaseline []BaselineRecord
-		// ACSRecommendations guides ACS PRs, pinning, and release preparation.
-		ACSRecommendations []string
-		// PinningRecommendation describes a ready pinning action in ACSRecommendations.
+		// PatchMayBeUnnecessary reports a published previous patch, no open ACS PRs, and unchanged component branch tips.
+		PatchMayBeUnnecessary bool
+		// PinningRecommendation describes a verified pinning change that the user can make.
 		PinningRecommendation string
 		ProposedTags          map[string]string
 		ReleaseGuides         map[string]string

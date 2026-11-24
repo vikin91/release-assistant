@@ -10,16 +10,16 @@ func TestPinningWorkflowDistinguishesPendingMergeFromBranchProblems(t *testing.T
 		mutate          func(*Input)
 		wantBranchIssue bool
 		wantReady       bool
-		wantGuidance    string
+		wantPRDetail    string
 	}{
 		"should wait for an open matching PR to merge": {
-			wantGuidance: "wait for it to merge",
+			wantPRDetail: "The open pinning PR sets all selected component versions.",
 		},
 		"should name a mismatched PR version": {
 			mutate: func(in *Input) {
 				in.Repositories[0].PinningPins.Versions["fact"] = "0.3.78"
 			},
-			wantGuidance: "The pinning PR sets FACT_VERSION to 0.3.78; your selected Fact version is 0.3.79.",
+			wantPRDetail: "The pinning PR sets FACT_VERSION to 0.3.78; your selected Fact version is 0.3.79.",
 		},
 		"should still report PR differences when branch pins already match": {
 			mutate: func(in *Input) {
@@ -27,7 +27,7 @@ func TestPinningWorkflowDistinguishesPendingMergeFromBranchProblems(t *testing.T
 				in.Repositories[0].PinningPins.Versions["fact"] = "0.3.78"
 			},
 			wantReady:    true,
-			wantGuidance: "The pinning PR sets FACT_VERSION to 0.3.78; your selected Fact version is 0.3.79.",
+			wantPRDetail: "The pinning PR sets FACT_VERSION to 0.3.78; your selected Fact version is 0.3.79.",
 		},
 		"should retain mismatches after merge": {
 			mutate: func(in *Input) {
@@ -49,7 +49,7 @@ func TestPinningWorkflowDistinguishesPendingMergeFromBranchProblems(t *testing.T
 				in.Repositories[0].PinningEvidence = Evidence{Error: "Request timed out."}
 			},
 			wantBranchIssue: true,
-			wantGuidance:    "Request timed out.",
+			wantPRDetail:    "Request timed out.",
 		},
 		"should retain branch problems for another target branch": {
 			mutate: func(in *Input) {
@@ -61,7 +61,7 @@ func TestPinningWorkflowDistinguishesPendingMergeFromBranchProblems(t *testing.T
 			mutate: func(in *Input) {
 				in.Choices.PRs[in.Config.PinningTarget()] = Ignored
 			},
-			wantGuidance: "wait for it to merge",
+			wantPRDetail: "The open pinning PR sets all selected component versions.",
 		},
 		"should retain branch problems when the PR closes without merge": {
 			mutate: func(in *Input) {
@@ -88,12 +88,12 @@ func TestPinningWorkflowDistinguishesPendingMergeFromBranchProblems(t *testing.T
 			if a.Ready != tc.wantReady {
 				t.Errorf("RC.0 readiness = %t, want %t", a.Ready, tc.wantReady)
 			}
-			guidance := strings.Join(a.ACSRecommendations, "\n")
-			if got := strings.Contains(guidance, "Review ACS release branch pins:"); got != tc.wantBranchIssue {
-				t.Errorf("branch issue = %t, want %t: %s", got, tc.wantBranchIssue, guidance)
+			detail := a.Pins.PRSummary + "\n" + a.Pins.PRReason
+			if got := a.Pins.BranchStatus == No && !a.Pins.PROpen; got != tc.wantBranchIssue {
+				t.Errorf("branch issue = %t, want %t: %s", got, tc.wantBranchIssue, a.Pins.BranchReason)
 			}
-			if !strings.Contains(guidance, tc.wantGuidance) {
-				t.Errorf("missing guidance %q: %s", tc.wantGuidance, guidance)
+			if !strings.Contains(detail, tc.wantPRDetail) {
+				t.Errorf("missing pinning detail %q: %s", tc.wantPRDetail, detail)
 			}
 		})
 	}
@@ -116,7 +116,7 @@ func TestPinningPRMismatchNamesOnlyFilesNeedingUpdates(t *testing.T) {
 	if len(a.Pins.PRProblems) != 1 || a.Pins.PRProblems[0] != want {
 		t.Fatalf("PR problems = %q, want only %q", a.Pins.PRProblems, want)
 	}
-	if a.Pins.PRStatus != No || !strings.Contains(strings.Join(a.ACSRecommendations, "\n"), want) {
-		t.Fatal("PR version mismatch is not actionable without component image evidence", a.Pins, a.ACSRecommendations)
+	if a.Pins.PRStatus != No || !strings.Contains(a.Pins.PRReason, want) {
+		t.Fatal("PR version mismatch is not actionable without component image evidence", a.Pins)
 	}
 }

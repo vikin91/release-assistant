@@ -33,10 +33,11 @@
       <p>Waiting for GitHub to verify that saved pinning PR #{{.Snapshot.PendingPinningPR}} targets {{.Snapshot.Config.Branch}}.</p>
       {{with .ACS}}{{with .PinningPins.Evidence.Error}}<p class="error-text">{{.}}</p>{{end}}{{end}}
     {{else}}
-      <p>Choose a pinning PR from the ACS release PR list or enter its number in Settings.</p>
+      {{if not .Snapshot.Assessment.PinningRecommendation}}<p>Choose a pinning PR from the ACS release PR list or enter its number in Settings.</p>{{end}}
       {{template "branch-pin-pill" .}}
     {{end}}
     {{if $pins.PRProblems}}<ol class="pin-problems">{{range $pins.PRProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}
+    {{with .Snapshot.Assessment.PinningRecommendation}}<p>{{.}}</p>{{end}}
     {{if $branchPending}}
       <p class="muted">Release-branch pins will be verified after merge.</p>
     {{else if $pins.BranchProblems}}<ol class="pin-problems">{{range $pins.BranchProblems}}<li>{{.}}</li>{{end}}</ol>{{end}}
@@ -65,7 +66,7 @@
           {{if $pin.RequiredChecksError}}<p class="error-text">Unable to verify all required checks: {{$pin.RequiredChecksError}}</p>{{if .PinningReportedPassed}}<p>All reported checks passed.</p>{{end}}{{end}}
           {{if .PinningFailures}}<p>Checks need attention{{if or (not $pin.Evidence.Fresh) (not $results.Known)}} (last observed){{end}}. Review the failed checks.</p><ol>{{range .PinningFailures}}<li>{{if url .URL}}<a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">{{.Name}}</a>{{else}}{{.Name}}{{end}}: {{if .Conclusion}}{{.Conclusion}}{{else}}{{.Status}}{{end}}.</li>{{end}}</ol>{{end}}
           {{if .PinningPending}}<p>Waiting for {{.PinningPending}} checks. Wait for their results before retesting.</p>{{end}}
-          {{if .PinningRetests}}{{with .PinningBuildProblems}}<p class="error-text">{{index . 0}}</p>{{end}}<h4>Retest these jobs</h4><ol>{{range .PinningRetests}}<li><a href="/?tab=acs-prs#acs-prs-retry-details" data-open-section>{{.Job}}: view retest comment</a></li>{{end}}</ol>{{else}}{{if .PinningFailures}}<p>No verified retest is available. Open the failed check to investigate or rerun it.</p>{{end}}{{end}}
+          {{if .PinningRetests}}{{with .PinningBuildProblems}}<p class="error-text">{{index . 0}}</p>{{end}}<h4>Eligible retests</h4><ol>{{range .PinningRetests}}<li><a href="/?tab=acs-prs#acs-prs-retry-details" data-open-section>{{.Job}}: view retest comment</a></li>{{end}}</ol>{{else}}{{if .PinningFailures}}<p>No verified retest is available.</p>{{end}}{{end}}
           {{if and $pin.ChecksEvidence.Fresh (not .PinningFailures) (not .PinningPending)}}<p>Unable to establish which checks are required.</p>{{end}}
         {{end}}
       {{end}}

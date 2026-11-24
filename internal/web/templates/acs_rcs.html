@@ -24,12 +24,11 @@
           <p>Unable to discover the current RC tag. {{.Evidence.Error}}</p>
         {{else if .Evidence.Fresh}}
           <p>No release candidate tag exists for this patch on the release branch.</p>
-          <p><a aria-describedby="new-tab-description" href="{{url $.RC.WorkflowURL}}" target="_blank" rel="noreferrer">Open release workflow</a></p>
         {{else}}
           <p class="muted">Waiting to discover release candidate tags.</p>
         {{end}}
       {{end}}
-      {{if not .RC.TagURL}}<p class="muted">Commits since RC · Waiting for a verified tag.</p>{{end}}
+      {{if .RC.ReadyForTag}}<p>The release branch is ready for a new RC. <a aria-describedby="new-tab-description" href="{{url .RC.WorkflowURL}}" target="_blank" rel="noreferrer">Open release workflow</a></p>{{end}}
       {{if and .RC.TagURL (not .Snapshot.RCImageWaitReason)}}
         {{if and .RC.KonfluxMissing (or .RC.CITotal (eq .RC.MissingAfterBuild .RC.KonfluxMissing))}}
           <div class="rc-summary">

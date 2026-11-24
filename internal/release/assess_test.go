@@ -3,7 +3,6 @@ package release
 import (
 	"fmt"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -245,9 +244,6 @@ func TestAssessPinsImagesAndSelection(t *testing.T) {
 			if a.PinningRecommendation != tt.wantPinning {
 				t.Fatalf("pinning recommendation = %q, want %q", a.PinningRecommendation, tt.wantPinning)
 			}
-			if tt.wantPinning != "" && !slices.Contains(a.ACSRecommendations, tt.wantPinning) {
-				t.Fatalf("ACS recommendations omitted %q: %v", tt.wantPinning, a.ACSRecommendations)
-			}
 		})
 	}
 }
@@ -297,12 +293,12 @@ func TestAssessReadinessDoesNotRequireSelectionConfirmation(t *testing.T) {
 	}
 }
 
-func TestAssessActivityGuidance(t *testing.T) {
+func TestAssessReportsIndependentReleaseEvidence(t *testing.T) {
 	tests := map[string]struct {
 		mutate func(*Input)
 		check  func(*testing.T, Assessment)
 	}{
-		"should guide component merges before any tag exists": {
+		"should assess component merges before any tag exists": {
 			mutate: func(in *Input) {
 				in.Choices.Tags = nil
 				in.Repositories[1].Tags = nil
@@ -312,41 +308,38 @@ func TestAssessActivityGuidance(t *testing.T) {
 				in.Choices.PRs[pr.Target] = Included
 			},
 			check: func(t *testing.T, a Assessment) {
-				merges := strings.Join(a.ComponentPRRecommendations, " ")
-				if !strings.Contains(merges, "merge it into release-0.3") || strings.Contains(merges, "tag") {
-					t.Fatalf("component merge guidance depends on tags: %s", merges)
-				}
-				releases := strings.Join(a.ComponentReleaseRecommendations, " ")
-				if !strings.Contains(releases, "Wait for the included fact PRs to merge") || !strings.Contains(a.ReleaseGuides["fact"], "/docs/release.md") {
-					t.Fatalf("release prerequisites and guide missing: %s", releases)
+				pr := conditionByName(t, a, "included PR stackrox/fact#40")
+				if pr.Status != No || !strings.Contains(pr.Reason, "open on the component release branch") {
+					t.Fatalf("unexpected component PR condition: %+v", pr)
 				}
 				if a.Ready || a.PinningRecommendation != "" {
 					t.Fatal("missing tag choices allowed release readiness or a pinning recommendation")
 				}
 			},
 		},
-		"should prompt for the component tag to include in the ACS release": {
+		"should propose a tag when none is selected": {
 			mutate: func(in *Input) { delete(in.Choices.Tags, "fact") },
 			check: func(t *testing.T, a Assessment) {
-				releases := strings.Join(a.ComponentReleaseRecommendations, " ")
-				if !strings.Contains(releases, "Select Fact tag to include in ACS 5.0.1.") {
-					t.Fatalf("missing tag selection guidance: %s", releases)
+				if a.ProposedTags["fact"] == "" || conditionByName(t, a, "tag fact").Status != "" {
+					t.Fatal("expected a proposed tag and no selected tag")
 				}
 			},
 		},
-		"should show image failures alongside another component's tag guidance": {
+		"should assess missing images independently of another component's tag selection": {
 			mutate: func(in *Input) {
 				delete(in.Choices.Tags, "collector")
 				in.Inventory.Images[0].Present = No
 			},
 			check: func(t *testing.T, a Assessment) {
-				releases := strings.Join(a.ComponentReleaseRecommendations, " ")
-				if !strings.Contains(releases, "Select Collector tag to include in ACS 5.0.1.") || !strings.Contains(releases, "ci image is missing") {
-					t.Fatalf("simultaneous release work was hidden: %s", releases)
+				if a.ProposedTags["collector"] == "" || conditionByName(t, a, "tag collector").Status != "" {
+					t.Fatal("expected a proposed Collector tag and no selected tag")
+				}
+				if image := conditionByName(t, a, "image fact ci"); image.Status != No {
+					t.Fatalf("expected a missing Fact CI image: %+v", image)
 				}
 			},
 		},
-		"should guide ACS merges independently of component releases": {
+		"should assess ACS merges independently of component releases": {
 			mutate: func(in *Input) {
 				in.Choices.Tags = nil
 				pr := PR{Target: Target{Repo: in.Config.ACS().Repo, PR: 41}, Base: in.Config.Branch, State: "open", Evidence: freshEvidence()}
@@ -356,13 +349,6 @@ func TestAssessActivityGuidance(t *testing.T) {
 				in.Choices.PRs[pr.Target], in.Choices.PRs[second.Target] = Included, Included
 			},
 			check: func(t *testing.T, a Assessment) {
-				acs := strings.Join(a.ACSRecommendations, " ")
-				if strings.Count(acs, "Merge included PRs and cut new RC.") != 1 || strings.Contains(acs, "Review the checks for included PR") {
-					t.Fatalf("ACS merge guidance missing: %s", acs)
-				}
-				if !strings.Contains(acs, `Select component tags in "Component releases" tab.`) || strings.Contains(acs, "pin discovery") || strings.Contains(acs, "..") {
-					t.Fatalf("expected tag choices were presented as discovery failures: %s", acs)
-				}
 				condition := conditionByName(t, a, "included PR stackrox/stackrox#41")
 				if strings.Contains(condition.Reason, "tag") || strings.Contains(condition.Reason, "component") {
 					t.Fatalf("ACS merge condition refers to component releases: %s", condition.Reason)
@@ -531,14 +517,12 @@ func TestAssessComponentBaseline(t *testing.T) {
 			if !strings.Contains(record.Reason, tt.reason) {
 				t.Fatalf("reason does not contain %q: %s", tt.reason, record.Reason)
 			}
-			prGuidance := strings.Join(a.ComponentPRRecommendations, " ")
-			if strings.Contains(prGuidance, "PR preparation is the current step") != tt.allNoTag {
-				t.Fatalf("unexpected PR preparation guidance: %s", prGuidance)
+			if got := a.ComponentPRPreparation() != ""; got != tt.allNoTag {
+				t.Fatalf("PR preparation notice present = %t, want %t", got, tt.allNoTag)
 			}
-			acsGuidance := strings.Join(a.ACSRecommendations, " ")
 			allAtTip := tt.relation == "equal" && !tt.ahead && !tt.openPR
-			if strings.Contains(acsGuidance, "new patch may be unnecessary") == allAtTip {
-				t.Fatalf("unexpected previous patch advice: %s", acsGuidance)
+			if a.PatchMayBeUnnecessary != allAtTip {
+				t.Fatalf("previous patch notice = %t, want %t", a.PatchMayBeUnnecessary, allAtTip)
 			}
 			acs.PreviousPins = Pins{}
 			withoutBaseline := Assess(in)
@@ -694,7 +678,7 @@ func TestAssessPinSummarySeparatesActualPinsFromPRProposal(t *testing.T) {
 				in.Repositories[0].PinningPR = &PR{Target: Target{Repo: "stackrox/stackrox", PR: 99}, Base: in.Config.Branch, State: "open", Evidence: freshEvidence()}
 				in.Repositories[0].PinningPins = Pins{Versions: map[string]string{"fact": "0.3.79", "collector": "0.4.12"}, Evidence: freshEvidence()}
 			},
-			wantBranch: Yes, wantPR: "", wantBranchText: "match selected versions", wantPRText: "wait for it to merge",
+			wantBranch: Yes, wantPR: "", wantBranchText: "match selected versions", wantPRText: "The open pinning PR sets all selected component versions.",
 		},
 		"matching branch and wrong proposal": {
 			mutate: func(in *Input) {
@@ -746,18 +730,16 @@ func TestAssessPinSummarySeparatesActualPinsFromPRProposal(t *testing.T) {
 
 func TestAssessPinSummaryDiagnostics(t *testing.T) {
 	tests := map[string]struct {
-		mutate                  func(*Input)
-		wantBranch              string
-		wantBranchSummary       string
-		absentACSRecommendation string
-		wantRecommendation      string
-		wantPRSummary           string
-		wantPRReason            string
-		branchStatus            Truth
-		prStatus                Truth
-		branchUnknown           bool
-		prUnknown               bool
-		absentBranch            string
+		mutate            func(*Input)
+		wantBranch        string
+		wantBranchSummary string
+		wantPRSummary     string
+		wantPRReason      string
+		branchStatus      Truth
+		prStatus          Truth
+		branchUnknown     bool
+		prUnknown         bool
+		absentBranch      string
 	}{
 		"initial reads are pending": {
 			mutate: func(in *Input) {
@@ -785,9 +767,8 @@ func TestAssessPinSummaryDiagnostics(t *testing.T) {
 				in.Repositories[0].PinningEvidence = freshEvidence()
 				in.Repositories[0].PinningPins = Pins{Paths: map[string]string{"fact": "FACT_VERSION"}, Failures: map[string]string{"fact": "Access denied (HTTP 403)"}, Evidence: Evidence{Error: "Access denied (HTTP 403)"}}
 			},
-			wantPRSummary:      "Unable to get FACT_VERSION",
-			wantPRReason:       "FACT_VERSION: Access denied (HTTP 403)",
-			wantRecommendation: "FACT_VERSION: Access denied (HTTP 403)",
+			wantPRSummary: "Unable to get FACT_VERSION",
+			wantPRReason:  "FACT_VERSION: Access denied (HTTP 403)",
 		},
 		"pin file authentication failure names cause and file": {
 			mutate: func(in *Input) {
@@ -851,11 +832,9 @@ func TestAssessPinSummaryDiagnostics(t *testing.T) {
 				in.Repositories[0].PinningEvidence = freshEvidence()
 				in.Repositories[0].PinningPins = Pins{Versions: map[string]string{"fact": "0.3.79", "collector": "0.4.12"}, Evidence: freshEvidence()}
 			},
-			wantBranch:              "Choose Fact and Collector tags",
-			wantPRSummary:           "component tag selection required",
-			wantPRReason:            "Choose Fact and Collector tags",
-			wantRecommendation:      `Select component tags in "Component releases" tab.`,
-			absentACSRecommendation: "Pinning PR comparison",
+			wantBranch:    "Choose Fact and Collector tags",
+			wantPRSummary: "component tag selection required",
+			wantPRReason:  "Choose Fact and Collector tags",
 		},
 		"merged PR remains verified despite unrelated discovery error": {
 			mutate: func(in *Input) {
@@ -882,12 +861,6 @@ func TestAssessPinSummaryDiagnostics(t *testing.T) {
 			}
 			assessment := Assess(in)
 			pins := assessment.Pins
-			if tt.absentACSRecommendation != "" && strings.Contains(strings.Join(assessment.ACSRecommendations, " "), tt.absentACSRecommendation) {
-				t.Fatalf("unexpected ACS recommendation: %v", assessment.ACSRecommendations)
-			}
-			if tt.wantRecommendation != "" && !strings.Contains(strings.Join(assessment.Recommendations, " "), tt.wantRecommendation) {
-				t.Fatalf("specific cause missing from recommendations: %v", assessment.Recommendations)
-			}
 			if tt.wantBranchSummary != "" && pins.BranchSummary != tt.wantBranchSummary {
 				t.Fatalf("branch summary = %q, want %q", pins.BranchSummary, tt.wantBranchSummary)
 			}
@@ -930,57 +903,44 @@ func imageStatusByRef(t *testing.T, assessment Assessment, ref string) ImageStat
 	return ImageStatus{}
 }
 
-func TestAssessRecommendsConcreteOutstandingSteps(t *testing.T) {
-	tests := []struct {
-		name               string
-		mutate             func(*Input)
-		wantRecommendation string
-		wantUnknown        string
+func TestAssessReportsOutstandingConditions(t *testing.T) {
+	for name, tt := range map[string]struct {
+		mutate    func(*Input)
+		condition string
+		reason    string
+		status    Truth
 	}{
-		{
-			name: "investigate missing component image",
-			mutate: func(in *Input) {
-				in.Inventory.Images[0].Present = No
-			},
-			wantRecommendation: "The ci image is missing: quay.io/rox/fact-ci:v0.3.79",
+		"missing component image": {
+			mutate:    func(in *Input) { in.Inventory.Images[0].Present = No },
+			condition: "image fact ci",
+			reason:    "The ci image is missing: quay.io/rox/fact-ci:v0.3.79",
+			status:    No,
 		},
-		{
-			name: "refresh unresolved image registry observation",
+		"unavailable registry observation": {
 			mutate: func(in *Input) {
 				in.Inventory.Images[0].Evidence = Evidence{Known: true, Error: "unauthorized"}
 			},
-			wantRecommendation: "Refresh component image observations and registry access: The ci image registry result for fact is unavailable.",
-			wantUnknown:        "image fact ci",
+			condition: "image fact ci",
+			reason:    "registry result for fact is unavailable",
 		},
-		{
-			name: "refresh unavailable ACS pin observations",
+		"unavailable ACS pin observations": {
 			mutate: func(in *Input) {
 				in.Repositories[0].Pins.Evidence = Evidence{Known: true, Error: "discovery unavailable"}
 			},
-			wantRecommendation: "Review ACS release branch pin discovery",
-			wantUnknown:        "ACS release branch pins",
+			condition: "ACS release branch pins",
+			reason:    "discovery unavailable",
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	} {
+		t.Run(name, func(t *testing.T) {
 			in := readyInput()
 			tt.mutate(&in)
 			a := Assess(in)
 			if a.Ready {
 				t.Fatal("assessment is ready with an outstanding condition")
 			}
-			recommendations := strings.Join(a.Recommendations, "\n")
-			if !strings.Contains(recommendations, tt.wantRecommendation) {
-				t.Fatalf("recommendations %q do not include %q", recommendations, tt.wantRecommendation)
-			}
-			if strings.Contains(recommendations, "Ready for ACS RC.0") {
-				t.Fatalf("recommendations imply readiness: %q", recommendations)
-			}
-			if tt.wantUnknown != "" {
-				if status := conditionByName(t, a, tt.wantUnknown).Status; status != "" {
-					t.Fatalf("condition %q status = %q, want unknown", tt.wantUnknown, status)
-				}
+			condition := conditionByName(t, a, tt.condition)
+			if condition.Status != tt.status || !strings.Contains(condition.Reason, tt.reason) {
+				t.Fatalf("unexpected condition: %+v", condition)
 			}
 		})
 	}
@@ -1065,7 +1025,7 @@ func TestChangedPinningPRInputDoesNotReuseEarlierProposal(t *testing.T) {
 	in.Repositories[0].Pins.Versions["fact"] = "0.3.78"
 	in.Repositories[0].PinningPR = &PR{Target: Target{Repo: "stackrox/stackrox", PR: 100}, State: "open", Base: in.Config.Branch, Evidence: freshEvidence()}
 	a := Assess(in)
-	if a.PinningRecommendation != "" || !strings.Contains(strings.Join(a.Recommendations, " "), "Pending: reading pinning PR #200") {
+	if a.PinningRecommendation != "" || !strings.Contains(a.Pins.PRSummary, "Pending: reading pinning PR #200") {
 		t.Fatal("old pinning target reused", a)
 	}
 }

@@ -8,7 +8,6 @@
         {{$source := .Repository.Source}}
         <article class="component-tag-row" data-live-key="tag-repo:{{$source.Name}}:{{$source.Repo}}">
           <h3>{{title $source.Name}} · <code>{{$source.Branch}}</code></h3>
-          {{if not .CurrentTag}}<p class="tag-prompt">Choose which {{title $source.Name}} version should be included in ACS {{$.Snapshot.Config.Version}}.</p>{{end}}
           {{if .CurrentTag}}
           <table class="tag-options" aria-label="{{title $source.Name}} release tags">
             <thead><tr><th scope="col">Tag</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
@@ -40,14 +39,14 @@
           {{end}}
           {{else if or .Tags .OtherTags}}{{template "component-tag-options" .}}
           {{else}}<p class="muted">No tags observed yet.</p>{{end}}
-          {{if .NewerTag}}<p class="tag-prompt">Review {{.NewerTag}} for a newer release.</p>{{end}}
+          {{if .NewerTag}}<p class="tag-prompt">Newer tag available <code>{{.NewerTag}}</code>.</p>{{end}}
           <details class="tag-evidence component-tag-details" data-fold-key="{{if .CurrentTag}}tag-evidence:{{$source.Name}}:{{$source.Repo}}@{{.CurrentTag}}{{else}}tag-repo-details:{{$source.Name}}:{{$source.Repo}}{{end}}">
             <summary>Details</summary>
             <p>{{$source.Repo}} · <code>{{$source.Branch}}</code> · stream {{$source.Stream}}</p>
             {{if .Baseline}}<p class="muted">{{.Baseline}}</p>{{end}}
             {{with index $.Snapshot.Assessment.ReleaseGuides $source.Name}}<p><a aria-describedby="new-tab-description" href="{{url .}}" target="_blank" rel="noreferrer">{{title $source.Name}} release guide</a></p>{{end}}
             {{if .Repository.Evidence.Error}}<p class="error-text">{{.Repository.Evidence.Error}}</p>{{end}}
-            {{if .Coverage.Reason}}<p>{{.Coverage.Reason}}</p>{{end}}
+            {{if and .CurrentTag .Coverage.Reason}}<p>{{.Coverage.Reason}}</p>{{end}}
             {{with .SelectedTag}}
               {{template "tag-observation" .}}
               {{with .Validation}}

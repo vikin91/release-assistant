@@ -222,7 +222,7 @@ func TestGETDoesNotMutateAndRendersIndependentPRControls(t *testing.T) {
 	if len(appFake.actions) != 0 {
 		t.Fatalf("GET applied actions: %+v", appFake.actions)
 	}
-	for _, needle := range []string{"Include</button>", "Exclude</button>", retryCommentPermissionLabel, "Ignore &amp; hide", "#12 A PR"} {
+	for _, needle := range []string{"Include</button>", "Exclude</button>", "Ignore &amp; hide", "#12 A PR"} {
 		if !strings.Contains(body, needle) {
 			t.Errorf("page missing %q", needle)
 		}
@@ -374,8 +374,8 @@ func TestPageEscapesExternalTextAndShowsUnknownEvidenceAndExactOffer(t *testing.
 		Choices:      release.Choices{PRs: map[release.Target]release.Choice{target: release.Included}},
 		Repositories: []release.Repository{{Source: release.Source{Name: "acs", Repo: "acme/rox", Branch: "release"}, PRs: []release.PR{{Target: target, SHA: "head-sha", Title: `<script>alert("x")</script>`, URL: "javascript:alert(1)", State: "open", Base: "release", Evidence: release.Evidence{At: time.Now(), Error: "head observation partial"}}}}},
 		Assessment: release.Assessment{
-			Conditions:         []release.Condition{{Name: "included PR " + target.String(), Status: "", Reason: "Coverage cannot be established", Evidence: []release.Evidence{{Error: "compare API unavailable"}}}},
-			ACSRecommendations: []string{"Review the proposed <tag>", "Create an ACS pinning PR against release-5.0 to set COLLECTOR_VERSION to 3.25.7."},
+			Conditions:            []release.Condition{{Name: "included PR " + target.String(), Status: "", Reason: "Coverage cannot be established", Evidence: []release.Evidence{{Error: "compare API unavailable"}}}},
+			PinningRecommendation: "Create an ACS pinning PR against release-5.0 to set COLLECTOR_VERSION to 3.25.7.",
 		},
 		Plans:     []release.Plan{{Target: target, SHA: "head-sha", Evidence: release.Evidence{Known: false, Error: "partial plan"}, Proposals: []release.Proposal{proposal}}},
 		Authority: []dispatch.View{{Target: target, SHA: "head-sha", Granted: true, Warnings: []string{"slow retry threshold reached"}, Offers: []dispatch.Offer{{ID: "offer-1", Proposal: proposal, Allowed: true, CanApprove: true, Queueable: true}}}},
@@ -389,7 +389,7 @@ func TestPageEscapesExternalTextAndShowsUnknownEvidenceAndExactOffer(t *testing.
 	if strings.Contains(text, `<script>alert("x")</script>`) {
 		t.Fatal("external PR title was rendered as markup")
 	}
-	for _, needle := range []string{"&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", "unknown", "compare API unavailable", "/konflux-retest unit", "run-77", "Open Retest Queue", "Review the proposed &lt;tag&gt;", "<li>Create an ACS pinning PR against release-5.0 to set COLLECTOR_VERSION to 3.25.7.</li>"} {
+	for _, needle := range []string{"&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", "unknown", "compare API unavailable", "/konflux-retest unit", "run-77", "Open Retest Queue", "<p>Create an ACS pinning PR against release-5.0 to set COLLECTOR_VERSION to 3.25.7.</p>"} {
 		if !strings.Contains(text, needle) {
 			t.Errorf("rendered page missing %q", needle)
 		}
@@ -497,8 +497,8 @@ func TestRecommendedTagConfirmationIsSeparateFromPRSelection(t *testing.T) {
 	if strings.Contains(body, "finish-selection") {
 		t.Fatal("individual PR choices must not require extra confirmation")
 	}
-	if !strings.Contains(tags, "Choose which Fact version should be included in ACS 5.0.1.") {
-		t.Fatal("component selection prompt must identify the component and target ACS release")
+	if !strings.Contains(tags, `aria-label="Fact tag choices"`) {
+		t.Fatal("component tag choices must identify the component")
 	}
 	if strings.Contains(tags, "5.0.0") {
 		t.Fatal("ACS release tags must not be offered as component tags")
@@ -990,10 +990,8 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 			t.Errorf("missing stale component evidence %q", want)
 		}
 	}
-	for _, id := range []string{"pr-selection", "component-prs-next-steps"} {
-		if strings.Contains(body, `<details id="`+id+`"`) || !strings.Contains(body, `id="`+id+`"`) {
-			t.Errorf("%s must stay visible and directly linkable", id)
-		}
+	if strings.Contains(body, `<details id="pr-selection"`) || !strings.Contains(body, `id="pr-selection"`) {
+		t.Error("PR selection must stay visible and directly linkable")
 	}
 	for _, control := range []string{`<details id="component-images" open>`, `<details id="acs-prs-retry-details" open>`, `<details id="component-releases-retry-details" open>`} {
 		if !strings.Contains(body, control) {

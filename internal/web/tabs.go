@@ -46,9 +46,7 @@ func tabStep(tab string) string {
 func tabHelp(tab string) string {
 	switch tab {
 	case "acs-prs":
-		return "Choose component versions in the Component releases tab, then use the pinning details here to verify which versions will ship. Review open pull requests targeting the ACS release branch. Include PRs that belong in this patch and exclude those that can wait for the next one. Follow the CI and Konflux checks on included PRs and use the available retry commands to rerun failed jobs. Once the required checks pass, merge the PRs in GitHub."
-	case "acs-rcs":
-		return "Follow the current RC builds and verify their published images."
+		return "Pinning details compares the selected component versions with the ACS release branch and the pinning PR. Including an ACS PR tracks its required checks and merge."
 	default:
 		return ""
 	}
@@ -109,9 +107,6 @@ func tabPage(page pageModel, tab string) pageModel {
 	page.Authority = authority
 	problems := make([]release.Condition, 0, len(page.Problems))
 	for _, problem := range page.Problems {
-		if tab == "acs-prs" && problem.AwaitsACSMerge() {
-			continue
-		}
 		for target := range page.Snapshot.Choices.PRs {
 			if problem.Name == "included PR "+target.String() && matchesTarget(target) {
 				problems = append(problems, problem)
@@ -123,18 +118,8 @@ func tabPage(page pageModel, tab string) pageModel {
 	switch tab {
 	case "acs-rcs":
 		page.prepareRC()
-	case "component-releases":
-		page.Guidance = page.Snapshot.Assessment.ComponentReleaseRecommendations
-	case "acs-prs":
-		page.Guidance = page.Snapshot.Assessment.ACSRecommendations
-	default:
-		page.Guidance = page.Snapshot.Assessment.ComponentPRRecommendations
-		if tab == "component-prs" {
-			page.ComponentPRNotice = page.Snapshot.Assessment.ComponentPRPreparation()
-			if last := len(page.Guidance) - 1; last >= 0 && page.Guidance[last] == page.ComponentPRNotice {
-				page.Guidance = page.Guidance[:last]
-			}
-		}
+	case "component-prs":
+		page.ComponentPRNotice = page.Snapshot.Assessment.ComponentPRPreparation()
 	}
 	return page
 }

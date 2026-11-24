@@ -70,7 +70,7 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 		}
 	}
 	if !strings.Contains(tagDetails, `<table class="tag-options"`) || !strings.Contains(tagDetails, "Switch to fact 3.25.2") ||
-		!strings.Contains(tagDetails, "Review 3.25.2") || application.snapshot.Choices.Tags["fact"] != "3.25.1" {
+		!strings.Contains(tagDetails, "Newer tag available <code>3.25.2</code>") || application.snapshot.Choices.Tags["fact"] != "3.25.1" {
 		t.Fatal("tag alternatives should be available through an explicit switch action")
 	}
 	var switchForm string

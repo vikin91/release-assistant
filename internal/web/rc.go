@@ -18,6 +18,7 @@ type (
 		CommitURL                         string
 		Plan                              *planModel
 		Permission                        *tagModel
+		ReadyForTag                       bool
 		ValidationRows                    []rcValidationRow
 		ValidationObserved                bool
 		UnverifiedJobs                    []release.Run
@@ -43,6 +44,15 @@ func (p *pageModel) prepareRC() {
 	if target.Valid() {
 		p.RC.TagURL = repoURL + "/tree/refs/tags/" + url.PathEscape(target.Tag)
 	}
+	assessment := p.Snapshot.Assessment
+	p.RC.ReadyForTag = p.RC.Candidate.Evidence.Fresh() && (p.RC.TagURL == "" || p.RC.Candidate.Ahead > 0) &&
+		p.ACS != nil && !p.ACS.TagsPending && !slices.ContainsFunc(p.ACS.Tags, func(tag release.Tag) bool {
+		return strings.TrimPrefix(tag.Name, "v") == strings.TrimPrefix(p.Snapshot.Config.Version, "v")
+	}) &&
+		assessment.Ready && !assessment.PatchMayBeUnnecessary &&
+		p.TabStatuses["component-prs"].State == tabComplete &&
+		p.TabStatuses["component-releases"].State == tabComplete &&
+		p.TabStatuses["acs-prs"].State == tabComplete
 	for _, check := range p.Snapshot.Assessment.Images {
 		if check.Image.Component != "acs" {
 			continue

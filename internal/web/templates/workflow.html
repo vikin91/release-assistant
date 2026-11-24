@@ -4,37 +4,22 @@
     {{if eq .Tab "component-prs"}}
       <p><strong>Components</strong> · {{range $i, $source := .Snapshot.Config.Components}}{{if $i}}, {{end}}{{title $source.Name}} (<code>{{$source.Branch}}</code>){{end}}</p>
     {{end}}
-    <details class="workflow-help" data-fold-key="{{.Tab}}-guide">
+    {{if ne .Tab "acs-rcs"}}<details class="workflow-help" data-fold-key="{{.Tab}}-guide">
       <summary>Help</summary>
       {{if eq .Tab "component-prs"}}
-        <p>For each component listed above, review the pull requests open against its release branch. Choose which PRs to include in that component’s release. You can leave a PR undecided, exclude it, or hide it from this view. Follow the checks here and merge each included PR in GitHub.</p>
-        <p><strong>Include</strong> tells the assistant to track the PR’s checks and merge, then verify that the selected component tag contains the merge. <strong>Exclude</strong> keeps the PR visible and stops detailed monitoring and retries. <strong>Ignore &amp; hide</strong> also hides it from the default list. Use the <strong>Ignored &amp; hidden</strong> filter to find it again.</p>
-        <p>With writes enabled, select <strong>Send</strong> in the <strong>Retest Queue</strong> to post one eligible Konflux retry comment. In automatic mode, select <strong>{{retryCommentPermissionLabel}}</strong> for the PR.</p>
+        <p><strong>Include</strong> tracks the PR’s checks and verifies that the selected component tag contains the merge. <strong>Exclude</strong> stops detailed monitoring and retries. <strong>Ignore &amp; hide</strong> also moves the PR to the <strong>Ignored &amp; hidden</strong> filter. You can release a component without including any new PRs.</p>
       {{else if eq .Tab "component-releases"}}
-        <p>Select the release tag for each component. If you need a new tag, follow the component’s release guide to create it and start the release, then select it here. Check that the tag covers the included PRs, follow its build status, and use <strong>Component images</strong> to see whether the CI and Konflux images have been published.</p>
-        <p>Use the <strong>Retest Queue</strong> to review eligible Konflux retries. With writes enabled, select <strong>Send</strong> in Interactive mode or grant automatic posting permission for the selected tag in an automatic mode.</p>
+        <p>The selected tag must contain the included PRs’ merge commits. If no existing tag covers them, use the component’s release guide to cut a covering tag and start its release.</p>
       {{else}}<p>{{tabHelp .Tab}}</p>{{end}}
-    </details>
+    </details>{{end}}
   </div>
   {{with index .TabStatuses .Tab}}{{if .Label}}<p class="workflow-status"><strong>{{.Label}}</strong> · {{.Reason}}</p>{{end}}{{end}}
+  {{if and (eq .Tab "acs-prs") .Snapshot.Assessment.PatchMayBeUnnecessary}}
+    <p class="notice">The previous patch was published, no open ACS PRs were observed, and the component branches still match the previous pins. A new patch may be unnecessary.</p>
+  {{end}}
   {{if eq .Tab "component-prs"}}{{template "pr-list" .}}{{end}}
   {{if eq .Tab "component-releases"}}{{template "component-releases" .}}{{end}}
   {{if eq .Tab "acs-prs"}}{{template "acs-pinning" .}}{{template "pr-list" .}}{{end}}
-  {{if and (ne .Tab "acs-rcs") (or (ne .Tab "component-releases") .Guidance)}}
-  <section id="{{.Tab}}-next-steps-panel" class="panel" aria-label="Next actions">
-    {{if eq .Tab "component-prs"}}
-    <h3 id="{{.Tab}}-next-steps" class="section-summary">Recommended next steps</h3>
-    {{else}}
-    <details id="{{.Tab}}-next-steps" open><summary class="section-summary">Recommended next steps</summary>
-    {{end}}
-    {{if and (eq .Tab "component-prs") (eq (index .TabStatuses .Tab).Class "complete")}}
-    <p>All steps in this phase are complete.</p>
-    {{else if and (eq .Tab "acs-prs") (eq (len .Guidance) 1)}}<p>{{index .Guidance 0}}</p>
-    {{else if .Guidance}}<ol>{{range .Guidance}}<li>{{.}}</li>{{end}}</ol>{{else}}<p class="muted">Waiting for the first observations for this activity.</p>{{end}}
-    {{if .Problems}}<details id="{{.Tab}}-readiness-details" class="readiness-details" open><summary>Checks that need attention</summary><ol>{{range .Problems}}<li>{{.Reason}}{{range .Evidence}}{{if .Error}} · {{.Error}}{{end}}{{end}}</li>{{end}}</ol></details>{{end}}
-    {{if ne .Tab "component-prs"}}</details>{{end}}
-  </section>
-  {{end}}
   {{if eq .Tab "acs-rcs"}}{{template "acs-rcs" .}}{{else}}{{template "retries" .}}{{end}}
   {{if and (ne .Tab "acs-prs") (or (eq .Tab "acs-rcs") .ManualRetries)}}{{template "manual-ci-retries" .}}{{end}}
 {{end}}
