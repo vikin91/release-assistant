@@ -11,13 +11,17 @@
 <body{{if .Home}} data-home="true"{{end}}{{if .Profiles}} data-profile="{{.ProfileID}}"{{end}} data-configured="{{.Configured}}" data-active-tab="{{.Tab}}" data-session="{{.CSRF}}:{{.Snapshot.Generation}}" data-loading="{{and .Configured .Snapshot.Loading}}"{{with .Snapshot.KonfluxHealth}} data-konflux-health="{{if .CheckedAt.IsZero}}pending{{else if .Healthy}}healthy{{else}}unverified{{end}}"{{end}}>
 <span id="new-tab-description" hidden>Opens in a new tab</span>
 <header class="topbar">
-  {{if and .Profiles .ReleaseProfiles}}
+  {{if .Profiles}}
   <nav class="release-switcher" aria-label="Tracked releases">
-    <div class="release-tabs">
+    {{if .ReleaseProfiles}}<div class="release-tabs">
     {{range .ReleaseProfiles}}
       {{template "open-release" (releaseLink $ .)}}
     {{end}}
-    </div>
+    </div>{{end}}
+    <form method="post" action="/action" class="release-add">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button type="submit" name="kind" value="add-release">{{template "nav-icon" "plus"}}Add release</button>
+    </form>
   </nav>
   {{end}}
   <button type="button" class="drawer-toggle" popovertarget="release-navigation" aria-label="Open release navigation">{{template "nav-icon" "menu"}}</button>
@@ -49,7 +53,7 @@
       <span class="rail-mark" aria-hidden="true">{{template "nav-icon" "layers"}}</span><strong>Release Assistant</strong>
     {{if .Profiles}}</a>{{else}}</span>{{end}}
     <button type="button" class="drawer-toggle" popovertarget="release-navigation" popovertargetaction="hide" aria-label="Close release navigation">×</button></div>
-  {{if .Profiles}}<a class="sidebar-home" href="/"{{if .Home}} aria-current="page"{{end}}>Home</a>{{end}}
+  {{if .Profiles}}<a class="sidebar-home" href="/"{{if .Home}} aria-current="page"{{end}}>{{template "nav-icon" "home"}}Home</a>{{end}}
   <h2 class="phases-title">Release phases</h2>
   <nav class="workflow-tabs flex flex-col gap-0.5" {{if not $home}}role="tablist" aria-orientation="vertical" {{end}}aria-label="Release work">
     {{range $i, $tab := (slice "component-prs" "component-releases" "acs-prs" "acs-rcs" "activity" "retest-queue" "settings")}}

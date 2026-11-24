@@ -15,11 +15,7 @@
   {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
   {{if .Paused}}<p class="notice">Select a release to open its dashboard.</p>{{end}}
   {{range .ProfileWarnings}}<p class="notice warning" role="status">{{.}}</p>{{end}}
-  <form method="post" action="/action">
-    <input type="hidden" name="csrf" value="{{.CSRF}}">
-    <button type="submit" name="kind" value="add-release">Add release</button>
-  </form>
-  {{if not .ReleaseProfiles}}<p class="muted">Add a release to start tracking an ACS patch.</p>{{end}}
+  {{if not .ReleaseProfiles}}<p class="muted">No tracked releases yet. Select <strong>Add release</strong> to configure your first one.</p>{{end}}
   <ul class="release-list">
     {{range .ReleaseProfiles}}
     <li class="panel release-list-item{{if eq $.ActiveProfile .ID}} active-release{{end}}">

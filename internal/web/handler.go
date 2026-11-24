@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -178,7 +179,7 @@ func (s *server) get(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	token := fmt.Sprintf("%x", s.csrf[:])
 	http.SetCookie(w, &http.Cookie{Name: csrfName(r.Host), Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 3600})
-	page := s.makePage(token, "", r.URL.Query().Get("release"), r.URL.Query().Get("tab"))
+	page := s.makePage(token, "", r.URL.Query().Get("release"), r.URL.Query().Get("tab"), false)
 	page.ConfigSaved = page.Configured && page.Tab == "settings" && r.URL.Query().Get("saved") == "configuration"
 	if page.Tab == "settings" {
 		saved := r.URL.Query().Get("saved")
@@ -236,7 +237,8 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 	if profileID == "" {
 		profileID = r.URL.Query().Get("release")
 	}
-	page := s.makePage("", "", profileID, r.PostForm.Get("tab"))
+	kind := r.PostForm.Get("kind")
+	page := s.makePage("", "", profileID, r.PostForm.Get("tab"), kind == "configure")
 	snapshot := page.Snapshot
 	current := snapshot.Config
 	if snapshot.PendingPinningPR > 0 {
@@ -248,7 +250,12 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	action.ProfileID = page.ProfileID
-	if action.Kind == "add-release" || action.Kind == "open-release" || action.Kind == "remove-release" {
+	switch action.Kind {
+	case "add-release":
+		if page.Profiles {
+			action.ProfileID = rand.Text()
+		}
+	case "configure", "open-release", "remove-release":
 		action.ProfileID = profileID
 	}
 	if err := s.app.Apply(r.Context(), action); err != nil {
@@ -260,12 +267,23 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 		destination = "/?tab=" + validTab(tab)
 	}
 	switch action.Kind {
-	case "add-release", "remove-release":
+	case "add-release":
+		destination = profilePageURL(action.ProfileID, "settings")
+	case "remove-release":
 		destination = "/"
 	case "open-release":
 		destination = profilePageURL(profileID, "")
 	case "configure":
 		destination = "/?tab=settings&saved=configuration#configuration-panel"
+		if profiles, ok := s.app.(profileApplication); ok && page.Profiles {
+			saved, _, _ := profiles.ReleaseProfiles()
+			for _, p := range saved {
+				if p.Config.Version == strings.TrimPrefix(action.Config.Version, "v") {
+					page.ProfileID = p.ID
+					break
+				}
+			}
+		}
 	case "application-settings":
 		if section := settingsSection(r.PostForm.Get("settings_section")); section != "" {
 			destination = "/?tab=settings&saved=" + section + "#" + section
@@ -350,8 +368,9 @@ func (s *server) renderError(w http.ResponseWriter, r *http.Request, cause error
 	if r.PostForm.Get("kind") == "add-release" || r.PostForm.Get("kind") == "remove-release" || r.PostForm.Get("kind") == "open-release" {
 		profileID = ""
 	}
-	page := s.makePage(fmt.Sprintf("%x", s.csrf[:]), cause.Error(), profileID, r.PostForm.Get("tab"))
-	if r.PostForm.Get("kind") == "configure" {
+	configure := r.PostForm.Get("kind") == "configure"
+	page := s.makePage(fmt.Sprintf("%x", s.csrf[:]), cause.Error(), profileID, r.PostForm.Get("tab"), configure)
+	if configure {
 		// Rejected text remains a page-local draft, separate from the active configuration.
 		page.ConfigRejected = true
 		page.ConfigForm = r.PostForm
@@ -376,20 +395,19 @@ func profilePageURL(id, tab string) string {
 	return "/?" + q.Encode()
 }
 
-func (s *server) makePage(token, message, profileID, tab string) pageModel {
+func (s *server) makePage(token, message, profileID, tab string, configuring bool) pageModel {
 	if profiles, ok := s.app.(profileApplication); ok && profiles.ProfilesEnabled() {
 		saved, active, warnings := profiles.ReleaseProfiles()
-		if profileID == "" && tab != "" {
+		newRelease := configuring && !slices.ContainsFunc(saved, func(p app.ReleaseProfile) bool { return p.ID == profileID })
+		if newRelease {
+			profileID = ""
+		} else if profileID == "" && tab != "" {
 			profileID = active
 		}
-		var snapshot app.Snapshot
-		var found bool
-		if profileID != "" {
-			snapshot, found = profiles.ProfileSnapshot(profileID)
-		}
-		home := profileID == "" && tab == ""
+		snapshot, found := profiles.ProfileSnapshot(profileID)
+		home := profileID == "" && tab == "" && !newRelease
 		paused := profileID != "" && !found
-		if home || paused || profileID == "" {
+		if home || paused {
 			snapshot = s.app.Snapshot()
 		}
 		page := makePage(snapshot, token, message)

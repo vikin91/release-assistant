@@ -1235,7 +1235,8 @@ func TestReleaseHomeAndDraftNavigation(t *testing.T) {
 		handler.ServeHTTP(response, request)
 		return response
 	}
-	if response := post(url.Values{"kind": {"add-release"}}); response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/" {
+	response := post(url.Values{"kind": {"add-release"}})
+	if response.Code != http.StatusSeeOther {
 		t.Fatalf("add release = %d %s", response.Code, response.Body.String())
 	}
 	saved, active, _ := session.ReleaseProfiles()
@@ -1243,6 +1244,9 @@ func TestReleaseHomeAndDraftNavigation(t *testing.T) {
 		t.Fatalf("saved = %+v, active = %s", saved, active)
 	}
 	id := saved[0].ID
+	if location := response.Header().Get("Location"); location != profilePageURL(id, "settings") {
+		t.Fatalf("Add release redirected to %q, want draft Settings", location)
+	}
 	if response := post(url.Values{"kind": {"open-release"}, "profile": {id}}); response.Code != http.StatusSeeOther {
 		t.Fatalf("open release = %d %s", response.Code, response.Body.String())
 	}
@@ -1294,5 +1298,65 @@ func TestHomeKeepsSidebarAndReleaseTabs(t *testing.T) {
 		if path == "/" && !strings.Contains(sidebar, html.EscapeString(profilePageURL(active, "settings"))) {
 			t.Fatal("Home Settings does not link to the active release")
 		}
+	}
+}
+
+func TestSaveUnboundConfigurationCreatesRelease(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	state, err := app.OpenReleaseState(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{}), nil, app.Options{Profiles: true, ReleaseState: state})
+	b := newBrowser(t, session)
+	settings := httptest.NewRecorder()
+	b.handler.ServeHTTP(settings, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/?tab=settings", nil))
+	body := settings.Body.String()
+	header, _, _ := strings.Cut(body, "</header>")
+	if !strings.Contains(header, `value="add-release"`) ||
+		!strings.Contains(body, `<form method="post" action="/action" data-saved-config=`) {
+		t.Fatal("initial Settings must show the tab strip and a usable unbound configuration form")
+	}
+	form := url.Values{
+		"kind": {"configure"}, "tab": {"settings"},
+		"generation": {fmt.Sprint(session.Snapshot().Generation)},
+		"version":    {"5.0.1"}, "branch": {"release-5.0"}, "pinning_pr": {"23956"},
+		"fact_repo": {"stackrox/fact"}, "fact_stream": {"0.4"},
+		"collector_repo": {"stackrox/collector"}, "collector_stream": {"3.26"},
+	}
+	save := func(want string) {
+		t.Helper()
+		response := b.post(form)
+		saved, active, _ := session.ReleaseProfiles()
+		redirect, err := url.Parse(response.Header().Get("Location"))
+		if response.Code != http.StatusSeeOther || err != nil || redirect.Query().Get("release") != active {
+			t.Fatalf("save %s did not redirect to the active profile: %d %s", want, response.Code, response.Body.String())
+		}
+		if len(saved) == 0 || session.Snapshot().Config.Version != want {
+			t.Fatalf("saved profiles = %+v, active = %s", saved, active)
+		}
+	}
+	save("5.0.1")
+	form.Set("version", "5.1.1")
+	form.Set("branch", "release-5.1")
+	form.Set("profile", "missing-profile")
+	save("5.1.1")
+	form.Del("profile")
+	form.Set("version", "5.0.2")
+	form.Set("branch", "release-5.0")
+	if response := b.post(form); response.Code != http.StatusConflict ||
+		!strings.Contains(response.Body.String(), "already tracks the 5.0 stream") ||
+		!strings.Contains(response.Body.String(), `name="version" required value="5.0.2"`) {
+		t.Fatalf("duplicate stream should preserve the form and reject the save: %d", response.Code)
+	}
+	reopened, err := app.OpenReleaseState(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{}), nil, app.Options{Profiles: true, ReleaseState: reopened})
+	saved, active, _ := restarted.ReleaseProfiles()
+	if len(saved) != 2 || saved[0].Config.Version != "5.0.1" || saved[1].ID != active ||
+		restarted.Snapshot().PendingPinningPR != 23956 {
+		t.Fatalf("restored state = %+v, active = %s", saved, active)
 	}
 }

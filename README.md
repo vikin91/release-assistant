@@ -147,7 +147,7 @@ You can switch tabs at any time. Monitoring continues in the background, includi
 
 PR choices apply immediately, and an empty selection is valid. **Excluded** keeps a PR visible and stops detailed monitoring and retries. **Ignore & hide** also removes it from the normal list. **Allow automatic retry comments** grants automatic posting permission for the current PR head.
 
-The assistant opens on Home. Select **Add release** to create a placeholder, open it, and save its configuration in **Settings**. Each ACS major.minor stream can have one tracked release. To start the next patch in that stream, change the patch version in Settings. The tab and branch settings carry forward, and the new patch has its own choices.
+The assistant opens on Home. Select **Add release** in the top tab strip to create a placeholder and open its **Settings**. Saving a valid configuration activates the release. If you open Settings with no release selected, saving a valid configuration creates and activates a release. Each ACS major.minor stream can have one tracked release. To start the next patch in that stream, change the patch version in Settings. The tab and branch settings carry forward, and the new patch has its own choices.
 
 Home keeps the active release polling. Select a top tab or Home item to switch releases. The other releases pause and keep their last observations and polling schedule in memory. Home shows which release is active. To remove a profile and its saved choices, open **Remove** on Home and confirm.
 

@@ -347,6 +347,7 @@ body { display: grid; grid-template: auto 1fr / 248px minmax(0, 1fr); min-height
 
 .workflow-tabs :is([role=tab], .phase-link), .sidebar-home { @apply flex min-h-9 items-center gap-2.5 rounded-md px-2.5 py-2 text-sm leading-snug text-muted-foreground no-underline; }
 .workflow-tabs a:is(:hover, [aria-selected=true]), .sidebar-home:is(:hover, [aria-current=page]) { @apply bg-accent text-foreground; }
+.sidebar-home { margin-bottom: .4rem; color: var(--foreground); font-size: 1rem; font-weight: 600; }
 .workflow-tabs a[aria-selected=true] { font-weight: 600; }
 .workflow-tabs a[aria-selected=true] .nav-icon { color: var(--primary); }
 .workflow-tabs [aria-disabled=true] { opacity: .75; cursor: not-allowed; }
@@ -465,7 +466,9 @@ thead th { @apply text-xs font-medium text-muted-foreground; }
 }
 #activity-log { background: var(--background); }
 
-.release-switcher { display: flex; flex-basis: 100%; min-width: 0; }
+.release-switcher { display: flex; flex-basis: 100%; align-items: center; gap: .6rem; min-width: 0; }
+.release-add { flex: none; margin: .2rem 0; }
+.release-add button { border-style: dashed; white-space: nowrap; }
 .release-logo { display: inline-flex; align-items: center; gap: .5rem; color: var(--foreground); font-weight: 600; flex: none; }
 .release-tabs { display: flex; gap: .4rem; overflow-x: auto; min-width: 0; }
 .release-tabs form, .release-list-item form { margin: .2rem 0; }

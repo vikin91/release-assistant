@@ -150,19 +150,13 @@ func (s *Session) ProfilesEnabled() bool { return s.options.Profiles }
 func (s *Session) ProfileSnapshot(id string) (Snapshot, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p, ok := profileByID(s.options.ReleaseState.file.Profiles, id)
-	if !ok {
-		return Snapshot{}, false
-	}
-	if s.activeProfile == id {
+	p, exists := profileByID(s.options.ReleaseState.file.Profiles, id)
+	if exists && s.activeProfile == id {
 		return s.snapshot(), true
-	}
-	if p.Config.Version != "" {
-		return Snapshot{}, false
 	}
 	x := Snapshot{Generation: s.generation, Interactive: true, RefreshIntervals: maps.Clone(s.options.RefreshIntervals)}
 	s.fillSharedSnapshot(&x)
-	return x, true
+	return x, exists && p.Config.Version == ""
 }
 
 func (s *Session) applyProfile(a Action) error {
@@ -173,8 +167,20 @@ func (s *Session) applyProfile(a Action) error {
 	next.Profiles = slices.Clone(next.Profiles)
 	idx := slices.IndexFunc(next.Profiles, func(p ReleaseProfile) bool { return p.ID == a.ProfileID })
 	if a.Kind == "add-release" {
-		next.Profiles = append(next.Profiles, ReleaseProfile{ID: rand.Text()})
+		if idx >= 0 {
+			return fmt.Errorf("release profile already exists")
+		}
+		id := a.ProfileID
+		if id == "" {
+			id = rand.Text()
+		}
+		next.Profiles = append(next.Profiles, ReleaseProfile{ID: id})
 		return state.commit(next)
+	}
+	creating := a.Kind == "configure" && idx < 0
+	if creating {
+		idx = len(next.Profiles)
+		next.Profiles = append(next.Profiles, ReleaseProfile{ID: rand.Text()})
 	}
 	if idx < 0 {
 		return fmt.Errorf("release profile no longer exists")
@@ -203,7 +209,7 @@ func (s *Session) applyProfile(a Action) error {
 			maps.DeleteFunc(next.PinningPRs, func(version string, _ savedPinningChoice) bool { return stream(version) == key })
 		}
 	case "configure":
-		if a.Generation != s.generation || (profile.Config.Version != "" && s.activeProfile != profile.ID) {
+		if !creating && (a.Generation != s.generation || (profile.Config.Version != "" && s.activeProfile != profile.ID)) {
 			return fmt.Errorf("page belongs to an earlier release selection; reopen the release")
 		}
 		if err := a.Config.Validate(); err != nil {
