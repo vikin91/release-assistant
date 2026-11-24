@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 	"testing/synctest"
@@ -11,23 +12,37 @@ import (
 
 func TestCheckPRRetriesUsesBothReadersForIncludedHead(t *testing.T) {
 	for name, scenario := range map[string]struct {
-		choice release.Choice
-		ciSHA  string
+		choice      release.Choice
+		ciSHA       string
+		githubState string
+		githubErr   error
 	}{
-		"should refresh an included PR":              {release.Included, "head"},
-		"should reject an undecided PR":              {"", "head"},
-		"should reject an excluded PR":               {release.Excluded, "head"},
-		"should hide commands when the head changes": {release.Included, "new-head"},
+		"should refresh an included PR":              {choice: release.Included, ciSHA: "head", githubState: "open"},
+		"should reject an undecided PR":              {githubState: "open"},
+		"should reject an excluded PR":               {choice: release.Excluded, githubState: "open"},
+		"should hide commands when the head changes": {choice: release.Included, ciSHA: "new-head", githubState: "open"},
+		"should refresh a merged PR without checks":  {choice: release.Included, githubState: "merged"},
+		"should refresh a closed PR without checks":  {choice: release.Included, githubState: "closed"},
+		"should still check retries on read failure": {
+			choice: release.Included, ciSHA: "head", githubState: "merged", githubErr: errors.New("GitHub unavailable"),
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			session, _ := newFixture()
+			session, fixture := newFixture()
 			source := configuration().ACS()
 			target := release.Target{Repo: source.Repo, PR: 42}
 			pr := release.PR{Target: target, SHA: "head", Base: source.Branch, State: "open", Evidence: observed()}
 			session.repos[source.Name] = release.Repository{Source: source, PRs: []release.PR{pr}}
 			session.choices.PRs[target] = scenario.choice
 
-			var konfluxCalls, ciCalls int
+			var prReads, konfluxCalls, ciCalls int
+			session.discovery = prPollReader{fixture: fixture, read: func(got release.Target) (release.PR, error) {
+				prReads++
+				fresh := pr
+				fresh.Target, fresh.State = got, scenario.githubState
+				fresh.Merged = scenario.githubState == "merged"
+				return fresh, scenario.githubErr
+			}}
 			session.planner = buildPollPlanner(func(_ context.Context, got release.Target) (release.Plan, error) {
 				konfluxCalls++
 				return release.Plan{Target: got, SHA: pr.SHA, Evidence: observed(),
@@ -44,8 +59,19 @@ func TestCheckPRRetriesUsesBothReadersForIncludedHead(t *testing.T) {
 			snapshot := session.Snapshot()
 			result := snapshot.PRRetryChecks[target]
 			if scenario.choice != release.Included {
-				if err == nil || konfluxCalls != 0 || ciCalls != 0 || result.SHA != "" {
+				if err == nil || prReads != 0 || konfluxCalls != 0 || ciCalls != 0 || result.SHA != "" {
 					t.Fatalf("unauthorized retry check read or published evidence: %v, %+v", err, result)
+				}
+				return
+			}
+			if prReads != 1 {
+				t.Fatalf("got %d PR status reads, want 1", prReads)
+			}
+			if scenario.githubErr == nil && scenario.githubState != "open" {
+				updated := snapshot.Repositories[0].PRs[0]
+				if err != nil || updated.State != scenario.githubState || updated.Merged != (scenario.githubState == "merged") ||
+					konfluxCalls != 0 || ciCalls != 0 || result.SHA != "" {
+					t.Fatalf("expected only the PR status to update, got %+v, retry check %+v, error %v", updated, result, err)
 				}
 				return
 			}

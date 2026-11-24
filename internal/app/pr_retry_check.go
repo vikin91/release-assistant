@@ -20,12 +20,12 @@ type PRRetryCheck struct {
 	CI      release.ManualRetryReport
 }
 
-// retryCheckAllowed requires the selected, open head in the current release.
+// retryCheckSource finds the source for the selected, open head in the current release.
 // The caller holds the session lock.
-func (s *Session) retryCheckAllowed(a Action) bool {
+func (s *Session) retryCheckSource(a Action) (release.Source, bool) {
 	if a.Generation != s.generation || !s.targetsActiveProfile(a.ProfileID) || !a.Target.Valid() || a.Target.PR == 0 || a.SHA == "" ||
 		s.choices.PRs[a.Target] != release.Included {
-		return false
+		return release.Source{}, false
 	}
 	for _, repo := range s.repos {
 		if repo.Source.Repo != a.Target.Repo {
@@ -36,17 +36,17 @@ func (s *Session) retryCheckAllowed(a Action) bool {
 				pr.State == "open" && !pr.Merged && pr.Base == repo.Source.Branch
 		}
 		if pr := repo.PinningPR; pr != nil && pr.Target == a.Target {
-			return matches(*pr)
+			return repo.Source, matches(*pr)
 		}
-		return slices.ContainsFunc(repo.PRs, matches)
+		return repo.Source, slices.ContainsFunc(repo.PRs, matches)
 	}
-	return false
+	return release.Source{}, false
 }
 
-// checkPRRetries stores display evidence without invoking dispatch.
+// checkPRRetries refreshes PR status and retry evidence without sending retries.
 func (s *Session) checkPRRetries(ctx context.Context, a Action) error {
 	s.mu.Lock()
-	allowed := s.retryCheckAllowed(a)
+	source, allowed := s.retryCheckSource(a)
 	ctx = apilog.WithRelease(ctx, s.config.Version)
 	s.mu.Unlock()
 	if !allowed {
@@ -55,6 +55,20 @@ func (s *Session) checkPRRetries(ctx context.Context, a Action) error {
 
 	ctx, cancel := context.WithTimeout(ctx, s.options.Timeout)
 	defer cancel()
+	if reader, ok := s.discovery.(PRReader); ok {
+		pr, err := reader.ReadPR(githubread.WithPriority(ctx, githubread.PRs, source.Repo), a.Target)
+		if canceled(ctx) {
+			return ctx.Err()
+		}
+		if err == nil && pr.Target == a.Target && pr.Evidence.Fresh() && (pr.Merged || pr.State == "closed") {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if _, allowed := s.retryCheckSource(a); allowed {
+				s.observePRHead(source, pr)
+			}
+			return nil
+		}
+	}
 	ctx = githubread.WithPriority(ctx, githubread.Builds, a.Target.Repo)
 	check := PRRetryCheck{SHA: a.SHA, Started: time.Now()}
 	var reads sync.WaitGroup
@@ -94,7 +108,7 @@ func (s *Session) checkPRRetries(ctx context.Context, a Action) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.retryCheckAllowed(a) {
+	if _, allowed := s.retryCheckSource(a); !allowed {
 		return fmt.Errorf("PR head or inclusion changed during the retry check")
 	}
 	if current := s.prRetryChecks[a.Target]; !current.Started.After(check.Started) {
