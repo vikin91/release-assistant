@@ -1,4 +1,13 @@
 document.addEventListener("DOMContentLoaded", () => {
+  const topbarResize = "ResizeObserver" in window ? new window.ResizeObserver(([entry]) => {
+    document.documentElement.style.setProperty("--topbar-height", `${entry.target.offsetHeight}px`);
+  }) : null;
+  const topbar = document.querySelector(".topbar");
+  if (topbarResize && topbar) {
+    document.documentElement.style.setProperty("--topbar-height", `${topbar.offsetHeight}px`);
+    topbarResize.observe(topbar);
+  }
+
   const sections = () => Array.from(document.querySelectorAll("details"));
   const sectionKey = (section) => section.dataset.transient !== undefined ? "" : section.dataset.foldKey || section.id;
   const profile = document.body.dataset.profile || "";
@@ -308,6 +317,10 @@ document.addEventListener("DOMContentLoaded", () => {
             if (current && next && !current.contains(document.activeElement) &&
                 !current.querySelector("details[open], dialog[open]") && current.innerHTML !== next.innerHTML) {
               current.replaceWith(next);
+              if (selector === ".topbar" && topbarResize) {
+                topbarResize.unobserve(current);
+                topbarResize.observe(next);
+              }
             }
           }
         } catch {

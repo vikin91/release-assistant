@@ -61,6 +61,7 @@
   --heading-font: "Red Hat Display", var(--body-font);
   --mono-font: "Inconsolata", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   font: 400 15px/1.55 var(--body-font);
+  scroll-padding-block-start: var(--topbar-height, 0px);
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -385,7 +386,7 @@ body { display: grid; grid-template: auto 1fr / 248px minmax(0, 1fr); min-height
 .konflux-pill.rejected, .konflux-pill.unavailable { color: var(--red); }
 
 .topbar {
-  grid-column: 2; position: relative; z-index: 1; display: flex; flex-wrap: wrap; align-items: center;
+  grid-column: 2; position: sticky; inset-block-start: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center;
   @apply min-h-15 gap-2 border-b border-border bg-background px-4 py-3 sm:px-6 lg:px-8;
 }
 .release-identity { @apply mr-auto flex flex-wrap items-center gap-x-2.5 gap-y-1; }
