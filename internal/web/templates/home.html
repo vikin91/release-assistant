@@ -10,8 +10,8 @@
 {{end}}
 
 {{define "release-home"}}
-<main id="live-dashboard" class="release-home">
-  <h1>Tracked releases</h1>
+<main class="release-home">
+  <h1 class="page-title">Tracked releases</h1>
   {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
   {{if .Paused}}<p class="notice">Select a release to open its dashboard.</p>{{end}}
   {{range .ProfileWarnings}}<p class="notice warning" role="status">{{.}}</p>{{end}}

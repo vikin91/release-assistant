@@ -1,18 +1,18 @@
+{{- $home := or .Home .Paused -}}
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>{{if or .Home .Paused}}ACS Release Assistant{{else}}{{.Title}}{{end}}</title>
+  <title>{{if $home}}ACS Release Assistant{{else}}{{.Title}}{{end}}</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body{{if .Home}} data-home="true"{{end}}{{if .Profiles}} data-profile="{{.ProfileID}}"{{end}} data-configured="{{.Configured}}" data-active-tab="{{.Tab}}" data-session="{{.CSRF}}:{{.Snapshot.Generation}}" data-loading="{{and .Configured .Snapshot.Loading}}"{{with .Snapshot.KonfluxHealth}} data-konflux-health="{{if .CheckedAt.IsZero}}pending{{else if .Healthy}}healthy{{else}}unverified{{end}}"{{end}}>
 <span id="new-tab-description" hidden>Opens in a new tab</span>
-<header class="topbar{{if or .Home .Paused}} home-topbar{{end}}">
-  {{if .Profiles}}
+<header class="topbar">
+  {{if and .Profiles .ReleaseProfiles}}
   <nav class="release-switcher" aria-label="Tracked releases">
-    {{if or .Home .Paused}}<div class="release-logo">{{template "nav-icon" "layers"}}<span>Release Assistant</span></div>{{end}}
     <div class="release-tabs">
     {{range .ReleaseProfiles}}
       {{template "open-release" (releaseLink $ .)}}
@@ -20,13 +20,13 @@
     </div>
   </nav>
   {{end}}
-  {{if not (or .Home .Paused)}}
   <button type="button" class="drawer-toggle" popovertarget="release-navigation" aria-label="Open release navigation">{{template "nav-icon" "menu"}}</button>
+  {{if $home}}<div class="release-identity"></div>{{else}}
   <div class="release-identity"><h1>{{if .Configured}}ACS {{.Snapshot.Config.Version}}{{else if .ProfileID}}Unconfigured release{{else}}{{.Title}}{{end}}</h1>{{if .Configured}}<code>{{.Snapshot.Config.Branch}}</code>{{end}}</div>
   {{end}}
   {{template "konflux-status" .}}
   {{if .Profiles}}{{template "header-github-budget" .}}{{end}}
-  {{if and (not (or .Home .Paused)) (or .Configured (not .Profiles))}}
+  {{if and (not $home) (or .Configured (not .Profiles))}}
   <details data-fold-key="write-mode" name="header-menu" class="header-menu">
     <summary>Write mode · {{if not .Snapshot.WritesEnabled}}Read-only{{else if .Snapshot.Interactive}}Interactive{{if .Snapshot.RequirePRLabel}} · Only labeled{{end}}{{else if .Snapshot.RequirePRLabel}}Only labeled{{else}}Full auto{{end}}</summary>
     <div class="menu-content write-mode-help">
@@ -42,9 +42,6 @@
   </details>
   {{end}}
 </header>
-{{if or .Home .Paused}}
-{{template "release-home" .}}
-{{else}}
 <div id="live-dashboard" class="workspace">
 <aside aria-label="Release navigation" class="sidebar" id="release-navigation" popover="auto">
   <div class="rail-heading">
@@ -52,22 +49,30 @@
       <span class="rail-mark" aria-hidden="true">{{template "nav-icon" "layers"}}</span><strong>Release Assistant</strong>
     {{if .Profiles}}</a>{{else}}</span>{{end}}
     <button type="button" class="drawer-toggle" popovertarget="release-navigation" popovertargetaction="hide" aria-label="Close release navigation">×</button></div>
-  {{if .Profiles}}<a class="release-logo phases-title" href="/">Home</a>{{end}}
+  {{if .Profiles}}<a class="sidebar-home" href="/"{{if .Home}} aria-current="page"{{end}}>Home</a>{{end}}
   <h2 class="phases-title">Release phases</h2>
-  <nav class="workflow-tabs flex flex-col gap-0.5" role="tablist" aria-orientation="vertical" aria-label="Release work">
+  <nav class="workflow-tabs flex flex-col gap-0.5" {{if not $home}}role="tablist" aria-orientation="vertical" {{end}}aria-label="Release work">
     {{range $i, $tab := (slice "component-prs" "component-releases" "acs-prs" "acs-rcs" "activity" "retest-queue" "settings")}}
     {{if eq $tab "activity"}}<span class="nav-separator" aria-hidden="true"></span>{{end}}
     {{$label := tabTitle $tab}}
     {{if lt $i 4}}{{$label = printf "%s. %s" (index (slice "1" "2" "3" "4") $i) $label}}{{end}}
-    {{if and (not $.Configured) (not $.ProfileID) (lt $i 4)}}
+    {{if $home}}
+      {{if or $.ActiveProfile (eq $tab "activity")}}
+      <a class="phase-link" href="{{profilePage $.ActiveProfile $tab}}">{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}{{if eq $tab "retest-queue"}} ({{len $.Snapshot.RetestQueue}}){{end}}</span></a>
+      {{else}}
+      <span class="phase-link" aria-disabled="true">{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}</span></span>
+      {{end}}
+    {{else if and (not $.Configured) (not $.ProfileID) (lt $i 4)}}
     <span role="tab" aria-disabled="true" aria-selected="false" class="phase-disabled" title="Save the release configuration to unlock this phase.">{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}</span></span>
     {{else}}
     {{$status := index $.TabStatuses $tab}}
     <a id="tab-{{$tab}}" role="tab" href="{{profilePage $.ProfileID $tab}}" data-workflow-tab="{{$tab}}" aria-controls="panel-{{$tab}}" aria-selected="{{if eq $.Tab $tab}}true{{else}}false{{end}}" tabindex="{{if eq $.Tab $tab}}0{{else}}-1{{end}}"{{if $status.Label}} aria-label="{{$label}} · {{$status.Label}} · {{$status.Reason}}" title="{{$status.Label}} · {{$status.Reason}}"{{end}}>{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}{{if eq $tab "retest-queue"}} ({{len $.Snapshot.RetestQueue}}){{end}}</span> {{if eq $tab "settings"}}<span id="setup-state" class="setup-state" data-live-preserve{{if and $.Configured (not $.ConfigRejected)}} hidden{{end}}>{{if $.Configured}}Unsaved changes{{else}}Setup required{{end}}</span>{{else}}<span class="tab-status{{with $status.Class}} {{.}}{{end}}" aria-hidden="true">{{$status.Icon}}</span>{{end}}</a>
     {{end}}{{end}}
   </nav>
+  {{if not $home}}
   <p id="dashboard-refresh-status" class="muted" role="status" data-live-preserve>Waiting for release updates.</p>
   {{if and .Configured .Snapshot.Loading}}<p id="release-loading" class="muted" role="status">Loading release data…</p>{{end}}
+  {{end}}
   {{if not .Profiles}}{{template "github-budget" .}}{{end}}
   <details class="sidebar-summary phase-legend" data-fold-key="phase-legend">
     <summary>Phase icons</summary>
@@ -76,6 +81,9 @@
     {{end}}</dl>
   </details>
 </aside>
+{{if $home}}
+{{template "release-home" .}}
+{{else}}
 <main>
   <div id="form-error" class="notice error" role="alert" data-live-preserve{{if not .Error}} hidden{{end}}>{{.Error}}</div>
   {{if .Snapshot.RefreshingResumed}}
@@ -113,8 +121,8 @@
   {{template "application-settings" .}}
   </section>
 </main>
-</div>
 {{end}}
+</div>
 <script src="/static/app.js" defer></script>
 </body>
 </html>

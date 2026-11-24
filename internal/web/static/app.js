@@ -297,7 +297,7 @@ document.addEventListener("DOMContentLoaded", () => {
           const response = await fetch("/", { cache: "no-store", signal: AbortSignal.timeout(5_000) });
           if (!response.ok) return;
           const incoming = new DOMParser().parseFromString(await response.text(), "text/html");
-          for (const selector of [".home-topbar", ".release-list"]) {
+          for (const selector of [".topbar", ".release-list", ".workflow-tabs"]) {
             const current = document.querySelector(selector);
             const next = incoming.querySelector(selector);
             if (current && next && !current.contains(document.activeElement) &&

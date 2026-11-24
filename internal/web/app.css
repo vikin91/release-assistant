@@ -345,8 +345,8 @@ body { display: grid; grid-template: auto 1fr / 248px minmax(0, 1fr); min-height
 .phases-title, .eyebrow { @apply text-xs font-medium text-muted-foreground; }
 .phases-title { @apply mb-1 px-2 pt-2; }
 
-.workflow-tabs [role=tab] { @apply flex min-h-9 items-center gap-2.5 rounded-md px-2.5 py-2 text-sm leading-snug text-muted-foreground no-underline; }
-.workflow-tabs a:is(:hover, [aria-selected=true]) { @apply bg-accent text-foreground; }
+.workflow-tabs :is([role=tab], .phase-link), .sidebar-home { @apply flex min-h-9 items-center gap-2.5 rounded-md px-2.5 py-2 text-sm leading-snug text-muted-foreground no-underline; }
+.workflow-tabs a:is(:hover, [aria-selected=true]), .sidebar-home:is(:hover, [aria-current=page]) { @apply bg-accent text-foreground; }
 .workflow-tabs a[aria-selected=true] { font-weight: 600; }
 .workflow-tabs a[aria-selected=true] .nav-icon { color: var(--primary); }
 .workflow-tabs [aria-disabled=true] { opacity: .75; cursor: not-allowed; }
@@ -464,3 +464,16 @@ thead th { @apply text-xs font-medium text-muted-foreground; }
   .settings-value input[type=number] { max-width: 3.8rem; }
 }
 #activity-log { background: var(--background); }
+
+.release-switcher { display: flex; flex-basis: 100%; min-width: 0; }
+.release-logo { display: inline-flex; align-items: center; gap: .5rem; color: var(--foreground); font-weight: 600; flex: none; }
+.release-tabs { display: flex; gap: .4rem; overflow-x: auto; min-width: 0; }
+.release-tabs form, .release-list-item form { margin: .2rem 0; }
+.release-tab { white-space: nowrap; }
+.release-tab[aria-current=page] { background: var(--accent); border-color: var(--primary); }
+.active-release { border-color: var(--primary); }
+.active-dot { width: .45rem; height: .45rem; border-radius: 50%; background: var(--green); }
+.release-list { list-style: none; max-width: 54rem; padding: 0; }
+.release-list-item { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .65rem; margin: .75rem 0; padding: 1rem; }
+.release-list-item p { margin: .25rem 0 0; }
+.release-remove summary { cursor: pointer; color: var(--muted-foreground); }

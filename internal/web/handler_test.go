@@ -1252,3 +1252,47 @@ func TestReleaseHomeAndDraftNavigation(t *testing.T) {
 		t.Fatal("draft does not expose normal navigation and setup")
 	}
 }
+
+func TestHomeKeepsSidebarAndReleaseTabs(t *testing.T) {
+	state, err := app.OpenReleaseState(filepath.Join(t.TempDir(), "state.json"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := validACS5Config()
+	second := validACS5Config()
+	second.Version, second.Branch = "5.1.1", "release-5.1"
+	for _, config := range []release.Config{first, second} {
+		if err := state.SetInitialRelease(config, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{}), nil, app.Options{Profiles: true, ReleaseState: state})
+	handler, err := New(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, active, _ := session.ReleaseProfiles()
+	for _, path := range []string{"/", profilePageURL(active, "settings"), profilePageURL("removed-profile", "")} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://localhost"+path, nil))
+		body := response.Body.String()
+		header, _, ok := strings.Cut(body, "</header>")
+		if response.Code != http.StatusOK || !ok || strings.Count(header, `<button type="submit" class="release-tab`) != 2 ||
+			!strings.Contains(header, "ACS 5.0.1") || !strings.Contains(header, "ACS 5.1.1") ||
+			!strings.Contains(header, `class="release-tab active-release"`) {
+			t.Fatalf("%s did not render both release tabs and the active marker", path)
+		}
+		_, content, found := strings.Cut(body, "<aside ")
+		sidebar, _, closed := strings.Cut(content, "</aside>")
+		if !found || !closed || !strings.Contains(sidebar, `class="sidebar-home" href="/"`) {
+			t.Fatalf("%s did not render the sidebar Home link", path)
+		}
+		homeMain := strings.Contains(body, `<main class="release-home">`)
+		if homeMain != (path == "/" || strings.Contains(path, "removed-profile")) {
+			t.Fatalf("%s rendered the wrong main content", path)
+		}
+		if path == "/" && !strings.Contains(sidebar, html.EscapeString(profilePageURL(active, "settings"))) {
+			t.Fatal("Home Settings does not link to the active release")
+		}
+	}
+}
