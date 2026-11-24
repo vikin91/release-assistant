@@ -26,6 +26,15 @@ type (
 	}
 )
 
+func settingsSection(value string) string {
+	switch value {
+	case "retry-settings", "github-read-settings", "cache-settings", "refresh-settings":
+		return value
+	default:
+		return ""
+	}
+}
+
 func refreshSections() []refreshSection {
 	const (
 		componentPRHelp    = "Find PRs targeting the component release branch. Update each PR’s state to open, merged, or closed."

@@ -222,10 +222,10 @@ legend { padding: 0 .35rem; font-weight: var(--emphasis-weight); }
 .retest-log time { white-space: nowrap; }
 .retest-log td { vertical-align: top; }
 
-button[aria-pressed=true], .settings-footer button:enabled, .button-primary:enabled, [data-retest-send] button:enabled {
+button[aria-pressed=true], .settings-footer button:not([form]):enabled, .button-primary:enabled, [data-retest-send] button:enabled {
   @apply border-transparent bg-primary text-primary-foreground;
 }
-:is(button[aria-pressed=true], .settings-footer button, .button-primary, [data-retest-send] button):enabled:hover {
+:is(button[aria-pressed=true], .settings-footer button:not([form]), .button-primary, [data-retest-send] button):enabled:hover {
   background: color-mix(in srgb, var(--primary) 88%, var(--foreground));
 }
 .pr-repo { margin-top: 1rem; padding-top: .75rem; border-top: 1px solid var(--border); }
@@ -431,7 +431,13 @@ thead th { @apply text-xs font-medium text-muted-foreground; }
 .pr-list .choice-form { gap: 4px; }
 .choice-form button { padding: 3px 10px; }
 .pr-card[data-release-choice=included] .pr-list-choice .pill:not(.yes) { color: var(--link); border-color: currentColor; }
-.settings-panel { padding: 0; }
+.settings-navigation {
+  @apply flex flex-wrap gap-2 text-sm;
+  max-width: 68rem;
+}
+.settings-navigation a { @apply rounded-md border border-border bg-card px-3 py-1.5 text-foreground; }
+.settings-navigation a:hover { @apply bg-accent; }
+.settings-panel { max-width: 68rem; padding: 0; scroll-margin-top: 1rem; }
 .settings-panel form, .settings-table { margin: 0; }
 .settings-table { table-layout: fixed; }
 .settings-control-column { width: 11rem; }
@@ -439,11 +445,12 @@ thead th { @apply text-xs font-medium text-muted-foreground; }
 .configuration-table td input { max-width: 25rem; }
 .settings-table :is(th, td) { padding: .6rem 1.25rem; vertical-align: middle; }
 .settings-table th { overflow-wrap: anywhere; }
-.settings-table thead th, .settings-table .settings-category th { padding-block: 1rem; }
-.settings-table h3 { margin: 0; font: 600 1.15rem/1.4 var(--heading-font); color: var(--foreground); }
+.settings-table thead th { padding-block: 1rem; }
+.settings-table h3 { margin: 0; font: 600 1.3rem/1.4 var(--heading-font); color: var(--foreground); }
 .settings-table p { margin: .15rem 0 0; color: var(--muted-foreground); font: 400 .8rem/1.45 var(--body-font); }
 .settings-table .settings-group th { @apply bg-muted text-sm font-semibold text-foreground; }
-.settings-table .settings-phase th { @apply bg-background py-1.5 text-xs text-muted-foreground; }
+.settings-table .settings-phase th { @apply bg-background py-2 text-sm text-muted-foreground; }
+.settings-table :is(h4, h5) { margin: 0; font: inherit; }
 .settings-value { display: flex; align-items: center; gap: .5rem; color: var(--muted-foreground); font-size: .8rem; }
 .settings-value input[type=number] { max-width: 4.5rem; }
 .settings-table input[type=checkbox] { display: block; margin: 0; }

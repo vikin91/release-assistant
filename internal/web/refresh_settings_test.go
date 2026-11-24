@@ -18,15 +18,21 @@ func TestRefreshIntervalsSettings(t *testing.T) {
 	session := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{}), nil, app.Options{})
 	b := newBrowser(t, session)
 	body := b.getBody(t)
-	if !strings.Contains(body, `<table class="settings-table" aria-label="Application settings">`) {
-		t.Fatal("application settings must use a table")
+	if !strings.Contains(body, `<table class="settings-table" aria-labelledby="refresh-settings-heading">`) {
+		t.Fatal("refresh intervals must have a named table")
 	}
 	for _, heading := range []string{"Components", "Before tag selection", "After tag selection", "ACS"} {
-		if !strings.Contains(body, `colspan="2">`+heading+"<") {
+		tag := "h4"
+		if strings.HasSuffix(heading, "tag selection") {
+			tag = "h5"
+		}
+		refresh := between(t, body, `id="refresh-settings"`, "</section>")
+		if !strings.Contains(refresh, `colspan="2"><`+tag+">"+heading+"</"+tag+">") {
 			t.Errorf("settings missing %q group", heading)
 		}
 	}
-	values := url.Values{"kind": {"application-settings"}, "tab": {"settings"}, "generation": {fmt.Sprint(session.Snapshot().Generation)}}
+	values := url.Values{"kind": {"application-settings"}, "tab": {"settings"},
+		"generation": {fmt.Sprint(session.Snapshot().Generation)}, "settings_section": {"refresh-settings"}}
 	expected := app.DefaultRefreshIntervals(0, 0)
 	for key, duration := range expected {
 		name := "refresh_" + string(key)
@@ -39,6 +45,8 @@ func TestRefreshIntervalsSettings(t *testing.T) {
 	}
 	if response := b.post(values); response.Code != http.StatusSeeOther {
 		t.Fatalf("save settings: HTTP %d", response.Code)
+	} else if got := response.Header().Get("Location"); got != "/?tab=settings&saved=refresh-settings#refresh-settings" {
+		t.Errorf("refresh save redirected to %q", got)
 	}
 	if got := session.Snapshot().RefreshIntervals; !maps.Equal(got, expected) {
 		t.Fatalf("intervals = %v, want %v", got, expected)
@@ -65,6 +73,42 @@ func TestRefreshIntervalsSettings(t *testing.T) {
 				t.Fatalf("invalid form modified intervals: %v", got)
 			}
 		})
+	}
+}
+
+func TestSettingsSectionsFollowNavigationAndSubmitIndependently(t *testing.T) {
+	snapshot := app.Snapshot{
+		Config: validACS5Config(), WritesEnabled: true, StartupReadLimit: 3, OngoingReadLimit: 1,
+		CacheAvailable: true, RefreshIntervals: app.DefaultRefreshIntervals(0, 0),
+	}
+	panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t), "settings")
+	nav := between(t, panel, `aria-label="Settings sections"`, "</nav>")
+	sections := []struct{ id, field string }{
+		{"configuration-panel", "version"},
+		{"retry-settings", "interactive"},
+		{"github-read-settings", "startup_read_limit"},
+		{"cache-settings", "cache"},
+		{"refresh-settings", "refresh_acs_tags"},
+	}
+	lastSection, lastLink := -1, -1
+	for _, section := range sections {
+		marker := `id="` + section.id + `"`
+		position := strings.Index(panel, marker)
+		link := strings.Index(nav, `href="#`+section.id+`"`)
+		if position <= lastSection || link <= lastLink {
+			t.Fatalf("%s is missing or out of order", section.id)
+		}
+		lastSection, lastLink = position, link
+		content := between(t, panel, marker, "</section>")
+		if strings.Count(content, "<table ") != 1 {
+			t.Errorf("%s must have its own table", section.id)
+		}
+		for _, other := range sections {
+			hasField := strings.Contains(content, `name="`+other.field+`"`)
+			if hasField != (other.id == section.id) {
+				t.Errorf("field %s present in %s = %t", other.field, section.id, hasField)
+			}
+		}
 	}
 }
 

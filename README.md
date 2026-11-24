@@ -158,7 +158,7 @@ The image views distinguish **Available**, **Not found**, and **Unable to check*
 Review and copy proposed comments in Read-only mode. Start with `--enable-writes` to let Release Assistant post retry comments using your configured GitHub credentials. Startup with writes enabled defaults to Interactive mode.
 
 1. In Interactive mode, select **Send** to approve one comment or **Send all** to approve every eligible comment visible in the Retest Queue, including when you filter the list. The assistant sends the approved comments concurrently and verifies each one before posting.
-2. For automatic posting, clear **Confirm each retry comment** under **Application settings** and select **Save settings**. Then select **Allow automatic retry comments** on each PR or tag you want the assistant to retry. Use **Require the label for PR comments** to require the label in either mode.
+2. For automatic posting, clear **Confirm each retry comment** under **GitHub writes** in **Settings** and select **Save write settings**. Then select **Allow automatic retry comments** on each PR or tag you want the assistant to retry. Use **Require the label for PR comments** to require the label in either mode.
 
 The retry library decides which Konflux jobs are eligible. PR retries use `/konflux-retest <job>`. Tag retries use `/retest <job> tag:<tag>` on the resolved commit. GitHub required-check settings inform the status display. Marking a Conforma advisory as reviewed only records your review for the session.
 
@@ -214,7 +214,7 @@ Open an offered Actions job link and select the job rerun control on GitHub. For
 
 ## Monitoring and logs
 
-The server listens on loopback. In **Application settings** → **Refresh intervals**, enter the time in minutes between reads for each type of release data. Each component uses its own tag selection to choose the active schedule. The first read starts as soon as its target is available. During the first five minutes, failed reads can retry early. After a successful read, the assistant waits for the configured interval. Changing an interval updates the running schedule. Browser refresh runs separately and preserves open panels and unsaved form input.
+The server listens on loopback. At the bottom of **Settings**, use **Refresh intervals** to set the time in minutes between reads for each type of release data. Select **Save refresh intervals** to apply your changes. Each component uses its own tag selection to choose the active schedule. The first read starts as soon as its target is available. During the first five minutes, failed reads can retry early. After a successful read, the assistant waits for the configured interval. Changing an interval updates the running schedule. Browser refresh runs separately and preserves open panels and unsaved form input.
 
 | Data | Before component tag selection | After component tag selection | ACS |
 |---|---:|---:|---:|
@@ -225,7 +225,7 @@ The server listens on loopback. In **Application settings** → **Refresh interv
 
 The **ACS** section also controls Konflux build reads for all tracked targets (5 minutes) and Quay release image reads (10 minutes). These intervals apply to the current session. At startup, `-discover` can override the initial PR and tag discovery intervals. `-poll` can override the initial check, build, and image intervals. Failed reads can leave the last results visible with their age while current evidence remains unverified.
 
-Under **Application settings** → **Concurrent GitHub reads**, **First 5 minutes** accepts 1–5 and defaults to 3. The five-minute window starts when the first configured release begins monitoring. **After 5 minutes** accepts 1–3 and defaults to 1 for the rest of the session. Saving either limit updates how queued reads are admitted. The hourly read budget and GitHub rate-limit backoff apply throughout.
+In **Settings** under **Concurrent GitHub reads**, **First 5 minutes** accepts 1–5 and defaults to 3. The five-minute window starts when the first configured release begins monitoring. **After 5 minutes** accepts 1–3 and defaults to 1 for the rest of the session. Select **Save read limits** to update how the assistant admits queued reads. The hourly read budget and GitHub rate-limit backoff apply throughout.
 
 **Log** shows the latest 1,000 events and refreshes every two seconds. The terminal prints timestamped activity to stdout, including discovery, check status changes, retry decisions, and Konflux read pauses and recovery. Redirect stdout if you need to retain the log.
 
@@ -236,7 +236,7 @@ grep -F 'Debug: Calling API:' assistant.log
 grep -F 'Debug: Calling API: GitHub GET /repos/stackrox/stackrox/pulls/23956' assistant.log
 ```
 
-GitHub discovery reuses commit history in memory by default and logs cache hits at Debug level. In **Settings**, uncheck **Reuse GitHub commit history in memory** and select **Save settings** to turn it off and empty the cache. **Clear cache** empties it without changing the setting. A restart starts with an empty, enabled cache.
+GitHub discovery reuses commit history in memory by default and logs cache hits at Debug level. In **Settings**, uncheck **Reuse GitHub commit history in memory** and select **Save cache settings** to turn it off and empty the cache. **Clear cache** empties it without changing the setting. A restart starts with an empty, enabled cache.
 
 Choices, grants, approvals, counters, and recent activity live in memory. Reloading the browser preserves the session. Restarting clears it, restores **Confirm each retry comment**, and rediscovers release work already completed in external systems.
 

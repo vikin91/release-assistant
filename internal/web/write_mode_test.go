@@ -106,7 +106,7 @@ func TestWriteModeControls(t *testing.T) {
 			modeForm := formContaining(t, body, `value="application-settings"`)
 			assertCheckboxDisabled(t, "interactive confirmation", modeForm, "interactive", !tc.writesEnabled)
 			assertCheckboxDisabled(t, "PR label requirement", modeForm, "require_pr_label", !tc.writesEnabled)
-			assertButtonTextDisabled(t, "save settings", modeForm, "Save settings", !tc.writesEnabled)
+			assertButtonTextDisabled(t, "save write settings", modeForm, "Save write settings", !tc.writesEnabled)
 			if tc.writesEnabled && !strings.Contains(modeForm, `name="interactive" value="true"`) {
 				t.Error("interactive confirmation should be available when writes are enabled")
 			}

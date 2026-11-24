@@ -117,10 +117,11 @@ func TestSettingsControlsCommitWindowCache(t *testing.T) {
 	if body := getSettings("/?tab=settings"); !strings.Contains(body, checked) || !strings.Contains(body, ">Clear cache</button>") {
 		t.Fatal("cache controls should be available before configuring a release")
 	}
-	action := url.Values{"tab": {"settings"}, "generation": {fmt.Sprint(session.Snapshot().Generation)}, "kind": {"application-settings"}, "cache": {"false"}}
+	action := url.Values{"tab": {"settings"}, "generation": {fmt.Sprint(session.Snapshot().Generation)},
+		"kind": {"application-settings"}, "settings_section": {"cache-settings"}, "cache": {"false"}}
 	if response := b.post(action); response.Code != http.StatusSeeOther || cache.Enabled() {
 		t.Fatalf("disable status=%d enabled=%t", response.Code, cache.Enabled())
-	} else if location := response.Header().Get("Location"); !strings.HasSuffix(location, "#retry-settings") || !strings.Contains(getSettings(location), "Settings saved.") {
+	} else if location := response.Header().Get("Location"); !strings.HasSuffix(location, "#cache-settings") || !strings.Contains(getSettings(location), "Settings saved.") {
 		t.Fatal("saving settings should return to the panel with a confirmation")
 	}
 	if body := getSettings("/?tab=settings"); strings.Contains(body, checked) {

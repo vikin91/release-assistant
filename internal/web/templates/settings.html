@@ -5,9 +5,10 @@
     <table class="settings-table configuration-table" aria-labelledby="setup-heading">
       <colgroup><col><col class="settings-control-column"></colgroup>
       <thead><tr><th colspan="2"><h3 id="setup-heading">{{if .Configured}}Release configuration{{else}}Configure release{{end}}</h3>
-        {{if not .Configured}}<p>Save a valid release configuration to unlock the four release phases.</p>{{end}}
+        <p>{{if .Configured}}Choose the ACS patch and component release streams to monitor.{{else}}Save the ACS patch and component release streams to unlock the release phases.{{end}}</p>
       </th></tr></thead>
       <tbody>
+        <tr class="settings-group"><th scope="rowgroup" colspan="2"><h4>ACS</h4></th></tr>
         <tr><th scope="row"><label for="config-version">ACS version</label></th>
           <td><input id="config-version" name="version" required value="{{.ConfigForm.Get "version"}}" placeholder="5.0.1"></td></tr>
         <tr><th scope="row"><label for="config-branch">ACS release branch</label></th>
@@ -20,7 +21,7 @@
       {{range $name := (slice "fact" "collector" "scanner")}}
       {{$source := index $.ConfiguredSources $name}}
       <tbody data-component-config data-configured-repo="{{$source.Repo}}" data-configured-stream="{{$source.Stream}}" data-configured-branch="{{$source.Branch}}"{{if eq $name "scanner"}} data-scanner-fields{{if and $.Configured (not $.ACS4)}} hidden{{end}}{{end}}>
-        <tr class="settings-group"><th scope="rowgroup" colspan="2">{{title $name}}{{if eq $name "scanner"}}<p>Applies to ACS 4.x.</p>{{end}}</th></tr>
+        <tr class="settings-group"><th scope="rowgroup" colspan="2"><h4>{{title $name}}</h4>{{if eq $name "scanner"}}<p>Applies to ACS 4.x.</p>{{end}}</th></tr>
         <tr><th scope="row"><label for="config-{{$name}}-repo">Repository</label></th>
           <td><input id="config-{{$name}}-repo" name="{{$name}}_repo" {{if ne $name "scanner"}}required {{end}}placeholder="stackrox/{{$name}}" value="{{$.ConfigForm.Get (printf "%s_repo" $name)}}"></td></tr>
         <tr><th scope="row"><label for="config-{{$name}}-stream">Release stream</label></th>
@@ -38,25 +39,126 @@
 </section>
 {{end}}
 
+{{define "settings-navigation"}}
+<nav class="settings-navigation" aria-label="Settings sections">
+  <a href="#configuration-panel">{{if .Configured}}Release configuration{{else}}Configure release{{end}}</a>
+  {{if .Configured}}<a href="#retry-settings">GitHub writes</a>{{end}}
+  {{if .Snapshot.StartupReadLimit}}<a href="#github-read-settings">Concurrent GitHub reads</a>{{end}}
+  {{if .Snapshot.CacheAvailable}}<a href="#cache-settings">Discovery cache</a>{{end}}
+  {{if .Snapshot.RefreshIntervals}}<a href="#refresh-settings">Refresh intervals</a>{{end}}
+</nav>
+{{end}}
+
+{{define "settings-fields"}}
+  <input type="hidden" name="tab" value="settings">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
+{{end}}
+
 {{define "application-settings"}}
-{{if or .Configured .Snapshot.CacheAvailable .Snapshot.StartupReadLimit .Snapshot.RefreshIntervals}}
-<section class="panel settings-panel" id="retry-settings" aria-label="Application settings">
+{{if .Configured}}
+<section class="panel settings-panel" id="retry-settings" aria-labelledby="retry-settings-heading">
   <form method="post" action="/action">
-    <input type="hidden" name="tab" value="settings">
-    <input type="hidden" name="csrf" value="{{.CSRF}}">
-    <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
-    <table class="settings-table" aria-label="Application settings">
+    {{template "settings-fields" .}}
+    <input type="hidden" name="settings_section" value="retry-settings">
+    <table class="settings-table" aria-labelledby="retry-settings-heading">
       <colgroup><col><col class="settings-control-column"></colgroup>
-      {{with .Snapshot.RefreshIntervals}}
-      {{$intervals := .}}
-      <thead><tr><th colspan="2"><h3>Refresh intervals</h3>
-        <p>Set how often the assistant checks each source for updates.</p>
+      <thead><tr><th colspan="2"><h3 id="retry-settings-heading">GitHub writes</h3>
+        <p>Control when the assistant can post retry comments.</p>
+        <p id="retry-settings-status" role="status" data-live-preserve{{if not (eq .SettingsSaved "retry-settings")}} hidden{{end}}>{{if eq .SettingsSaved "retry-settings"}}Settings saved.{{end}}</p>
       </th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><label for="confirm-writes">Confirm each retry comment</label>
+          <p id="retry-permissions">{{if .Snapshot.WritesEnabled}}Automatic retries still require permission for each PR or tag.{{else}}Read-only mode is active. Restart with <code>--enable-writes</code> to change this setting.{{end}}</p></th>
+          <td>{{if .Snapshot.WritesEnabled}}<input type="hidden" name="interactive" value="false">{{end}}
+            <input type="checkbox" name="interactive" value="true" id="confirm-writes" aria-describedby="retry-permissions" {{if .Snapshot.Interactive}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}></td></tr>
+        <tr><th scope="row"><label for="require-pr-label">Require the label for PR comments</label>
+          <p id="pr-label-help">Before posting to a PR, check that GitHub reports <code>{{prCommentLabel}}</code>. Comments on tags need no label.</p></th>
+          <td>{{if .Snapshot.WritesEnabled}}<input type="hidden" name="require_pr_label" value="false">{{end}}
+            <input type="checkbox" name="require_pr_label" value="true" id="require-pr-label" aria-describedby="pr-label-help" {{if .Snapshot.RequirePRLabel}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}></td></tr>
+      </tbody>
+    </table>
+    <div class="settings-footer control-row">
+      <button type="submit" name="kind" value="application-settings"{{if not .Snapshot.WritesEnabled}} disabled{{end}}>Save write settings</button>
+    </div>
+  </form>
+</section>
+{{end}}
+
+{{if .Snapshot.StartupReadLimit}}
+<section class="panel settings-panel" id="github-read-settings" aria-labelledby="github-read-settings-heading">
+  <form method="post" action="/action">
+    {{template "settings-fields" .}}
+    <input type="hidden" name="settings_section" value="github-read-settings">
+    <table class="settings-table" aria-labelledby="github-read-settings-heading">
+      <colgroup><col><col class="settings-control-column"></colgroup>
+      <thead><tr><th colspan="2"><h3 id="github-read-settings-heading">Concurrent GitHub reads</h3>
+        <p>Limit how many requests the assistant can send at once.</p>
+        <p id="github-read-settings-status" role="status" data-live-preserve{{if not (eq .SettingsSaved "github-read-settings")}} hidden{{end}}>{{if eq .SettingsSaved "github-read-settings"}}Settings saved.{{end}}</p>
+      </th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><label for="startup-read-limit">First 5 minutes</label>
+          <p id="startup-read-help">Choose a limit from 1 to 5.</p></th>
+          <td><div class="settings-value"><input id="startup-read-limit" type="number" name="startup_read_limit" min="1" max="5" required value="{{.Snapshot.StartupReadLimit}}" aria-describedby="startup-read-help startup-read-unit"><span id="startup-read-unit">requests</span></div></td></tr>
+        <tr><th scope="row"><label for="ongoing-read-limit">After 5 minutes</label>
+          <p id="ongoing-read-help">Choose a limit from 1 to 3.</p></th>
+          <td><div class="settings-value"><input id="ongoing-read-limit" type="number" name="ongoing_read_limit" min="1" max="3" required value="{{.Snapshot.OngoingReadLimit}}" aria-describedby="ongoing-read-help ongoing-read-unit"><span id="ongoing-read-unit">requests</span></div></td></tr>
+      </tbody>
+    </table>
+    <div class="settings-footer control-row">
+      <button type="submit" name="kind" value="application-settings">Save read limits</button>
+    </div>
+  </form>
+</section>
+{{end}}
+
+{{if .Snapshot.CacheAvailable}}
+<section class="panel settings-panel" id="cache-settings" aria-labelledby="cache-settings-heading">
+  <form method="post" action="/action">
+    {{template "settings-fields" .}}
+    <input type="hidden" name="settings_section" value="cache-settings">
+    <table class="settings-table" aria-labelledby="cache-settings-heading">
+      <colgroup><col><col class="settings-control-column"></colgroup>
+      <thead><tr><th colspan="2"><h3 id="cache-settings-heading">Discovery cache</h3>
+        <p>Manage cached GitHub commit history.</p>
+        <p id="cache-settings-status" role="status" data-live-preserve{{if not (or .CacheCleared (eq .SettingsSaved "cache-settings"))}} hidden{{end}}>{{if .CacheCleared}}Cache cleared.{{else if eq .SettingsSaved "cache-settings"}}Settings saved.{{end}}</p>
+      </th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><label for="reuse-cache">Reuse GitHub commit history in memory</label>
+          <p id="discovery-cache-help">Turning this off clears the cache when you save.</p></th>
+          <td><input type="hidden" name="cache" value="false">
+            <input id="reuse-cache" type="checkbox" name="cache" value="true" aria-describedby="discovery-cache-help" {{if .Snapshot.CacheEnabled}}checked{{end}}></td></tr>
+      </tbody>
+    </table>
+    <div class="settings-footer control-row">
+      <button type="submit" name="kind" value="application-settings">Save cache settings</button>
+      <button type="submit" form="clear-cache-form">Clear cache</button>
+    </div>
+  </form>
+  <form id="clear-cache-form" method="post" action="/action">
+    {{template "settings-fields" .}}
+    <input type="hidden" name="kind" value="clear-cache">
+  </form>
+</section>
+{{end}}
+
+{{if .Snapshot.RefreshIntervals}}
+<section class="panel settings-panel" id="refresh-settings" aria-labelledby="refresh-settings-heading">
+  <form method="post" action="/action">
+    {{template "settings-fields" .}}
+    <input type="hidden" name="settings_section" value="refresh-settings">
+    <table class="settings-table" aria-labelledby="refresh-settings-heading">
+      <colgroup><col><col class="settings-control-column"></colgroup>
+      <thead><tr><th colspan="2"><h3 id="refresh-settings-heading">Refresh intervals</h3>
+        <p>Set how often the assistant checks each source for updates.</p>
+        <p id="refresh-settings-status" role="status" data-live-preserve{{if not (eq .SettingsSaved "refresh-settings")}} hidden{{end}}>{{if eq .SettingsSaved "refresh-settings"}}Settings saved.{{end}}</p>
+      </th></tr></thead>
+      {{$intervals := .Snapshot.RefreshIntervals}}
       {{range refreshSections}}
       <tbody>
-        <tr class="settings-group"><th scope="rowgroup" colspan="2">{{.Title}}<p>{{.Help}}</p></th></tr>
+        <tr class="settings-group"><th scope="rowgroup" colspan="2"><h4>{{.Title}}</h4><p>{{.Help}}</p></th></tr>
         {{range .Groups}}
-        {{if .Title}}<tr class="settings-phase"><th colspan="2">{{.Title}}</th></tr>{{end}}
+        {{if .Title}}<tr class="settings-phase"><th colspan="2"><h5>{{.Title}}</h5></th></tr>{{end}}
         {{range .Fields}}
         {{$duration := index $intervals .Key}}{{$minutes := wholeMinutes $duration}}
         <tr>
@@ -71,56 +173,12 @@
         {{end}}
       </tbody>
       {{end}}
-      {{end}}
-      {{if .Snapshot.StartupReadLimit}}
-      <tbody>
-        <tr class="settings-category"><th scope="rowgroup" colspan="2"><h3>Concurrent GitHub reads</h3>
-          <p>Limit how many requests the assistant can send at once.</p></th></tr>
-        <tr><th scope="row"><label for="startup-read-limit">First 5 minutes</label>
-          <p id="startup-read-help">Choose a limit from 1 to 5.</p></th>
-          <td><div class="settings-value"><input id="startup-read-limit" type="number" name="startup_read_limit" min="1" max="5" required value="{{.Snapshot.StartupReadLimit}}" aria-describedby="startup-read-help startup-read-unit"><span id="startup-read-unit">requests</span></div></td></tr>
-        <tr><th scope="row"><label for="ongoing-read-limit">After 5 minutes</label>
-          <p id="ongoing-read-help">Choose a limit from 1 to 3.</p></th>
-          <td><div class="settings-value"><input id="ongoing-read-limit" type="number" name="ongoing_read_limit" min="1" max="3" required value="{{.Snapshot.OngoingReadLimit}}" aria-describedby="ongoing-read-help ongoing-read-unit"><span id="ongoing-read-unit">requests</span></div></td></tr>
-      </tbody>
-      {{end}}
-      {{if .Configured}}
-      <tbody>
-        <tr class="settings-category"><th scope="rowgroup" colspan="2"><h3>GitHub writes</h3></th></tr>
-        <tr><th scope="row"><label for="confirm-writes">Confirm each retry comment</label>
-          <p id="retry-permissions">{{if .Snapshot.WritesEnabled}}Automatic retries still require permission for each PR or tag.{{else}}Read-only mode is active. Restart with <code>--enable-writes</code> to change this setting.{{end}}</p></th>
-          <td>{{if .Snapshot.WritesEnabled}}<input type="hidden" name="interactive" value="false">{{end}}
-            <input type="checkbox" name="interactive" value="true" id="confirm-writes" aria-describedby="retry-permissions" {{if .Snapshot.Interactive}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}></td></tr>
-        <tr><th scope="row"><label for="require-pr-label">Require the label for PR comments</label>
-          <p id="pr-label-help">Before posting to a PR, check that GitHub reports <code>{{prCommentLabel}}</code>. Comments on tags need no label.</p></th>
-          <td>{{if .Snapshot.WritesEnabled}}<input type="hidden" name="require_pr_label" value="false">{{end}}
-            <input type="checkbox" name="require_pr_label" value="true" id="require-pr-label" aria-describedby="pr-label-help" {{if .Snapshot.RequirePRLabel}}checked{{end}}{{if not .Snapshot.WritesEnabled}} disabled{{end}}></td></tr>
-      </tbody>
-      {{end}}
-      {{if .Snapshot.CacheAvailable}}
-      <tbody>
-        <tr class="settings-category"><th scope="rowgroup" colspan="2"><h3>Discovery cache</h3></th></tr>
-        <tr><th scope="row"><label for="reuse-cache">Reuse GitHub commit history in memory</label>
-          <p id="discovery-cache-help">Turning this off clears the cache when you save.</p></th>
-          <td><input type="hidden" name="cache" value="false">
-            <input id="reuse-cache" type="checkbox" name="cache" value="true" aria-describedby="discovery-cache-help" {{if .Snapshot.CacheEnabled}}checked{{end}}></td></tr>
-        <tr><th scope="row">Cached commit history</th>
-          <td><button type="submit" form="clear-cache-form">Clear cache</button>
-            {{if .CacheCleared}}<span role="status">Cache cleared.</span>{{end}}</td></tr>
-      </tbody>
-      {{end}}
     </table>
     <div class="settings-footer control-row">
-      <button type="submit" name="kind" value="application-settings"{{if not (or .Snapshot.CacheAvailable .Snapshot.WritesEnabled .Snapshot.StartupReadLimit .Snapshot.RefreshIntervals)}} disabled{{end}}>Save settings</button>
-      {{if .SettingsSaved}}<span role="status">Settings saved.</span>{{end}}
+      <button type="submit" name="kind" value="application-settings">Save refresh intervals</button>
     </div>
   </form>
-  {{if .Snapshot.CacheAvailable}}<form id="clear-cache-form" method="post" action="/action">
-    <input type="hidden" name="kind" value="clear-cache">
-    <input type="hidden" name="tab" value="settings">
-    <input type="hidden" name="csrf" value="{{.CSRF}}">
-    <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
-  </form>{{end}}
 </section>
 {{end}}
+
 {{end}}

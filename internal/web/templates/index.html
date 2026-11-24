@@ -23,7 +23,7 @@
         <li><strong>Only labeled</strong>{{if and .Snapshot.WritesEnabled .Snapshot.RequirePRLabel (not .Snapshot.Interactive)}} (active){{end}}. The assistant posts eligible retry comments automatically. It posts to a PR only if GitHub reports <code>{{prCommentLabel}}</code>. Clear <b>Confirm each retry comment</b>. Select <b>Require the label for PR comments</b>.</li>
         <li><strong>Full auto</strong>{{if and .Snapshot.WritesEnabled (not .Snapshot.Interactive) (not .Snapshot.RequirePRLabel)}} (active){{end}}. The assistant posts eligible retry comments automatically. A PR can receive comments without the label. Clear both checkboxes.</li>
       </ol>
-      <p>For a mode that posts comments, start with <code>--enable-writes</code>. Configure the release. Change the checkboxes in <a href="/?tab=settings#retry-settings" data-open-section>Application settings</a>. Select <b>Save settings</b>.</p>
+      <p>For a mode that posts comments, start with <code>--enable-writes</code>. Configure the release. Change the checkboxes in <a href="/?tab=settings#retry-settings" data-open-section>GitHub writes</a> and select <b>Save write settings</b>.</p>
     </div>
   </details>
 </header>
@@ -92,9 +92,10 @@
   </section>
   <section id="panel-settings" class="workflow-panel" role="tabpanel" aria-labelledby="tab-settings" data-workflow-panel="settings" tabindex="0"{{if ne .Tab "settings"}} hidden{{end}}>
   <h2 class="page-title">Settings</h2>
-  {{if not .Configured}}{{template "release-configuration" .}}{{end}}
+  {{template "settings-navigation" .}}
+  <p id="settings-save-status" class="notice" role="status" data-live-preserve{{if ne .SettingsSaved "application"}} hidden{{end}}>{{if eq .SettingsSaved "application"}}Settings saved.{{end}}</p>
+  {{template "release-configuration" .}}
   {{template "application-settings" .}}
-  {{if .Configured}}{{template "release-configuration" .}}{{end}}
   </section>
 </main>
 </div>
