@@ -253,6 +253,15 @@ golangci-lint run ./...
 node --test internal/web/app_js_test.js
 ```
 
+The Go binary embeds the compiled Tailwind stylesheet. After editing the UI
+styles or adding Tailwind classes to a template, regenerate it from the
+repository root. Node.js and npm are needed only for this build step.
+
+```sh
+npm --prefix internal/web ci
+npm --prefix internal/web run build:css
+```
+
 For a manual browser check, start the local fixture server.
 
 ```sh

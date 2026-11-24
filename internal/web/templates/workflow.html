@@ -1,6 +1,6 @@
 {{define "workflow-tab"}}
   <div class="workflow-heading">
-    <p class="eyebrow">{{tabStep .Tab}}</p><h2>{{tabTitle .Tab}}</h2>
+    <p class="eyebrow">{{tabStep .Tab}}</p><h2 class="page-title">{{tabTitle .Tab}}</h2>
     {{if eq .Tab "component-prs"}}
       <p><strong>Components</strong> · {{range $i, $source := .Snapshot.Config.Components}}{{if $i}}, {{end}}{{title $source.Name}} (<code>{{$source.Branch}}</code>){{end}}</p>
     {{end}}

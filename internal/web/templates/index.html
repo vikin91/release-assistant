@@ -29,11 +29,12 @@
 </header>
 <div id="live-dashboard" class="workspace">
 <aside aria-label="Release navigation" class="sidebar" id="release-navigation" popover="auto">
-  <div class="rail-heading"><span class="rail-mark" aria-hidden="true">{{template "nav-icon" "layers"}}</span><strong>Release assistant</strong>
+  <div class="rail-heading"><span class="rail-mark" aria-hidden="true">{{template "nav-icon" "layers"}}</span><strong>Release Assistant</strong>
     <button type="button" class="drawer-toggle" popovertarget="release-navigation" popovertargetaction="hide" aria-label="Close release navigation">×</button></div>
   <h2 class="phases-title">Release phases</h2>
-  <nav class="workflow-tabs" role="tablist" aria-orientation="vertical" aria-label="Release work">
+  <nav class="workflow-tabs flex flex-col gap-0.5" role="tablist" aria-orientation="vertical" aria-label="Release work">
     {{range $i, $tab := (slice "component-prs" "component-releases" "acs-prs" "acs-rcs" "activity" "retest-queue" "settings")}}
+    {{if eq $tab "activity"}}<span class="nav-separator" aria-hidden="true"></span>{{end}}
     {{$label := tabTitle $tab}}
     {{if lt $i 4}}{{$label = printf "%s. %s" (index (slice "1" "2" "3" "4") $i) $label}}{{end}}
     {{if and (not $.Configured) (lt $i 4)}}
@@ -59,12 +60,12 @@
     </dl>
   </section>
   {{end}}{{end}}
-  <section class="sidebar-summary phase-legend" aria-labelledby="phase-legend-title">
-    <h2 id="phase-legend-title">Phase icons</h2>
+  <details class="sidebar-summary phase-legend" data-fold-key="phase-legend">
+    <summary>Phase icons</summary>
     <dl>{{range .PhaseLegend}}
       <div><dt><span class="tab-status {{.Class}}" aria-hidden="true">{{.Icon}}</span> {{.Label}}</dt><dd>{{.Reason}}</dd></div>
     {{end}}</dl>
-  </section>
+  </details>
 </aside>
 <main>
   <div id="form-error" class="notice error" role="alert" data-live-preserve{{if not .Error}} hidden{{end}}>{{.Error}}</div>
@@ -76,9 +77,10 @@
   {{end}}
   {{end}}
   <section id="panel-activity" class="workflow-panel" role="tabpanel" aria-labelledby="tab-activity" data-workflow-panel="activity" tabindex="0"{{if ne .Tab "activity"}} hidden{{end}}>
+  <h2 class="page-title">Activity</h2>
   {{template "konflux-diagnostics" .}}
   <section class="panel" id="activity-console" data-live-preserve>
-    <h2 id="activity-details">Log</h2>
+    <h3 id="activity-details">Log</h3>
     <p class="muted">Monitoring continues when you switch tabs. The latest 1,000 events refresh every two seconds.</p>
     <pre id="activity-log" role="log" aria-label="Log" aria-live="off" tabindex="0">{{activity .Snapshot}}</pre>
     <button type="button" id="activity-jump-latest" hidden>Jump to latest</button>
@@ -89,7 +91,7 @@
     {{template "retest-queue" .}}
   </section>
   <section id="panel-settings" class="workflow-panel" role="tabpanel" aria-labelledby="tab-settings" data-workflow-panel="settings" tabindex="0"{{if ne .Tab "settings"}} hidden{{end}}>
-  <h2>Settings</h2>
+  <h2 class="page-title">Settings</h2>
   {{if not .Configured}}{{template "release-configuration" .}}{{end}}
   {{template "application-settings" .}}
   {{if .Configured}}{{template "release-configuration" .}}{{end}}

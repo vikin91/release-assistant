@@ -1,10 +1,11 @@
 {{define "retest-queue"}}
-<h2 id="retest-queue">Retest Queue</h2>
+<h2 id="retest-queue" class="page-title">Retest Queue</h2>
 <div id="retest-filter" class="retest-filter" hidden>
-  <label for="retest-search">Search queue</label>
-  <input id="retest-search" type="search" placeholder="ID, PR, repository, tag, job, or command" autocomplete="off">
+  <label class="retest-search-field" for="retest-search">Search queue
+    <input id="retest-search" type="search" placeholder="ID, PR, repository, tag, job, or command" autocomplete="off">
+  </label>
   {{if and .Snapshot.WritesEnabled .Snapshot.Interactive}}
-    <button id="retest-send-all" type="button" hidden>Send all</button>
+    <button id="retest-send-all" type="button" class="button-primary" hidden>Send all</button>
   {{end}}
 </div>
 {{if .Snapshot.RetestQueue}}
