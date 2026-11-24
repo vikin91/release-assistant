@@ -16,8 +16,9 @@ func (s *Session) monitorRelease(ctx context.Context, generation uint64, config 
 		s.options.GitHubReads.StartMonitoring()
 	}
 	var monitors sync.WaitGroup
+	monitors.Go(func() { s.monitor(ctx, generation, config.ACS(), true) })
 	for _, source := range append([]release.Source{config.ACS()}, slices.Clone(config.Components)...) {
-		monitors.Go(func() { s.monitor(ctx, generation, source) })
+		monitors.Go(func() { s.monitor(ctx, generation, source, false) })
 	}
 	monitors.Wait()
 }

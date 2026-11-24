@@ -418,8 +418,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			}
 		}
 		if changed {
-			close(s.pollChanged)
-			s.pollChanged = make(chan struct{})
+			s.wakePolls()
 		}
 		s.drain()
 		return nil
@@ -847,6 +846,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			if generation == s.generation && work.revision == s.workRevision && ctx.Err() == nil && old.Candidate.Target.Tag == "" && (old.Head == "" || old.Head == head) {
 				old.Source, old.Head, old.Candidate = source, head, candidate
 				s.repos[source.Name] = old
+				s.wakePolls()
 			}
 		}
 	}
@@ -1001,11 +1001,15 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 				r.Candidate = old.Candidate
 				r.Candidate.Evidence = evidence
 			}
-			if old.Candidate.Target != r.Candidate.Target || old.Candidate.SHA != r.Candidate.SHA {
+			candidateChanged := old.Candidate.Target != r.Candidate.Target || old.Candidate.SHA != r.Candidate.SHA
+			if candidateChanged {
 				s.clearRCPlan()
 				delete(s.tagChecks, source.Name)
 				s.inventory.ReleaseImages = nil
 				delete(s.inventory.Versions, "acs")
+			}
+			if candidateChanged || old.Candidate.Evidence.Fresh() != r.Candidate.Evidence.Fresh() {
+				s.wakePolls()
 			}
 		}
 		s.repos[source.Name] = r

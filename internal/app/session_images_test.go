@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -89,6 +90,60 @@ func TestACSRefreshAppliesImagesWhileDiscoveryIsBlocked(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestScheduledImageChecksDoNotDelayGitHubOrKonflux(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, f := newFixture()
+		config := configuration()
+		source := config.ACS()
+		acs := f.repos[source.Name]
+		rc := release.Candidate{
+			Target: release.Target{Repo: source.Repo, Tag: "5.0.1-rc.0"}, SHA: acs.Head, Evidence: observed(),
+		}
+		acs.Candidate = rc
+		f.repos[source.Name] = acs
+		apply(t, s, Action{Kind: "configure", Config: config})
+		s.options.RefreshIntervals[ACSPRs] = time.Second
+		s.options.RefreshIntervals[KonfluxBuilds] = time.Second
+		s.options.RefreshIntervals[ReleaseImages] = time.Hour
+		var buildChecks, imageChecks atomic.Int32
+		s.planner = buildPollPlanner(func(_ context.Context, target release.Target) (release.Plan, error) {
+			if target == rc.Target {
+				buildChecks.Add(1)
+				return release.Plan{Target: target, SHA: rc.SHA, Evidence: observed()}, nil
+			}
+			return release.Plan{Target: target}, nil
+		})
+		s.images = imageReaderFunc(func(ctx context.Context, c release.Config, tags map[string]string) (release.Inventory, error) {
+			if tags["acs"] == rc.Target.Tag {
+				imageChecks.Add(1)
+				<-ctx.Done()
+				return release.Inventory{}, ctx.Err()
+			}
+			return f.Inspect(ctx, c, tags)
+		})
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() { defer close(done); s.Run(ctx) }()
+		defer func() { cancel(); <-done }()
+		synctest.Wait()
+		if got := imageChecks.Load(); got != 1 {
+			t.Fatalf("expected image checks to start as soon as the RC was discovered, got %d", got)
+		}
+		prReads, buildReads := pollCount(f, source.Name, ReadPRs), buildChecks.Load()
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+		if got := pollCount(f, source.Name, ReadPRs); got <= prReads {
+			t.Fatalf("GitHub PR discovery stalled during image checks: %d reads", got)
+		}
+		if got := buildChecks.Load(); got <= buildReads {
+			t.Fatalf("Konflux polling stalled during image checks: %d reads", got)
+		}
+		if got := imageChecks.Load(); got != 1 {
+			t.Fatalf("image checks overlapped: %d inspections", got)
+		}
+	})
 }
 
 func TestRefreshImagesDiscardsResultsAfterSelectionChanges(t *testing.T) {

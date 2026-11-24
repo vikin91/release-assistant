@@ -120,9 +120,14 @@ func (s *Session) hasOverdueObservations() bool {
 	return false
 }
 
-// monitor serializes observations for a repository. During startup the independent
-// component inventory can publish its first tags while PR discovery is in flight.
-func (s *Session) monitor(ctx context.Context, generation uint64, source release.Source) {
+// wakePolls asks sleeping workers to recompute their jobs. The caller holds s.mu.
+func (s *Session) wakePolls() {
+	close(s.pollChanged)
+	s.pollChanged = make(chan struct{})
+}
+
+// monitor schedules repository reads or registry reads with independent timers.
+func (s *Session) monitor(ctx context.Context, generation uint64, source release.Source, imagesOnly bool) {
 	for ctx.Err() == nil {
 		s.mu.Lock()
 		if generation != s.generation {
@@ -136,6 +141,9 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 		var due []pollJob
 		var next time.Time
 		for _, job := range s.pollJobs(source) {
+			if (job.kind == pollImages) != imagesOnly {
+				continue
+			}
 			record := s.polls[pollID{source.Repo, job.kind}]
 			at := record.next(s.options.RefreshIntervals[job.setting], s.startupUntil)
 			if record.due(job.identity, now, at) {

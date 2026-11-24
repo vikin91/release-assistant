@@ -24,7 +24,7 @@ func TestMonitorWarningNamesFailedReadAndBranch(t *testing.T) {
 		s.log = NewLog(&output, false)
 		ctx, cancel := context.WithCancel(t.Context())
 		done := make(chan struct{})
-		go func() { defer close(done); s.monitor(ctx, s.generation, s.config.ACS()) }()
+		go func() { defer close(done); s.monitor(ctx, s.generation, s.config.ACS(), false) }()
 		synctest.Wait()
 		cancel()
 		<-done
@@ -70,7 +70,7 @@ func TestMonitorLogsScheduledPRDiscovery(t *testing.T) {
 		s.log = NewLog(io.Discard, false)
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
-		go s.monitor(ctx, s.generation, s.config.Components[0])
+		go s.monitor(ctx, s.generation, s.config.Components[0], false)
 		synctest.Wait()
 		startup := s.log.Recent()
 
