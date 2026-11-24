@@ -111,22 +111,32 @@ func TestBuildRetriesMergeOnlyExactComments(t *testing.T) {
 func TestKonfluxRetryStatusSummary(t *testing.T) {
 	evidence := release.Evidence{Known: true, At: time.Now()}
 	for name, tc := range map[string]struct {
-		plan release.Plan
-		want string
+		plan      release.Plan
+		want      string
+		hourglass bool
 	}{
-		"admission denied":  {release.Plan{Action: "Wait", StartFailures: []release.StartFailure{{Category: "admission_policy", Evidence: evidence}}}, "A PipelineRun failed to start"},
-		"waiting for check": {release.Plan{Action: "Wait", Runs: []release.Run{{ID: "123", Job: "main", Status: "in_progress"}}}, "Waiting for the main check to finish"},
-		"no matching run":   {release.Plan{Action: "Wait", Message: "No verified build checks match the requested tag or PR."}, "No matching Konflux build check"},
+		"admission denied":  {release.Plan{Action: "Wait", StartFailures: []release.StartFailure{{Category: "admission_policy", Evidence: evidence}}}, "A PipelineRun failed to start", false},
+		"waiting for check": {release.Plan{Action: "Wait", Runs: []release.Run{{ID: "123", Job: "main", Status: "in_progress"}}}, "Waiting for the main check to finish", true},
+		"no matching run":   {release.Plan{Action: "Wait", Message: "No verified build checks match the requested tag or PR."}, "No matching Konflux build check", false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			g := buildRetryTarget{Plan: &planModel{Plan: tc.plan}}
-			if got := g.nextAction(true); !strings.HasPrefix(got, tc.want) {
-				t.Errorf("next action = %q, want %q", got, tc.want)
+			if got, waiting := g.nextAction(true); !strings.HasPrefix(got, tc.want) || waiting != tc.hourglass {
+				t.Errorf("next action = %q, waiting for check = %v", got, waiting)
+			}
+			s := workflowStatusSnapshot()
+			tc.plan.Target = release.Target{Repo: s.Config.ACS().Repo, PR: 41}
+			s.Choices.PRs[tc.plan.Target] = release.Included
+			s.Plans = []release.Plan{tc.plan}
+			body := newBrowser(t, &fakeApplication{snapshot: s}).getBody(t)
+			row := between(t, activityPanel(t, body, "acs-prs"), `id="acs-pr-retries-41"`, "</article>")
+			if strings.Contains(row, `<span aria-hidden="true">⏳</span> <strong>Konflux:</strong>`) != tc.hourglass {
+				t.Fatalf("incorrect hourglass visibility in %s", row)
 			}
 		})
 	}
 	group := buildRetryTarget{Target: release.Target{PR: 1}, Candidates: []*buildRetryCandidate{{Offer: &dispatch.Offer{CommentSent: true}}}}
-	if got := group.nextAction(true); !strings.Contains(got, "Waiting for new Konflux runs") {
+	if got, _ := group.nextAction(true); !strings.Contains(got, "Waiting for new Konflux runs") {
 		t.Errorf("next action after delivery = %q", got)
 	}
 }

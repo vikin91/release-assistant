@@ -15,7 +15,7 @@
           {{if not .ClosedState}}
           {{with .Authority}}{{if .Message}}<p class="build-retry-note">{{.Message}}</p>{{end}}{{end}}
           {{if and (or .Candidates .Comment) .RequiredStartFailureSummary}}<p class="build-retry-note"><strong>Konflux:</strong> {{.RequiredStartFailureSummary}}</p>{{end}}
-          {{if .NextAction}}<p class="build-retry-note"><strong>Konflux:</strong> {{.NextAction}}</p>{{end}}
+          {{if .NextAction}}<p class="build-retry-note">{{if and .Target.PR .WaitingForCheck}}<span aria-hidden="true">⏳</span> {{end}}<strong>Konflux:</strong> {{.NextAction}}</p>{{end}}
           {{if .KonfluxWarning}}<p class="build-retry-note unknown" role="status"><span aria-hidden="true">⚠</span> {{.KonfluxWarning}}</p>{{end}}
           {{if .Target.PR}}
             {{if .Comment}}<div class="copyable-text">

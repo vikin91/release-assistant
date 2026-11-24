@@ -21,6 +21,7 @@ type (
 		Comment                     string
 		Queueable                   bool
 		NextAction                  string
+		WaitingForCheck             bool
 		KonfluxWarning              string
 		RequiredStartFailureSummary string
 		Manual                      *release.ManualRetryReport
@@ -115,7 +116,7 @@ func (p pageModel) BuildRetries() []*buildRetryTarget {
 		if group.Plan != nil {
 			group.KonfluxWarning = konfluxVerificationWarning(group.Plan.Plan)
 		}
-		group.NextAction = group.nextAction(p.Snapshot.Interactive)
+		group.NextAction, group.WaitingForCheck = group.nextAction(p.Snapshot.Interactive)
 	}
 	return targets
 }
@@ -175,10 +176,10 @@ func (g buildRetryTarget) requiredStartFailureSummary() string {
 }
 
 // nextAction summarizes Konflux observations that the row does not already show.
-func (g buildRetryTarget) nextAction(interactive bool) string {
+func (g buildRetryTarget) nextAction(interactive bool) (message string, waitingForCheck bool) {
 	if len(g.Candidates) > 0 {
 		if g.Target.PR == 0 {
-			return ""
+			return "", false
 		}
 		sent := 0
 		for _, candidate := range g.Candidates {
@@ -190,56 +191,56 @@ func (g buildRetryTarget) nextAction(interactive bool) string {
 				sent++
 			} else if offer.CanApprove {
 				if !interactive {
-					return "Eligible for automatic retry."
+					return "Eligible for automatic retry.", false
 				}
-				return ""
+				return "", false
 			}
 		}
 		if sent == len(g.Candidates) {
-			return "Retry comments posted. Waiting for new Konflux runs."
+			return "Retry comments posted. Waiting for new Konflux runs.", false
 		}
-		return ""
+		return "", false
 	}
 	if g.Comment != "" {
-		return ""
+		return "", false
 	}
 	if g.Plan == nil {
-		return "Waiting for the first Konflux check observation."
+		return "Waiting for the first Konflux check observation.", false
 	}
 	if g.RequiredStartFailureSummary != "" {
-		return g.RequiredStartFailureSummary
+		return g.RequiredStartFailureSummary, false
 	}
 	plan := g.Plan.Plan
 	if plan.KonfluxAPIUnavailable {
-		return ""
+		return "", false
 	}
 	for _, failure := range plan.StartFailures {
 		if !failure.Superseded && failure.Evidence.Fresh() {
-			return "A PipelineRun failed to start. See Log."
+			return "A PipelineRun failed to start. See Log.", false
 		}
 	}
 	if plan.Evidence.Error != "" {
-		return ""
+		return "", false
 	}
 	if plan.Action == "Wait" {
 		for _, run := range plan.Runs {
 			if run.ID != "" && (run.Status == "in_progress" || run.Status == "queued") {
-				return "Waiting for the " + run.Job + " check to finish."
+				return "Waiting for the " + run.Job + " check to finish.", true
 			}
 		}
 	}
 	switch plan.Message {
 	case "PipelineRun creation failed for a check with unknown PR or tag.":
-		return "Waiting for a verified Konflux check observation."
+		return "Waiting for a verified Konflux check observation.", false
 	case "No verified build checks match the requested tag or PR.", "GitHub returned no check runs for this commit.":
-		return "No matching Konflux build check observed on this commit."
+		return "No matching Konflux build check observed on this commit.", false
 	case "":
 		if plan.Action == "None" {
-			return "No retry needed."
+			return "No retry needed.", false
 		}
-		return ""
+		return "", false
 	default:
-		return plan.Message
+		return plan.Message, false
 	}
 }
 
