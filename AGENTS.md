@@ -1,3 +1,11 @@
+## Architecture checks
+
+Read [ARCHITECTURE.md](ARCHITECTURE.md) before you edit. Check every change
+against each invariant before you finish. In your summary, give the IDs of
+the affected invariants and the result of each check. State when a check
+could not run. If a request conflicts with an invariant, state its ID and
+ask the user to approve the rule change before you implement it.
+
 ## External write authorization
 
 Every write to GitHub or Konflux must pass through the authorization boundary
