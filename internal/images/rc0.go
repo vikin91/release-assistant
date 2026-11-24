@@ -2,8 +2,6 @@ package images
 
 import (
 	"cmp"
-	"context"
-	"time"
 
 	"release-assistant/internal/release"
 )
@@ -11,27 +9,6 @@ import (
 // ExpectedRCImages lists the registry checks for an ACS major version without performing any reads.
 func ExpectedRCImages(major int, tag string) []release.Image {
 	return append(rcCIImages(major, tag), rcKonfluxImages(major, tag)...)
-}
-
-func inspectRC(ctx context.Context, inspector *Inspector, major int, tag string, now time.Time) []release.Image {
-	rows := ExpectedRCImages(major, tag)
-	for i := range rows {
-		image := &rows[i]
-		image.Evidence = release.Evidence{At: now, URL: sourceURL(image.Reference)}
-		if inspector == nil || inspector.registry == nil {
-			image.Evidence.Error = "registry client is unavailable; image availability is unknown"
-			continue
-		}
-		present, observedAt, err := inspector.registry.present(ctx, image.Reference)
-		image.Evidence.At = observedAt
-		image.Evidence.Known = err == nil
-		if err != nil {
-			image.Evidence.Error = "registry availability is unknown: " + err.Error()
-		} else {
-			image.Present = present
-		}
-	}
-	return rows
 }
 
 func rcCIImages(major int, tag string) []release.Image {

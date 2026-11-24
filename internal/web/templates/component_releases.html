@@ -70,6 +70,7 @@
         Component images <span class="summary-detail">Before ACS pinning</span>
         {{template "image-counts" .ComponentImages}}
       </summary>
+      {{template "refresh-images" .}}
       {{if .Snapshot.Assessment.ImageProblem}}<p class="notice warning">{{.Snapshot.Assessment.ImageProblem}}</p>{{end}}
       {{with .ComponentImages}}
         {{if .Groups}}{{template "image-table" .Groups}}{{end}}
@@ -132,7 +133,7 @@
       <summary>
         <span class="pill component-image-status {{truth .Check.Status}}">{{template "image-status-label" .}}</span>
         {{if not .Check.Status}}
-          <span class="component-image-note">{{if and .Check.Required (not .Check.SelectedTag)}}No tag selected{{else if and (not .Check.Image.Evidence.Fresh) .Check.Image.Present}}Last result unverified{{else if and .Check.Image.Reference .Check.Image.Evidence.Error}}Registry check failed{{else}}{{.Check.Reason}}{{end}}</span>
+          <span class="component-image-note">{{if and .Check.Required (not .Check.SelectedTag)}}No tag selected{{else if and (not .Check.Image.Evidence.Fresh) .Check.Image.Present}}Last result unverified{{else if and .Check.Image.Reference .Check.Image.Evidence.Error}}Registry check failed{{else if and .Check.Image.Reference .Check.Image.Evidence.At.IsZero}}Waiting for Quay{{else}}{{.Check.Reason}}{{end}}</span>
         {{end}}
       </summary>
       {{template "image-evidence" .}}
@@ -140,7 +141,7 @@
   {{else}}<span title="No image result for this variant">—</span>{{end}}</td>
 {{end}}
 
-{{define "image-status-label"}}{{if eq (truth .Check.Status) "yes"}}Available{{else if eq (truth .Check.Status) "no"}}Not found{{else}}Unable to check{{end}}{{end}}
+{{define "image-status-label"}}{{if eq (truth .Check.Status) "yes"}}Available{{else if eq (truth .Check.Status) "no"}}Not found{{else if and .Check.Image.Reference (eq (truth .Check.Image.Present) "yes")}}Last seen available{{else if and .Check.Image.Reference (eq (truth .Check.Image.Present) "no")}}Last seen missing{{else if and .Check.Image.Reference .Check.Image.Evidence.At.IsZero}}Pending{{else}}Unable to check{{end}}{{end}}
 
 {{define "image-evidence"}}
       <div class="component-image-evidence">

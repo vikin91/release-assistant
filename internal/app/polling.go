@@ -20,14 +20,16 @@ type (
 		kind pollKind
 	}
 	pollJob struct {
-		kind     pollKind
-		setting  RefreshKey
-		identity string
+		kind         pollKind
+		setting      RefreshKey
+		identity     string
+		imageRefresh uint64
 	}
 	pollRecord struct {
 		finished, retryAfter time.Time
 		identity             string
 		failures             int
+		imageRefresh         uint64
 	}
 )
 
@@ -87,10 +89,10 @@ func (s *Session) pollJobs(source release.Source) []pollJob {
 	}
 	identity := tag + ":" + sha
 	if _, verified := s.tagCheckTarget(s.repos[source.Name]); verified != "" {
-		jobs = append(jobs, pollJob{pollTagChecks, tagChecks, identity})
+		jobs = append(jobs, pollJob{kind: pollTagChecks, setting: tagChecks, identity: identity})
 	}
 	if tag != "" || tracked {
-		jobs = append(jobs, pollJob{pollBuilds, KonfluxBuilds, identity})
+		jobs = append(jobs, pollJob{kind: pollBuilds, setting: KonfluxBuilds, identity: identity})
 	}
 	if acs {
 		var images strings.Builder
@@ -98,7 +100,8 @@ func (s *Session) pollJobs(source release.Source) []pollJob {
 		for _, component := range s.config.Components {
 			fmt.Fprintf(&images, "/%s:%s", s.choices.Tags[component.Name], s.confirmedSHAs[component.Name])
 		}
-		jobs = append(jobs, pollJob{pollImages, ReleaseImages, images.String()})
+		fmt.Fprintf(&images, "/%d", s.imageRefresh)
+		jobs = append(jobs, pollJob{kind: pollImages, setting: ReleaseImages, identity: images.String(), imageRefresh: s.imageRefresh})
 	}
 	return jobs
 }
@@ -245,8 +248,9 @@ func (s *Session) fetchPoll(ctx context.Context, generation, revision uint64, so
 	case pollImages:
 		s.mu.Lock()
 		ready := s.rcReady()
+		force := job.imageRefresh > s.polls[pollID{source.Repo, pollImages}].imageRefresh
 		s.mu.Unlock()
-		return s.refreshImagesScoped(ctx, generation, false, ready, true)
+		return s.refreshImagesScoped(ctx, generation, false, ready, true, force)
 	}
 	return s.refresh(ctx, generation, source, true, work)
 }
@@ -272,7 +276,7 @@ func (s *Session) runPoll(ctx context.Context, generation, revision uint64, sour
 		return
 	}
 	now := time.Now()
-	record := pollRecord{identity: job.identity, finished: now}
+	record := pollRecord{identity: job.identity, finished: now, imageRefresh: job.imageRefresh}
 	if err != nil {
 		record.failures = 1
 		if previous.identity == job.identity {

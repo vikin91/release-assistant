@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -50,6 +52,15 @@ func (i *Inspector) InspectComponents(ctx context.Context, config release.Config
 }
 
 func (i *Inspector) inspect(ctx context.Context, config release.Config, confirmedTags map[string]string, includeRC bool) (release.Inventory, error) {
+	return i.inspectImages(ctx, config, confirmedTags, includeRC, false, nil)
+}
+
+// InspectImages publishes pending rows and each completed registry observation in catalog order.
+func (i *Inspector) InspectImages(ctx context.Context, config release.Config, tags map[string]string, force bool, progress func(release.Inventory)) (release.Inventory, error) {
+	return i.inspectImages(ctx, config, tags, true, force, progress)
+}
+
+func (i *Inspector) inspectImages(ctx context.Context, config release.Config, confirmedTags map[string]string, includeRC, force bool, progress func(release.Inventory)) (release.Inventory, error) {
 	now := time.Now()
 	major, minor, patch, versionOK := release.Version(config.Version)
 	releaseVersion := ""
@@ -91,29 +102,18 @@ func (i *Inspector) inspect(ctx context.Context, config release.Config, confirme
 			continue
 		}
 		reference := pattern.repo + ":" + version + pattern.suffix
-		image := release.Image{
+		inventory.Images = append(inventory.Images, release.Image{
 			Component: pattern.component, Family: pattern.family, Name: pattern.name,
 			Reference: reference,
-			Evidence:  release.Evidence{At: now, URL: sourceURL(reference)},
-		}
-		if i == nil || i.registry == nil {
-			image.Evidence.Error = "registry client is unavailable; image availability is unknown"
-			issues = append(issues, fmt.Errorf("inspect %s %s image: registry client is unavailable", pattern.component, pattern.family))
-		} else {
-			present, observedAt, err := i.registry.present(ctx, reference)
-			image.Evidence.At = observedAt
-			image.Evidence.Known = err == nil
-			if err != nil {
-				image.Evidence.Error = "registry availability is unknown: " + err.Error()
-				issues = append(issues, fmt.Errorf("inspect %s %s image: %w", pattern.component, pattern.family, err))
-			} else {
-				image.Present = present
-			}
-		}
-		inventory.Images = append(inventory.Images, image)
+			Evidence:  release.Evidence{URL: sourceURL(reference)},
+		})
 	}
 	if tag := strings.TrimPrefix(confirmedTags["acs"], "v"); includeRC && tag != "" {
-		inventory.ReleaseImages = inspectRC(ctx, i, major, tag, now)
+		inventory.ReleaseImages = ExpectedRCImages(major, tag)
+		for index := range inventory.ReleaseImages {
+			row := &inventory.ReleaseImages[index]
+			row.Evidence.URL = sourceURL(row.Reference)
+		}
 		inventory.Versions["acs"] = tag
 	}
 	inventory.Evidence = release.Evidence{At: time.Now(), Known: len(metadataIssues) == 0 && !unselected}
@@ -125,7 +125,67 @@ func (i *Inspector) inspect(ctx context.Context, config release.Config, confirme
 		inventory.Evidence.Known = false
 		issues = append(issues, err)
 	}
+	publish := func() {
+		if progress != nil {
+			partial := inventory
+			partial.Versions = maps.Clone(inventory.Versions)
+			partial.Images = slices.Clone(inventory.Images)
+			partial.ReleaseImages = slices.Clone(inventory.ReleaseImages)
+			progress(partial)
+		}
+	}
+	type result struct {
+		row   *release.Image
+		image release.Image
+		err   error
+	}
+	results := make(chan result, len(inventory.Images)+len(inventory.ReleaseImages))
+	pending := 0
+	for _, rows := range [][]release.Image{inventory.Images, inventory.ReleaseImages} {
+		for index, image := range rows {
+			if image.Reference == "" {
+				continue
+			}
+			row := &rows[index]
+			if !force && i != nil && i.registry != nil {
+				if at, ok := i.registry.confirmedAt(image.Reference); ok {
+					row.Present, row.Evidence.At, row.Evidence.Known = release.Yes, at, true
+					continue
+				}
+			}
+			pending++
+			go func() {
+				observed, err := i.observeImage(ctx, image, force)
+				results <- result{row: row, image: observed, err: err}
+			}()
+		}
+	}
+	publish()
+	for range pending {
+		result := <-results
+		*result.row = result.image
+		if image := result.image; result.err != nil && image.Component != "acs" {
+			issues = append(issues, fmt.Errorf("inspect %s %s image: %w", image.Component, image.Family, result.err))
+		}
+		publish()
+	}
 	return inventory, errors.Join(issues...)
+}
+
+// observeImage keeps a failed registry read distinct from confirmed absence.
+func (i *Inspector) observeImage(ctx context.Context, image release.Image, force bool) (release.Image, error) {
+	var err error
+	if i == nil || i.registry == nil {
+		image.Evidence.At = time.Now()
+		err = errors.New("registry client is unavailable")
+	} else {
+		image.Present, image.Evidence.At, err = i.registry.observe(ctx, image.Reference, force)
+	}
+	image.Evidence.Known = err == nil
+	if err != nil {
+		image.Evidence.Error = "registry availability is unknown: " + err.Error()
+	}
+	return image, err
 }
 
 func componentPatterns(config release.Config) []imagePattern {

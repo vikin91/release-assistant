@@ -24,12 +24,13 @@ type (
 	}
 
 	releaseStateFile struct {
-		Version       int                                     `json:"version"`
-		Profiles      []ReleaseProfile                        `json:"profiles"`
-		ActiveProfile string                                  `json:"active_profile,omitempty"`
-		Releases      map[string]map[string]release.Choice    `json:"releases"`
-		ComponentTags map[string]map[string]savedComponentTag `json:"component_tags,omitempty"`
-		PinningPRs    map[string]savedPinningChoice           `json:"pinning_prs,omitempty"`
+		Version           int                                     `json:"version"`
+		Profiles          []ReleaseProfile                        `json:"profiles"`
+		ActiveProfile     string                                  `json:"active_profile,omitempty"`
+		Releases          map[string]map[string]release.Choice    `json:"releases"`
+		ComponentTags     map[string]map[string]savedComponentTag `json:"component_tags,omitempty"`
+		PinningPRs        map[string]savedPinningChoice           `json:"pinning_prs,omitempty"`
+		ImageObservations map[string]savedImageObservation        `json:"image_observations,omitempty"`
 	}
 
 	savedComponentTag struct {

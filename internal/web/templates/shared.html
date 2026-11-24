@@ -51,3 +51,15 @@
 {{else if eq . "retest-queue"}}<path d="M9 6h11M9 12h11M9 18h11M4 6h1M4 12h1M4 18h1"/>
 {{else}}<path d="M4 6h5m4 0h7M4 12h10m4 0h2M4 18h2m4 0h10"/><circle cx="11" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="8" cy="18" r="2"/>
 {{end}}</svg>{{end}}
+{{define "refresh-images"}}
+  {{if and .Configured (not .ViewingInactive)}}
+    <form method="post" action="/action" class="inline-form">
+      <input type="hidden" name="kind" value="refresh-images">
+      <input type="hidden" name="tab" value="{{.Tab}}">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
+      <button type="submit">Refresh images</button>
+      {{if .Snapshot.ImagesRefreshing}}<span class="muted" role="status">Checking Quay…</span>{{end}}
+    </form>
+  {{end}}
+{{end}}

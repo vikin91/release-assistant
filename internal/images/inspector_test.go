@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"release-assistant/internal/release"
@@ -265,7 +266,10 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
 
 func testHTTPClient(handler func(*http.Request) *http.Response) *http.Client {
+	var mu sync.Mutex
 	return &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		mu.Lock()
+		defer mu.Unlock()
 		result := handler(request)
 		result.Request = request
 		return result, nil

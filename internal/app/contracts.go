@@ -57,6 +57,10 @@ type (
 	ComponentInspector interface {
 		InspectComponents(context.Context, release.Config, map[string]string) (release.Inventory, error)
 	}
+	// ProgressiveInspector reports inventory rows as each registry check completes.
+	ProgressiveInspector interface {
+		InspectImages(context.Context, release.Config, map[string]string, bool, func(release.Inventory)) (release.Inventory, error)
+	}
 	// Inspector checks release images and reported build outputs without source reads.
 	// The tags map carries the observed ACS candidate under "acs" when available.
 	Inspector interface {

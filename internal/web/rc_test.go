@@ -1,6 +1,9 @@
 package web
 
 import (
+	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +12,30 @@ import (
 	"release-assistant/internal/dispatch"
 	"release-assistant/internal/release"
 )
+
+func TestImagePanelsUseTheSameRefreshAction(t *testing.T) {
+	for tab, anchor := range map[string]string{
+		"acs-rcs": "release-images", "component-releases": "component-images-panel",
+	} {
+		t.Run(tab, func(t *testing.T) {
+			snapshot := workflowStatusSnapshot()
+			application := &fakeApplication{snapshot: snapshot}
+			browser := newBrowser(t, application)
+			panel := activityPanel(t, browser.getBody(t), tab)
+			if !strings.Contains(panel, `name="kind" value="refresh-images"`) ||
+				!strings.Contains(panel, `name="tab" value="`+tab+`"`) {
+				t.Fatal("image panel is missing the shared refresh action")
+			}
+			response := browser.post(url.Values{
+				"kind": {"refresh-images"}, "tab": {tab}, "generation": {strconv.FormatUint(snapshot.Generation, 10)},
+			})
+			if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/?tab="+tab+"#"+anchor ||
+				len(application.actions) != 1 || application.actions[0].Kind != "refresh-images" {
+				t.Fatalf("unexpected image refresh response %d and actions %v", response.Code, application.actions)
+			}
+		})
+	}
+}
 
 func TestRCTabShowsBuildActionsBesideMissingImages(t *testing.T) {
 	s := workflowStatusSnapshot()

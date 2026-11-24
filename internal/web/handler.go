@@ -300,6 +300,12 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 		} else {
 			destination = "/?tab=settings&saved=application#retry-settings"
 		}
+	case "refresh-images":
+		if r.PostForm.Get("tab") == "acs-rcs" {
+			destination += "#release-images"
+		} else {
+			destination += "#component-images-panel"
+		}
 	case "clear-cache":
 		destination = "/?tab=settings&saved=cache-clear#cache-settings"
 	case "check-pr-retries":
@@ -567,7 +573,7 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 		}
 	case "interactive", "cache-enabled":
 		a.Enabled = formHasValue(form, "enabled", "true")
-	case "clear-cache":
+	case "clear-cache", "refresh-images":
 	case "clear-tag":
 		a.Component = form.Get("component")
 		if a.Component == "" {

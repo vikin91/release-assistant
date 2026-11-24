@@ -6,6 +6,7 @@
           <span class="component-image-counts">{{.RC.KonfluxMissing}} Konflux {{if eq .RC.KonfluxMissing 1}}image{{else}}images{{end}} missing</span>
         {{else if .ReleaseImages.Total}}{{template "image-counts" .ReleaseImages}}{{else}}<span class="component-image-counts">Pending registry checks</span>{{end}}
       </h3>
+      {{template "refresh-images" .}}
       {{with .RC.Candidate}}
         {{if $.RC.TagURL}}
           <div class="control-row rc-links">
@@ -118,13 +119,17 @@
   {{if .Pending}}<span class="muted">Pending</span>{{else}}
   {{$status := truth .Check.Status}}
   {{$label := "Unable to check"}}
-  {{if eq $status "yes"}}{{$label = "Available"}}{{else if eq $status "no"}}{{$label = "Tag missing"}}{{end}}
+  {{if eq $status "yes"}}{{$label = "Available"}}{{else if eq $status "no"}}{{$label = "Tag missing"}}
+  {{else if eq (truth .Check.Image.Present) "yes"}}{{$label = "Last seen available"}}
+  {{else if eq (truth .Check.Image.Present) "no"}}{{$label = "Last seen missing"}}
+  {{else if .Check.Image.Evidence.At.IsZero}}{{$label = "Pending"}}{{end}}
   <span class="rc-image-reference">
     {{if .Check.Image.Reference}}<span>
     {{if url .URL}}<a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer"{{if eq $status "no"}} title="Open expected Quay tag"{{end}}><code>{{.Check.Image.Reference}}</code></a>
     {{else}}<code>{{.Check.Image.Reference}}</code>{{end}}
     </span>{{end}}
-    <span class="rc-image-mark {{$status}}" role="img" aria-label="{{$label}}" title="{{$label}}{{with .Check.Image.Evidence.At}}{{if not .IsZero}} · {{if eq $status "unknown"}}Check attempted{{else}}Checked{{end}} {{when .}}{{end}}{{end}}{{if and (eq $status "no") (not .Check.Image.PublishingSince.IsZero)}} · First seen missing {{when .Check.Image.PublishingSince}}{{end}}">{{if eq $status "yes"}}✓{{else if eq $status "no"}}✗{{else}}?{{end}}</span>
+    <span class="rc-image-mark {{$status}}" role="img" aria-label="{{$label}}" title="{{$label}}{{if not .Check.Image.Evidence.At.IsZero}} · {{if and (eq $status "unknown") .Check.Image.Present}}Last observed{{else if eq $status "unknown"}}Check attempted{{else}}Checked{{end}} {{when .Check.Image.Evidence.At}}{{end}}{{if and (eq $status "no") (not .Check.Image.PublishingSince.IsZero)}} · First seen missing {{when .Check.Image.PublishingSince}}{{end}}">{{if eq $status "yes"}}✓{{else if eq $status "no"}}✗{{else}}?{{end}}</span>
+    {{if and (eq $status "unknown") .Check.Image.Present}}<span class="muted">{{$label}}</span>{{end}}
   </span>
   {{if .Check.Image.Evidence.Error}}<div class="component-image-note error-text">{{.Check.Image.Evidence.Error}}</div>
   {{else if and (eq $status "unknown") .Check.Reason}}<div class="component-image-note">{{.Check.Reason}}</div>{{end}}

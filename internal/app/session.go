@@ -78,6 +78,8 @@ type (
 		PendingPinningPR int
 		// Loading keeps the dashboard refreshing during startup and while included ACS PRs await CI results.
 		Loading bool
+		// ImagesRefreshing keeps the dashboard updating while registry results arrive.
+		ImagesRefreshing bool
 		// Monitoring reports whether this snapshot comes from the active release.
 		Monitoring bool
 		// ResumedAt identifies the latest activation of previously observed work.
@@ -136,6 +138,8 @@ type (
 		retestLog        []RetestDecision
 		nextRetestID     uint64
 		inventory        release.Inventory
+		imageRefresh     uint64
+		imageReads       int
 		confirmedSHAs    map[string]string
 		pendingTags      map[string]savedComponentTag
 		tagInitialized   map[string]bool
@@ -293,6 +297,13 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 	defer s.mu.Unlock()
 	var err error
 	switch a.Kind {
+	case "refresh-images":
+		if err := s.config.Validate(); err != nil {
+			return err
+		}
+		s.imageRefresh++
+		s.wakePolls()
+		return nil
 	case "configure":
 		if err = a.Config.Validate(); err != nil {
 			return err
@@ -632,6 +643,7 @@ func (s *Session) snapshot(work *releaseWork, active bool) Snapshot {
 		x.Interactive, x.RequirePRLabel = s.dispatcher.IsInteractive(), s.dispatcher.RequiresPRLabel()
 		x.WritesEnabled, x.Authority = s.dispatcher.WritesEnabled(), s.dispatcher.Views()
 		x.RefreshingResumed = s.hasOverdueObservations()
+		x.ImagesRefreshing = work.imageReads > 0 || work.imageRefresh > work.polls[pollID{c.ACS().Repo, pollImages}].imageRefresh
 	}
 	if len(work.pendingTags) > 0 {
 		x.PendingTags = make(map[string]string, len(work.pendingTags))
@@ -882,7 +894,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	var imageErr, componentImageErr error
 	if earlyComponentImages {
 		imageReads.Go(func() {
-			componentImageErr = s.refreshImagesScoped(ctx, generation, initial, false, scoped)
+			componentImageErr = s.refreshImagesScoped(ctx, generation, initial, false, scoped, false)
 		})
 	}
 	var errs []error
@@ -1113,7 +1125,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	s.prioritizeNewPRs(targets)
 	s.mu.Unlock()
 	if work.images && (includeRC || !earlyComponentImages) {
-		imageReads.Go(func() { imageErr = s.refreshImagesScoped(ctx, generation, initial, includeRC, true) })
+		imageReads.Go(func() { imageErr = s.refreshImagesScoped(ctx, generation, initial, includeRC, true, false) })
 	}
 	for _, target := range targets {
 		isRC := target == rc.Target
@@ -1352,10 +1364,10 @@ func canceled(ctx context.Context) bool { return errors.Is(ctx.Err(), context.Ca
 
 // refreshImages commits registry evidence only while its release and tag choices remain current.
 func (s *Session) refreshImages(ctx context.Context, generation uint64, initial bool) error {
-	return s.refreshImagesScoped(ctx, generation, initial, true, false)
+	return s.refreshImagesScoped(ctx, generation, initial, true, false, false)
 }
 
-func (s *Session) refreshImagesScoped(ctx context.Context, generation uint64, initial, includeRC, scheduled bool) error {
+func (s *Session) refreshImagesScoped(ctx context.Context, generation uint64, initial, includeRC, scheduled, force bool) error {
 	s.mu.Lock()
 	if generation != s.generation {
 		s.mu.Unlock()
@@ -1370,15 +1382,39 @@ func (s *Session) refreshImagesScoped(ctx context.Context, generation uint64, in
 	versions := maps.Clone(s.choices.Tags)
 	rc := s.repos["acs"].Candidate
 	includeRC = includeRC && rc.Target.Valid()
+	work := s.releaseWork
+	work.imageReads++
+	defer func() {
+		s.mu.Lock()
+		work.imageReads--
+		s.mu.Unlock()
+	}()
 	if initial {
 		s.record(release.Target{Repo: c.ACS().Repo}, "", "images-start", "", "Checking registry images using saved naming patterns.", "system", fmt.Sprintf("Checking container images for release %s.", c.Version))
 	}
 	s.mu.Unlock()
 	var inventory release.Inventory
 	var err error
+	tags := maps.Clone(versions)
 	if includeRC {
-		tags := maps.Clone(versions)
 		tags["acs"] = rc.Target.Tag
+	}
+	publish := func(inventory release.Inventory, err error, complete bool) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		current := s.repos["acs"].Candidate
+		sameCandidate := rc.Target == current.Target && rc.SHA == current.SHA
+		if canceled(ctx) || generation != s.generation || !maps.Equal(versions, s.choices.Tags) ||
+			(scheduled && revision != s.workRevision) || (includeRC && (!sameCandidate || !s.rcReady())) {
+			return
+		}
+		s.publishImageInventory(inventory, versions, includeRC, err, complete)
+	}
+	if inspector, ok := s.images.(ProgressiveInspector); ok {
+		inventory, err = inspector.InspectImages(ctx, c, tags, force, func(partial release.Inventory) {
+			publish(partial, nil, false)
+		})
+	} else if includeRC {
 		inventory, err = s.images.Inspect(ctx, c, tags)
 	} else if components, ok := s.images.(ComponentInspector); ok {
 		inventory, err = components.InspectComponents(ctx, c, versions)
@@ -1388,101 +1424,113 @@ func (s *Session) refreshImagesScoped(ctx context.Context, generation uint64, in
 	if canceled(ctx) {
 		return ctx.Err()
 	}
-	s.mu.Lock()
-	current := s.repos["acs"].Candidate
-	sameCandidate := rc.Target == current.Target && rc.SHA == current.SHA
-	if generation == s.generation && maps.Equal(versions, s.choices.Tags) && (!scheduled || revision == s.workRevision) &&
-		(!includeRC || (sameCandidate && s.rcReady())) {
+	publish(inventory, err, true)
+	return err
+}
+
+// publishImageInventory applies a batch or partial results under the session lock.
+func (s *Session) publishImageInventory(inventory release.Inventory, versions map[string]string, includeRC bool, err error, complete bool) {
+	c := s.config
+	rc := s.repos["acs"].Candidate
+	if complete {
 		message := ""
 		if err != nil {
 			message = err.Error()
 		}
 		s.recordReadResult(release.Target{Repo: c.ACS().Repo}, "images", message, "container images for release "+c.Version)
-		if err != nil && len(inventory.Images) == 0 && len(s.inventory.Images) > 0 {
-			reason := inventory.Evidence.Error
-			if reason == "" {
-				reason = "The image check failed before returning new results; earlier results are unverified."
-			}
-			inventory.Images = unverifiedImages(s.inventory.Images, reason)
-			inventory.ReleaseVersion = s.inventory.ReleaseVersion
-			if inventory.Versions == nil {
-				inventory.Versions = make(map[string]string)
-			}
-			for component, version := range s.inventory.Versions {
-				if component != "acs" {
-					inventory.Versions[component] = version
-				}
-			}
-			inventory.Evidence.Known = false
-			inventory.Evidence.Error = reason
-		}
-		if !includeRC {
-			inventory.ReleaseImages = s.inventory.ReleaseImages
-			if len(inventory.ReleaseImages) > 0 {
-				if inventory.Versions == nil {
-					inventory.Versions = map[string]string{}
-				}
-				inventory.Versions["acs"] = s.inventory.Versions["acs"]
-			}
-		} else if err != nil && len(inventory.ReleaseImages) == 0 {
-			inventory.ReleaseImages = unverifiedImages(s.inventory.ReleaseImages, "The ACS RC image check returned no new results; earlier results are unverified.")
-			if len(inventory.ReleaseImages) > 0 {
-				if inventory.Versions == nil {
-					inventory.Versions = map[string]string{}
-				}
-				inventory.Versions["acs"] = strings.TrimPrefix(rc.Target.Tag, "v")
-			}
-		}
-		inventory.Images = retainLastImagePresence(inventory.Images, s.inventory.Images)
-		inventory.ReleaseImages = retainLastImagePresence(inventory.ReleaseImages, s.inventory.ReleaseImages)
-		trackImagePublishing(inventory.Images, s.inventory.Images, func(image release.Image) bool {
-			for _, source := range c.Components {
-				tag := versions[source.Name]
-				if source.Name != image.Component || tag == "" {
-					continue
-				}
-				plan := s.plans[release.Target{Repo: source.Repo, Tag: tag}]
-				result, _ := plan.BuildStatus()
-				return result == release.Yes && plan.SHA != "" && plan.SHA == s.confirmedSHAs[source.Name]
-			}
-			return false
-		})
-		rcPublishing := slices.ContainsFunc(inventory.ReleaseImages, func(image release.Image) bool {
-			return image.Evidence.Fresh() && image.Present == release.Yes
-		})
-		trackImagePublishing(inventory.ReleaseImages, s.inventory.ReleaseImages, func(release.Image) bool {
-			return rcPublishing
-		})
-		previousImages := slices.Concat(s.inventory.Images, s.inventory.ReleaseImages)
-		for _, current := range slices.Concat(inventory.Images, inventory.ReleaseImages) {
-			oldPresent := release.Truth("")
-			oldFresh := false
-			for _, old := range previousImages {
-				if old.Reference == current.Reference && old.Component == current.Component && old.Family == current.Family && old.Name == current.Name {
-					oldPresent = old.Present
-					oldFresh = old.Evidence.Fresh()
-					break
-				}
-			}
-			if oldPresent != current.Present || oldFresh != current.Evidence.Fresh() {
-				reference := current.Reference
-				if reference == "" {
-					reference = current.Component + "/" + current.Name
-				}
-				message := fmt.Sprintf("Could not confirm whether image %s is available.", reference)
-				if current.Evidence.Fresh() {
-					switch current.Present {
-					case release.Yes:
-						message = fmt.Sprintf("Image %s is available.", current.Reference)
-					case release.No:
-						message = fmt.Sprintf("Image %s was not found.", current.Reference)
-					}
-				}
-				s.record(release.Target{Repo: c.ACS().Repo}, "", "image", current.Reference, string(current.Present), "system", message)
-			}
-		}
-		s.inventory = inventory
 	}
-	s.mu.Unlock()
-	return err
+	if err != nil && len(inventory.Images) == 0 && len(s.inventory.Images) > 0 {
+		reason := inventory.Evidence.Error
+		if reason == "" {
+			reason = "The image check failed before returning new results; earlier results are unverified."
+		}
+		inventory.Images = unverifiedImages(s.inventory.Images, reason)
+		inventory.ReleaseVersion = s.inventory.ReleaseVersion
+		if inventory.Versions == nil {
+			inventory.Versions = make(map[string]string)
+		}
+		for component, version := range s.inventory.Versions {
+			if component != "acs" {
+				inventory.Versions[component] = version
+			}
+		}
+		inventory.Evidence.Known = false
+		inventory.Evidence.Error = reason
+	}
+	if !includeRC {
+		inventory.ReleaseImages = s.inventory.ReleaseImages
+		if len(inventory.ReleaseImages) > 0 {
+			if inventory.Versions == nil {
+				inventory.Versions = map[string]string{}
+			}
+			inventory.Versions["acs"] = s.inventory.Versions["acs"]
+		}
+	} else if err != nil && len(inventory.ReleaseImages) == 0 {
+		inventory.ReleaseImages = unverifiedImages(s.inventory.ReleaseImages, "The ACS RC image check returned no new results; earlier results are unverified.")
+		if len(inventory.ReleaseImages) > 0 {
+			if inventory.Versions == nil {
+				inventory.Versions = map[string]string{}
+			}
+			inventory.Versions["acs"] = strings.TrimPrefix(rc.Target.Tag, "v")
+		}
+	}
+	s.options.ReleaseState.restorePendingImages(inventory.Images, s.inventory.Images)
+	s.options.ReleaseState.restorePendingImages(inventory.ReleaseImages, s.inventory.ReleaseImages)
+	inventory.Images = retainLastImagePresence(inventory.Images, s.inventory.Images)
+	inventory.ReleaseImages = retainLastImagePresence(inventory.ReleaseImages, s.inventory.ReleaseImages)
+	trackImagePublishing(inventory.Images, s.inventory.Images, func(image release.Image) bool {
+		for _, source := range c.Components {
+			tag := versions[source.Name]
+			if source.Name != image.Component || tag == "" {
+				continue
+			}
+			plan := s.plans[release.Target{Repo: source.Repo, Tag: tag}]
+			result, _ := plan.BuildStatus()
+			return result == release.Yes && plan.SHA != "" && plan.SHA == s.confirmedSHAs[source.Name]
+		}
+		return false
+	})
+	rcPublishing := slices.ContainsFunc(inventory.ReleaseImages, func(image release.Image) bool {
+		return image.Evidence.Fresh() && image.Present == release.Yes
+	})
+	trackImagePublishing(inventory.ReleaseImages, s.inventory.ReleaseImages, func(release.Image) bool {
+		return rcPublishing
+	})
+	previousImages := slices.Concat(s.inventory.Images, s.inventory.ReleaseImages)
+	for _, current := range slices.Concat(inventory.Images, inventory.ReleaseImages) {
+		oldPresent := release.Truth("")
+		oldFresh := false
+		for _, old := range previousImages {
+			if old.Reference == current.Reference && old.Component == current.Component && old.Family == current.Family && old.Name == current.Name {
+				oldPresent = old.Present
+				oldFresh = old.Evidence.Fresh()
+				break
+			}
+		}
+		if oldPresent != current.Present || oldFresh != current.Evidence.Fresh() {
+			reference := current.Reference
+			if reference == "" {
+				reference = current.Component + "/" + current.Name
+			}
+			message := fmt.Sprintf("Could not confirm whether image %s is available.", reference)
+			if current.Evidence.Fresh() {
+				switch current.Present {
+				case release.Yes:
+					message = fmt.Sprintf("Image %s is available.", current.Reference)
+				case release.No:
+					message = fmt.Sprintf("Image %s was not found.", current.Reference)
+				}
+			}
+			s.record(release.Target{Repo: c.ACS().Repo}, "", "image", current.Reference, string(current.Present), "system", message)
+		}
+	}
+	s.inventory = inventory
+	if complete {
+		err := s.options.ReleaseState.saveImageObservations(inventory)
+		message := ""
+		if err != nil {
+			message = err.Error()
+		}
+		s.recordReadResult(release.Target{Repo: c.ACS().Repo}, "image-state", message, "saved image observations")
+	}
 }

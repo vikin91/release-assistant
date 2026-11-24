@@ -10,14 +10,19 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"release-assistant/internal/release"
 )
 
-const maxRegistryBody = 1 << 20
+const (
+	maxRegistryBody     = 1 << 20
+	registryConcurrency = 4
+)
 
 type (
 	registryClient struct {
@@ -27,6 +32,8 @@ type (
 		password string
 
 		confirmedPresence sync.Map // exact reference to first successful observation time
+		probes            chan struct{}
+		retryAfter        atomic.Int64
 	}
 
 	manifestDescriptor struct {
@@ -53,17 +60,46 @@ func newRegistryClient(baseURL string, client *http.Client, username, password s
 	}
 	copy := *client
 	copy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
-	return &registryClient{baseURL: strings.TrimRight(baseURL, "/"), http: &copy, username: username, password: password}
+	return &registryClient{
+		baseURL: strings.TrimRight(baseURL, "/"), http: &copy, username: username, password: password,
+		probes: make(chan struct{}, registryConcurrency),
+	}
 }
 
 // present reuses confirmed presence for the life of the client because release images rarely disappear.
 func (c *registryClient) present(ctx context.Context, reference string) (release.Truth, time.Time, error) {
+	return c.observe(ctx, reference, false)
+}
+
+// confirmedAt returns the time of a successful probe in the current process.
+func (c *registryClient) confirmedAt(reference string) (time.Time, bool) {
 	if observedAt, ok := c.confirmedPresence.Load(reference); ok {
-		return release.Yes, observedAt.(time.Time), nil
+		return observedAt.(time.Time), true
+	}
+	return time.Time{}, false
+}
+
+func (c *registryClient) observe(ctx context.Context, reference string, force bool) (release.Truth, time.Time, error) {
+	if !force {
+		if observedAt, ok := c.confirmedAt(reference); ok {
+			return release.Yes, observedAt, nil
+		}
+	}
+	select {
+	case c.probes <- struct{}{}:
+		defer func() { <-c.probes }()
+	case <-ctx.Done():
+		return "", time.Now(), ctx.Err()
 	}
 	present, err := c.checkManifest(ctx, reference)
 	observedAt := time.Now()
-	if err == nil && present == release.Yes {
+	if force {
+		if err == nil && present == release.Yes {
+			c.confirmedPresence.Store(reference, observedAt)
+		} else {
+			c.confirmedPresence.Delete(reference)
+		}
+	} else if err == nil && present == release.Yes {
 		confirmedAt, _ := c.confirmedPresence.LoadOrStore(reference, observedAt)
 		observedAt = confirmedAt.(time.Time)
 	}
@@ -189,6 +225,9 @@ func splitReference(reference string) (repository, tag string, ok bool) {
 }
 
 func (c *registryClient) request(ctx context.Context, address, authorization, accept string) (*http.Response, error) {
+	if until := time.Unix(0, c.retryAfter.Load()); time.Now().Before(until) {
+		return nil, fmt.Errorf("registry rate limited requests (HTTP 429) until %s", until.Format(time.RFC3339))
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
 		return nil, errors.New("invalid registry request")
@@ -203,6 +242,24 @@ func (c *registryClient) request(ctx context.Context, address, authorization, ac
 			return nil, ctx.Err()
 		}
 		return nil, errors.New("registry network/TLS error or timeout; image availability is unknown")
+	}
+	if response.StatusCode == http.StatusTooManyRequests {
+		_ = response.Body.Close()
+		now := time.Now()
+		until := now.Add(time.Minute)
+		if value := response.Header.Get("Retry-After"); value != "" {
+			if seconds, err := strconv.ParseUint(value, 10, 32); err == nil {
+				until = now.Add(time.Duration(seconds) * time.Second)
+			} else if date, err := http.ParseTime(value); err == nil {
+				until = date
+			}
+		}
+		for previous := c.retryAfter.Load(); until.UnixNano() > previous; previous = c.retryAfter.Load() {
+			if c.retryAfter.CompareAndSwap(previous, until.UnixNano()) {
+				break
+			}
+		}
+		return nil, fmt.Errorf("registry rate limited requests (HTTP 429) until %s", until.Format(time.RFC3339))
 	}
 	return response, nil
 }
