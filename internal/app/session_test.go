@@ -75,6 +75,11 @@ func (f *fixture) Discover(ctx context.Context, r DiscoveryRequest) (release.Rep
 	}
 	return repo, nil
 }
+func (f *fixture) PlanRetries(ctx context.Context, target release.Target) (release.RetryPlan, error) {
+	plan, err := f.Plan(ctx, target)
+	return plan.RetryPlan(), err
+}
+
 func (f *fixture) Plan(_ context.Context, t release.Target) (release.Plan, error) {
 	return release.Plan{Target: t}, nil
 }
@@ -634,6 +639,11 @@ func TestReadOnlySessionRejectsForgedGrantAndSend(t *testing.T) {
 type blockingPlanner struct {
 	*fixture
 	started chan struct{}
+}
+
+func (p *blockingPlanner) PlanRetries(ctx context.Context, target release.Target) (release.RetryPlan, error) {
+	plan, err := p.Plan(ctx, target)
+	return plan.RetryPlan(), err
 }
 
 func (p *blockingPlanner) Plan(ctx context.Context, target release.Target) (release.Plan, error) {

@@ -45,13 +45,9 @@ type (
 		SetEnabled(bool)
 		Clear()
 	}
-	// Planner delegates all retry eligibility to its adapter.
-	Planner interface {
-		Plan(context.Context, release.Target) (release.Plan, error)
-	}
-	// ManualRetryReader discovers instructions that only the engineer can execute.
-	ManualRetryReader interface {
-		ManualRetries(context.Context, release.Target) (release.ManualRetryReport, error)
+	// RetryPlanner reads eligibility for one target and may return verified offers with a partial-read error.
+	RetryPlanner interface {
+		PlanRetries(context.Context, release.Target) (release.RetryPlan, error)
 	}
 	// TagCheckReader resolves a release tag and reads checks on its commit.
 	TagCheckReader interface {

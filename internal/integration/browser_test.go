@@ -145,6 +145,11 @@ func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (
 	}
 	return repository, nil
 }
+func (f *browserFixture) PlanRetries(ctx context.Context, target release.Target) (release.RetryPlan, error) {
+	plan, err := f.Plan(ctx, target)
+	return plan.RetryPlan(), err
+}
+
 func (f *browserFixture) Plan(_ context.Context, t release.Target) (release.Plan, error) {
 	f.mu.Lock()
 	pinningFailure := f.pinningFailure

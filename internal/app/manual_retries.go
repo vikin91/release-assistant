@@ -70,13 +70,14 @@ func cloneManualRetryReport(r release.ManualRetryReport) release.ManualRetryRepo
 }
 
 // readManualRetry only keeps commands backed by the requested PR or tag head.
-func readManualRetry(ctx context.Context, reader ManualRetryReader, target release.Target, sha string) (release.ManualRetryReport, bool, error) {
+func readManualRetry(ctx context.Context, planner RetryPlanner, target release.Target, sha string) (release.ManualRetryReport, bool, error) {
 	at := time.Now()
-	if reader == nil {
+	if planner == nil {
 		return release.ManualRetryReport{Target: target, SHA: sha, At: at, Incomplete: true,
 			Warnings: []string{"GitHub Actions and Prow retry checks are unavailable."}}, false, nil
 	}
-	report, err := reader.ManualRetries(ctx, target)
+	result, err := planner.PlanRetries(ctx, target)
+	report := result.ManualReport()
 	report.At = at
 	if err != nil {
 		report.Incomplete = true
@@ -109,8 +110,8 @@ func (s *Session) readManualRetries(ctx context.Context, generation, revision ui
 	inScope := func(target release.Target) bool {
 		return scope == ReadAll || (scope == ReadPRs && target.PR > 0) || (scope == ReadTags && target.Tag != "")
 	}
-	reader := s.options.ManualRetries
-	if reader == nil {
+	planner := s.options.CIPlanner
+	if planner == nil {
 		return nil
 	}
 	s.mu.Lock()
@@ -132,7 +133,7 @@ func (s *Session) readManualRetries(ctx context.Context, generation, revision ui
 	reports := make(map[release.Target]release.ManualRetryReport)
 	var errs []error
 	for _, target := range targets {
-		report, _, err := readManualRetry(ctx, reader, target, heads[target])
+		report, _, err := readManualRetry(ctx, planner, target, heads[target])
 		if err != nil {
 			errs = append(errs, err)
 		}

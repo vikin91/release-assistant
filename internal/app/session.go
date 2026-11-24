@@ -26,7 +26,7 @@ type (
 		Initial                              release.Config
 		Cache                                DiscoveryCache
 		GitHubReads                          *githubread.Transport
-		ManualRetries                        ManualRetryReader
+		CIPlanner                            RetryPlanner
 		// KonfluxProbe reads service health independently of tracked release builds.
 		KonfluxProbe func(context.Context) konflux.Health
 		// ReleaseState persists the user's PR, tag, and pinning choices across sessions.
@@ -114,7 +114,7 @@ type (
 		startupUntil  time.Time
 		konfluxHealth *konflux.Health
 		discovery     Discoverer
-		planner       Planner
+		planner       RetryPlanner
 		images        Inspector
 		dispatcher    *dispatch.Dispatcher
 		log           *Log
@@ -151,7 +151,7 @@ type (
 )
 
 // New constructs an unconfigured session with safe restart defaults.
-func New(d Discoverer, p Planner, i Inspector, dispatcher *dispatch.Dispatcher, log *Log, o Options) *Session {
+func New(d Discoverer, p RetryPlanner, i Inspector, dispatcher *dispatch.Dispatcher, log *Log, o Options) *Session {
 	intervals := DefaultRefreshIntervals(o.Poll, o.Discovery)
 	for key := range intervals {
 		if d := o.RefreshIntervals[key]; d > 0 {
@@ -659,7 +659,7 @@ func (s *Session) snapshot(work *releaseWork, active bool) Snapshot {
 		x.History = append(x.History, cycle)
 	}
 	for _, r := range work.repos {
-		x.ManualRetries = append(x.ManualRetries, work.currentManualRetries(r, active && s.options.ManualRetries != nil)...)
+		x.ManualRetries = append(x.ManualRetries, work.currentManualRetries(r, active && s.options.CIPlanner != nil)...)
 		x.Repositories = append(x.Repositories, cloneRepository(r))
 		for _, pr := range r.PRs {
 			if active && work.pendingPRChecks[pr.Target] && pr.State == "open" && pr.Evidence.Fresh() {
@@ -1129,7 +1129,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		if ignore {
 			continue
 		}
-		readPlan := s.planner.Plan
+		readPlan := s.planKonflux
 		if isRC && !work.scheduled {
 			readPlan = s.readRCPlan
 		}

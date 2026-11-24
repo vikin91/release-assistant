@@ -19,6 +19,11 @@ import (
 
 type buildPollPlanner func(context.Context, release.Target) (release.Plan, error)
 
+func (f buildPollPlanner) PlanRetries(ctx context.Context, target release.Target) (release.RetryPlan, error) {
+	plan, err := f.Plan(ctx, target)
+	return plan.RetryPlan(), err
+}
+
 func (f buildPollPlanner) Plan(ctx context.Context, target release.Target) (release.Plan, error) {
 	return f(ctx, target)
 }

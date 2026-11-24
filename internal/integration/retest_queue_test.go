@@ -42,6 +42,11 @@ func (f *retestQueueFixture) InspectReference(context.Context, string) (release.
 	return release.Image{}, nil
 }
 
+func (f *retestQueueFixture) PlanRetries(ctx context.Context, target release.Target) (release.RetryPlan, error) {
+	plan, err := f.Plan(ctx, target)
+	return plan.RetryPlan(), err
+}
+
 func (f *retestQueueFixture) Plan(_ context.Context, target release.Target) (release.Plan, error) {
 	plan := release.Plan{Target: target, SHA: f.pr.SHA, Evidence: observation(), Action: "Retest"}
 	for _, job := range f.jobs {

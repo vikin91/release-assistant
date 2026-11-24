@@ -103,6 +103,12 @@ func (a *Adapter) ReadIssues() []ReadIssue {
 	return a.reads.issues()
 }
 
+// PlanRetries exposes retry offers and build observations from a single read.
+func (a *Adapter) PlanRetries(ctx context.Context, target release.Target) (release.RetryPlan, error) {
+	plan, err := a.Plan(ctx, target)
+	return plan.RetryPlan(), err
+}
+
 // Plan preserves partial results. Posting requires stable evidence for each proposed job.
 func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, error) {
 	if ctx.Value(readCycleKey{}) == nil {

@@ -21,6 +21,11 @@ type rcPlanner struct {
 	err   error
 }
 
+func (p *rcPlanner) PlanRetries(ctx context.Context, target release.Target) (release.RetryPlan, error) {
+	plan, err := p.Plan(ctx, target)
+	return plan.RetryPlan(), err
+}
+
 func (p *rcPlanner) Plan(_ context.Context, target release.Target) (release.Plan, error) {
 	p.calls = append(p.calls, target)
 	return p.plan, p.err

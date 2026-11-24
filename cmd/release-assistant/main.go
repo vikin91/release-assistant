@@ -107,7 +107,7 @@ func run() error {
 	windowCache := github.NewCommitWindowCache(nil).WithReleaseHitLog(log.CommitWindowCacheHitsWithContext)
 	gh := github.New("", plannerConfig.GitHubToken, client).WithCommitWindowCache(windowCache)
 	options.Cache = windowCache
-	options.ManualRetries = gh
+	options.CIPlanner = gh
 	plannerConfig.HTTPClient = client
 	plannerConfig.OnReadPauseChange = log.KonfluxReadPauseChanged
 	plannerConfig.CommentFooter = "*posted from release-assistant " + buildVersion() + "*"

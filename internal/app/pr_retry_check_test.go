@@ -48,7 +48,7 @@ func TestCheckPRRetriesUsesBothReadersForIncludedHead(t *testing.T) {
 				return release.Plan{Target: got, SHA: pr.SHA, Evidence: observed(),
 					Proposals: []release.Proposal{{Target: got, SHA: pr.SHA, Payload: "/konflux-retest checks"}}}, nil
 			})
-			session.options.ManualRetries = manualReaderFunc(func(_ context.Context, got release.Target) (release.ManualRetryReport, error) {
+			session.options.CIPlanner = manualReaderFunc(func(_ context.Context, got release.Target) (release.ManualRetryReport, error) {
 				ciCalls++
 				return release.ManualRetryReport{Target: got, SHA: scenario.ciSHA, Jobs: []release.ManualJob{{ID: 123}}}, nil
 			})
@@ -120,7 +120,7 @@ func TestNewlyIncludedPRRefreshesBeforeTheNextInterval(t *testing.T) {
 			}
 			return release.Plan{Target: target, SHA: "head", Evidence: observed()}, nil
 		})
-		session.options.ManualRetries = manualReaderFunc(func(_ context.Context, target release.Target) (release.ManualRetryReport, error) {
+		session.options.CIPlanner = manualReaderFunc(func(_ context.Context, target release.Target) (release.ManualRetryReport, error) {
 			if target.Repo == source.Repo && target.PR > 0 {
 				ci = append(ci, target)
 			}

@@ -11,8 +11,9 @@ import (
 
 type manualReaderFunc func(context.Context, release.Target) (release.ManualRetryReport, error)
 
-func (f manualReaderFunc) ManualRetries(ctx context.Context, target release.Target) (release.ManualRetryReport, error) {
-	return f(ctx, target)
+func (f manualReaderFunc) PlanRetries(ctx context.Context, target release.Target) (release.RetryPlan, error) {
+	report, err := f(ctx, target)
+	return report.RetryPlan(), err
 }
 
 func TestMonitorManualRetries(t *testing.T) {
@@ -34,7 +35,7 @@ func TestMonitorManualRetries(t *testing.T) {
 	apply(t, s, Action{Kind: "grant", Target: pr, SHA: "reviewed", Enabled: true})
 	calls := make(map[release.Target]int)
 	reportSHA := "reviewed"
-	s.options.ManualRetries = manualReaderFunc(func(_ context.Context, target release.Target) (release.ManualRetryReport, error) {
+	s.options.CIPlanner = manualReaderFunc(func(_ context.Context, target release.Target) (release.ManualRetryReport, error) {
 		calls[target]++
 		if target == selectedTag {
 			return release.ManualRetryReport{Target: target, SHA: tag.SHA, Jobs: []release.ManualJob{{ID: 42}}}, nil
@@ -102,7 +103,7 @@ func TestACSManualRetryProgress(t *testing.T) {
 		return got
 	}
 	readErr := errors.New("GitHub read deferred")
-	s.options.ManualRetries = manualReaderFunc(func(context.Context, release.Target) (release.ManualRetryReport, error) {
+	s.options.CIPlanner = manualReaderFunc(func(context.Context, release.Target) (release.ManualRetryReport, error) {
 		if readErr != nil && !report().Pending {
 			t.Fatal("first read must remain pending until it returns")
 		}
@@ -131,7 +132,7 @@ func TestManualRetriesFollowCurrentRC(t *testing.T) {
 	s, f, _ := rcFixture(t)
 	source := s.config.ACS()
 	rc := f.repos[source.Name].Candidate
-	s.options.ManualRetries = manualReaderFunc(func(_ context.Context, target release.Target) (release.ManualRetryReport, error) {
+	s.options.CIPlanner = manualReaderFunc(func(_ context.Context, target release.Target) (release.ManualRetryReport, error) {
 		if target != rc.Target {
 			t.Fatalf("unexpected manual target %s", target)
 		}
@@ -143,7 +144,7 @@ func TestManualRetriesFollowCurrentRC(t *testing.T) {
 	if got := s.Snapshot().ManualRetries; len(got) != 1 || got[0].Jobs[0].ID != 88 {
 		t.Fatalf("missing RC job: %+v", got)
 	}
-	s.options.ManualRetries = manualReaderFunc(func(_ context.Context, target release.Target) (release.ManualRetryReport, error) {
+	s.options.CIPlanner = manualReaderFunc(func(_ context.Context, target release.Target) (release.ManualRetryReport, error) {
 		return release.ManualRetryReport{Target: target, SHA: rc.SHA}, nil
 	})
 	if err := fetchSourcePolls(t, s, source, pollTagChecks); err != nil {

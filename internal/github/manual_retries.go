@@ -90,10 +90,14 @@ func (c *Client) retryTarget(ctx context.Context, t release.Target) (retryPR, er
 	return pr, err
 }
 
-// ManualRetries classifies failed checks and offers verified Actions and Prow retries.
-// Read errors can accompany independent offers for the same verified target.
-func (c *Client) ManualRetries(ctx context.Context, t release.Target) (ManualRetryReport, error) {
-	return c.ManualRetriesWithOptional(ctx, t, false)
+// PlanRetries offers verified Actions and Prow retries for required checks.
+func (c *Client) PlanRetries(ctx context.Context, target release.Target) (release.RetryPlan, error) {
+	report, err := c.ManualRetriesWithOptional(ctx, target, false)
+	plan := report.RetryPlan()
+	if err != nil {
+		plan.Evidence.Known, plan.Evidence.Error = false, err.Error()
+	}
+	return plan, err
 }
 
 // ManualRetriesWithOptional includes configured optional CI jobs when requested.

@@ -20,6 +20,11 @@ type pinningServices struct {
 	writes   int
 }
 
+func (f *pinningServices) PlanRetries(ctx context.Context, target release.Target) (release.RetryPlan, error) {
+	plan, err := f.Plan(ctx, target)
+	return plan.RetryPlan(), err
+}
+
 func (f *pinningServices) Plan(_ context.Context, target release.Target) (release.Plan, error) {
 	if target == f.plan.Target {
 		return clonePlan(f.plan), f.planErr

@@ -113,6 +113,11 @@ type workServices struct {
 	images int
 }
 
+func (f *workServices) PlanRetries(ctx context.Context, target release.Target) (release.RetryPlan, error) {
+	plan, err := f.Plan(ctx, target)
+	return plan.RetryPlan(), err
+}
+
 func (f *workServices) Plan(_ context.Context, target release.Target) (release.Plan, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

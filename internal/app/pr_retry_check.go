@@ -74,7 +74,7 @@ func (s *Session) checkPRRetries(ctx context.Context, a Action) error {
 	var reads sync.WaitGroup
 	var konfluxHeadChanged bool
 	reads.Go(func() {
-		plan, err := s.planner.Plan(ctx, a.Target)
+		plan, err := s.planKonflux(ctx, a.Target)
 		if err != nil {
 			plan.Evidence.Known = false
 			if plan.Evidence.Error == "" {
@@ -93,7 +93,7 @@ func (s *Session) checkPRRetries(ctx context.Context, a Action) error {
 		check.Konflux = plan
 	})
 	var ciHeadChanged bool
-	check.CI, ciHeadChanged, _ = readManualRetry(ctx, s.options.ManualRetries, a.Target, a.SHA)
+	check.CI, ciHeadChanged, _ = readManualRetry(ctx, s.options.CIPlanner, a.Target, a.SHA)
 	check.CI.At = check.Started
 	reads.Wait()
 	if konfluxHeadChanged || ciHeadChanged {

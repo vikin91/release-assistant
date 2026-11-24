@@ -10,6 +10,11 @@ import (
 	"release-assistant/internal/release"
 )
 
+func (s *Session) planKonflux(ctx context.Context, target release.Target) (release.Plan, error) {
+	result, err := s.planner.PlanRetries(ctx, target)
+	return result.KonfluxPlan(), err
+}
+
 func (s *Session) readRCPlan(ctx context.Context, target release.Target) (release.Plan, error) {
 	var validation release.Validation
 	var validationErr error
@@ -17,7 +22,7 @@ func (s *Session) readRCPlan(ctx context.Context, target release.Target) (releas
 	if reader, ok := s.discovery.(TagCheckReader); ok {
 		read.Go(func() { validation, validationErr = reader.ReadTagChecks(ctx, target) })
 	}
-	plan, err := s.planner.Plan(ctx, target)
+	plan, err := s.planKonflux(ctx, target)
 	read.Wait()
 	if validation.SHA != "" && plan.SHA != "" && validation.SHA != plan.SHA {
 		// A moved tag invalidates both the proposed retries and the combined view.

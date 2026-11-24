@@ -104,7 +104,7 @@ func TestManualPRAndTagChecksKeepIndependentReports(t *testing.T) {
 	tag, sha := s.tagCheckTarget(repo)
 	var calls []release.Target
 	readErr := errors.New("Actions unavailable")
-	s.options.ManualRetries = manualReaderFunc(func(_ context.Context, target release.Target) (release.ManualRetryReport, error) {
+	s.options.CIPlanner = manualReaderFunc(func(_ context.Context, target release.Target) (release.ManualRetryReport, error) {
 		calls = append(calls, target)
 		report := release.ManualRetryReport{Target: target, SHA: sha, Jobs: []release.ManualJob{{ID: 42}}}
 		if target == pr.Target {
