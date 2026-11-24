@@ -85,6 +85,9 @@ func (e *DeferredError) Error() string {
 	return fmt.Sprintf("%s. Retry after %s", e.Reason, e.Until.UTC().Format(time.RFC3339))
 }
 
+// GitHubReadDeferral marks the error as safe for API clients to report unchanged.
+func (e *DeferredError) GitHubReadDeferral() {}
+
 // Calls excludes cached, deferred, and non-GitHub observations.
 func (u *Usage) Calls() int64 { return u.calls.Load() }
 

@@ -13,8 +13,11 @@ import (
 	"syscall"
 	"time"
 
+	retry "github.com/vikin91/ci-retest"
+
 	"release-assistant/internal/apilog"
 	"release-assistant/internal/app"
+	"release-assistant/internal/ciretest"
 	"release-assistant/internal/dispatch"
 	"release-assistant/internal/github"
 	"release-assistant/internal/githubread"
@@ -107,7 +110,7 @@ func run() error {
 	windowCache := github.NewCommitWindowCache(nil).WithReleaseHitLog(log.CommitWindowCacheHitsWithContext)
 	gh := github.New("", plannerConfig.GitHubToken, client).WithCommitWindowCache(windowCache)
 	options.Cache = windowCache
-	options.CIPlanner = gh
+	options.CIPlanner = ciretest.New(retry.Config{GitHubToken: plannerConfig.GitHubToken, HTTPClient: client})
 	plannerConfig.HTTPClient = client
 	plannerConfig.OnReadPauseChange = log.KonfluxReadPauseChanged
 	plannerConfig.CommentFooter = "*posted from release-assistant " + buildVersion() + "*"

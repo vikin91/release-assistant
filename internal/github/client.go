@@ -33,7 +33,6 @@ type (
 		tagPagesMu   sync.Mutex
 		tagPages     map[string]tagPage
 		candidatePRs sync.Map
-		prowFiles    sync.Map // configuration path to latest parsed presubmit blob
 		windowCache  *CommitWindowCache
 	}
 	// requestError separates safe UI causes from endpoint diagnostics.
