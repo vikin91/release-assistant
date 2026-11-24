@@ -108,16 +108,15 @@ func TestBuildRetriesMergeOnlyExactComments(t *testing.T) {
 	}
 }
 
-func TestKonfluxRetryNextAction(t *testing.T) {
+func TestKonfluxRetryStatusSummary(t *testing.T) {
 	evidence := release.Evidence{Known: true, At: time.Now()}
 	for name, tc := range map[string]struct {
 		plan release.Plan
 		want string
 	}{
-		"admission denied":     {release.Plan{Action: "Wait", StartFailures: []release.StartFailure{{Category: "admission_policy", Evidence: evidence}}}, "A PipelineRun failed to start"},
-		"endpoint unavailable": {release.Plan{KonfluxAPIUnavailable: true}, "Wait for the Konflux API to recover"},
-		"waiting for check":    {release.Plan{Action: "Wait", Runs: []release.Run{{ID: "123", Job: "main", Status: "in_progress"}}}, "Wait for the main check to finish"},
-		"no matching run":      {release.Plan{Action: "Wait", Message: "No verified build checks match the requested tag or PR."}, "Wait for a matching Konflux build check"},
+		"admission denied":  {release.Plan{Action: "Wait", StartFailures: []release.StartFailure{{Category: "admission_policy", Evidence: evidence}}}, "A PipelineRun failed to start"},
+		"waiting for check": {release.Plan{Action: "Wait", Runs: []release.Run{{ID: "123", Job: "main", Status: "in_progress"}}}, "Waiting for the main check to finish"},
+		"no matching run":   {release.Plan{Action: "Wait", Message: "No verified build checks match the requested tag or PR."}, "No matching Konflux build check"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			g := buildRetryTarget{Plan: &planModel{Plan: tc.plan}}
@@ -126,9 +125,58 @@ func TestKonfluxRetryNextAction(t *testing.T) {
 			}
 		})
 	}
-	group := buildRetryTarget{Candidates: []*buildRetryCandidate{{Offer: &dispatch.Offer{CommentSent: true}}}}
-	if got := group.nextAction(true); !strings.Contains(got, "after the retry comment") {
+	group := buildRetryTarget{Target: release.Target{PR: 1}, Candidates: []*buildRetryCandidate{{Offer: &dispatch.Offer{CommentSent: true}}}}
+	if got := group.nextAction(true); !strings.Contains(got, "Waiting for new Konflux runs") {
 		t.Errorf("next action after delivery = %q", got)
+	}
+}
+
+func TestIncludedPRShowsKonfluxVerificationWarningInline(t *testing.T) {
+	for name, tt := range map[string]struct {
+		problem     string
+		unavailable bool
+		want        string
+	}{
+		"short observation": {
+			problem: "PipelineRun lookup timed out\nSecondary observation",
+			want:    "Could not verify Konflux checks · PipelineRun lookup timed out",
+		},
+		"internal rate limit": {
+			problem: "GitHub GET /repos/o/r/pulls/41 unavailable: Release Assistant deferred this request before contacting GitHub",
+			want:    "Could not verify Konflux checks · Rate limited internally by Release Assistant",
+		},
+		"long observation": {
+			problem: strings.Repeat("long diagnostic ", 20),
+			want:    "Could not verify Konflux checks",
+		},
+		"API unavailable": {
+			unavailable: true,
+			want:        "Could not verify Konflux checks · Konflux API unavailable",
+		},
+		"verified": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := workflowStatusSnapshot()
+			target := release.Target{Repo: s.Config.ACS().Repo, PR: 41}
+			s.Choices.PRs[target] = release.Included
+			s.Plans = []release.Plan{{
+				Target: target, KonfluxAPIUnavailable: tt.unavailable,
+				Evidence: release.Evidence{Error: tt.problem, Known: tt.want == ""},
+			}}
+			body := newBrowser(t, &fakeApplication{snapshot: s}).getBody(t)
+			card := between(t, activityPanel(t, body, "acs-prs"), `id="acs-pr-retries-41"`, "</article>")
+			const warning = `<p class="build-retry-note unknown" role="status"><span aria-hidden="true">⚠</span> `
+			if tt.want == "" {
+				if strings.Contains(card, warning) {
+					t.Fatal("verified PR shows a verification warning")
+				}
+			} else if !strings.Contains(card, warning+tt.want+"</p>") {
+				t.Fatalf("missing inline warning %q in %s", tt.want, card)
+			}
+			if strings.Contains(card, "See Log") || strings.Contains(card, "Secondary observation") {
+				t.Fatal("verification warning should be self-contained and compact")
+			}
+		})
 	}
 }
 
@@ -174,7 +222,7 @@ func TestACSChecksGroupActionsByIncludedPR(t *testing.T) {
 	if !strings.Contains(pending, "<h3>"+target(42).String()+"</h3>") || !strings.Contains(pending, ">Open PR</a>") {
 		t.Errorf("missing fallback PR heading: %s", pending)
 	}
-	if !strings.Contains(merged, `<span class="pill yes">Merged</span>`) || !strings.Contains(pending, "Wait for the first Konflux check observation") {
+	if !strings.Contains(merged, `<span class="pill yes">Merged</span>`) || !strings.Contains(pending, "Waiting for the first Konflux check observation") {
 		t.Fatal("missing merged or pending PR status")
 	}
 }
@@ -184,9 +232,13 @@ func TestACSChecksShowProgressPerPR(t *testing.T) {
 	pr := func(n int) release.Target { return release.Target{Repo: s.Config.ACS().Repo, PR: n} }
 	s.ManualRetries = []release.ManualRetryReport{
 		{Target: pr(1), Pending: true},
-		{Target: pr(2), Incomplete: true, Warnings: []string{"Actions read deferred"}, Prow: []release.ProwRetry{{Context: "ci/prow/unit", Command: "/test unit"}}},
+		{Target: pr(2), Incomplete: true, Prow: []release.ProwRetry{{Context: "ci/prow/unit", Command: "/test unit"}},
+			Warnings: []string{"GitHub GET /repos/o/r/pulls/2 unavailable: Release Assistant deferred this request before contacting GitHub. This source reached its internal limit of 80 reads per cycle. Retry after 2026-11-24T09:42:22Z"}},
 		{Target: pr(3)},
 		{Target: pr(4), Jobs: []release.ManualJob{{ID: 201}}},
+		{Target: pr(5), Incomplete: true, Warnings: []string{"GitHub GET /repos/o/r/pulls/5 rejected (HTTP 429): GitHub rate limit reached"}},
+		{Target: pr(6), Incomplete: true, Warnings: []string{"GitHub GET /repos/o/r/pulls/6 rejected (HTTP 403): Access denied by token permissions or repository policy"}},
+		{Target: pr(7), Incomplete: true},
 	}
 	for _, r := range s.ManualRetries {
 		s.Choices.PRs[r.Target] = release.Included
@@ -194,10 +246,13 @@ func TestACSChecksShowProgressPerPR(t *testing.T) {
 	s.Plans = []release.Plan{{Target: pr(1), StartFailures: []release.StartFailure{{Category: "admission_policy", Evidence: release.Evidence{Known: true, At: time.Now()}}}}}
 	panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-prs")
 	for id, want := range map[string][]string{
-		"1": {"Loading GitHub Actions and Prow results", "A PipelineRun failed to start"},
-		"2": {"results are incomplete", "ci/prow/unit", "Actions read deferred"},
+		"1": {`class="unknown"><strong>Pending =</strong> Loading GitHub Actions and Prow results`, "A PipelineRun failed to start"},
+		"2": {`class="unknown"><strong>Error =</strong> Rate limited internally by Release Assistant`, "ci/prow/unit"},
 		"3": {"No verified GitHub Actions or Prow retries"},
 		"4": {"actions/jobs/201/rerun"},
+		"5": {`class="error-text"><strong>Error =</strong> Rate limited by GitHub`},
+		"6": {`class="error-text"><strong>Error =</strong> GitHub: Access denied`},
+		"7": {`class="unknown"><strong>Pending =</strong> Retry results are incomplete`},
 	} {
 		card := between(t, panel, `id="acs-pr-retries-`+id+`"`, "</article>")
 		for _, fragment := range want {
@@ -207,6 +262,12 @@ func TestACSChecksShowProgressPerPR(t *testing.T) {
 		}
 		if id != "1" && strings.Contains(card, "Loading GitHub Actions and Prow results") {
 			t.Errorf("PR %s still shows a loading message", id)
+		}
+		if strings.Contains(card, "Retry diagnostics") || strings.Contains(card, "GitHub GET /repos/") {
+			t.Errorf("PR %s still shows a disclosure or raw request diagnostic", id)
+		}
+		if (id == "3" || id == "4") && strings.Contains(card, "Error =") {
+			t.Errorf("PR %s shows an error for a complete report", id)
 		}
 	}
 }

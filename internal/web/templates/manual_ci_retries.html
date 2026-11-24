@@ -5,8 +5,8 @@
     <article class="build-retry-target" data-live-key="manual-ci:{{.Target}}">
       <h4>{{.Target}}</h4>
       {{template "manual-ci-instructions" .}}
-      {{if and (eq $.Tab "acs-rcs") (not (or .Jobs .Prow))}}
-        <p class="muted">{{if .Warnings}}No verified retry commands. See retry diagnostics.{{else}}No manual CI retries available for this RC.{{end}}</p>
+      {{if and (eq $.Tab "acs-rcs") (not (or .Jobs .Prow .Pending .Incomplete .Warnings))}}
+        <p class="muted">No manual CI retries available for this RC.</p>
       {{end}}
     </article>
   {{else}}
@@ -17,6 +17,7 @@
 
 {{define "manual-ci-instructions"}}
   {{$report := .}}
+  {{template "retry-diagnostics" (retryDiagnostics .Pending .Incomplete "" .Warnings)}}
   {{if or .Jobs .Prow}}<p class="muted">Available retries for commit <code>{{.SHA}}</code>. {{manualRetryWarning}}</p>{{end}}
   {{range .Jobs}}
     <div class="proposal" data-live-key="manual-job:{{$report.Target}}:{{.ID}}">
@@ -33,5 +34,10 @@
     <ol>{{range .Prow}}<li>{{if url .URL}}<a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">{{.Context}}</a>{{else}}{{.Context}}{{end}}</li>{{end}}</ol>
   {{end}}
   {{if .OtherChecks}}<ol>{{range .OtherChecks}}<li>{{.}}</li>{{end}}</ol>{{end}}
-  {{if .Warnings}}<details data-fold-key="manual-ci-warnings:{{.Target}}"><summary>Retry diagnostics</summary><ol>{{range .Warnings}}<li>{{.}}</li>{{end}}</ol></details>{{end}}
+{{end}}
+
+{{define "retry-diagnostics"}}
+  {{if .}}<p class="build-retry-note retry-diagnostics" role="status">
+    {{range .}}<span class="{{if .External}}error-text{{else}}unknown{{end}}"><strong>{{.Label}} =</strong> {{.Message}}</span>{{end}}
+  </p>{{end}}
 {{end}}

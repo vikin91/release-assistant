@@ -15,7 +15,8 @@
           {{if not .ClosedState}}
           {{with .Authority}}{{if .Message}}<p class="build-retry-note">{{.Message}}</p>{{end}}{{end}}
           {{if and (or .Candidates .Comment) .RequiredStartFailureSummary}}<p class="build-retry-note"><strong>Konflux:</strong> {{.RequiredStartFailureSummary}}</p>{{end}}
-          {{if .NextAction}}<p class="build-retry-note"><strong>{{if eq $.Tab "acs-prs"}}Konflux{{else}}Next action{{end}}:</strong> {{.NextAction}}</p>{{end}}
+          {{if .NextAction}}<p class="build-retry-note"><strong>Konflux:</strong> {{.NextAction}}</p>{{end}}
+          {{if .KonfluxWarning}}<p class="build-retry-note unknown" role="status"><span aria-hidden="true">⚠</span> {{.KonfluxWarning}}</p>{{end}}
           {{if .Target.PR}}
             {{if .Comment}}<div class="copyable-text">
               <pre><code>{{.Comment}}</code></pre>
@@ -41,9 +42,7 @@
           {{end}}
           {{end}}
           {{with .Manual}}
-            {{if .Pending}}<p class="build-retry-note" role="status">Loading GitHub Actions and Prow results…</p>
-            {{else if .Incomplete}}<p class="build-retry-note" role="status">GitHub Actions and Prow results are incomplete. The next poll will check again. See retry diagnostics below.</p>
-            {{else if not (or .Jobs .Prow)}}<p class="build-retry-note">No verified GitHub Actions or Prow retries for this commit.{{if .Warnings}} See retry diagnostics below.{{end}}</p>{{end}}
+            {{if not (or .Pending .Incomplete .Warnings .Jobs .Prow)}}<p class="build-retry-note">No verified GitHub Actions or Prow retries for this commit.</p>{{end}}
             {{template "manual-ci-instructions" .}}
           {{end}}
           {{if .Target.PR}}
@@ -71,7 +70,7 @@
           {{end}}
         </article>
       {{else}}
-        <p class="muted">No retry observations yet. {{if eq .Tab "component-releases"}}Select a component tag to monitor its builds.{{else}}Include an ACS PR or supply a pinning PR number to monitor its builds.{{end}}</p>
+        <p class="muted">No retry observations yet.</p>
       {{end}}
     </details>
   </section>

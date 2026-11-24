@@ -34,7 +34,8 @@ func TestIncludedPRLinksToItsSingleKonfluxComment(t *testing.T) {
 				{Target: included, SHA: "old-head", Payload: "stale command"},
 			}},
 			CI: release.ManualRetryReport{Target: included, SHA: "head", At: observed.At,
-				Jobs: []release.ManualJob{{ID: 201}}, Prow: []release.ProwRetry{{Command: "/test unit"}}},
+				Jobs: []release.ManualJob{{ID: 201}}, Prow: []release.ProwRetry{{Command: "/test unit"}},
+				Incomplete: true, Warnings: []string{"GitHub reported a rate limit (HTTP 403). Release Assistant paused GitHub reads"}},
 		},
 	}
 	application := &fakeApplication{snapshot: snapshot}
@@ -45,6 +46,10 @@ func TestIncludedPRLinksToItsSingleKonfluxComment(t *testing.T) {
 	if !strings.Contains(field, "<pre><code>"+want+"</code></pre>") ||
 		!strings.Contains(field, `href="/?tab=acs-prs#acs-pr-retries-41"`) || strings.Contains(field, "/konflux-retest") {
 		t.Fatalf("retry checker did not link to the Konflux comment: %s", field)
+	}
+	if !strings.Contains(field, `class="error-text"><strong>Error =</strong> Rate limited by GitHub`) ||
+		strings.Contains(field, "Retry diagnostics") {
+		t.Fatal("the on-demand checker should show the external rate limit inline")
 	}
 	comment := between(t, panel, `id="acs-pr-retries-41"`, "</article>")
 	if !strings.Contains(comment, "<pre><code>/konflux-retest checks\n/konflux-retest main</code></pre>") ||

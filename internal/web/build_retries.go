@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"release-assistant/internal/dispatch"
 	"release-assistant/internal/release"
@@ -20,6 +21,7 @@ type (
 		Comment                     string
 		Queueable                   bool
 		NextAction                  string
+		KonfluxWarning              string
 		RequiredStartFailureSummary string
 		Manual                      *release.ManualRetryReport
 		ClosedState                 string
@@ -110,6 +112,9 @@ func (p pageModel) BuildRetries() []*buildRetryTarget {
 			})
 		}
 		group.RequiredStartFailureSummary = group.requiredStartFailureSummary()
+		if group.Plan != nil {
+			group.KonfluxWarning = konfluxVerificationWarning(group.Plan.Plan)
+		}
 		group.NextAction = group.nextAction(p.Snapshot.Interactive)
 	}
 	return targets
@@ -169,9 +174,12 @@ func (g buildRetryTarget) requiredStartFailureSummary() string {
 	}
 }
 
-// nextAction describes the next step supported by this target's observations.
+// nextAction summarizes Konflux observations that the row does not already show.
 func (g buildRetryTarget) nextAction(interactive bool) string {
 	if len(g.Candidates) > 0 {
+		if g.Target.PR == 0 {
+			return ""
+		}
 		sent := 0
 		for _, candidate := range g.Candidates {
 			offer := candidate.Offer
@@ -181,32 +189,29 @@ func (g buildRetryTarget) nextAction(interactive bool) string {
 			if offer.CommentSent {
 				sent++
 			} else if offer.CanApprove {
-				if interactive {
-					return "Review the proposed retries in the Retest Queue."
+				if !interactive {
+					return "Eligible for automatic retry."
 				}
-				return "Wait for the automatic retry comment to be posted."
+				return ""
 			}
 		}
 		if sent == len(g.Candidates) {
-			return "Wait for Konflux to start a new run after the retry comment."
+			return "Retry comments posted. Waiting for new Konflux runs."
 		}
-		if g.Target.PR > 0 {
-			return ""
-		}
-		return "Review the retry status for each job below."
+		return ""
 	}
 	if g.Comment != "" {
 		return ""
 	}
 	if g.Plan == nil {
-		return "Wait for the first Konflux check observation."
+		return "Waiting for the first Konflux check observation."
 	}
 	if g.RequiredStartFailureSummary != "" {
 		return g.RequiredStartFailureSummary
 	}
 	plan := g.Plan.Plan
 	if plan.KonfluxAPIUnavailable {
-		return "Wait for the Konflux API to recover. It was unavailable at the last check."
+		return ""
 	}
 	for _, failure := range plan.StartFailures {
 		if !failure.Superseded && failure.Evidence.Fresh() {
@@ -214,33 +219,43 @@ func (g buildRetryTarget) nextAction(interactive bool) string {
 		}
 	}
 	if plan.Evidence.Error != "" {
-		if g.Target.PR > 0 {
-			return "Could not verify Konflux checks. See Log."
-		}
-		return "Review the observation error in Check details."
+		return ""
 	}
 	if plan.Action == "Wait" {
 		for _, run := range plan.Runs {
 			if run.ID != "" && (run.Status == "in_progress" || run.Status == "queued") {
-				return "Wait for the " + run.Job + " check to finish."
+				return "Waiting for the " + run.Job + " check to finish."
 			}
 		}
 	}
 	switch plan.Message {
 	case "PipelineRun creation failed for a check with unknown PR or tag.":
-		return "Wait for the next Konflux check observation."
+		return "Waiting for a verified Konflux check observation."
 	case "No verified build checks match the requested tag or PR.", "GitHub returned no check runs for this commit.":
-		return "Wait for a matching Konflux build check to appear on this commit."
-	case "Waiting for usable input images.":
-		return "Wait for the input images to become available."
+		return "No matching Konflux build check observed on this commit."
 	case "":
 		if plan.Action == "None" {
 			return "No retry needed."
 		}
-		return "Wait for the next Konflux check observation."
+		return ""
 	default:
 		return plan.Message
 	}
+}
+
+func konfluxVerificationWarning(plan release.Plan) string {
+	if plan.Evidence.Error == "" && !plan.KonfluxAPIUnavailable {
+		return ""
+	}
+	const heading = "Could not verify Konflux checks"
+	if diagnostics := retryDiagnostics(false, false, plan.Evidence.Error, nil); len(diagnostics) > 0 {
+		if reason := diagnostics[0].Message; utf8.RuneCountInString(reason) <= 160 {
+			return heading + " · " + reason
+		}
+	} else if plan.KonfluxAPIUnavailable {
+		return heading + " · Konflux API unavailable"
+	}
+	return heading
 }
 
 func (p pageModel) retryStatus(offer *dispatch.Offer) string {

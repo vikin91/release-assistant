@@ -24,13 +24,8 @@
       <p>No retry commands available for this commit.</p>
     {{end}}
     {{with .Konflux.Message}}<p class="muted">{{.}}</p>{{end}}
-    {{if or .Konflux.Evidence.Error .Konflux.Warnings .CI.Warnings .CI.OtherChecks}}
-      <details data-fold-key="{{.Anchor}}-diagnostics">
-        <summary>Retry diagnostics</summary>
-        {{with .Konflux.Evidence.Error}}<p>{{.}}</p>{{end}}
-        {{if .Konflux.Warnings}}<ol>{{range .Konflux.Warnings}}<li>{{.}}</li>{{end}}</ol>{{end}}
-        {{if or .CI.Warnings .CI.OtherChecks}}<ol>{{range .CI.Warnings}}<li>{{.}}</li>{{end}}{{range .CI.OtherChecks}}<li>{{.}}</li>{{end}}</ol>{{end}}
-      </details>
-    {{end}}
+    {{template "retry-diagnostics" (retryDiagnostics false false .Konflux.Evidence.Error .Konflux.Warnings)}}
+    {{template "retry-diagnostics" (retryDiagnostics .CI.Pending .CI.Incomplete "" .CI.Warnings)}}
+    {{if .CI.OtherChecks}}<ol>{{range .CI.OtherChecks}}<li>{{.}}</li>{{end}}</ol>{{end}}
   </div>
 {{end}}

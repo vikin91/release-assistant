@@ -192,7 +192,8 @@ legend { padding: 0 .35rem; font-weight: var(--emphasis-weight); }
 .build-retry-row summary, .build-retry-evidence { overflow-wrap: anywhere; }
 .build-retry-row summary > span { margin-inline-start: .35rem; }
 .build-retry-note, .build-retry-run, .build-retry-evidence { font-size: .86rem; }
-.build-retry-note { margin: .3rem 0; }
+.build-retry-note { margin: .3rem 0; overflow-wrap: anywhere; }
+.retry-diagnostics { display: flex; flex-wrap: wrap; gap: .1rem .75rem; overflow-wrap: anywhere; }
 .build-retry-evidence { margin-top: .45rem; }
 .build-retry-row form { margin: .35rem 0; }
 .copy-text-actions { display: flex; align-items: baseline; flex-wrap: wrap; gap: .35rem .65rem; margin-bottom: .45rem; }
