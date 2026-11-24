@@ -22,6 +22,10 @@ type (
 		At         time.Time
 		URL, Error string
 		Known      bool
+		// Historical marks a retained result whose timestamp still describes the original read.
+		Historical bool `json:",omitempty"`
+		// AttemptAt dates a failed refresh of a retained result.
+		AttemptAt time.Time `json:",omitzero"`
 	}
 	// Target identifies a PR or a tag; SHA is deliberately separate.
 	Target struct {
@@ -386,7 +390,7 @@ func (d PinDiscovery) Candidates() int {
 }
 
 // Fresh requires a successful current observation.
-func (e Evidence) Fresh() bool { return e.Known && e.Error == "" && !e.At.IsZero() }
+func (e Evidence) Fresh() bool { return e.Known && !e.Historical && e.Error == "" && !e.At.IsZero() }
 
 // Selectable reports whether a PR belongs in the active release selection list.
 func (p PR) Selectable(choice Choice) bool {

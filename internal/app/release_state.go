@@ -166,7 +166,11 @@ func (s *ReleaseState) commit(next releaseStateFile) error {
 
 // write stages the replacement beside the destination so the rename is atomic.
 func (s *ReleaseState) write(state releaseStateFile) error {
-	file, err := os.CreateTemp(filepath.Dir(s.path), ".release-state-*")
+	return writeStateJSON(s.path, state)
+}
+
+func writeStateJSON(path string, state any) error {
+	file, err := os.CreateTemp(filepath.Dir(path), ".release-state-*")
 	if err != nil {
 		return err
 	}
@@ -180,5 +184,5 @@ func (s *ReleaseState) write(state releaseStateFile) error {
 	if err := errors.Join(err, file.Close()); err != nil {
 		return err
 	}
-	return os.Rename(file.Name(), s.path)
+	return os.Rename(file.Name(), path)
 }

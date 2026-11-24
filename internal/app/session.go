@@ -109,6 +109,7 @@ type (
 		mu sync.Mutex
 		*releaseWork
 		profiles      map[string]*releaseWork
+		dashboards    dashboardFile
 		activeProfile string
 		generation    uint64
 		workRevision  uint64
@@ -189,6 +190,7 @@ func New(d Discoverer, p RetryPlanner, i Inspector, dispatcher *dispatch.Dispatc
 			log.mu.Unlock()
 		}
 		s.profiles = make(map[string]*releaseWork)
+		s.loadDashboards()
 		s.activateProfile(o.ReleaseState.file.ActiveProfile)
 		return s
 	}
@@ -628,6 +630,14 @@ func (s *Session) Snapshot() Snapshot {
 }
 
 func (s *Session) snapshot(work *releaseWork, active bool) Snapshot {
+	profileID := ""
+	if work == s.releaseWork {
+		profileID = s.activeProfile
+	}
+	return s.profileSnapshot(work, active, profileID)
+}
+
+func (s *Session) profileSnapshot(work *releaseWork, active bool, profileID string) Snapshot {
 	c := work.config
 	c.Components = slices.Clone(c.Components)
 	choices := work.choices
@@ -692,23 +702,24 @@ func (s *Session) snapshot(work *releaseWork, active bool) Snapshot {
 	}
 	x.RetestLog = slices.Clone(work.retestLog)
 	x.Loading = x.Loading || slices.ContainsFunc(x.ManualRetries, func(r release.ManualRetryReport) bool { return r.Pending })
+	x.Plans = work.plansForDisplay()
+	x.Inventory = work.inventory
+	x.Inventory.Versions = maps.Clone(work.inventory.Versions)
+	x.Inventory.Images = slices.Clone(work.inventory.Images)
+	x.Inventory.ReleaseImages = slices.Clone(work.inventory.ReleaseImages)
+	s.applyDashboard(&x, work, profileID)
 	slices.SortFunc(x.Repositories, func(a, b release.Repository) int {
 		if a.Source.Name < b.Source.Name {
 			return -1
 		}
 		return 1
 	})
-	x.Plans = work.plansForDisplay()
 	slices.SortFunc(x.Plans, func(a, b release.Plan) int {
 		if a.Target.String() < b.Target.String() {
 			return -1
 		}
 		return 1
 	})
-	x.Inventory = work.inventory
-	x.Inventory.Versions = maps.Clone(work.inventory.Versions)
-	x.Inventory.Images = slices.Clone(work.inventory.Images)
-	x.Inventory.ReleaseImages = slices.Clone(work.inventory.ReleaseImages)
 	x.Assessment = release.Assess(release.Input{Config: c, Choices: choices, Repositories: x.Repositories, Inventory: x.Inventory})
 	return x
 }
@@ -841,6 +852,13 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 				request.PreviouslyOpen = append(request.PreviouslyOpen, p.Target.PR)
 			}
 		}
+		if saved := s.dashboards.Profiles[s.activeProfile]; sameDashboardConfig(saved.Config, c) {
+			for _, pr := range saved.Repositories[source.Name].PRs {
+				if pr.State == "open" && pr.Base == source.Branch && !slices.Contains(request.PreviouslyOpen, pr.Target.PR) {
+					request.PreviouslyOpen = append(request.PreviouslyOpen, pr.Target.PR)
+				}
+			}
+		}
 	}
 	if source.Name == "acs" {
 		request.PinningPR = max(c.PinningPR, s.pendingPinningPR)
@@ -858,6 +876,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			if generation == s.generation && work.revision == s.workRevision && ctx.Err() == nil && old.Candidate.Target.Tag == "" && (old.Head == "" || old.Head == head) {
 				old.Source, old.Head, old.Candidate = source, head, candidate
 				s.repos[source.Name] = old
+				s.observeDashboardRepo(old, false, "")
 				s.wakePolls()
 			}
 		}
@@ -1025,6 +1044,14 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			}
 		}
 		s.repos[source.Name] = r
+		completeTags := !r.TagsPending && err == nil &&
+			(request.Reads(ReadRC) && source.Name == "acs" ||
+				request.Reads(ReadTags) && (work.tagInventory || !scoped))
+		problem := ""
+		if err != nil {
+			problem = err.Error()
+		}
+		s.observeDashboardRepo(r, completeTags, problem)
 		for _, p := range r.PRs {
 			if request.Reads(ReadChecks) && p.State == "open" && s.choices.PRs[p.Target] == release.Included {
 				var before checkActivity
@@ -1211,6 +1238,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			if old.Evidence.At.IsZero() {
 				old.SHA, old.Evidence.At = expected, plan.Evidence.At
 			}
+			old.Evidence.AttemptAt = plan.Evidence.At
 			old.StartFailures = staleStartFailures(old.StartFailures, message)
 			for i := range old.Runs {
 				if old.Runs[i].Image.Reference == "" && old.Runs[i].Image.Evidence.Error == "" {
@@ -1220,6 +1248,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 				old.Runs[i].Image.Evidence.Error = message
 			}
 			s.plans[target] = old
+			s.observeDashboardPlan(old)
 			s.dispatcher.ObservePlan(release.Plan{Target: target, SHA: expected})
 		}
 		if plan.SHA == expected && expected != "" {
@@ -1261,6 +1290,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 				s.record(target, plan.SHA, "checks", "", plan.Action, "system", strings.TrimSpace(fmt.Sprintf("Checked build results in %s. %s", consoleRevision(target, plan.SHA), summary)))
 			}
 			s.plans[target] = plan
+			s.observeDashboardPlan(plan)
 			s.dispatcher.ObservePlan(plan)
 		}
 		s.drain()
@@ -1432,6 +1462,7 @@ func (s *Session) refreshImagesScoped(ctx context.Context, generation uint64, in
 func (s *Session) publishImageInventory(inventory release.Inventory, versions map[string]string, includeRC bool, err error, complete bool) {
 	c := s.config
 	rc := s.repos["acs"].Candidate
+	s.observeDashboardImages(inventory, includeRC, complete, err)
 	if complete {
 		message := ""
 		if err != nil {
@@ -1474,8 +1505,12 @@ func (s *Session) publishImageInventory(inventory release.Inventory, versions ma
 			inventory.Versions["acs"] = strings.TrimPrefix(rc.Target.Tag, "v")
 		}
 	}
-	s.options.ReleaseState.restorePendingImages(inventory.Images, s.inventory.Images)
-	s.options.ReleaseState.restorePendingImages(inventory.ReleaseImages, s.inventory.ReleaseImages)
+	state := s.options.ReleaseState
+	if s.activeProfile != "" {
+		state = nil
+	}
+	state.restorePendingImages(inventory.Images, s.inventory.Images)
+	state.restorePendingImages(inventory.ReleaseImages, s.inventory.ReleaseImages)
 	inventory.Images = retainLastImagePresence(inventory.Images, s.inventory.Images)
 	inventory.ReleaseImages = retainLastImagePresence(inventory.ReleaseImages, s.inventory.ReleaseImages)
 	trackImagePublishing(inventory.Images, s.inventory.Images, func(image release.Image) bool {
@@ -1525,7 +1560,7 @@ func (s *Session) publishImageInventory(inventory release.Inventory, versions ma
 		}
 	}
 	s.inventory = inventory
-	if complete {
+	if complete && s.activeProfile == "" {
 		err := s.options.ReleaseState.saveImageObservations(inventory)
 		message := ""
 		if err != nil {

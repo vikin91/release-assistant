@@ -177,14 +177,14 @@ func summarizePRChecks(pr release.PR) prCheckSummary {
 	if pr.Target.Valid() && pr.Target.PR > 0 {
 		summary.URL = fmt.Sprintf("https://github.com/%s/pull/%d/checks", pr.Target.Repo, pr.Target.PR)
 	}
-	if !pr.Evidence.Fresh() {
+	if !pr.Evidence.Fresh() && !pr.Evidence.Historical {
 		summary.Problem = pr.Evidence.Error
 		return summary
 	}
 	results := pr.CheckResultsEvidence
 	available := !results.At.IsZero() && results.Known
 	if results.At.IsZero() {
-		results, available = pr.ChecksEvidence, pr.ChecksEvidence.Fresh()
+		results, available = pr.ChecksEvidence, pr.ChecksEvidence.Fresh() || pr.ChecksEvidence.Historical
 	}
 	summary.Problem = results.Error
 	if !available || len(pr.Checks) == 0 {
@@ -194,7 +194,7 @@ func summarizePRChecks(pr release.PR) prCheckSummary {
 		return summary
 	}
 	summary.Available = true
-	summary.Partial = !results.Fresh()
+	summary.Partial = !results.Fresh() && !results.Historical
 	summary.RequiredKnown = pr.RequiredChecksError == ""
 	for _, check := range pr.Checks {
 		if check.Result() == release.No {

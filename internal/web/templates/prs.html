@@ -62,9 +62,9 @@
                 {{if .PR.Merged}}<span class="pr-list-note">Merged</span>{{else if eq .PR.State "closed"}}<span class="pr-list-note">{{if .PR.Evidence.Fresh}}Closed without merging{{else}}Last observed closed without merging{{end}}</span>
                 {{else if and (eq .Choice "included") (not $row.MergeStatus)}}<span class="pr-list-note">Awaiting merge</span>{{end}}
               </div>
-              {{if eq .Choice "included"}}{{template "pr-list-checks" $row.Checks}}{{end}}
+              {{if eq .Choice "included"}}{{template "pr-list-checks" $row.Checks}}{{template "historical-evidence" .PR.CheckResultsEvidence}}{{if not .PR.CheckResultsEvidence.Historical}}{{template "historical-evidence" .PR.ChecksEvidence}}{{end}}{{end}}
             </div>
-            {{if ne $row.PinRole "Confirmed pinning PR"}}<div class="control-row">
+            {{if and (ne $row.PinRole "Confirmed pinning PR") (not .PR.Evidence.Historical)}}<div class="control-row">
               {{if and (not $component) .PR.Evidence.Fresh .PR.SHA (eq .PR.State "open") (eq .PR.Base $.Snapshot.Config.Branch)}}
               <form method="post" action="/action#{{$.PRSection}}" class="inline-form">
                 <input type="hidden" name="kind" value="use-pinning-pr"><input type="hidden" name="tab" value="{{$.Tab}}">
@@ -115,7 +115,7 @@
 {{end}}
 
 {{define "pr-identity-summary"}}
-  <span>{{if .Author}}@{{.Author}}{{else}}Author unknown{{end}}</span> · <span>{{if .Merged}}merged{{else}}{{.State}}{{end}}</span>{{if not .Evidence.Fresh}} · <span class="unknown">PR identity unknown or stale</span>{{end}}{{if .OptOut}} · <strong class="error-text">no-release-assistant opt-out</strong>{{end}}
+  <span>{{if .Author}}@{{.Author}}{{else}}Author unknown{{end}}</span> · <span>{{if .Merged}}merged{{else}}{{.State}}{{end}}</span>{{if .Evidence.Historical}} · {{template "historical-evidence" .Evidence}}{{else if not .Evidence.Fresh}} · <span class="unknown">PR identity unknown or stale</span>{{end}}{{if .OptOut}} · <strong class="error-text">no-release-assistant opt-out</strong>{{end}}
 {{end}}
 
 {{define "pr-list-checks"}}

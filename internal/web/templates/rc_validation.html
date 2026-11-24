@@ -40,7 +40,8 @@
 {{define "rc-validation-status"}}
     {{if .RC.CommitURL}}
       {{with .RC.Plan.Plan.Validation}}
-        {{if .Evidence.Error}}
+        {{if .Evidence.Historical}}<p>{{template "historical-evidence" .Evidence}}</p>
+        {{else if .Evidence.Error}}
           <details class="rc-diagnostics" data-fold-key="rc-validation-diagnostics"><summary>Some check evidence is unavailable</summary><p>{{.Evidence.Error}}</p></details>
         {{else if not .Evidence.Fresh}}<p class="muted"><span class="pill">Pending</span> Waiting for GitHub check results.</p>
         {{else if not $.RC.ValidationObserved}}<p class="muted"><span class="pill">Pending</span> No validation checks have been reported for this commit yet.</p>

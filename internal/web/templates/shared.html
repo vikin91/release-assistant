@@ -1,3 +1,5 @@
+{{define "historical-evidence"}}{{if .Historical}}<span class="muted">Last verified {{when .At}}{{if .Error}} · refresh failed{{if not .AttemptAt.IsZero}} {{when .AttemptAt}}{{end}}{{else}} · awaiting refresh{{end}}</span>{{end}}{{end}}
+
 {{define "component-tag-option"}}
 <tr data-live-key="tag:{{.Component}}:{{.Repo}}@{{.Tag.Name}}:{{.Tag.SHA}}">
   <th scope="row"><a aria-describedby="new-tab-description" href="https://github.com/{{.Repo}}/tree/refs/tags/{{.Tag.Name}}" target="_blank" rel="noreferrer"><code>{{.Tag.Name}}</code></a></th>
@@ -21,7 +23,7 @@
 
 {{define "tag-observation"}}
   <p>SHA <code>{{.Tag.SHA}}</code> · branch membership {{truth .Tag.Belongs}}</p>
-  <p class="evidence"><span>{{if .Tag.Evidence.Fresh}}Observed{{else}}Unknown or stale{{end}} at {{when .Tag.Evidence.At}}</span>{{if .Tag.Evidence.Error}}<span class="error-text">{{.Tag.Evidence.Error}}</span>{{end}}{{if url .Tag.Evidence.URL}}<a aria-describedby="new-tab-description" href="{{url .Tag.Evidence.URL}}" target="_blank" rel="noreferrer">Tag source</a>{{end}}</p>
+  <p class="evidence"><span>{{if .Tag.Evidence.Historical}}{{template "historical-evidence" .Tag.Evidence}}{{else}}{{if .Tag.Evidence.Fresh}}Observed{{else}}Unknown or stale{{end}} at {{when .Tag.Evidence.At}}{{end}}</span>{{if .Tag.Evidence.Error}}<span class="error-text">{{.Tag.Evidence.Error}}</span>{{end}}{{if url .Tag.Evidence.URL}}<a aria-describedby="new-tab-description" href="{{url .Tag.Evidence.URL}}" target="_blank" rel="noreferrer">Tag source</a>{{end}}</p>
   {{if .MergeCoverage}}<ol class="tag-merge-coverage" aria-label="Included merge coverage">{{range .MergeCoverage}}<li><code>{{.SHA}}</code> · {{if eq (truth .Status) "yes"}}covered{{else if eq (truth .Status) "no"}}missing{{else}}unverified{{end}}</li>{{end}}</ol>{{end}}
 {{end}}
 
@@ -34,7 +36,7 @@
       <div class="section-heading"><strong>{{title .Check.Image.Component}} · {{if .Name}}{{.Name}}{{else}}image name not determined{{end}} · {{if eq .Check.Image.Family "ci"}}CI{{else}}{{if eq .Check.Image.Family "konflux"}}Konflux{{else}}{{.Check.Image.Family}}{{end}}{{end}}</strong><span class="pill {{truth .Check.Status}}">{{if eq (truth .Check.Status) "yes"}}Available{{else}}{{if eq (truth .Check.Status) "no"}}Not found{{else}}Unable to check{{end}}{{end}}</span></div>
       <p class="image-tag">Image tag: <code>{{if .Tag}}{{.Tag}}{{else}}not determined{{end}}</code>{{if and .Check.Required .Check.SelectedTag}} · selected {{title .Check.Image.Component}} tag: {{.Check.SelectedTag}}{{end}}</p>
       {{if .Check.Image.Reference}}<p class="image-reference">{{if .URL}}<a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer"><code>{{.Check.Image.Reference}}</code></a>{{else}}<code>{{.Check.Image.Reference}}</code>{{end}}</p>{{end}}
-      {{if not .Check.Status}}<p>{{.Check.Reason}}</p>{{end}}{{if .Check.Image.Evidence.Error}}<p class="error-text">{{.Check.Image.Evidence.Error}}</p>{{end}}{{if and (not .Check.Image.Evidence.Fresh) .Check.Image.Present}}<p class="muted">Last confirmed {{if eq .Check.Image.Present "yes"}}available{{else}}not found{{end}} at {{when .Check.Image.Evidence.At}}; current availability is unverified.</p>{{end}}
+      {{if not .Check.Status}}<p>{{.Check.Reason}}</p>{{end}}{{if .Check.Image.Evidence.Error}}<p class="error-text">{{.Check.Image.Evidence.Error}}</p>{{end}}{{if and (not .Check.Image.Evidence.Fresh) .Check.Image.Present}}<p class="muted">{{if .Check.Image.Evidence.Historical}}{{template "historical-evidence" .Check.Image.Evidence}}{{else}}Last confirmed {{if eq .Check.Image.Present "yes"}}available{{else}}not found{{end}} at {{when .Check.Image.Evidence.At}}. Current availability is unverified.{{end}}</p>{{end}}
     </li>{{end}}</ol>
 {{end}}
 

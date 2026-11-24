@@ -79,6 +79,7 @@ func (s *Session) readSelectedTagChecks(ctx context.Context, generation, revisio
 	}
 	s.recordCheckChange(target, sha, before, rcCheckActivity(validation))
 	s.tagChecks[source.Name] = tagCheckObservation{target: target, sha: sha, validation: validation}
+	s.observeDashboardPlan(release.Plan{Target: target, SHA: sha, Validation: validation})
 	return err
 }
 

@@ -190,11 +190,18 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 		retryTargets[rc.Target] = true
 	}
 	pinTarget := snapshot.Config.PinningTarget()
+	if pinTarget.PR == 0 && snapshot.PendingPinningPR > 0 {
+		pinTarget = release.Target{Repo: snapshot.Config.ACS().Repo, PR: snapshot.PendingPinningPR}
+	}
 	if pinTarget.PR > 0 && snapshot.Choices.PRs[pinTarget] != release.Ignored {
 		retryTargets[pinTarget] = true
 	}
 	for _, source := range snapshot.Config.Components {
-		if tag := snapshot.Choices.Tags[source.Name]; tag != "" {
+		tag := snapshot.Choices.Tags[source.Name]
+		if tag == "" {
+			tag = snapshot.PendingTags[source.Name]
+		}
+		if tag != "" {
 			retryTargets[release.Target{Repo: source.Repo, Tag: tag}] = true
 		}
 	}

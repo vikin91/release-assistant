@@ -13,18 +13,20 @@
             <a aria-describedby="new-tab-description" href="{{url $.RC.TagURL}}" target="_blank" rel="noreferrer">Open RC.{{.Number}} tag</a>
             {{if $.RC.ChecksURL}}<a aria-describedby="new-tab-description" href="{{url $.RC.ChecksURL}}" target="_blank" rel="noreferrer">View tag checks</a>{{end}}
           </div>
-          {{if .Evidence.Error}}
-            <p>Unable to verify the current RC. {{.Evidence.Error}} Showing the last observed results for RC.{{.Number}}.</p>
-          {{else if not .Evidence.Fresh}}
-            <p>Rechecking RC.{{.Number}} against the updated release branch. Showing the last observed results.</p>
-          {{else if eq .Ahead 0}}<p>No commits have landed on the release branch since RC.{{.Number}}.</p>
-          {{else}}
-            <p><a aria-describedby="new-tab-description" href="{{url .CompareURL}}" target="_blank" rel="noreferrer">{{.Ahead}} {{if eq .Ahead 1}}commit{{else}}commits{{end}}</a> landed on the release branch since RC.{{.Number}}.</p>
-            {{if .PRs}}<ol>{{range .PRs}}<li><a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">#{{.Number}} {{.Title}}</a></li>{{end}}</ol>
-            {{else if .PRsPending}}<p class="muted">Checking for associated merged PRs.</p>
-            {{else if not .PRError}}<p class="muted">GitHub reported no associated merged PRs.</p>{{end}}
-            {{if .PRError}}<p class="muted">Some PR links are unavailable. {{.PRError}}</p>{{end}}
-          {{end}}
+          {{if .Evidence.Historical}}<p>{{template "historical-evidence" .Evidence}}</p>{{end}}
+          {{if .Evidence.Error}}<p>Unable to verify the current RC. {{.Evidence.Error}}</p>{{end}}
+          {{if or .Evidence.Fresh .Evidence.Historical}}
+            {{if eq .Ahead 0}}<p>{{if .Evidence.Historical}}The last comparison found no commits{{else}}No commits have landed{{end}} on the release branch since RC.{{.Number}}.</p>
+            {{else}}
+              <p>{{if .Evidence.Historical}}Last comparison found {{end}}<a aria-describedby="new-tab-description" href="{{url .CompareURL}}" target="_blank" rel="noreferrer">{{.Ahead}} {{if eq .Ahead 1}}commit{{else}}commits{{end}}</a> {{if not .Evidence.Historical}}landed {{end}}on the release branch since RC.{{.Number}}.</p>
+              {{if .PRs}}<ol>{{range .PRs}}<li><a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">#{{.Number}} {{.Title}}</a></li>{{end}}</ol>
+              {{else if .PRsPending}}<p class="muted">Checking for associated merged PRs.</p>
+              {{else if not .PRError}}<p class="muted">GitHub reported no associated merged PRs.</p>{{end}}
+              {{if .PRError}}<p class="muted">Some PR links are unavailable. {{.PRError}}</p>{{end}}
+            {{end}}
+          {{else if not .Evidence.Error}}<p>Rechecking RC.{{.Number}} against the updated release branch. Showing the last observed results.</p>{{end}}
+        {{else if .Evidence.Historical}}
+          <p>{{template "historical-evidence" .Evidence}}. No release candidate tag was found on the release branch.</p>
         {{else if .Evidence.Error}}
           <p>Unable to discover the current RC tag. {{.Evidence.Error}}</p>
         {{else if .Evidence.Fresh}}
@@ -130,6 +132,7 @@
     </span>{{end}}
     <span class="rc-image-mark {{$status}}" role="img" aria-label="{{$label}}" title="{{$label}}{{if not .Check.Image.Evidence.At.IsZero}} · {{if and (eq $status "unknown") .Check.Image.Present}}Last observed{{else if eq $status "unknown"}}Check attempted{{else}}Checked{{end}} {{when .Check.Image.Evidence.At}}{{end}}{{if and (eq $status "no") (not .Check.Image.PublishingSince.IsZero)}} · First seen missing {{when .Check.Image.PublishingSince}}{{end}}">{{if eq $status "yes"}}✓{{else if eq $status "no"}}✗{{else}}?{{end}}</span>
     {{if and (eq $status "unknown") .Check.Image.Present}}<span class="muted">{{$label}}</span>{{end}}
+    {{template "historical-evidence" .Check.Image.Evidence}}
   </span>
   {{if .Check.Image.Evidence.Error}}<div class="component-image-note error-text">{{.Check.Image.Evidence.Error}}</div>
   {{else if and (eq $status "unknown") .Check.Reason}}<div class="component-image-note">{{.Check.Reason}}</div>{{end}}

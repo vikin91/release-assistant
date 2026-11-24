@@ -80,6 +80,11 @@ func (s *Session) observeRCPlan(target release.Target, plan release.Plan) {
 	}
 	s.recordStartFailures(previous, plan)
 	s.plans[target] = plan
+	displayPlan := plan
+	if displayPlan.SHA == "" {
+		displayPlan.SHA = s.repos["acs"].Candidate.SHA
+	}
+	s.observeDashboardPlan(displayPlan)
 	s.dispatcher.ObservePlan(plan)
 }
 

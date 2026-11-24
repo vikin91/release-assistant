@@ -39,6 +39,11 @@ func (s *Session) mergeStartupTags(source release.Source, latest release.Reposit
 		old.Tags, old.TagsPending = latest.Tags, latest.TagsPending
 	}
 	s.repos[source.Name] = old
+	if !latest.TagsPending && old.Head == latest.Head {
+		s.observeDashboardRepo(old, !old.TagsPending, "")
+	} else {
+		s.observeDashboardRepo(old, false, latest.Evidence.Error)
+	}
 }
 
 // readStartupTags publishes component choices independently of the concurrent PR refresh.

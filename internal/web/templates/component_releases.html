@@ -133,7 +133,7 @@
       <summary>
         <span class="pill component-image-status {{truth .Check.Status}}">{{template "image-status-label" .}}</span>
         {{if not .Check.Status}}
-          <span class="component-image-note">{{if and .Check.Required (not .Check.SelectedTag)}}No tag selected{{else if and (not .Check.Image.Evidence.Fresh) .Check.Image.Present}}Last result unverified{{else if and .Check.Image.Reference .Check.Image.Evidence.Error}}Registry check failed{{else if and .Check.Image.Reference .Check.Image.Evidence.At.IsZero}}Waiting for Quay{{else}}{{.Check.Reason}}{{end}}</span>
+          <span class="component-image-note">{{if .Check.Image.Evidence.Historical}}{{template "historical-evidence" .Check.Image.Evidence}}{{else if and .Check.Required (not .Check.SelectedTag)}}No tag selected{{else if and (not .Check.Image.Evidence.Fresh) .Check.Image.Present}}Last result unverified{{else if and .Check.Image.Reference .Check.Image.Evidence.Error}}Registry check failed{{else if and .Check.Image.Reference .Check.Image.Evidence.At.IsZero}}Waiting for Quay{{else}}{{.Check.Reason}}{{end}}</span>
         {{end}}
       </summary>
       {{template "image-evidence" .}}

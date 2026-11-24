@@ -112,7 +112,7 @@ func Assess(in Input) Assessment {
 	a.Pins = assessPinSummary(in, repos, chosenVersions)
 	var pinEvidence []Evidence
 	if acs, ok := repos["acs"]; ok {
-		pinEvidence = []Evidence{{Known: acs.Evidence.Known, At: acs.Evidence.At}, acs.Pins.Evidence}
+		pinEvidence = []Evidence{{Known: acs.Evidence.Known, Historical: acs.Evidence.Historical, At: acs.Evidence.At}, acs.Pins.Evidence}
 	}
 	add("ACS release branch pins", a.Pins.BranchStatus, a.Pins.BranchReason, pinEvidence...)
 	assessPinningPR(&a, in, chosenVersions, tagCoverage, imageStatus)

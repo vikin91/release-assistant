@@ -167,7 +167,7 @@ func (s *Session) ProfileSnapshot(id string) (Snapshot, bool) {
 		work.restoreComponentTags(s.options.ReleaseState)
 		work.pendingPinningPR = s.options.ReleaseState.restorePinningChoice(&work.config)
 	}
-	return s.snapshot(work, false), exists
+	return s.profileSnapshot(work, false, id), exists
 }
 
 func (s *Session) applyProfile(a Action) error {
@@ -247,6 +247,11 @@ func (s *Session) applyProfile(a Action) error {
 	}
 	if err := state.commit(next); err != nil {
 		return err
+	}
+	if saved, ok := s.dashboards.Profiles[profile.ID]; ok &&
+		(a.Kind == "remove-release" || a.Kind == "configure" && !sameDashboardConfig(saved.Config, next.Profiles[idx].Config)) {
+		delete(s.dashboards.Profiles, profile.ID)
+		s.saveDashboards()
 	}
 	if a.Kind == "configure" && profile.ID == s.activeProfile {
 		if slices.Equal(s.config.Components, a.Config.Components) && s.config.Version == a.Config.Version && s.config.Branch == a.Config.Branch {
