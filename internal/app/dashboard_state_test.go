@@ -69,7 +69,7 @@ func TestDashboardRestartsInactiveThenRefreshesIndependently(t *testing.T) {
 	inventory := release.Inventory{ReleaseVersion: config.Version, Versions: map[string]string{fact.Name: tag}, Images: []release.Image{image}}
 	s.publishImageInventory(inventory, map[string]string{fact.Name: tag}, false, nil, true)
 	s.flushDashboards()
-	if _, err := os.Stat(path + ".observations.json"); err != nil {
+	if _, err := os.Stat(filepath.Join(filepath.Dir(path), "state.observations.json")); err != nil {
 		t.Fatal(err)
 	}
 	apply(t, s, Action{Kind: "activate-release", ProfileID: profiles[0].ID})
@@ -178,7 +178,7 @@ func TestDashboardIgnoresUnreadableSidecar(t *testing.T) {
 	if err := state.SetInitialRelease(configuration(), false); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path+".observations.json", []byte("{"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(filepath.Dir(path), "state.observations.json"), []byte("{"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	_, f := newFixture()
@@ -269,7 +269,7 @@ func TestDashboardWriterBatchesUpdatesAndFlushesOnShutdown(t *testing.T) {
 	}
 	assertSavedHead := func(t *testing.T, want string) {
 		t.Helper()
-		data, err := os.ReadFile(path + ".observations.json")
+		data, err := os.ReadFile(filepath.Join(filepath.Dir(path), "state.observations.json"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -302,7 +302,7 @@ func TestDashboardWriterBatchesUpdatesAndFlushesOnShutdown(t *testing.T) {
 		synctest.Wait()
 		setHead("first")
 		setHead("second")
-		if _, err := os.Stat(path + ".observations.json"); !errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(filepath.Join(filepath.Dir(path), "state.observations.json")); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("checkpoint was written before the first tick: %v", err)
 		}
 		time.Sleep(dashboardSaveInterval)
@@ -312,4 +312,60 @@ func TestDashboardWriterBatchesUpdatesAndFlushesOnShutdown(t *testing.T) {
 		assertSavedHead(t, "second")
 	})
 	assertSavedHead(t, "third")
+}
+
+func TestDashboardMigratesLegacyFilenameAndPrefersCanonicalFile(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "staging.release.json")
+	legacyPath := filepath.Join(dir, "staging.release.json.observations.json")
+	canonicalPath := filepath.Join(dir, "staging.release.observations.json")
+	state, err := OpenReleaseState(statePath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := configuration()
+	if err := state.SetInitialRelease(config, false); err != nil {
+		t.Fatal(err)
+	}
+	id := state.file.ActiveProfile
+	source := config.ACS()
+	saved := dashboardFile{
+		Version: dashboardStateVersion,
+		Profiles: map[string]dashboardState{
+			id: {
+				Config: config,
+				Repositories: map[string]release.Repository{
+					source.Name: {Source: source, Head: "legacy-head", Evidence: observed()},
+				},
+			},
+		},
+	}
+	if err := writeStateJSON(legacyPath, saved, ""); err != nil {
+		t.Fatal(err)
+	}
+	_, f := newFixture()
+	restart := func() *Session {
+		return New(f, f, f, dispatch.New(f, f, f, dispatch.Options{}), nil,
+			Options{Profiles: true, ReleaseState: state})
+	}
+	assertHead := func(s *Session, want string) {
+		t.Helper()
+		repos := s.Snapshot().Repositories
+		if len(repos) != 1 || repos[0].Head != want {
+			t.Fatalf("saved repositories = %+v, want head %q", repos, want)
+		}
+	}
+	s := restart()
+	assertHead(s, "legacy-head")
+	s.flushDashboards()
+	if _, err := os.Stat(canonicalPath); err != nil {
+		t.Fatal(err)
+	}
+
+	s.observeDashboardRepo(release.Repository{Source: source, Head: "new-head", Evidence: observed()}, false, "")
+	s.flushDashboards()
+	if _, err := os.Stat(legacyPath); err != nil {
+		t.Fatal(err)
+	}
+	assertHead(restart(), "new-head")
 }

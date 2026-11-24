@@ -1,5 +1,6 @@
 /release-assistant
 /release-assistant.jsonl
 /state.json
+/state.observations.json
 /state.json.observations.json
 /internal/web/node_modules/

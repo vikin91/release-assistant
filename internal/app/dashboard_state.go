@@ -8,6 +8,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"release-assistant/internal/release"
@@ -16,6 +17,7 @@ import (
 const (
 	dashboardStateVersion = 1
 	dashboardSaveInterval = 2 * time.Second
+	dashboardFileSuffix   = ".observations.json"
 )
 
 type (
@@ -37,10 +39,20 @@ type (
 	}
 )
 
+func dashboardPath(statePath string) string {
+	return strings.TrimSuffix(statePath, ".json") + dashboardFileSuffix
+}
+
 func (s *Session) loadDashboards() {
 	s.dashboards = dashboardFile{Version: dashboardStateVersion, Profiles: make(map[string]dashboardState)}
-	path := s.options.ReleaseState.path + ".observations.json"
+	statePath := s.options.ReleaseState.path
+	path := dashboardPath(statePath)
 	data, err := os.ReadFile(path)
+	legacyPath := statePath + dashboardFileSuffix
+	fromLegacy := errors.Is(err, os.ErrNotExist) && legacyPath != path
+	if fromLegacy {
+		data, err = os.ReadFile(legacyPath)
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return
 	}
@@ -61,6 +73,7 @@ func (s *Session) loadDashboards() {
 			s.dashboards.Profiles[profile.ID] = saved
 		}
 	}
+	s.dashboardDirty = fromLegacy
 }
 
 func sameDashboardConfig(a, b release.Config) bool {
@@ -94,7 +107,7 @@ func (s *Session) flushDashboards() {
 	s.dashboardDirty = false
 	s.mu.Unlock()
 
-	path := s.options.ReleaseState.path + ".observations.json"
+	path := dashboardPath(s.options.ReleaseState.path)
 	err := writeStateJSON(path, file, "")
 
 	s.mu.Lock()
