@@ -34,9 +34,10 @@ type (
 	}
 	// Budget reports the assistant's rolling allowance and GitHub's last core REST quota.
 	Budget struct {
-		Remaining, Limit int
-		NextSlot         time.Time
-		GitHub           Quota
+		Remaining, Limit      int
+		NextSlot, PausedUntil time.Time
+		PauseReason           string
+		GitHub                Quota
 	}
 	// Quota records GitHub's response headers. A zero ObservedAt means the quota is unknown.
 	Quota struct {
@@ -150,6 +151,9 @@ func (t *Transport) Budget() Budget {
 	b := Budget{Remaining: t.allowance - len(t.calls), Limit: t.allowance}
 	if b.Remaining == 0 {
 		b.NextSlot = t.calls[0].Add(time.Hour)
+	}
+	if now.Before(t.until) {
+		b.PausedUntil, b.PauseReason = t.until, t.blocked
 	}
 	if now.Before(t.quota.ResetAt) {
 		b.GitHub = t.quota

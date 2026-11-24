@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"release-assistant/internal/apilog"
 	"release-assistant/internal/release"
 )
 
@@ -24,6 +25,7 @@ type (
 	// Event records a permission decision or one delivery attempt without credentials.
 	Event struct {
 		At                                     time.Time
+		Release                                string
 		Target                                 release.Target
 		SHA, Decision, Payload, Result, Origin string
 	}
@@ -62,7 +64,11 @@ type (
 		attempts                             map[commentKey]commentAttempt
 		interactive, requirePRLabel, stopped bool
 		events                               []Event
+		suspended                            map[string]map[release.Target]*targetState
+		releaseID, version                   string
+		scope                                uint64
 	}
+	scopeKey    struct{}
 	targetState struct {
 		identity         Identity
 		planAt           time.Time
@@ -113,7 +119,11 @@ func (d *Dispatcher) state(t release.Target) *targetState {
 	return s
 }
 func (d *Dispatcher) event(t release.Target, sha, decision, payload, result, origin string) {
-	d.events = append(d.events, Event{d.options.Now(), t, sha, decision, payload, result, origin})
+	d.logEvent(d.version, t, sha, decision, payload, result, origin)
+}
+
+func (d *Dispatcher) logEvent(version string, t release.Target, sha, decision, payload, result, origin string) {
+	d.events = append(d.events, Event{d.options.Now(), version, t, sha, decision, payload, result, origin})
 }
 
 // Events drains bounded-by-activity audit records for the application log.
@@ -218,16 +228,55 @@ func (d *Dispatcher) RequiresPRLabel() bool {
 	return d.requirePRLabel
 }
 
+// WithScope binds a send to the release selection that offered it.
+func (d *Dispatcher) WithScope(ctx context.Context) context.Context {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return context.WithValue(ctx, scopeKey{}, d.scope)
+}
+
+// SelectRelease suspends the previous release's evidence and clears its posting authority.
+func (d *Dispatcher) SelectRelease(id, version string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.suspended == nil {
+		d.suspended = make(map[string]map[release.Target]*targetState)
+	}
+	d.revokeRelease()
+	if d.releaseID != "" {
+		d.suspended[d.releaseID] = d.targets
+	}
+	d.targets = d.suspended[id]
+	delete(d.suspended, id)
+	if d.targets == nil {
+		d.targets = make(map[release.Target]*targetState)
+	}
+	d.releaseID, d.version = id, version
+}
+
+// ForgetRelease discards the suspended evidence of a removed release.
+func (d *Dispatcher) ForgetRelease(id string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.suspended, id)
+}
+
+func (d *Dispatcher) revokeRelease() {
+	for _, state := range d.targets {
+		state.granted = false
+		clear(state.approved)
+		state.epoch++
+	}
+	d.scope++
+	d.interactive = true
+}
+
 // Reset clears authority for a new configuration context.
 func (d *Dispatcher) Reset() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	for _, s := range d.targets {
-		s.granted = false
-		s.epoch++
-	}
+	d.revokeRelease()
 	d.targets = map[release.Target]*targetState{}
-	d.interactive = true
 }
 
 // Stop prevents any new write admission during shutdown.
@@ -375,6 +424,14 @@ func (d *Dispatcher) Views() []View {
 // Admission is the dispatch boundary: subsequent revocation cannot recall that request.
 func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, approve bool) (Delivery, error) {
 	d.mu.Lock()
+	if scope, ok := ctx.Value(scopeKey{}).(uint64); ctx.Err() != nil || (ok && scope != d.scope) {
+		d.mu.Unlock()
+		return Delivery{}, fmt.Errorf("release selection changed; approval is stale")
+	}
+	version := d.version
+	if version == "" {
+		version = apilog.Release(ctx)
+	}
 	s := d.state(t)
 	var proposal release.Proposal
 	for _, p := range s.proposals {
@@ -477,6 +534,6 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 	if result.URL != "" {
 		s.message += " " + result.URL
 	}
-	d.event(t, proposal.SHA, "delivery", body, result.Status, "system")
+	d.logEvent(version, t, proposal.SHA, "delivery", body, result.Status, "system")
 	return result, err
 }

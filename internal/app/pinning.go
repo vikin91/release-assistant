@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 
+	"release-assistant/internal/apilog"
 	"release-assistant/internal/dispatch"
 	"release-assistant/internal/release"
 )
@@ -128,6 +129,7 @@ func (s *Session) confirmPinningPR(ctx context.Context, a Action) error {
 		s.mu.Unlock()
 		return fmt.Errorf("PR evidence changed; review the current ACS release PR list")
 	}
+	ctx = apilog.WithRelease(ctx, s.config.Version)
 	s.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, s.options.Timeout)
 	defer cancel()

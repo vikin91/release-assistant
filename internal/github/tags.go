@@ -4,22 +4,34 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
+	"time"
 
+	"release-assistant/internal/apilog"
 	"release-assistant/internal/app"
 	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
 )
 
-type tagInventory struct {
-	mu          sync.Mutex
-	head        string
-	page, index int
-	items       []tagResponse
-	tags        []resolvedTag
-	issues      []error
-	complete    bool
-}
+const tagPageReuse = time.Minute
+
+type (
+	tagPage struct {
+		items   []tagResponse
+		release string
+		at      time.Time
+	}
+	tagInventory struct {
+		mu          sync.Mutex
+		head        string
+		page, index int
+		items       []tagResponse
+		tags        []resolvedTag
+		issues      []error
+		complete    bool
+	}
+)
 
 // tagBatch resumes a bounded inventory without revalidating earlier tags in the series.
 // A branch change starts a new series because ancestry is bound to its head.
@@ -41,9 +53,8 @@ func (c *Client) tagBatch(ctx context.Context, src release.Source, head string, 
 	stopAt := cycle.remaining - app.TagBatchRequests
 	for cycle.remaining-max(stopAt, 0) >= 8 {
 		if inventory.items == nil {
-			var items []tagResponse
-			endpoint := fmt.Sprintf("%s/tags?per_page=100&page=%d", repoPath(src.Repo), inventory.page)
-			if err := c.get(ctx, endpoint, &items); err != nil {
+			items, err := c.tagListPage(ctx, src.Repo, inventory.page)
+			if err != nil {
 				return inventory.tags, true, errors.Join(append(inventory.issues, err)...)
 			}
 			inventory.items = items
@@ -85,4 +96,34 @@ func (c *Client) tagBatch(ctx context.Context, src release.Source, head string, 
 		inventory.items = nil
 	}
 	return inventory.tags, !inventory.complete, errors.Join(inventory.issues...)
+}
+
+// tagListPage can reuse the repo-wide inventory from another release's recent read.
+// The branch-specific tag resolution still verifies the ref and ancestry.
+func (c *Client) tagListPage(ctx context.Context, repo string, page int) ([]tagResponse, error) {
+	endpoint := fmt.Sprintf("%s/tags?per_page=100&page=%d", repoPath(repo), page)
+	version := apilog.Release(ctx)
+	if version != "" {
+		c.tagPagesMu.Lock()
+		cached := c.tagPages[endpoint]
+		c.tagPagesMu.Unlock()
+		if cached.release != version && time.Since(cached.at) < tagPageReuse {
+			return cached.items, nil
+		}
+	}
+	var items []tagResponse
+	if err := c.get(ctx, endpoint, &items); err != nil {
+		return nil, err
+	}
+	if version != "" {
+		now := time.Now()
+		c.tagPagesMu.Lock()
+		if c.tagPages == nil {
+			c.tagPages = make(map[string]tagPage)
+		}
+		maps.DeleteFunc(c.tagPages, func(_ string, p tagPage) bool { return now.Sub(p.at) >= tagPageReuse })
+		c.tagPages[endpoint] = tagPage{items: items, at: now, release: version}
+		c.tagPagesMu.Unlock()
+	}
+	return items, nil
 }

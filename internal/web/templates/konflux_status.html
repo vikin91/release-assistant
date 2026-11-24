@@ -8,7 +8,7 @@
       {{if not .Created.IsZero}}<dt>Recent PipelineRun admission</dt><dd>{{when .Created}}</dd>{{end}}
       {{if .Detail}}<dt>Details</dt><dd>{{.Detail}}</dd>{{end}}
       <dt>Last check</dt><dd>{{if .Last.IsZero}}Awaiting first observation{{else}}{{when .Last}}{{end}}</dd>
-      <dt>Next check</dt><dd>{{if .Next.IsZero}}Awaiting schedule{{else}}{{when .Next}}{{end}}</dd>
+      <dt>Next check</dt><dd>{{if and $.Profiles (not $.ActiveProfile)}}Paused{{else if .Next.IsZero}}Awaiting schedule{{else}}{{when .Next}}{{end}}</dd>
     </dl>
       {{if .SignInCluster}}<p>Run <code>oc login</code> for <code>{{.SignInCluster}}</code>, then restart Release Assistant.</p>{{end}}
       {{if $.KonfluxStatus}}<a href="/?tab=activity#konflux-status" data-open-section>View Konflux diagnostics</a>

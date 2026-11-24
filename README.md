@@ -1,6 +1,6 @@
 # ACS release assistant
 
-The ACS release assistant is a local browser app for preparing one ACS patch release. It tracks component and ACS pull requests (PRs), component tags and images, the component versions pinned on the ACS branch, and the latest release candidate (RC) for the patch.
+The ACS release assistant is a local browser app for preparing ACS patch releases, with one release monitored at a time. It tracks component and ACS pull requests (PRs), component tags and images, the component versions pinned on the ACS branch, and the latest release candidate (RC) for the patch.
 
 It reads GitHub, Quay, and Konflux to suggest what to do next. You merge PRs, publish tags, and start releases in the upstream tools. The assistant starts in read-only mode. Its only optional write is a Konflux retry comment.
 
@@ -130,7 +130,7 @@ go run -buildvcs=true ./cmd/release-assistant \
   --fact-stream 0.3 --collector-stream 3.25 --scanner-stream 2.40
 ```
 
-Run `go run ./cmd/release-assistant --help` for repository and branch overrides, `--pinning-pr`, and monitoring and retry settings. Use a different `--port`, a separate `--state-file`, and distinct targets for each concurrent instance. Each process manages its own permissions and retry limits.
+Run `go run ./cmd/release-assistant --help` for repository and branch overrides, `--pinning-pr`, and monitoring and retry settings. Use a different `--port` and a separate `--state-file` if you run independent instances. Each process manages its own permissions and retry limits.
 
 ## Konflux verification
 
@@ -147,7 +147,11 @@ You can switch tabs at any time. Monitoring continues in the background, includi
 
 PR choices apply immediately, and an empty selection is valid. **Excluded** keeps a PR visible and stops detailed monitoring and retries. **Ignore & hide** also removes it from the normal list. **Allow automatic retry comments** grants automatic posting permission for the current PR head.
 
-The assistant saves PR choices, component tag selections, and your pinning PR choice to `./state.json` in the working directory. It restores them for the configured ACS patch release and verifies saved tags and the pinning PR against GitHub before using them. Clearing a tag or switching back to pinning PR discovery is saved too. An explicit `--pinning-pr` overrides the saved choice at startup. The assistant creates the file at startup if needed. Use `--state-file /path/to/state.json` to choose a different location, including with `go run`.
+The assistant opens on Home. Select **Add release** to create a placeholder, open it, and save its configuration in **Settings**. Each ACS major.minor stream can have one tracked release. To start the next patch in that stream, change the patch version in Settings. The tab and branch settings carry forward, and the new patch has its own choices.
+
+Home keeps the active release polling. Select a top tab or Home item to switch releases. The other releases pause and keep their last observations and polling schedule in memory. Home shows which release is active. To remove a profile and its saved choices, open **Remove** on Home and confirm.
+
+The assistant saves profiles, the active selection, PR choices, component tag selections, and pinning PR choices in `./state.json`. On restart only the last active release initializes. Older choice-only files still supply choices when you configure the corresponding patch. Use `--state-file /path/to/state.json` to choose a different location.
 
 Release preparation requires that the included PRs have merged into their configured branches, the chosen component tags cover the included component changes, the component CI and Konflux images are available, and the actual ACS branch pins match. Readiness is advisory. Candidate images are outputs of the RC build.
 
@@ -229,11 +233,11 @@ In **Settings** under **Concurrent GitHub reads**, **First 5 minutes** accepts 1
 
 **Log** shows the latest 1,000 events and refreshes every two seconds. The terminal prints timestamped activity to stdout, including discovery, check status changes, retry decisions, and Konflux read pauses and recovery. Redirect stdout if you need to retain the log.
 
-Pass `-v` to show Debug messages in the terminal and the dashboard **Log** tab. Debug messages are hidden by default. With this flag, each outbound API request produces one line with the system, HTTP method, and resource path. The assistant omits query strings. For Quay storage redirects, it logs the original resource with a `(redirect)` suffix. For `ci-retest`, pass `-v` before the target list to send these lines to stderr.
+Pass `-v` to show Debug messages in the terminal and the dashboard **Log** tab. Debug messages are hidden by default. With this flag, each outbound API request produces one line with the originating release (or `[app]`), the system, HTTP method, and resource path. The assistant omits query strings. For Quay storage redirects, it logs the original resource with a `(redirect)` suffix. For `ci-retest`, pass `-v` before the target list to send these lines to stderr.
 
 ```sh
 grep -F 'Debug: Calling API:' assistant.log
-grep -F 'Debug: Calling API: GitHub GET /repos/stackrox/stackrox/pulls/23956' assistant.log
+grep -F 'Debug: Calling API: [5.0.1] GitHub GET /repos/stackrox/stackrox/pulls/23956' assistant.log
 ```
 
 GitHub discovery reuses commit history in memory by default and logs cache hits at Debug level. In **Settings**, uncheck **Reuse GitHub commit history in memory** and select **Save cache settings** to turn it off and empty the cache. **Clear cache** empties it without changing the setting. A restart starts with an empty, enabled cache.
@@ -267,6 +271,8 @@ For a manual browser check, start the local fixture server.
 ```sh
 ACS_BROWSER_FIXTURE=1 go test ./internal/integration -run '^TestBrowserFixture$' -count=1 -v
 ```
+
+Set `ACS_BROWSER_PROFILES=1` to exercise the release manager with an empty temporary state file.
 
 Open [fixture controls](http://127.0.0.1:18088/fixture), then **Open assistant**. Advance through the fixture observations as you exercise the UI. Select **Finish browser validation** in the fixture controls to stop the test. The fixture uses fake services and records comments locally in memory.
 

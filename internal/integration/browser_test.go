@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -284,7 +285,15 @@ func TestBrowserFixture(t *testing.T) {
 	}
 	f := &browserFixture{noTags: os.Getenv("ACS_BROWSER_NO_TAGS") == "1"}
 	dispatcher := dispatch.New(f, f, f, dispatch.Options{EnableWrites: os.Getenv("ACS_BROWSER_ENABLE_WRITES") == "1", Gap: time.Minute})
-	session := app.New(f, f, f, dispatcher, app.NewLog(io.Discard, false), app.Options{GitHubReads: githubread.New(nil), Poll: 100 * time.Millisecond, Discovery: 100 * time.Millisecond})
+	options := app.Options{GitHubReads: githubread.New(nil), Poll: 100 * time.Millisecond, Discovery: 100 * time.Millisecond}
+	if os.Getenv("ACS_BROWSER_PROFILES") == "1" {
+		state, err := app.OpenReleaseState(filepath.Join(t.TempDir(), "state.json"), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		options.Profiles, options.ReleaseState = true, state
+	}
+	session := app.New(f, f, f, dispatcher, app.NewLog(io.Discard, false), options)
 	handler, err := web.New(session)
 	if err != nil {
 		t.Fatal(err)

@@ -1,7 +1,8 @@
 {{define "release-configuration"}}
 <section id="configuration-panel" class="panel settings-panel" aria-labelledby="setup-heading" data-live-preserve>
-  <form method="post" action="/action" data-saved-config="{{.SavedConfigForm}}">
+  <form method="post" action="{{profileAction .ProfileID}}" data-saved-config="{{.SavedConfigForm}}">
     <input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="configure">
+    {{if .Profiles}}<input type="hidden" name="generation" value="{{.Snapshot.Generation}}">{{end}}
     <table class="settings-table configuration-table" aria-labelledby="setup-heading">
       <colgroup><col><col class="settings-control-column"></colgroup>
       <thead><tr><th colspan="2"><h3 id="setup-heading">{{if .Configured}}Release configuration{{else}}Configure release{{end}}</h3>
@@ -58,7 +59,7 @@
 {{define "application-settings"}}
 {{if .Configured}}
 <section class="panel settings-panel" id="retry-settings" aria-labelledby="retry-settings-heading">
-  <form method="post" action="/action">
+  <form method="post" action="{{profileAction .ProfileID}}">
     {{template "settings-fields" .}}
     <input type="hidden" name="settings_section" value="retry-settings">
     <table class="settings-table" aria-labelledby="retry-settings-heading">
@@ -87,7 +88,7 @@
 
 {{if .Snapshot.StartupReadLimit}}
 <section class="panel settings-panel" id="github-read-settings" aria-labelledby="github-read-settings-heading">
-  <form method="post" action="/action">
+  <form method="post" action="{{profileAction .ProfileID}}">
     {{template "settings-fields" .}}
     <input type="hidden" name="settings_section" value="github-read-settings">
     <table class="settings-table" aria-labelledby="github-read-settings-heading">
@@ -114,7 +115,7 @@
 
 {{if .Snapshot.CacheAvailable}}
 <section class="panel settings-panel" id="cache-settings" aria-labelledby="cache-settings-heading">
-  <form method="post" action="/action">
+  <form method="post" action="{{profileAction .ProfileID}}">
     {{template "settings-fields" .}}
     <input type="hidden" name="settings_section" value="cache-settings">
     <table class="settings-table" aria-labelledby="cache-settings-heading">
@@ -135,7 +136,7 @@
       <button type="submit" form="clear-cache-form">Clear cache</button>
     </div>
   </form>
-  <form id="clear-cache-form" method="post" action="/action">
+  <form id="clear-cache-form" method="post" action="{{profileAction .ProfileID}}">
     {{template "settings-fields" .}}
     <input type="hidden" name="kind" value="clear-cache">
   </form>
@@ -144,7 +145,7 @@
 
 {{if .Snapshot.RefreshIntervals}}
 <section class="panel settings-panel" id="refresh-settings" aria-labelledby="refresh-settings-heading">
-  <form method="post" action="/action">
+  <form method="post" action="{{profileAction .ProfileID}}">
     {{template "settings-fields" .}}
     <input type="hidden" name="settings_section" value="refresh-settings">
     <table class="settings-table" aria-labelledby="refresh-settings-heading">

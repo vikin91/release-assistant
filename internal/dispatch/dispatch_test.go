@@ -341,3 +341,26 @@ func TestStartupWriteOptInDefaultsToSingleUseConfirmation(t *testing.T) {
 		t.Fatal("reset retained target grants")
 	}
 }
+
+func TestReleaseSwitchInvalidatesApprovalAndPreservesQueueEvidence(t *testing.T) {
+	d, f, _ := setup(t)
+	d.SelectRelease("first", "5.0.1")
+	d.ObserveIdentity(f.identity)
+	d.ObservePlan(f.plan)
+	ctx := d.WithScope(t.Context())
+	proposal := f.plan.Proposals[0]
+	f.readHook = func() {
+		d.SelectRelease("second", "4.11.1")
+		d.SelectRelease("first", "5.0.1")
+	}
+	if _, err := d.Send(ctx, proposal.Target, ID(proposal), true); err == nil || f.writes.Load() != 0 {
+		t.Fatalf("dispatch after a switch returned %v, writer called %d times", err, f.writes.Load())
+	}
+	views := d.Views()
+	if len(views) != 1 || len(views[0].Offers) != 1 || views[0].Granted {
+		t.Fatalf("restored queue evidence = %+v", views)
+	}
+	if _, err := d.Send(ctx, proposal.Target, ID(proposal), true); err == nil || f.writes.Load() != 0 {
+		t.Fatalf("stale scope returned %v, writer called %d times", err, f.writes.Load())
+	}
+}

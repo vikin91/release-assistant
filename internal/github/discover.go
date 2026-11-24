@@ -292,8 +292,8 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		if err := graph.load(ctx, c, source.Repo, shas); err != nil {
 			issues = append(issues, err)
 		}
-		if graph.cacheHits > 0 && graph.cache.reportHits != nil {
-			graph.cache.reportHits(source.Repo, graph.cacheHits)
+		if graph.cacheHits > 0 {
+			graph.cache.recordHits(ctx, source.Repo, graph.cacheHits)
 		}
 		for ti := range result.Tags {
 			tag := &result.Tags[ti]

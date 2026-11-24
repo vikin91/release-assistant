@@ -103,6 +103,23 @@ func (s *Session) pollJobs(source release.Source) []pollJob {
 	return jobs
 }
 
+// hasOverdueObservations reports retained data that was already due at activation.
+func (s *Session) hasOverdueObservations() bool {
+	if s.resumedAt.IsZero() {
+		return false
+	}
+	for _, source := range append([]release.Source{s.config.ACS()}, s.config.Components...) {
+		for _, job := range s.pollJobs(source) {
+			record := s.polls[pollID{source.Repo, job.kind}]
+			if !record.finished.IsZero() && record.finished.Before(s.resumedAt) &&
+				!record.finished.Add(s.options.RefreshIntervals[job.setting]).After(s.resumedAt) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // monitor serializes observations for a repository. During startup the independent
 // component inventory can publish its first tags while PR discovery is in flight.
 func (s *Session) monitor(ctx context.Context, generation uint64, source release.Source) {

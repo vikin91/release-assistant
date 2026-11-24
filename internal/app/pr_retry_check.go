@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"release-assistant/internal/apilog"
 	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
 )
@@ -46,6 +47,7 @@ func (s *Session) retryCheckAllowed(a Action) bool {
 func (s *Session) checkPRRetries(ctx context.Context, a Action) error {
 	s.mu.Lock()
 	allowed := s.retryCheckAllowed(a)
+	ctx = apilog.WithRelease(ctx, s.config.Version)
 	s.mu.Unlock()
 	if !allowed {
 		return fmt.Errorf("retry checks require the current head of an included open PR")

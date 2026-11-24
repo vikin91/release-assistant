@@ -94,13 +94,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if err := state.SetInitialRelease(config, options.PinningPROverride); err != nil {
+		return err
+	}
+	options.Profiles = true
 	options.ReleaseState = state
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	plannerConfig := konflux.StartupConfig(ctx, allowedLookups)
-	options.GitHubReads = githubread.New(apilog.Transport{Base: http.DefaultTransport, Calling: log.CallingAPI})
+	options.GitHubReads = githubread.New(apilog.Transport{Base: http.DefaultTransport, CallingWithContext: log.CallingAPIWithContext})
 	client := &http.Client{Transport: options.GitHubReads, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	windowCache := github.NewCommitWindowCache(log.CommitWindowCacheHits)
+	windowCache := github.NewCommitWindowCache(nil).WithReleaseHitLog(log.CommitWindowCacheHitsWithContext)
 	gh := github.New("", plannerConfig.GitHubToken, client).WithCommitWindowCache(windowCache)
 	options.Cache = windowCache
 	options.ManualRetries = gh

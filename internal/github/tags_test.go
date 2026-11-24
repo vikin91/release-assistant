@@ -1,8 +1,11 @@
 package github
 
 import (
-	"release-assistant/internal/app"
+	"context"
 	"testing"
+
+	"release-assistant/internal/apilog"
+	"release-assistant/internal/app"
 )
 
 func TestTagBatchesResumeWithoutRepeatingResolvedTags(t *testing.T) {
@@ -42,5 +45,20 @@ func TestResumableTagsReportPaginationLimit(t *testing.T) {
 	repo, err := client.Discover(t.Context(), request)
 	if err == nil || repo.TagsPending || repo.Evidence.Fresh() {
 		t.Fatalf("pagination truncated silently: pending=%v error=%v evidence=%+v", repo.TagsPending, err, repo.Evidence)
+	}
+}
+
+func TestReleaseSwitchReusesRecentRepositoryTagPage(t *testing.T) {
+	client, request, counts := discoveryFixture(t, 1, 0, 0)
+	a := apilog.WithRelease(t.Context(), "5.0.1")
+	b := apilog.WithRelease(t.Context(), "4.11.1")
+	for _, ctx := range []context.Context{a, b} {
+		page, err := client.tagListPage(ctx, request.Source.Repo, 1)
+		if err != nil || len(page) != 1 {
+			t.Fatalf("tag page = %v, %v", page, err)
+		}
+	}
+	if counts["tags"] != 1 {
+		t.Fatalf("expected one GitHub request, got %v", counts)
 	}
 }

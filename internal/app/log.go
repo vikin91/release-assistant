@@ -1,6 +1,8 @@
 package app
 
 import (
+	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"release-assistant/internal/apilog"
 	"release-assistant/internal/konflux"
 	"release-assistant/internal/release"
 )
@@ -29,14 +32,16 @@ type (
 		Origin   string         `json:"origin"`
 		// message supplies human-readable prose independently of audit fields.
 		message string
+		labeled bool
 	}
 	// Log writes readable decisions and exposes write failures to the UI.
 	Log struct {
-		mu      sync.Mutex
-		output  io.Writer
-		debug   bool
-		failure string
-		recent  []Record
+		mu            sync.Mutex
+		output        io.Writer
+		debug         bool
+		releaseLabels bool
+		failure       string
+		recent        []Record
 	}
 )
 
@@ -52,10 +57,24 @@ func (l *Log) CallingAPI(system, method, resource string) {
 	})
 }
 
+// CallingAPIWithContext records the release that initiated an outgoing request.
+func (l *Log) CallingAPIWithContext(ctx context.Context, system, method, resource string) {
+	version := cmp.Or(apilog.Release(ctx), "app")
+	l.Append(Record{
+		At: time.Now(), Release: version, Decision: "api-call", Origin: "system",
+		message: fmt.Sprintf("Calling API: [%s] %s %s %s", version, system, method, resource),
+	})
+}
+
 // CommitWindowCacheHits records reused history once per discovery pass.
 func (l *Log) CommitWindowCacheHits(repo string, hits int) {
+	l.CommitWindowCacheHitsWithContext(context.Background(), repo, hits)
+}
+
+// CommitWindowCacheHitsWithContext attributes the reused history to the requesting release.
+func (l *Log) CommitWindowCacheHitsWithContext(ctx context.Context, repo string, hits int) {
 	l.Append(Record{
-		At: time.Now(), Target: release.Target{Repo: repo}, Decision: "commit-window-cache-hit", Origin: "system",
+		At: time.Now(), Release: apilog.Release(ctx), Target: release.Target{Repo: repo}, Decision: "commit-window-cache-hit", Origin: "system",
 		Result: fmt.Sprintf("GitHub discovery for %s reused %s from the in-memory cache.", repo, counted(hits, "commit history window")),
 	})
 }
@@ -74,13 +93,13 @@ func (l *Log) KonfluxReadPauseChanged(issue konflux.ReadIssue) {
 }
 
 // GitHubCommentAttempt records the exact comment and destination before the HTTP request can be sent.
-func (l *Log) GitHubCommentAttempt(p release.Proposal) error {
+func (l *Log) GitHubCommentAttempt(ctx context.Context, p release.Proposal) error {
 	destination := "PR " + p.Target.String()
 	if p.Target.Tag != "" {
 		destination = fmt.Sprintf("tag %s (commit %s)", p.Target, p.SHA)
 	}
 	return l.append(Record{
-		At: time.Now(), Target: p.Target, SHA: p.SHA, Decision: "github-comment-attempt", Origin: "system",
+		At: time.Now(), Release: apilog.Release(ctx), Target: p.Target, SHA: p.SHA, Decision: "github-comment-attempt", Origin: "system",
 		Result: fmt.Sprintf("Posting GitHub comment %q to %s.", p.CommentBody(), destination),
 	})
 }
@@ -98,15 +117,20 @@ func (l *Log) append(r Record) error {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	r.labeled = l.releaseLabels
 	if len(l.recent) == maxRecentRecords {
 		l.recent = slices.Delete(l.recent, 0, 1)
 	}
 	l.recent = append(l.recent, r)
 	var text strings.Builder
 	stamp := r.At.Format(time.RFC3339)
-	fmt.Fprintf(&text, "%s %s: %s\n", stamp, level, strings.ReplaceAll(recordMessage(r), "\n", "\n    "))
+	fmt.Fprintf(&text, "%s %s: %s\n", stamp, level, strings.ReplaceAll(r.DisplayMessage(), "\n", "\n    "))
 	if l.debug && r.Payload != "" && r.Decision != "image" {
-		fmt.Fprintf(&text, "%s Debug: Retry comment for %s:\n    %s\n", stamp, consoleRevision(r.Target, r.SHA), strings.ReplaceAll(r.Payload, "\n", "\n    "))
+		prefix := ""
+		if r.labeled {
+			prefix = "[" + cmp.Or(r.Release, "app") + "] "
+		}
+		fmt.Fprintf(&text, "%s Debug: %sRetry comment for %s:\n    %s\n", stamp, prefix, consoleRevision(r.Target, r.SHA), strings.ReplaceAll(r.Payload, "\n", "\n    "))
 	}
 	if l.output != nil {
 		n, err := io.WriteString(l.output, text.String())
@@ -119,8 +143,17 @@ func (l *Log) append(r Record) error {
 	return errors.New(l.failure)
 }
 
-// Message describes a decision in the same prose used by the console log.
+// Message describes a decision independently of its release attribution.
 func (r Record) Message() string { return recordMessage(r) }
+
+// DisplayMessage includes release attribution when the app tracks profiles.
+func (r Record) DisplayMessage() string {
+	message := r.Message()
+	if r.Decision == "api-call" || !r.labeled {
+		return message
+	}
+	return "[" + cmp.Or(r.Release, "app") + "] " + message
+}
 
 // Level reports the severity shared by console and browser activity.
 func (r Record) Level() string { return recordLevel(r) }

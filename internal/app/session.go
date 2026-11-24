@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"release-assistant/internal/apilog"
 	"release-assistant/internal/dispatch"
 	"release-assistant/internal/githubread"
 	"release-assistant/internal/konflux"
@@ -31,6 +33,8 @@ type (
 		ReleaseState *ReleaseState
 		// PinningPROverride indicates that the initial pinning PR was explicitly supplied.
 		PinningPROverride bool
+		// Profiles enables saved release navigation over the session.
+		Profiles bool
 	}
 	// Cycle retains observed builds and images when a confirmed component tag changes.
 	Cycle struct {
@@ -74,6 +78,10 @@ type (
 		PendingPinningPR int
 		// Loading keeps the dashboard refreshing during startup and while included ACS PRs await CI results.
 		Loading bool
+		// ResumedAt identifies the latest activation of previously observed work.
+		ResumedAt time.Time
+		// RefreshingResumed reports overdue observations that survived a release switch.
+		RefreshingResumed bool
 	}
 	// Action is a typed browser or CLI session decision.
 	Action struct {
@@ -90,46 +98,53 @@ type (
 		OngoingReadLimit                          *int
 		Generation                                uint64
 		QueueID                                   uint64
+		ProfileID                                 string
 	}
 	// Session owns release observations. Dispatcher alone owns write grants.
 	Session struct {
-		mu              sync.Mutex
-		config          release.Config
-		choices         release.Choices
-		repos           map[string]release.Repository
-		plans           map[release.Target]release.Plan
-		prRefreshHeads  map[release.Target]string
-		tagChecks       map[string]tagCheckObservation
-		manualRetries   map[release.Target]release.ManualRetryReport
-		prRetryChecks   map[release.Target]PRRetryCheck
-		pendingPRChecks map[release.Target]bool
-		retestQueue     []RetestItem
-		retestLog       []RetestDecision
-		nextRetestID    uint64
-		inventory       release.Inventory
-		confirmedSHAs   map[string]string
-		pendingTags     map[string]savedComponentTag
-		tagInitialized  map[string]bool
-		polls           map[pollID]pollRecord
-		pollChanged     chan struct{}
-		startupUntil    time.Time
-		konfluxHealth   *konflux.Health
-		initiallyLoaded map[string]bool
-		priorPinChoice  release.Choice
-		workRevision    uint64
-		readErrors      map[string]string
-		generation      uint64
-		errorText       string
-		discovery       Discoverer
-		planner         Planner
-		images          Inspector
-		dispatcher      *dispatch.Dispatcher
-		log             *Log
-		options         Options
-		changed         chan struct{}
-		history         []Cycle
-
+		mu sync.Mutex
+		*releaseWork
+		profiles      map[string]*releaseWork
+		activeProfile string
+		generation    uint64
+		workRevision  uint64
+		pollChanged   chan struct{}
+		startupUntil  time.Time
+		konfluxHealth *konflux.Health
+		discovery     Discoverer
+		planner       Planner
+		images        Inspector
+		dispatcher    *dispatch.Dispatcher
+		log           *Log
+		options       Options
+		changed       chan struct{}
+		monitorCancel context.CancelFunc
+	}
+	releaseWork struct {
+		config           release.Config
+		choices          release.Choices
+		repos            map[string]release.Repository
+		plans            map[release.Target]release.Plan
+		prRefreshHeads   map[release.Target]string
+		tagChecks        map[string]tagCheckObservation
+		manualRetries    map[release.Target]release.ManualRetryReport
+		prRetryChecks    map[release.Target]PRRetryCheck
+		pendingPRChecks  map[release.Target]bool
+		retestQueue      []RetestItem
+		retestLog        []RetestDecision
+		nextRetestID     uint64
+		inventory        release.Inventory
+		confirmedSHAs    map[string]string
+		pendingTags      map[string]savedComponentTag
+		tagInitialized   map[string]bool
+		polls            map[pollID]pollRecord
+		initiallyLoaded  map[string]bool
+		priorPinChoice   release.Choice
+		readErrors       map[string]string
+		errorText        string
+		history          []Cycle
 		pendingPinningPR int
+		resumedAt        time.Time
 	}
 )
 
@@ -155,7 +170,23 @@ func New(d Discoverer, p Planner, i Inspector, dispatcher *dispatch.Dispatcher, 
 	if o.KonfluxProbe != nil {
 		s.konfluxHealth = &konflux.Health{}
 	}
-	s.reset()
+	s.releaseWork = newReleaseWork()
+	s.generation++
+	s.workRevision++
+	if o.Profiles && o.ReleaseState != nil {
+		if log != nil {
+			log.mu.Lock()
+			log.releaseLabels = true
+			for i := range log.recent {
+				log.recent[i].labeled = true
+			}
+			log.mu.Unlock()
+		}
+		s.profiles = make(map[string]*releaseWork)
+		s.activateProfile(o.ReleaseState.file.ActiveProfile)
+		return s
+	}
+	s.options.Profiles = false
 	s.config = o.Initial
 	s.config.Components = slices.Clone(o.Initial.Components)
 	if o.Initial.Version != "" {
@@ -172,26 +203,24 @@ func New(d Discoverer, p Planner, i Inspector, dispatcher *dispatch.Dispatcher, 
 	}
 	return s
 }
-func (s *Session) reset() {
-	s.choices = release.Choices{PRs: map[release.Target]release.Choice{}, Tags: map[string]string{}, Acknowledged: map[string]bool{}}
-	s.repos = map[string]release.Repository{}
-	s.plans = map[release.Target]release.Plan{}
-	s.prRefreshHeads = map[release.Target]string{}
-	s.manualRetries = map[release.Target]release.ManualRetryReport{}
-	s.prRetryChecks = map[release.Target]PRRetryCheck{}
-	s.pendingPRChecks = map[release.Target]bool{}
-	s.retestQueue = nil
-	s.tagChecks = make(map[string]tagCheckObservation)
-	s.confirmedSHAs = map[string]string{}
-	s.pendingTags = map[string]savedComponentTag{}
-	s.tagInitialized = map[string]bool{}
-	s.polls = make(map[pollID]pollRecord)
-	s.initiallyLoaded = map[string]bool{}
-	s.workRevision++
-	s.readErrors = map[string]string{}
-	s.inventory = release.Inventory{}
-	s.history = nil
-	s.generation++
+func newReleaseWork() *releaseWork {
+	return &releaseWork{
+		choices:         release.Choices{PRs: map[release.Target]release.Choice{}, Tags: map[string]string{}, Acknowledged: map[string]bool{}},
+		repos:           map[string]release.Repository{},
+		plans:           map[release.Target]release.Plan{},
+		prRefreshHeads:  map[release.Target]string{},
+		manualRetries:   map[release.Target]release.ManualRetryReport{},
+		prRetryChecks:   map[release.Target]PRRetryCheck{},
+		pendingPRChecks: map[release.Target]bool{},
+		tagChecks:       make(map[string]tagCheckObservation),
+		confirmedSHAs:   map[string]string{},
+		pendingTags:     map[string]savedComponentTag{},
+		tagInitialized:  map[string]bool{},
+		polls:           make(map[pollID]pollRecord),
+		initiallyLoaded: map[string]bool{},
+		readErrors:      map[string]string{},
+		inventory:       release.Inventory{},
+	}
 }
 func (s *Session) record(target release.Target, sha, decision, payload, result, origin string, message ...string) {
 	if s.log != nil {
@@ -204,7 +233,9 @@ func (s *Session) record(target release.Target, sha, decision, payload, result, 
 }
 func (s *Session) drain() {
 	for _, e := range s.dispatcher.Events() {
-		s.record(e.Target, e.SHA, e.Decision, e.Payload, e.Result, e.Origin)
+		if s.log != nil {
+			s.log.Append(Record{At: e.At, Release: cmp.Or(e.Release, s.config.Version), Target: e.Target, SHA: e.SHA, Decision: e.Decision, Payload: e.Payload, Result: e.Result, Origin: e.Origin})
+		}
 	}
 }
 
@@ -234,6 +265,9 @@ func (s *Session) recordReadResult(target release.Target, operation, message str
 
 // Apply validates configuration and enforces session actions independently of the UI.
 func (s *Session) Apply(ctx context.Context, a Action) error {
+	if s.options.Profiles && (a.Kind == "add-release" || a.Kind == "remove-release" || a.Kind == "open-release" || a.Kind == "configure") {
+		return s.applyProfile(a)
+	}
 	if a.Kind == "use-pinning-pr" {
 		return s.confirmPinningPR(ctx, a)
 	}
@@ -245,6 +279,12 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		s.mu.Unlock()
 		return fmt.Errorf("page belongs to an earlier configuration; reload")
 	}
+	shared := a.Kind == "clear-cache" || (a.Kind == "application-settings" && a.Interactive == nil && a.RequirePRLabel == nil)
+	if s.options.Profiles && a.ProfileID != "" && a.ProfileID != s.activeProfile && !shared {
+		s.mu.Unlock()
+		return fmt.Errorf("this release is not active; reopen it to continue")
+	}
+	ctx = apilog.WithRelease(ctx, s.config.Version)
 	if a.Kind == "queue-send" || a.Kind == "queue-skip" {
 		return s.applyRetestDecision(ctx, a)
 	}
@@ -268,7 +308,8 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			s.generation++
 		} else {
 			s.dispatcher.Reset()
-			s.reset()
+			s.releaseWork = newReleaseWork()
+			s.generation++
 		}
 		s.config = a.Config
 		s.pendingPinningPR = pendingPinningPR
@@ -571,6 +612,10 @@ func (s *Session) hasTarget(t release.Target) bool {
 func (s *Session) Snapshot() Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.snapshot()
+}
+
+func (s *Session) snapshot() Snapshot {
 	c := s.config
 	c.Components = slices.Clone(c.Components)
 	choices := s.choices
@@ -579,8 +624,8 @@ func (s *Session) Snapshot() Snapshot {
 	choices.Acknowledged = maps.Clone(choices.Acknowledged)
 	x := Snapshot{
 		RefreshIntervals: maps.Clone(s.options.RefreshIntervals), Config: c, Choices: choices, Error: s.errorText, Generation: s.generation,
-		PendingPinningPR: s.pendingPinningPR,
-		Interactive:      s.dispatcher.IsInteractive(), RequirePRLabel: s.dispatcher.RequiresPRLabel(), WritesEnabled: s.dispatcher.WritesEnabled(),
+		PendingPinningPR: s.pendingPinningPR, ResumedAt: s.resumedAt, RefreshingResumed: s.hasOverdueObservations(),
+		Interactive: s.dispatcher.IsInteractive(), RequirePRLabel: s.dispatcher.RequiresPRLabel(), WritesEnabled: s.dispatcher.WritesEnabled(),
 		Authority: s.dispatcher.Views(), PRRetryChecks: make(map[release.Target]PRRetryCheck, len(s.prRetryChecks)),
 	}
 	if len(s.pendingTags) > 0 {
@@ -594,21 +639,7 @@ func (s *Session) Snapshot() Snapshot {
 		check.CI = cloneManualRetryReport(check.CI)
 		x.PRRetryChecks[target] = check
 	}
-	if s.options.GitHubReads != nil {
-		x.StartupReadLimit, x.OngoingReadLimit = s.options.GitHubReads.ReadLimits()
-		x.GitHubReadBudget = s.options.GitHubReads.Budget()
-	}
-	if planner, ok := s.planner.(interface{ ReadIssues() []konflux.ReadIssue }); ok {
-		x.KonfluxReadIssues = planner.ReadIssues()
-	}
-	if s.konfluxHealth != nil {
-		health := *s.konfluxHealth
-		x.KonfluxHealth = &health
-	}
-	if s.options.Cache != nil {
-		x.CacheAvailable = true
-		x.CacheEnabled = s.options.Cache.Enabled()
-	}
+	s.fillSharedSnapshot(&x)
 	if c.Validate() == nil {
 		for _, source := range append([]release.Source{c.ACS()}, c.Components...) {
 			if !s.initiallyLoaded[source.Name] || (s.repos[source.Name].TagsPending && s.choices.Tags[source.Name] == "" && s.duringStartup()) {
@@ -653,13 +684,31 @@ func (s *Session) Snapshot() Snapshot {
 	x.Inventory.Versions = maps.Clone(s.inventory.Versions)
 	x.Inventory.Images = slices.Clone(s.inventory.Images)
 	x.Inventory.ReleaseImages = slices.Clone(s.inventory.ReleaseImages)
+	x.Assessment = release.Assess(release.Input{Config: c, Choices: choices, Repositories: x.Repositories, Inventory: x.Inventory})
+	return x
+}
+func (s *Session) fillSharedSnapshot(x *Snapshot) {
+	if s.options.GitHubReads != nil {
+		x.StartupReadLimit, x.OngoingReadLimit = s.options.GitHubReads.ReadLimits()
+		x.GitHubReadBudget = s.options.GitHubReads.Budget()
+	}
+	if planner, ok := s.planner.(interface{ ReadIssues() []konflux.ReadIssue }); ok {
+		x.KonfluxReadIssues = planner.ReadIssues()
+	}
+	if s.konfluxHealth != nil {
+		health := *s.konfluxHealth
+		x.KonfluxHealth = &health
+	}
+	if s.options.Cache != nil {
+		x.CacheAvailable = true
+		x.CacheEnabled = s.options.Cache.Enabled()
+	}
 	if s.log != nil {
 		x.LogError = s.log.Error()
 		x.LogEntries = s.log.Recent()
 	}
-	x.Assessment = release.Assess(release.Input{Config: c, Choices: choices, Repositories: x.Repositories, Inventory: x.Inventory})
-	return x
 }
+
 func cloneRepository(r release.Repository) release.Repository {
 	r.Candidate.PRs = slices.Clone(r.Candidate.PRs)
 	r.PRs = slices.Clone(r.PRs)
@@ -691,7 +740,7 @@ func cloneRepository(r release.Repository) release.Repository {
 // Run keeps monitoring independently of browser connections and cancels old contexts.
 func (s *Session) Run(ctx context.Context) {
 	var health sync.WaitGroup
-	if s.options.KonfluxProbe != nil {
+	if !s.options.Profiles && s.options.KonfluxProbe != nil {
 		health.Go(func() { s.monitorKonfluxHealth(ctx) })
 	}
 	defer health.Wait()
@@ -706,11 +755,15 @@ func (s *Session) Run(ctx context.Context) {
 		c.Components = slices.Clone(c.Components)
 		gen := s.generation
 		valid := c.Validate() == nil
-		s.mu.Unlock()
 		child, cancel := context.WithCancel(ctx)
+		s.monitorCancel = cancel
+		s.mu.Unlock()
 		var wg sync.WaitGroup
 		if valid {
-			wg.Go(func() { s.monitorRelease(child, gen, c) })
+			wg.Go(func() { s.monitorRelease(apilog.WithRelease(child, c.Version), gen, c) })
+			if s.options.Profiles && s.options.KonfluxProbe != nil {
+				wg.Go(func() { s.monitorKonfluxHealth(child) })
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -744,6 +797,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		return nil
 	}
 	c := s.config
+	ctx = s.dispatcher.WithScope(apilog.WithRelease(ctx, c.Version))
 	earlyComponentImages := work.images && !s.rcReady()
 	request := DiscoveryRequest{Source: source, ConfirmedTag: s.choices.Tags[source.Name], Version: c.Version, Scope: work.scope}
 	initial := discover && request.Reads(ReadPRs) && !s.initiallyLoaded[source.Name]

@@ -18,11 +18,12 @@ const (
 type (
 	// CommitWindowCache retains validated commit graphs for the lifetime of the process.
 	CommitWindowCache struct {
-		mu         sync.Mutex
-		enabled    bool
-		generation uint64
-		windows    map[commitWindowKey][]graphCommit
-		reportHits func(repo string, hits int)
+		mu                sync.Mutex
+		enabled           bool
+		generation        uint64
+		windows           map[commitWindowKey][]graphCommit
+		reportHits        func(repo string, hits int)
+		reportReleaseHits func(context.Context, string, int)
 	}
 	commitWindowKey struct {
 		origin, repo, root string
@@ -34,6 +35,20 @@ type (
 // reportHits, when supplied, can be called concurrently for independent discoveries.
 func NewCommitWindowCache(reportHits func(repo string, hits int)) *CommitWindowCache {
 	return &CommitWindowCache{enabled: true, generation: 1, reportHits: reportHits}
+}
+
+// WithReleaseHitLog attaches an observation logger with the originating request context.
+func (c *CommitWindowCache) WithReleaseHitLog(report func(context.Context, string, int)) *CommitWindowCache {
+	c.reportReleaseHits = report
+	return c
+}
+
+func (c *CommitWindowCache) recordHits(ctx context.Context, repo string, hits int) {
+	if c.reportReleaseHits != nil {
+		c.reportReleaseHits(ctx, repo, hits)
+	} else if c.reportHits != nil {
+		c.reportHits(repo, hits)
+	}
 }
 
 // Enabled reports whether discovery can reuse commit windows.

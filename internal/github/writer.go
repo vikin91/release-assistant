@@ -48,7 +48,7 @@ func (w *Writer) Write(ctx context.Context, proposal release.Proposal) (dispatch
 	if w.log == nil {
 		return dispatch.Delivery{Status: "failed"}, fmt.Errorf("cannot post GitHub comment without an activity log")
 	}
-	if err := w.log.GitHubCommentAttempt(proposal); err != nil {
+	if err := w.log.GitHubCommentAttempt(ctx, proposal); err != nil {
 		return dispatch.Delivery{Status: "failed"}, fmt.Errorf("cannot log GitHub comment before posting: %w", err)
 	}
 	resp, err := w.client.http.Do(req)

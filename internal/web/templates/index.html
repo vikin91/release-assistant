@@ -4,15 +4,29 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>{{.Title}}</title>
+  <title>{{if or .Home .Paused}}ACS Release Assistant{{else}}{{.Title}}{{end}}</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
-<body data-configured="{{.Configured}}" data-active-tab="{{.Tab}}" data-session="{{.CSRF}}:{{.Snapshot.Generation}}" data-loading="{{and .Configured .Snapshot.Loading}}"{{with .Snapshot.KonfluxHealth}} data-konflux-health="{{if .CheckedAt.IsZero}}pending{{else if .Healthy}}healthy{{else}}unverified{{end}}"{{end}}>
+<body{{if .Home}} data-home="true"{{end}}{{if .Profiles}} data-profile="{{.ProfileID}}"{{end}} data-configured="{{.Configured}}" data-active-tab="{{.Tab}}" data-session="{{.CSRF}}:{{.Snapshot.Generation}}" data-loading="{{and .Configured .Snapshot.Loading}}"{{with .Snapshot.KonfluxHealth}} data-konflux-health="{{if .CheckedAt.IsZero}}pending{{else if .Healthy}}healthy{{else}}unverified{{end}}"{{end}}>
 <span id="new-tab-description" hidden>Opens in a new tab</span>
-<header class="topbar">
+<header class="topbar{{if or .Home .Paused}} home-topbar{{end}}">
+  {{if .Profiles}}
+  <nav class="release-switcher" aria-label="Tracked releases">
+    <a class="release-logo" href="/"{{if .Home}} aria-current="page"{{end}}>{{template "nav-icon" "layers"}}<span>Release Assistant</span></a>
+    <div class="release-tabs">
+    {{range .ReleaseProfiles}}
+      {{template "open-release" (releaseLink $ .)}}
+    {{end}}
+    </div>
+  </nav>
+  {{end}}
+  {{if not (or .Home .Paused)}}
   <button type="button" class="drawer-toggle" popovertarget="release-navigation" aria-label="Open release navigation">{{template "nav-icon" "menu"}}</button>
-  <div class="release-identity"><h1>{{if .Configured}}ACS {{.Snapshot.Config.Version}}{{else}}{{.Title}}{{end}}</h1>{{if .Configured}}<code>{{.Snapshot.Config.Branch}}</code>{{end}}</div>
+  <div class="release-identity"><h1>{{if .Configured}}ACS {{.Snapshot.Config.Version}}{{else if .ProfileID}}Unconfigured release{{else}}{{.Title}}{{end}}</h1>{{if .Configured}}<code>{{.Snapshot.Config.Branch}}</code>{{end}}</div>
+  {{end}}
   {{template "konflux-status" .}}
+  {{if .Profiles}}{{template "header-github-budget" .}}{{end}}
+  {{if and (not (or .Home .Paused)) (or .Configured (not .Profiles))}}
   <details data-fold-key="write-mode" name="header-menu" class="header-menu">
     <summary>Write mode · {{if not .Snapshot.WritesEnabled}}Read-only{{else if .Snapshot.Interactive}}Interactive{{if .Snapshot.RequirePRLabel}} · Only labeled{{end}}{{else if .Snapshot.RequirePRLabel}}Only labeled{{else}}Full auto{{end}}</summary>
     <div class="menu-content write-mode-help">
@@ -26,7 +40,11 @@
       <p>For a mode that posts comments, start with <code>--enable-writes</code>. Configure the release. Change the checkboxes in <a href="/?tab=settings#retry-settings" data-open-section>GitHub writes</a> and select <b>Save write settings</b>.</p>
     </div>
   </details>
+  {{end}}
 </header>
+{{if or .Home .Paused}}
+{{template "release-home" .}}
+{{else}}
 <div id="live-dashboard" class="workspace">
 <aside aria-label="Release navigation" class="sidebar" id="release-navigation" popover="auto">
   <div class="rail-heading"><span class="rail-mark" aria-hidden="true">{{template "nav-icon" "layers"}}</span><strong>Release Assistant</strong>
@@ -37,29 +55,16 @@
     {{if eq $tab "activity"}}<span class="nav-separator" aria-hidden="true"></span>{{end}}
     {{$label := tabTitle $tab}}
     {{if lt $i 4}}{{$label = printf "%s. %s" (index (slice "1" "2" "3" "4") $i) $label}}{{end}}
-    {{if and (not $.Configured) (lt $i 4)}}
+    {{if and (not $.Configured) (not $.ProfileID) (lt $i 4)}}
     <span role="tab" aria-disabled="true" aria-selected="false" class="phase-disabled" title="Save the release configuration to unlock this phase.">{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}</span></span>
     {{else}}
     {{$status := index $.TabStatuses $tab}}
-    <a id="tab-{{$tab}}" role="tab" href="/?tab={{$tab}}" data-workflow-tab="{{$tab}}" aria-controls="panel-{{$tab}}" aria-selected="{{if eq $.Tab $tab}}true{{else}}false{{end}}" tabindex="{{if eq $.Tab $tab}}0{{else}}-1{{end}}"{{if $status.Label}} aria-label="{{$label}} · {{$status.Label}} · {{$status.Reason}}" title="{{$status.Label}} · {{$status.Reason}}"{{end}}>{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}{{if eq $tab "retest-queue"}} ({{len $.Snapshot.RetestQueue}}){{end}}</span> {{if eq $tab "settings"}}<span id="setup-state" class="setup-state" data-live-preserve{{if and $.Configured (not $.ConfigRejected)}} hidden{{end}}>{{if $.Configured}}Unsaved changes{{else}}Setup required{{end}}</span>{{else}}<span class="tab-status{{with $status.Class}} {{.}}{{end}}" aria-hidden="true">{{$status.Icon}}</span>{{end}}</a>
+    <a id="tab-{{$tab}}" role="tab" href="{{profilePage $.ProfileID $tab}}" data-workflow-tab="{{$tab}}" aria-controls="panel-{{$tab}}" aria-selected="{{if eq $.Tab $tab}}true{{else}}false{{end}}" tabindex="{{if eq $.Tab $tab}}0{{else}}-1{{end}}"{{if $status.Label}} aria-label="{{$label}} · {{$status.Label}} · {{$status.Reason}}" title="{{$status.Label}} · {{$status.Reason}}"{{end}}>{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}{{if eq $tab "retest-queue"}} ({{len $.Snapshot.RetestQueue}}){{end}}</span> {{if eq $tab "settings"}}<span id="setup-state" class="setup-state" data-live-preserve{{if and $.Configured (not $.ConfigRejected)}} hidden{{end}}>{{if $.Configured}}Unsaved changes{{else}}Setup required{{end}}</span>{{else}}<span class="tab-status{{with $status.Class}} {{.}}{{end}}" aria-hidden="true">{{$status.Icon}}</span>{{end}}</a>
     {{end}}{{end}}
   </nav>
   <p id="dashboard-refresh-status" class="muted" role="status" data-live-preserve>Waiting for release updates.</p>
   {{if and .Configured .Snapshot.Loading}}<p id="release-loading" class="muted" role="status">Loading release data…</p>{{end}}
-  {{with .Snapshot.GitHubReadBudget}}{{if .Limit}}
-  <section class="sidebar-summary" aria-labelledby="github-reads-heading">
-    <h2 id="github-reads-heading">GitHub reads</h2>
-    <dl>
-      <div><dt>Assistant allowance</dt><dd>{{.Remaining}} of {{.Limit}} reads left in the rolling hour</dd>
-        {{if not .NextSlot.IsZero}}<dd>Next slot at {{when .NextSlot}}</dd>{{end}}</div>
-      <div><dt>GitHub quota (core REST)</dt>
-        {{with .GitHub}}{{if .ObservedAt.IsZero}}<dd>Unknown</dd>{{else}}
-        <dd>{{.Remaining}} of {{.Limit}} requests left</dd>
-        <dd>{{quotaReset .ResetAt}}</dd>
-        {{end}}{{end}}</div>
-    </dl>
-  </section>
-  {{end}}{{end}}
+  {{if not .Profiles}}{{template "github-budget" .}}{{end}}
   <details class="sidebar-summary phase-legend" data-fold-key="phase-legend">
     <summary>Phase icons</summary>
     <dl>{{range .PhaseLegend}}
@@ -69,10 +74,16 @@
 </aside>
 <main>
   <div id="form-error" class="notice error" role="alert" data-live-preserve{{if not .Error}} hidden{{end}}>{{.Error}}</div>
-  {{if .Configured}}
+  {{if .Snapshot.RefreshingResumed}}
+  <p class="notice" id="resumed-release" role="status">Showing saved observations while overdue checks refresh.</p>
+  {{end}}
+  {{if or .Configured .ProfileID}}
   {{range $tab := (slice "component-prs" "component-releases" "acs-prs" "acs-rcs")}}
   <section id="panel-{{$tab}}" class="workflow-panel" role="tabpanel" aria-labelledby="tab-{{$tab}}" data-workflow-panel="{{$tab}}" tabindex="0"{{if ne $.Tab $tab}} hidden{{end}}>
-    {{template "workflow-tab" (tabPage $ $tab)}}
+    {{if $.Configured}}{{template "workflow-tab" (tabPage $ $tab)}}{{else}}
+    <h2 class="page-title">{{tabTitle $tab}}</h2>
+    <p><a href="{{profilePage $.ProfileID "settings"}}" data-open-section>Configure this release</a> to start monitoring.</p>
+    {{end}}
   </section>
   {{end}}
   {{end}}
@@ -99,6 +110,7 @@
   </section>
 </main>
 </div>
+{{end}}
 <script src="/static/app.js" defer></script>
 </body>
 </html>

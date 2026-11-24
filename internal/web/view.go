@@ -17,6 +17,10 @@ import (
 type (
 	pageModel struct {
 		Title, CSRF, Error                                       string
+		Profiles, Home, Paused                                   bool
+		ProfileID, ActiveProfile                                 string
+		ReleaseProfiles                                          []app.ReleaseProfile
+		ProfileWarnings                                          []string
 		Tab, PRSection, RetrySection, RetryDetails, OfferSection string
 		ComponentPRNotice                                        string
 		TabStatuses                                              map[string]tabStatus

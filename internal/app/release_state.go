@@ -18,11 +18,15 @@ import (
 type (
 	// ReleaseState holds one session's local choices for all ACS patch releases.
 	ReleaseState struct {
-		path string
-		file releaseStateFile
+		path     string
+		file     releaseStateFile
+		warnings []string
 	}
 
 	releaseStateFile struct {
+		Version       int                                     `json:"version"`
+		Profiles      []ReleaseProfile                        `json:"profiles"`
+		ActiveProfile string                                  `json:"active_profile,omitempty"`
 		Releases      map[string]map[string]release.Choice    `json:"releases"`
 		ComponentTags map[string]map[string]savedComponentTag `json:"component_tags,omitempty"`
 		PinningPRs    map[string]savedPinningChoice           `json:"pinning_prs,omitempty"`
@@ -50,6 +54,8 @@ func OpenReleaseState(path string, log *Log) (*ReleaseState, error) {
 				Result: fmt.Sprintf("No state file found at %s. Writing a new one.", path),
 			})
 		}
+		state.file.Version = releaseStateVersion
+		state.file.Profiles = []ReleaseProfile{}
 		state.file.Releases = make(map[string]map[string]release.Choice)
 		if err := state.write(state.file); err != nil {
 			return nil, fmt.Errorf("create release state %q: %w", path, err)
@@ -62,8 +68,14 @@ func OpenReleaseState(path string, log *Log) (*ReleaseState, error) {
 	if err := json.Unmarshal(data, &state.file); err != nil {
 		return nil, fmt.Errorf("decode release state %q: %w", path, err)
 	}
+	if state.file.Version != 0 && state.file.Version != releaseStateVersion {
+		return nil, fmt.Errorf("state file %q uses unsupported version %d; move it aside to start with a new file", path, state.file.Version)
+	}
 	if state.file.Releases == nil {
-		return nil, fmt.Errorf("PR state %q must contain a releases object", path)
+		if state.file.Version == 0 {
+			return nil, fmt.Errorf("PR state %q must contain a releases object", path)
+		}
+		state.file.Releases = make(map[string]map[string]release.Choice)
 	}
 	for version, choices := range state.file.Releases {
 		if _, _, _, ok := release.Version(version); !ok || strings.HasPrefix(version, "v") {
@@ -81,6 +93,7 @@ func OpenReleaseState(path string, log *Log) (*ReleaseState, error) {
 			}
 		}
 	}
+	state.validateProfiles()
 	return state, nil
 }
 
@@ -136,6 +149,7 @@ func (s *ReleaseState) savePRChoices(version string, targets map[release.Target]
 }
 
 func (s *ReleaseState) commit(next releaseStateFile) error {
+	next.Version = releaseStateVersion
 	if err := s.write(next); err != nil {
 		return fmt.Errorf("save release state %q: %w", s.path, err)
 	}

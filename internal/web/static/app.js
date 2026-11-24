@@ -1,7 +1,8 @@
 document.addEventListener("DOMContentLoaded", () => {
   const sections = () => Array.from(document.querySelectorAll("details"));
   const sectionKey = (section) => section.dataset.transient !== undefined ? "" : section.dataset.foldKey || section.id;
-  const storageKey = "release-assistant:sections";
+  const profile = document.body.dataset.profile || "";
+  const storageKey = profile ? `release-assistant:sections:${profile}` : "release-assistant:sections";
   const [appSession] = document.body.dataset.session.split(":");
   let sectionStates = {};
   try {
@@ -14,6 +15,14 @@ document.addEventListener("DOMContentLoaded", () => {
   let restoreLogOnOpen;
   let refreshQueueOnOpen;
   let activeTab = document.body.dataset.activeTab || "component-prs";
+  const tabURL = (tab) => profile ? `/?release=${encodeURIComponent(profile)}&tab=${tab}` : `/?tab=${tab}`;
+  const tabKey = `release-assistant:tab:${appSession}:${profile}`;
+  const restoringTab = profile && !new URLSearchParams(window.location.search).has("tab");
+  if (restoringTab) {
+    try {
+      activeTab = window.sessionStorage.getItem(tabKey) || activeTab;
+    } catch {}
+  }
   const tabLinks = () => Array.from(document.querySelectorAll("[data-workflow-tab]"));
   const activateTab = (tab, historyMode = "") => {
     const links = tabLinks();
@@ -32,14 +41,19 @@ document.addEventListener("DOMContentLoaded", () => {
     if (openingQueue) refreshQueueOnOpen?.();
     // Shared forms return to the activity the reader is using.
     for (const input of document.querySelectorAll("#configuration-panel input[name=tab], #retry-settings input[name=tab]")) input.value = tab;
-    if (historyMode) window.history[historyMode](null, "", `/?tab=${tab}`);
+    if (profile) {
+      try {
+        window.sessionStorage.setItem(tabKey, tab);
+      } catch {}
+    }
+    if (historyMode) window.history[historyMode](null, "", tabURL(tab));
   };
   const revealTab = (element) => {
     const panel = element?.closest?.("[data-workflow-panel]");
     if (panel && panel.dataset.workflowPanel !== activeTab) {
       const hash = window.location.hash;
       activateTab(panel.dataset.workflowPanel, "replaceState");
-      if (hash) window.history.replaceState(null, "", `/?tab=${activeTab}${hash}`);
+      if (hash) window.history.replaceState(null, "", `${tabURL(activeTab)}${hash}`);
     }
   };
   document.addEventListener("keydown", (event) => {
@@ -53,7 +67,8 @@ document.addEventListener("DOMContentLoaded", () => {
     links[next].focus();
   });
   window.addEventListener("popstate", () => activateTab(new URLSearchParams(window.location.search).get("tab") || (document.body.dataset.configured === "false" ? "settings" : "component-prs")));
-  activateTab(activeTab);
+  if (!tabLinks().some((link) => link.dataset.workflowTab === activeTab)) activeTab = document.body.dataset.activeTab;
+  activateTab(activeTab, restoringTab ? "replaceState" : "");
 
   const restoreSection = (section) => {
     const key = sectionKey(section);
@@ -103,7 +118,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (menu) menu.open = false;
         openSection(section);
         event.preventDefault();
-        if (window.history) window.history.replaceState(null, "", `/?tab=${activeTab}${link.hash}`);
+        if (window.history) window.history.replaceState(null, "", `${tabURL(activeTab)}${link.hash}`);
         section.scrollIntoView?.({ block: "start" });
       }
     }
@@ -257,7 +272,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const configForm = document.querySelector("form[data-saved-config]");
   const confirmation = document.getElementById("configuration-saved");
   if (confirmation && configForm) {
-    window.history.replaceState(null, "", "/?tab=settings");
+    window.history.replaceState(null, "", tabURL("settings"));
     configForm.addEventListener("input", () => confirmation.remove(), { once: true });
   }
   const setupState = document.getElementById("setup-state");
@@ -274,7 +289,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const dashboard = document.getElementById("live-dashboard");
   const refreshStatus = document.getElementById("dashboard-refresh-status");
-  if (!dashboard || !refreshStatus) return;
+  if (!dashboard || !refreshStatus) {
+    if (document.body.dataset.home === "true") {
+      const refreshHome = async () => {
+        try {
+          if (document.hidden || document.querySelector(".release-remove[open]")) return;
+          const response = await fetch("/", { cache: "no-store", signal: AbortSignal.timeout(5_000) });
+          if (!response.ok) return;
+          const incoming = new DOMParser().parseFromString(await response.text(), "text/html");
+          for (const selector of [".home-topbar", ".release-list"]) {
+            const current = document.querySelector(selector);
+            const next = incoming.querySelector(selector);
+            if (current && next && !current.contains(document.activeElement) &&
+                !current.querySelector("details[open]") && current.innerHTML !== next.innerHTML) {
+              current.replaceWith(next);
+            }
+          }
+        } catch {
+          // The next refresh can recover after a brief interruption.
+        } finally {
+          window.setTimeout(refreshHome, 5_000);
+        }
+      };
+      window.setTimeout(refreshHome, 5_000);
+    }
+    return;
+  }
 
   const editedControls = new WeakSet();
   if (retestSearch) editedControls.add(retestSearch);
@@ -416,7 +456,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const revision = retestRevision;
     try {
       if (document.hidden || submitting) return;
-      const response = await fetch(`/?tab=${activeTab}`, { cache: "no-store", signal: AbortSignal.timeout(5_000) });
+      const response = await fetch(tabURL(activeTab), { cache: "no-store", signal: AbortSignal.timeout(5_000) });
       if (!response.ok) throw new Error("Dashboard request failed");
       const incoming = new DOMParser().parseFromString(await response.text(), "text/html");
       const nextDashboard = incoming.getElementById("live-dashboard");

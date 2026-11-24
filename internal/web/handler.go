@@ -40,6 +40,11 @@ type (
 		Snapshot() app.Snapshot
 		Apply(context.Context, app.Action) error
 	}
+	profileApplication interface {
+		ProfilesEnabled() bool
+		ReleaseProfiles() ([]app.ReleaseProfile, string, []string)
+		ProfileSnapshot(string) (app.Snapshot, bool)
+	}
 	server struct {
 		app      Application
 		template *template.Template
@@ -61,7 +66,19 @@ func New(application Application) (http.Handler, error) {
 		"pinVersion":                  pinVersion, "pinDiffers": pinDiffers,
 		"tabPage": tabPage, "tabTitle": tabTitle, "tabHelp": tabHelp, "tabStep": tabStep,
 		"truth": truthLabel, "when": formatTime, "quotaReset": quotaReset, "url": safeURL,
-		"activity": activityText, "commentURL": commentURL,
+		"activity": activityText, "commentURL": commentURL, "profilePage": profilePageURL,
+		"profileAction": func(id string) string {
+			if id == "" {
+				return "/action"
+			}
+			return "/action?release=" + url.QueryEscape(id)
+		},
+		"releaseLink": func(p pageModel, profile app.ReleaseProfile) any {
+			return struct {
+				Page    pageModel
+				Profile app.ReleaseProfile
+			}{p, profile}
+		},
 		"refreshSections": refreshSections, "wholeMinutes": wholeMinutes,
 		"slice": func(values ...string) []string { return values },
 		"title": func(value string) string {
@@ -161,11 +178,7 @@ func (s *server) get(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	token := fmt.Sprintf("%x", s.csrf[:])
 	http.SetCookie(w, &http.Cookie{Name: csrfName(r.Host), Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 3600})
-	page := makePage(s.app.Snapshot(), token, "")
-	page.Tab = validTab(r.URL.Query().Get("tab"))
-	if !page.Configured && page.Tab != "activity" && page.Tab != "retest-queue" {
-		page.Tab = "settings"
-	}
+	page := s.makePage(token, "", r.URL.Query().Get("release"), r.URL.Query().Get("tab"))
 	page.ConfigSaved = page.Configured && page.Tab == "settings" && r.URL.Query().Get("saved") == "configuration"
 	if page.Tab == "settings" {
 		saved := r.URL.Query().Get("saved")
@@ -191,7 +204,7 @@ func (s *server) getActivity(w http.ResponseWriter, _ *http.Request) {
 func activityText(snapshot app.Snapshot) string {
 	var text strings.Builder
 	for _, entry := range snapshot.LogEntries {
-		fmt.Fprintf(&text, "%s %s: %s\n", formatTime(entry.At), entry.Level(), strings.ReplaceAll(entry.Message(), "\n", "\n  "))
+		fmt.Fprintf(&text, "%s %s: %s\n", formatTime(entry.At), entry.Level(), strings.ReplaceAll(entry.DisplayMessage(), "\n", "\n  "))
 	}
 	if snapshot.LogError != "" {
 		fmt.Fprintf(&text, "[log-error] Error: %s\n", strings.ReplaceAll(snapshot.LogError, "\n", "\n  "))
@@ -219,7 +232,12 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 		s.sendQueue(w, r)
 		return
 	}
-	snapshot := s.app.Snapshot()
+	profileID := r.PostForm.Get("profile")
+	if profileID == "" {
+		profileID = r.URL.Query().Get("release")
+	}
+	page := s.makePage("", "", profileID, r.PostForm.Get("tab"))
+	snapshot := page.Snapshot
 	current := snapshot.Config
 	if snapshot.PendingPinningPR > 0 {
 		current.PinningPR = snapshot.PendingPinningPR
@@ -228,6 +246,10 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.renderError(w, r, err, http.StatusBadRequest)
 		return
+	}
+	action.ProfileID = page.ProfileID
+	if action.Kind == "add-release" || action.Kind == "open-release" || action.Kind == "remove-release" {
+		action.ProfileID = profileID
 	}
 	if err := s.app.Apply(r.Context(), action); err != nil {
 		s.renderError(w, r, err, http.StatusConflict)
@@ -238,6 +260,10 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 		destination = "/?tab=" + validTab(tab)
 	}
 	switch action.Kind {
+	case "add-release", "remove-release":
+		destination = "/"
+	case "open-release":
+		destination = profilePageURL(profileID, "")
 	case "configure":
 		destination = "/?tab=settings&saved=configuration#configuration-panel"
 	case "application-settings":
@@ -250,6 +276,17 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 		destination = "/?tab=settings&saved=cache-clear#cache-settings"
 	case "check-pr-retries":
 		destination += "#" + prRetryAnchor(action.Target)
+	}
+	if page.ProfileID != "" && action.Kind != "open-release" && action.Kind != "remove-release" && action.Kind != "add-release" {
+		location, err := url.Parse(destination)
+		if err != nil {
+			http.Error(w, "invalid redirect", http.StatusInternalServerError)
+			return
+		}
+		query := location.Query()
+		query.Set("release", page.ProfileID)
+		location.RawQuery = query.Encode()
+		destination = location.String()
 	}
 	http.Redirect(w, r, destination, http.StatusSeeOther)
 }
@@ -306,8 +343,14 @@ func (s *server) renderError(w http.ResponseWriter, r *http.Request, cause error
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
-	page := makePage(s.app.Snapshot(), fmt.Sprintf("%x", s.csrf[:]), cause.Error())
-	page.Tab = validTab(r.PostForm.Get("tab"))
+	profileID := r.PostForm.Get("profile")
+	if profileID == "" {
+		profileID = r.URL.Query().Get("release")
+	}
+	if r.PostForm.Get("kind") == "add-release" || r.PostForm.Get("kind") == "remove-release" || r.PostForm.Get("kind") == "open-release" {
+		profileID = ""
+	}
+	page := s.makePage(fmt.Sprintf("%x", s.csrf[:]), cause.Error(), profileID, r.PostForm.Get("tab"))
 	if r.PostForm.Get("kind") == "configure" {
 		// Rejected text remains a page-local draft, separate from the active configuration.
 		page.ConfigRejected = true
@@ -319,10 +362,68 @@ func (s *server) renderError(w http.ResponseWriter, r *http.Request, cause error
 	_ = s.template.Execute(w, page)
 }
 
+func profilePageURL(id, tab string) string {
+	q := make(url.Values)
+	if id != "" {
+		q.Set("release", id)
+	}
+	if tab != "" {
+		q.Set("tab", tab)
+	}
+	if len(q) == 0 {
+		return "/"
+	}
+	return "/?" + q.Encode()
+}
+
+func (s *server) makePage(token, message, profileID, tab string) pageModel {
+	if profiles, ok := s.app.(profileApplication); ok && profiles.ProfilesEnabled() {
+		saved, active, warnings := profiles.ReleaseProfiles()
+		if profileID == "" && tab != "" {
+			profileID = active
+		}
+		var snapshot app.Snapshot
+		var found bool
+		if profileID != "" {
+			snapshot, found = profiles.ProfileSnapshot(profileID)
+		}
+		home := profileID == "" && tab == ""
+		paused := profileID != "" && !found
+		if home || paused || profileID == "" {
+			snapshot = s.app.Snapshot()
+		}
+		page := makePage(snapshot, token, message)
+		page.Profiles, page.Home, page.Paused = true, home, paused
+		page.ProfileID, page.ActiveProfile = profileID, active
+		page.ReleaseProfiles, page.ProfileWarnings = saved, warnings
+		page.Tab = validTab(tab)
+		if tab == "" && !page.Configured {
+			page.Tab = "settings"
+		}
+		return page
+	}
+	page := makePage(s.app.Snapshot(), token, message)
+	page.Tab = validTab(tab)
+	if !page.Configured && page.Tab != "activity" && page.Tab != "retest-queue" {
+		page.Tab = "settings"
+	}
+	return page
+}
+
 func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 	form := r.Form
 	a := app.Action{Kind: form.Get("kind"), Target: release.Target{Repo: form.Get("repo")}, SHA: form.Get("sha"), ID: form.Get("id")}
-	if a.Kind == "configure" {
+	switch a.Kind {
+	case "add-release", "open-release", "remove-release":
+		return a, nil
+	case "configure":
+		if form.Has("generation") {
+			generation, err := strconv.ParseUint(form.Get("generation"), 10, 64)
+			if err != nil {
+				return a, fmt.Errorf("page generation is invalid")
+			}
+			a.Generation = generation
+		}
 		version := form.Get("version")
 		major, _, _, ok := release.Version(version)
 		if !ok {

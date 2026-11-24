@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -1197,4 +1198,57 @@ func TestGitHubReadLimitSettings(t *testing.T) {
 	values.Set("ongoing_read_limit", "2")
 	save()
 	checkLimits(1, 2)
+}
+
+func TestReleaseHomeAndDraftNavigation(t *testing.T) {
+	state, err := app.OpenReleaseState(filepath.Join(t.TempDir(), "state.json"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{}), nil, app.Options{Profiles: true, ReleaseState: state})
+	handler, err := New(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(path string) *httptest.ResponseRecorder {
+		t.Helper()
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost"+path, nil))
+		if response.Code != http.StatusOK || !strings.HasSuffix(response.Body.String(), "</html>\n") {
+			t.Fatalf("GET %s: %d %s", path, response.Code, response.Body.String())
+		}
+		return response
+	}
+	home := get("/")
+	cookie := home.Result().Cookies()[0]
+	if !strings.Contains(home.Body.String(), "Tracked releases") || strings.Contains(home.Body.String(), "Remove release") {
+		t.Fatal("empty Home is missing its release manager")
+	}
+	post := func(values url.Values) *httptest.ResponseRecorder {
+		t.Helper()
+		values.Set("csrf", cookie.Value)
+		request := httptest.NewRequest(http.MethodPost, "http://localhost/action", strings.NewReader(values.Encode()))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		request.Header.Set("Origin", "http://localhost")
+		request.AddCookie(cookie)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	if response := post(url.Values{"kind": {"add-release"}}); response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/" {
+		t.Fatalf("add release = %d %s", response.Code, response.Body.String())
+	}
+	saved, active, _ := session.ReleaseProfiles()
+	if len(saved) != 1 || active != "" {
+		t.Fatalf("saved = %+v, active = %s", saved, active)
+	}
+	id := saved[0].ID
+	if response := post(url.Values{"kind": {"open-release"}, "profile": {id}}); response.Code != http.StatusSeeOther {
+		t.Fatalf("open release = %d %s", response.Code, response.Body.String())
+	}
+	draft := get(profilePageURL(id, "acs-rcs"))
+	if !strings.Contains(draft.Body.String(), "Unconfigured release</h1>") ||
+		!strings.Contains(draft.Body.String(), "Configure this release</a> to start monitoring.") {
+		t.Fatal("draft does not expose normal navigation and setup")
+	}
 }

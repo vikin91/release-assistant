@@ -25,7 +25,7 @@ function makeDetails({ id = "", foldKey = "", open = false } = {}) {
   return emitter({ id, dataset: foldKey ? { foldKey } : {}, open, tagName: "DETAILS" });
 }
 
-function makePage({ sections = [], storage = new Map(), session = "session:1", hash = "", storageFails = false, activityLog, fetchActivity, livePage, fetchDashboard, fetchQueue, parseDashboard, clipboard, jumpToLatest } = {}) {
+function makePage({ sections = [], storage = new Map(), session = "session:1", hash = "", search, storageFails = false, activityLog, fetchActivity, livePage, fetchDashboard, fetchQueue, parseDashboard, clipboard, jumpToLatest } = {}) {
   const byId = new Map(sections.filter((section) => section.id).map((section) => [section.id, section]));
   if (activityLog) {
     byId.set("activity-log", activityLog);
@@ -71,7 +71,7 @@ function makePage({ sections = [], storage = new Map(), session = "session:1", h
   const window = emitter({
     sessionStorage,
     navigator: { clipboard },
-    location: { hash, search: livePage?.body.dataset.activeTab ? `?tab=${livePage.body.dataset.activeTab}` : "", reload() { reloads += 1; } },
+    location: { hash, search: search ?? (livePage?.body.dataset.activeTab ? `?tab=${livePage.body.dataset.activeTab}` : ""), reload() { reloads += 1; } },
     setInterval(callback) { intervals.push(callback); },
     setTimeout(callback, delay) { callback.delay = delay; timeouts.push(callback); return callback; },
     clearTimeout(callback) { const index = timeouts.indexOf(callback); if (index >= 0) timeouts.splice(index, 1); },
@@ -692,4 +692,23 @@ test("a deep section link reveals its activity and retains section choices", () 
   assert.equal(page.window.location.search, "?tab=acs-prs");
   assert.equal(page.window.location.hash, "#acs-prs-details");
   assert.equal(page.stored()["acs-prs-details"], true);
+});
+
+
+test("restores the selected release's last screen and refreshes that profile", () => {
+  const active = workflowPage();
+  active.body.dataset.profile = "profile-a";
+  const storage = new Map([
+    ["release-assistant:tab:session:profile-a", "acs-rcs"],
+    ["release-assistant:tab:session:profile-b", "settings"],
+  ]);
+  const requests = [];
+  const page = makePage({
+    storage, search: "?release=profile-a", livePage: active,
+    fetchDashboard: (url) => { requests.push(url); return new Promise(() => {}); },
+  });
+  page.start();
+  assert.equal(page.document.body.dataset.activeTab, "acs-rcs");
+  assert.equal(page.window.location.search, "?release=profile-a&tab=acs-rcs");
+  assert.deepEqual(requests, ["/?release=profile-a&tab=acs-rcs"]);
 });

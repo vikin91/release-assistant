@@ -20,6 +20,7 @@ type (
 		Title, Branch           string
 		Kind, Payload, Job, URL string
 		Blocked                 string
+		ObservedAt              time.Time
 		// MissingBuild marks a planner-verified start for a build with no observed run.
 		MissingBuild bool
 		Sending      bool
@@ -110,8 +111,10 @@ func (s *Session) syncRetestQueue(views []dispatch.View, reports []release.Manua
 		}
 		// A newer dispatch read may withdraw a scheduled proposal before the next poll.
 		proposals := plan.Proposals
+		observedAt := plan.Evidence.At
 		if view.SHA == meta.sha && !plan.Evidence.At.After(view.PlanAt) {
 			proposals = nil
+			observedAt = view.PlanAt
 			for _, offer := range view.Offers {
 				proposals = append(proposals, offer.Proposal)
 			}
@@ -142,7 +145,7 @@ func (s *Session) syncRetestQueue(views []dispatch.View, reports []release.Manua
 			}
 			add(proposal.SHA, id, RetestItem{
 				Target: target, Kind: "konflux", Payload: proposal.Payload, Job: proposal.Job,
-				URL: jobURL, Blocked: blocked, MissingBuild: proposal.StartsMissingPRBuild(),
+				URL: jobURL, Blocked: blocked, ObservedAt: observedAt, MissingBuild: proposal.StartsMissingPRBuild(),
 			})
 		}
 		if report.Target != target || report.Pending || meta.noCIFailuresAt.After(report.At) {
@@ -157,12 +160,12 @@ func (s *Session) syncRetestQueue(views []dispatch.View, reports []release.Manua
 				name = job.WorkflowName + " / " + name
 			}
 			add(report.SHA, fmt.Sprint(job.ID), RetestItem{
-				Target: report.Target, Kind: "actions", Payload: job.RerunCommand(report.Target.Repo), Job: name, URL: job.URL,
+				Target: report.Target, Kind: "actions", Payload: job.RerunCommand(report.Target.Repo), Job: name, URL: job.URL, ObservedAt: report.At,
 			})
 		}
 		for _, job := range report.Prow {
 			add(report.SHA, job.Context+"\x00"+job.URL+"\x00"+job.Command, RetestItem{
-				Target: report.Target, Kind: "prow", Payload: job.Command, Job: job.Context, URL: job.URL,
+				Target: report.Target, Kind: "prow", Payload: job.Command, Job: job.Context, URL: job.URL, ObservedAt: report.At,
 			})
 		}
 	}
@@ -252,22 +255,24 @@ func (s *Session) applyRetestDecision(ctx context.Context, a Action) error {
 		return fmt.Errorf("queue item %d cannot be sent now", a.QueueID)
 	}
 	s.retestQueue[index].Sending = true
+	work := s.releaseWork
+	ctx = s.dispatcher.WithScope(ctx)
 	s.mu.Unlock()
 
 	delivery, err := s.dispatcher.Send(ctx, item.Target, item.key.evidence, true)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.drain()
-	index = slices.IndexFunc(s.retestQueue, func(row RetestItem) bool { return row.ID == item.ID })
+	index = slices.IndexFunc(work.retestQueue, func(row RetestItem) bool { return row.ID == item.ID })
 	if delivery.Status == "sent" {
 		if index >= 0 {
-			s.retestQueue = slices.Delete(s.retestQueue, index, index+1)
+			work.retestQueue = slices.Delete(work.retestQueue, index, index+1)
 		}
-		s.recordRetest(item, "Sent", "GitHub confirmed the comment.", delivery.URL)
+		work.recordRetest(item, "Sent", "GitHub confirmed the comment.", delivery.URL)
 		return nil
 	}
 	if index >= 0 {
-		s.retestQueue[index].Sending = false
+		work.retestQueue[index].Sending = false
 	}
 	result, detail := "Failed", "GitHub did not accept the comment."
 	switch delivery.Status {
@@ -279,11 +284,11 @@ func (s *Session) applyRetestDecision(ctx context.Context, a Action) error {
 	if err != nil {
 		detail = err.Error()
 	}
-	s.recordRetest(item, result, detail, "")
+	work.recordRetest(item, result, detail, "")
 	return fmt.Errorf("queue item %d: %s", item.ID, detail)
 }
 
-func (s *Session) recordRetest(item RetestItem, result, detail, url string) {
+func (s *releaseWork) recordRetest(item RetestItem, result, detail, url string) {
 	s.retestLog = append(s.retestLog, RetestDecision{
 		At: time.Now(), ID: item.ID, Target: item.Target, Payload: item.Payload, Result: result, Detail: detail, URL: url,
 	})

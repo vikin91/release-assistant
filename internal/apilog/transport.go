@@ -3,6 +3,7 @@ package apilog
 
 import (
 	"cmp"
+	"context"
 	"net/http"
 	"net/url"
 	"strings"
@@ -10,8 +11,9 @@ import (
 
 // Transport records each request immediately before handing it to Base.
 type Transport struct {
-	Base    http.RoundTripper
-	Calling func(system, method, resource string)
+	Base               http.RoundTripper
+	Calling            func(system, method, resource string)
+	CallingWithContext func(context.Context, string, string, string)
 }
 
 // RoundTrip logs the system, method, and resource without reading the request body.
@@ -37,7 +39,12 @@ func (t Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req != origin {
 		resource += " (redirect)"
 	}
-	t.Calling(system, cmp.Or(req.Method, http.MethodGet), resource)
+	method := cmp.Or(req.Method, http.MethodGet)
+	if t.CallingWithContext != nil {
+		t.CallingWithContext(origin.Context(), system, method, resource)
+	} else if t.Calling != nil {
+		t.Calling(system, method, resource)
+	}
 	return t.Base.RoundTrip(req)
 }
 
