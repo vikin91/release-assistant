@@ -212,6 +212,12 @@ func TestACSChecksGroupActionsByIncludedPR(t *testing.T) {
 	}
 	panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-prs")
 	checks := between(t, panel, `id="acs-prs-retry"`, "</section>")
+	title := strings.Index(checks, `<h3 id="acs-prs-retry-heading">Checks of Included PRs</h3>`)
+	fold := strings.Index(checks, `<details id="acs-prs-retry-details" open>`)
+	if title < 0 || fold <= title ||
+		!strings.Contains(checks, `<summary class="build-retry-toggle" aria-describedby="acs-prs-retry-heading">`) {
+		t.Fatal("the ACS checks title should be separate from its Show/Hide control")
+	}
 	if strings.Count(checks, "<article ") != 3 || strings.Contains(panel, "Manual CI retries") || strings.Contains(panel, "Konflux check retries") || strings.Contains(checks, "excluded result") {
 		t.Fatalf("unexpected ACS check groups: %s", checks)
 	}

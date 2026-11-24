@@ -1,7 +1,13 @@
 {{define "build-retries"}}
+  {{$acs := eq .Tab "acs-prs"}}
   <section class="panel" id="{{.RetrySection}}">
+    {{if $acs}}<h3 id="acs-prs-retry-heading">Checks of Included PRs</h3>{{end}}
     <details id="{{.RetryDetails}}" open>
-      <summary class="section-summary">{{if eq .Tab "acs-prs"}}Checks of Included PRs{{else}}Konflux check retries{{end}}</summary>
+      {{if $acs}}
+      <summary class="build-retry-toggle" aria-describedby="acs-prs-retry-heading">
+        <span class="build-retry-show">Show</span><span class="build-retry-hide">Hide</span>
+      </summary>
+      {{else}}<summary class="section-summary">Konflux check retries</summary>{{end}}
       {{range .BuildRetries}}
         <article class="build-retry-target" {{if .Target.PR}}id="acs-pr-retries-{{.Target.PR}}" {{end}}data-live-key="build-retries:{{.Target}}">
           {{if .Target.PR}}

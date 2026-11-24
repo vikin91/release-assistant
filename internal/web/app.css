@@ -298,6 +298,21 @@ details[id] > summary::after, .header-menu > summary::after {
 details[id] > summary::after { position: absolute; inset-inline-end: .5rem; inset-block-start: 1rem; }
 :is(details[id], .header-menu)[open] > summary::after { transform: rotate(225deg); }
 details[id] > summary:hover { color: var(--link); }
+#acs-prs-retry { position: relative; }
+#acs-prs-retry-heading {
+  min-block-size: 2.25rem;
+  margin-block-end: 0;
+  padding-inline-end: 5rem;
+  align-content: center;
+}
+#acs-prs-retry > details > .build-retry-toggle {
+  @apply absolute end-5 top-5 inline-flex items-center justify-center rounded-md border border-input bg-card px-3 py-1.5 text-sm font-medium text-foreground sm:end-6 sm:top-6;
+  min-block-size: 2.25rem;
+}
+.build-retry-toggle:hover { background: var(--accent); }
+details[id] > .build-retry-toggle::after { content: none; }
+details[open] > .build-retry-toggle .build-retry-show,
+details:not([open]) > .build-retry-toggle .build-retry-hide { display: none; }
 table { width: 100%; border-collapse: collapse; margin: .5rem 0 1rem; font-size: 14px; }
 th, td { @apply border-b border-border px-3 py-2.5 text-left align-top; overflow-wrap: anywhere; }
 table:not(.settings-table) tbody tr:hover { background: color-mix(in srgb, var(--muted) 57%, transparent); }
