@@ -23,6 +23,8 @@ func TestRetestQueueRendersOnlySupportedActions(t *testing.T) {
 			{ID: 5, Target: pr, Kind: "konflux", Payload: "/konflux-retest main-on-push", Job: "main-on-push", MissingBuild: true},
 		},
 		RetestLog: []app.RetestDecision{{
+			At: now.Add(-2 * time.Minute), ID: 2, Target: pr, Payload: "/konflux-retest main-on-push", Result: "Skipped",
+		}, {
 			At: now.Add(-time.Minute), ID: 4, Target: tag, Payload: "/retest sensor tag:5.0.1-rc.1", Result: "Skipped",
 		}, {
 			At: now, ID: 4, Target: tag, Payload: "/retest sensor tag:5.0.1-rc.1", Result: "Sent",
@@ -54,6 +56,10 @@ func TestRetestQueueRendersOnlySupportedActions(t *testing.T) {
 		t.Fatal("only Konflux comments should have Send, and every item should have Skip")
 	}
 	log := between(t, panel, `id="retest-log-heading"`, "</table>")
+	if !strings.Contains(log, `<td title="stackrox/stackrox#17">stackrox#17</td>`) ||
+		!strings.Contains(log, `<td>stackrox/stackrox@5.0.1-rc.1</td>`) {
+		t.Fatal("the Queue log should shorten PR targets and retain full tag targets")
+	}
 	sent, skipped := strings.Index(log, "<td>Sent</td>"), strings.Index(log, "<td>Skipped</td>")
 	if sent < 0 || skipped < 0 || sent >= skipped {
 		t.Fatal("the queue log should list the latest decision first")

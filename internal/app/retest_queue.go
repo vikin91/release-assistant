@@ -43,6 +43,14 @@ type (
 	}
 )
 
+// TargetLabel shortens PR targets for the Queue log.
+func (d RetestDecision) TargetLabel() string {
+	if d.Target.PR > 0 {
+		return consoleTarget(d.Target)
+	}
+	return d.Target.String()
+}
+
 // retestTargets limits the queue to verified release targets. The caller holds s.mu.
 func (s *Session) retestTargets() map[release.Target]retestTarget {
 	targets := make(map[release.Target]retestTarget)

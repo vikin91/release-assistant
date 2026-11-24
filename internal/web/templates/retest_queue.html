@@ -75,7 +75,7 @@
         <thead><tr><th scope="col">Time</th><th scope="col">ID</th><th scope="col">Target</th><th scope="col">Decision</th><th scope="col">Details</th></tr></thead>
         <tbody>{{range $_, $decision := .RetestLogNewestFirst}}
           <tr><td><time datetime="{{$decision.At.Format "2006-01-02T15:04:05Z07:00"}}">{{when $decision.At}}</time></td><td class="retest-id">{{$decision.ID}}</td>
-            <td>{{$decision.Target}}</td><td>{{$decision.Result}}</td><td><code>{{$decision.Payload}}</code><small class="retest-job muted">{{$decision.Detail}}
+            <td{{if $decision.Target.PR}} title="{{$decision.Target}}"{{end}}>{{$decision.TargetLabel}}</td><td>{{$decision.Result}}</td><td><code>{{$decision.Payload}}</code><small class="retest-job muted">{{$decision.Detail}}
               {{if url $decision.URL}} <a href="{{url $decision.URL}}" target="_blank" rel="noreferrer" aria-describedby="new-tab-description">View comment</a>{{end}}</small></td></tr>
         {{end}}</tbody>
       </table>
