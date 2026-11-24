@@ -246,13 +246,13 @@ func TestACSChecksShowProgressPerPR(t *testing.T) {
 	s.Plans = []release.Plan{{Target: pr(1), StartFailures: []release.StartFailure{{Category: "admission_policy", Evidence: release.Evidence{Known: true, At: time.Now()}}}}}
 	panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-prs")
 	for id, want := range map[string][]string{
-		"1": {`class="unknown"><strong>Pending =</strong> Loading GitHub Actions and Prow results`, "A PipelineRun failed to start"},
-		"2": {`class="unknown"><strong>Error =</strong> Rate limited internally by Release Assistant`, "ci/prow/unit"},
+		"1": {`class="unknown"><strong>CI Retest · Pending =</strong> Loading GitHub Actions and Prow results`, "A PipelineRun failed to start"},
+		"2": {`class="unknown"><strong>CI Retest · Error =</strong> Rate limited internally by Release Assistant`, "ci/prow/unit"},
 		"3": {"No verified GitHub Actions or Prow retries"},
 		"4": {"actions/jobs/201/rerun"},
-		"5": {`class="error-text"><strong>Error =</strong> Rate limited by GitHub`},
-		"6": {`class="error-text"><strong>Error =</strong> GitHub: Access denied`},
-		"7": {`class="unknown"><strong>Pending =</strong> Retry results are incomplete`},
+		"5": {`class="error-text"><strong>CI Retest · Error =</strong> Rate limited by GitHub`},
+		"6": {`class="error-text"><strong>CI Retest · Error =</strong> GitHub: Access denied`},
+		"7": {`class="unknown"><strong>CI Retest · Pending =</strong> Retry results are incomplete`},
 	} {
 		card := between(t, panel, `id="acs-pr-retries-`+id+`"`, "</article>")
 		for _, fragment := range want {

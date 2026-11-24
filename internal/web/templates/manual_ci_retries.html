@@ -17,7 +17,7 @@
 
 {{define "manual-ci-instructions"}}
   {{$report := .}}
-  {{template "retry-diagnostics" (retryDiagnostics .Pending .Incomplete "" .Warnings)}}
+  {{template "retry-diagnostics" (ciRetryDiagnostics .Pending .Incomplete .Warnings)}}
   {{if or .Jobs .Prow}}<p class="muted">Available retries for commit <code>{{.SHA}}</code>. {{manualRetryWarning}}</p>{{end}}
   {{range .Jobs}}
     <div class="proposal" data-live-key="manual-job:{{$report.Target}}:{{.ID}}">
@@ -38,6 +38,6 @@
 
 {{define "retry-diagnostics"}}
   {{if .}}<p class="build-retry-note retry-diagnostics" role="status">
-    {{range .}}<span class="{{if .External}}error-text{{else}}unknown{{end}}"><strong>{{.Label}} =</strong> {{.Message}}</span>{{end}}
+    {{range .}}<span class="{{if .External}}error-text{{else}}unknown{{end}}"><strong>{{.Source}} · {{.Label}} =</strong> {{.Message}}</span>{{end}}
   </p>{{end}}
 {{end}}

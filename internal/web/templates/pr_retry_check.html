@@ -24,8 +24,8 @@
       <p>No retry commands available for this commit.</p>
     {{end}}
     {{with .Konflux.Message}}<p class="muted">{{.}}</p>{{end}}
-    {{template "retry-diagnostics" (retryDiagnostics false false .Konflux.Evidence.Error .Konflux.Warnings)}}
-    {{template "retry-diagnostics" (retryDiagnostics .CI.Pending .CI.Incomplete "" .CI.Warnings)}}
+    {{template "retry-diagnostics" (konfluxRetryDiagnostics .Konflux.Evidence.Error .Konflux.Warnings)}}
+    {{template "retry-diagnostics" (ciRetryDiagnostics .CI.Pending .CI.Incomplete .CI.Warnings)}}
     {{if .CI.OtherChecks}}<ol>{{range .CI.OtherChecks}}<li>{{.}}</li>{{end}}</ol>{{end}}
   </div>
 {{end}}

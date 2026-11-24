@@ -24,6 +24,8 @@ func TestIncludedPRLinksToItsSingleKonfluxComment(t *testing.T) {
 		})
 	}
 	snapshot.Choices.PRs[included] = release.Included
+	const contract = "unsupported retag input contract: invalid .tekton/retag-pipeline.yaml: unsupported pinned task implementation"
+	const milestone = "Milestone 1 is not ready: main-on-push (queued), retag-scanner (input unavailable)."
 	snapshot.PRRetryChecks = map[release.Target]app.PRRetryCheck{
 		included: {
 			SHA: "head", Started: observed.At,
@@ -38,6 +40,10 @@ func TestIncludedPRLinksToItsSingleKonfluxComment(t *testing.T) {
 				Incomplete: true, Warnings: []string{"GitHub reported a rate limit (HTTP 403). Release Assistant paused GitHub reads"}},
 		},
 	}
+	check := snapshot.PRRetryChecks[included]
+	check.Konflux.Evidence.Error = contract
+	check.Konflux.Warnings = []string{milestone, "retag-scanner: cannot resolve input requirements: " + contract + "."}
+	snapshot.PRRetryChecks[included] = check
 	application := &fakeApplication{snapshot: snapshot}
 	browser := newBrowser(t, application)
 	panel := activityPanel(t, browser.getBody(t), "acs-prs")
@@ -47,9 +53,14 @@ func TestIncludedPRLinksToItsSingleKonfluxComment(t *testing.T) {
 		!strings.Contains(field, `href="/?tab=acs-prs#acs-pr-retries-41"`) || strings.Contains(field, "/konflux-retest") {
 		t.Fatalf("retry checker did not link to the Konflux comment: %s", field)
 	}
-	if !strings.Contains(field, `class="error-text"><strong>Error =</strong> Rate limited by GitHub`) ||
+	if !strings.Contains(field, `class="error-text"><strong>CI Retest · Error =</strong> Rate limited by GitHub`) ||
 		strings.Contains(field, "Retry diagnostics") {
 		t.Fatal("the on-demand checker should show the external rate limit inline")
+	}
+	if strings.Count(field, contract) != 1 ||
+		!strings.Contains(field, "Konflux Retest · Retag input validation · Error =</strong> retag-scanner: "+contract) ||
+		!strings.Contains(field, "Konflux Retest · Planner · Warning =</strong> "+milestone) {
+		t.Fatalf("expected one sourced contract error and a separate planner warning: %s", field)
 	}
 	comment := between(t, panel, `id="acs-pr-retries-41"`, "</article>")
 	if !strings.Contains(comment, "<pre><code>/konflux-retest checks\n/konflux-retest main</code></pre>") ||
