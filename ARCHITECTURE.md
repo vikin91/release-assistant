@@ -1,78 +1,77 @@
-# Architecture and invariants
+# Architecture rules
 
-## What the app does
+## Retry decisions
 
-1. **RELEASE-01 — The user starts the release.** The app monitors one ACS patch
-   release. It reports readiness. The user starts the release.
-   **Check.** Make the release ready. Check that the app reports readiness
-   and starts no release.
-2. **CHOICE-01 — Keep the user's choices.** A refresh must keep a valid tag
-   that the user selects. A refresh must also keep the user's choice to clear a tag.
-   **Check.** Select a tag and refresh. Then clear the tag and refresh.
-   Check the choice after each refresh.
-3. **EVIDENCE-01 — Check what exists.** A successful build cannot prove that
-   an image is available. A proposed version change cannot prove that the
-   release branch uses that version.
-   **Check.** Use a successful build with a missing image. Use an open pull
-   request with the correct versions and a branch with the wrong versions.
-   Check that both requirements remain unmet.
-4. **EVIDENCE-02 — Use current evidence.** Stale or unavailable evidence cannot
-   establish a current result.
-   **Check.** After a successful read, make its source unavailable. Check that
-   the old result no longer counts as current.
-5. **RC-01 — Find the current release candidate.** Use the highest-numbered
-   StackRox release candidate tag on the configured release branch. Compare
-   its commit with the branch head.
-   **Check.** Supply tags on and off the release branch. Check the selected tag
-   and the number of commits after it.
+1. **PLAN-01 — The retry tools decide.** Konflux Retest decides which Konflux
+   jobs to retry. CI Retest decides which GitHub Actions and Prow jobs to retry.
+   The tools supply the retry action and the text of any retry command.
+   Release Assistant uses those decisions. It must not make its own retry rules.
+   **Check.** Give the dashboard and the standalone tools the same target and
+   settings. Compare their retry actions and commands.
+2. **PLAN-02 — Retry every check that qualifies.** The purpose of retries is to
+   get checks passing so PRs can merge and releases can proceed. Send failed
+   and long-running checks to the responsible tool for a decision. Retry each
+   check the tool says can run again as soon as posting rules permit.
+   **Check.** Test a failed check and a stuck check. Check that each retry the
+   tools approve reaches the queue.
+3. **PLAN-03 — Do not add local barriers.** Do not block a retry because the
+   release is unready, old run data is missing, or an unrelated read fails.
+   If the retry tool cannot decide, show the reason. Ask the tool again
+   when new data arrives.
+   **Check.** Offer an eligible retry while the release is unready.
+   Check that the app can send it when posting rules permit.
+4. **PLAN-04 — One tool owns each check.** A failed Actions check in
+   **Test Konflux builds** cannot authorize a Konflux retry. Only Konflux Retest
+   can decide if the build qualifies. CI Retest must never offer an Actions
+   rerun for that workflow.
+   **Check.** Fail **wait-for-images** without an eligible Konflux job.
+   Check that neither tool offers a retry for that failure.
 
-## What the app can send
+## Queue and posting
 
-6. **POST-01 — The user controls posting.** The app must have the user's
-   permission before it posts a retry comment.
-   **Check.** Include a change with an eligible retry. Check that the app posts
-   nothing without permission.
-7. **WRITE-02 — Read-only by default.** The app must start in Read-only mode
-   unless the user starts it with permission to post.
-   **Check.** Start the app without giving it permission to post. Check that
-   the app cannot send an eligible retry comment.
-8. **WRITE-03 — One approval per comment.** With permission to post, the app
-   starts in Interactive mode. Each approval applies once to one target,
-   revision, run, and comment text. **Send all** approves each visible eligible comment once.
-   **Check.** Try to send without approval. Try to use the same approval twice.
-   Try to use an approval after the revision changes. Check that each invalid send fails.
-9. **WRITE-04 — Grant per target.** Automatic posting requires the user to
-   disable Interactive mode and grant permission for the exact target.
-   Release inclusion gives no grant.
-   **Check.** Enable automatic posting for one target. Check that a second
-   target with an eligible retry receives no comment without its own grant.
-10. **WRITE-05 — Check again before sending.** Before each send, the app checks
-    permission, target identity, and retry eligibility again. The label
-    `no-release-assistant` blocks pull request comments. If the user requires
-    the `allow-release-assistant` label, a fresh GitHub read must show it.
-    **Check.** Test a new revision, an opt-out label, a missing required label,
-    and a failed required label read. Check that the app sends nothing in each case.
-11. **QUEUE-01 — Show eligible retries.** The Retest Queue shows each eligible
-    retry for a monitored target in every mode. If the app cannot post a
-    comment, the queue shows the reason.
-    **Check.** Use the same eligible retry in all modes. Block posting.
-    Check that the retry and the reason remain visible.
+5. **QUEUE-01 — Put every eligible retry in one queue.** Show all retries
+   that either tool offers for monitored targets. Show them in every mode.
+   Keep blocked retries visible with the reason. Show manual actions as manual.
+   **Check.** Use offers from both tools in Read-only, Interactive, and automatic modes.
+6. **QUEUE-02 — Let users act in parallel.** The user can select **Send** on
+   any number of eligible rows without waiting for an earlier send to finish.
+   The app must send the same request only once while it is in progress.
+   **Check.** Pause one send. Send a different row and click it twice.
+   Check that the second request starts and reaches GitHub only once.
+7. **QUEUE-03 — Show the result of every send.** Record each GitHub posting
+   call separately. Show the target, retry, and result. Distinguish success,
+   failure, and unknown delivery.
+   **Check.** Simulate success, failure, and unknown delivery. Return the
+   results out of order. Check that the log matches each result to its send.
+8. **WRITE-01 — Use one path to post.** All app posts to GitHub pass through
+   `internal/dispatch`. The app posts only Konflux retry comments. CI Retest
+   supplies manual actions. Keep the command text from the tool.
+   **Check.** Trace sends from clicks and polling. Check that manual CI retries
+   never reach the writer.
+9. **WRITE-02 — Check permission at send time.** Start read-only unless the
+   user enables writes. Start in Interactive mode when writes are enabled.
+   Check current permission, the target revision, and the retry before each send.
+   Apply the label rules in [AGENTS.md](AGENTS.md).
+   **Check.** Remove permission or change the revision before posting.
+   Check that the writer receives zero calls.
+10. **WRITE-06 — Identify the app in every comment.** Add a footer to each
+    comment the app posts on the user's behalf. Include the Release Assistant
+    name and version or build identifier.
+    **Check.** Inspect a PR comment and a tag comment. Check both footers.
 
-## Code boundaries
+## Shared UI and API
 
-12. **WRITE-01 — One write path.** Send only Konflux retry comments to GitHub.
-    Route every external write through `internal/dispatch`. Require
-    `--enable-writes` at startup.
-    **Check.** Trace all calls to the writer, including calls from background polling.
-13. **RETRY-01 — Konflux decides eligibility.** Use the public `konflux-retest`
-    API. Send one comment per eligible job. The dashboard and CLI must never
-    offer or send an Actions rerun for `Test Konflux builds`.
-    **Check.** Fail `wait-for-images` with no eligible Konflux job. Check that
-    neither interface offers a retry command for that workflow.
-14. **APP-01 — Local server.** `cmd/release-assistant` starts the server on the
-    loopback address. `internal/app` owns polling and session state.
-    `internal/web` renders the UI.
-    **Check.** Check the server address. Close the browser. Check that polling continues.
-15. **DATA-01 — No network calls in release assessment.** `internal/release`
-    assesses evidence without network calls.
-    **Check.** Check that release assessment uses inputs from its caller.
+11. **UI-01 — Reuse the same UI for the same task.** Use the same components
+    for PR lists across components and the ACS release branch. Supply the
+    target data to the shared components.
+    **Check.** Trace both lists to the same rendering code and action controls.
+12. **API-01 — Reuse the same API for the same action.** Pass the repository,
+    target, and revision as data. Use the same validation and action path
+    for each view that performs that action.
+    **Check.** Submit the same action from component and ACS views.
+    Check that both requests use the same handler and validation.
+13. **DATA-01 — Assess the data without reading it again.** Keep network
+    reads outside release assessment. Give the assessment code the results
+    of those reads. Keep a failed read distinct from a verified negative result.
+    **Check.** Run release assessment with network access disabled.
+    Compare an unavailable image check with a verified missing image.
