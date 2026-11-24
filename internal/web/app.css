@@ -360,7 +360,6 @@ body { display: grid; grid-template: auto 1fr / 248px minmax(0, 1fr); min-height
 .sidebar-summary h2 { margin: 0 0 6px; font: var(--emphasis-weight) 12px/1.6 var(--body-font); }
 .sidebar-summary dl { display: grid; gap: 6px; margin: 0; }
 .sidebar-summary dd { color: var(--muted-foreground); margin: 0; }
-.phase-legend summary { @apply py-1 font-medium; }
 .phase-legend dd { color: var(--muted-foreground); margin-left: 18px; }
 .tab-status { font-weight: var(--emphasis-weight); }
 .tab-status.complete, .konflux-pill.accepted { color: var(--green); }

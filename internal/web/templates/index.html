@@ -82,12 +82,12 @@
   {{if and .Configured .Snapshot.Loading}}<p id="release-loading" class="muted" role="status">Loading release data…</p>{{end}}
   {{end}}
   {{if not .Profiles}}{{template "github-budget" .}}{{end}}
-  <details class="sidebar-summary phase-legend" data-fold-key="phase-legend">
-    <summary>Phase icons</summary>
+  <section class="sidebar-summary phase-legend" aria-labelledby="phase-legend-title">
+    <h2 id="phase-legend-title">Phase icons</h2>
     <dl>{{range .PhaseLegend}}
       <div><dt><span class="tab-status {{.Class}}" aria-hidden="true">{{.Icon}}</span> {{.Label}}</dt><dd>{{.Reason}}</dd></div>
     {{end}}</dl>
-  </details>
+  </section>
 </aside>
 {{if $home}}
 {{template "release-home" .}}
