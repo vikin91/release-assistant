@@ -13,7 +13,10 @@ import (
 	"release-assistant/internal/release"
 )
 
-const dashboardStateVersion = 1
+const (
+	dashboardStateVersion = 1
+	dashboardSaveInterval = 2 * time.Second
+)
 
 type (
 	dashboardFile struct {
@@ -64,10 +67,41 @@ func sameDashboardConfig(a, b release.Config) bool {
 	return a.Version == b.Version && a.Branch == b.Branch && slices.Equal(a.Components, b.Components)
 }
 
-func (s *Session) saveDashboards() {
+// runDashboardWriter serializes checkpoints and flushes after monitoring stops.
+func (s *Session) runDashboardWriter(stop <-chan struct{}) {
+	ticker := time.NewTicker(dashboardSaveInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			s.flushDashboards()
+		case <-stop:
+			s.flushDashboards()
+			return
+		}
+	}
+}
+
+func (s *Session) flushDashboards() {
+	s.mu.Lock()
+	if !s.dashboardDirty {
+		s.mu.Unlock()
+		return
+	}
+	file := s.dashboards
+	// Profile updates replace their observations, so the nested values stay immutable.
+	file.Profiles = maps.Clone(file.Profiles)
+	s.dashboardDirty = false
+	s.mu.Unlock()
+
 	path := s.options.ReleaseState.path + ".observations.json"
+	err := writeStateJSON(path, file, "")
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	message := ""
-	if err := writeStateJSON(path, s.dashboards); err != nil {
+	if err != nil {
+		s.dashboardDirty = true
 		message = err.Error()
 	}
 	s.recordReadResult(release.Target{}, "dashboard-state", message, "saved dashboard observations")
@@ -86,7 +120,7 @@ func (s *Session) storeDashboard(saved dashboardState) {
 		return
 	}
 	s.dashboards.Profiles[s.activeProfile] = saved
-	s.saveDashboards()
+	s.dashboardDirty = true
 }
 
 // historicalEvidence keeps verification and attempt times separate on a display copy.

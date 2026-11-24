@@ -109,7 +109,6 @@ type (
 		mu sync.Mutex
 		*releaseWork
 		profiles      map[string]*releaseWork
-		dashboards    dashboardFile
 		activeProfile string
 		generation    uint64
 		workRevision  uint64
@@ -124,6 +123,9 @@ type (
 		options       Options
 		changed       chan struct{}
 		monitorCancel context.CancelFunc
+
+		dashboards     dashboardFile
+		dashboardDirty bool
 	}
 	releaseWork struct {
 		config           release.Config
@@ -775,11 +777,16 @@ func cloneRepository(r release.Repository) release.Repository {
 
 // Run keeps monitoring independently of browser connections and cancels old contexts.
 func (s *Session) Run(ctx context.Context) {
-	var health sync.WaitGroup
-	if !s.options.Profiles && s.options.KonfluxProbe != nil {
-		health.Go(func() { s.monitorKonfluxHealth(ctx) })
+	var background sync.WaitGroup
+	defer background.Wait()
+	if s.options.Profiles {
+		stop := make(chan struct{})
+		background.Go(func() { s.runDashboardWriter(stop) })
+		defer close(stop)
 	}
-	defer health.Wait()
+	if !s.options.Profiles && s.options.KonfluxProbe != nil {
+		background.Go(func() { s.monitorKonfluxHealth(ctx) })
+	}
 	defer func() { s.dispatcher.Stop(); s.mu.Lock(); s.drain(); s.mu.Unlock() }()
 	for {
 		select {

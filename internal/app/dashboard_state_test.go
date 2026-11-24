@@ -1,11 +1,13 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"release-assistant/internal/dispatch"
@@ -66,6 +68,7 @@ func TestDashboardRestartsInactiveThenRefreshesIndependently(t *testing.T) {
 	}
 	inventory := release.Inventory{ReleaseVersion: config.Version, Versions: map[string]string{fact.Name: tag}, Images: []release.Image{image}}
 	s.publishImageInventory(inventory, map[string]string{fact.Name: tag}, false, nil, true)
+	s.flushDashboards()
 	if _, err := os.Stat(path + ".observations.json"); err != nil {
 		t.Fatal(err)
 	}
@@ -143,6 +146,7 @@ func TestDashboardRestartsInactiveThenRefreshesIndependently(t *testing.T) {
 	if row.Present != release.No || !row.Evidence.Fresh() || !row.Evidence.At.Equal(missing.Evidence.At) {
 		t.Fatalf("confirmed absence failed to replace saved success: %+v", row)
 	}
+	s.flushDashboards()
 	state, err = OpenReleaseState(path, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -223,6 +227,7 @@ func TestSavedRCResultsSurviveFailedComparisonAndYieldToVerifiedAbsence(t *testi
 
 	checkpoint := func() *Session {
 		t.Helper()
+		s.flushDashboards()
 		state, err := OpenReleaseState(path, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -250,4 +255,61 @@ func TestSavedRCResultsSurviveFailedComparisonAndYieldToVerifiedAbsence(t *testi
 		len(view.Inventory.ReleaseImages) != 0 || len(view.Plans) != 0 {
 		t.Fatalf("verified absence revived the old RC: %+v", view)
 	}
+}
+
+func TestDashboardWriterBatchesUpdatesAndFlushesOnShutdown(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	state, err := OpenReleaseState(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := configuration()
+	if err := state.SetInitialRelease(config, false); err != nil {
+		t.Fatal(err)
+	}
+	assertSavedHead := func(t *testing.T, want string) {
+		t.Helper()
+		data, err := os.ReadFile(path + ".observations.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var file dashboardFile
+		if err := json.Unmarshal(data, &file); err != nil {
+			t.Fatal(err)
+		}
+		if got := file.Profiles[state.file.ActiveProfile].Repositories["acs"].Head; got != want {
+			t.Fatalf("saved head = %q, want %q", got, want)
+		}
+	}
+	synctest.Test(t, func(t *testing.T) {
+		_, f := newFixture()
+		s := New(f, f, f, dispatch.New(f, f, f, dispatch.Options{}), nil,
+			Options{Profiles: true, ReleaseState: state})
+		stop, stopped := make(chan struct{}), make(chan struct{})
+		go func() {
+			defer close(stopped)
+			s.runDashboardWriter(stop)
+		}()
+		defer func() {
+			close(stop)
+			<-stopped
+		}()
+		setHead := func(head string) {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			s.observeDashboardRepo(release.Repository{Source: config.ACS(), Head: head, Evidence: observed()}, false, "")
+		}
+		synctest.Wait()
+		setHead("first")
+		setHead("second")
+		if _, err := os.Stat(path + ".observations.json"); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("checkpoint was written before the first tick: %v", err)
+		}
+		time.Sleep(dashboardSaveInterval)
+		synctest.Wait()
+		assertSavedHead(t, "second")
+		setHead("third")
+		assertSavedHead(t, "second")
+	})
+	assertSavedHead(t, "third")
 }

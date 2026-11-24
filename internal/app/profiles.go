@@ -251,7 +251,7 @@ func (s *Session) applyProfile(a Action) error {
 	if saved, ok := s.dashboards.Profiles[profile.ID]; ok &&
 		(a.Kind == "remove-release" || a.Kind == "configure" && !sameDashboardConfig(saved.Config, next.Profiles[idx].Config)) {
 		delete(s.dashboards.Profiles, profile.ID)
-		s.saveDashboards()
+		s.dashboardDirty = true
 	}
 	if a.Kind == "configure" && profile.ID == s.activeProfile {
 		if slices.Equal(s.config.Components, a.Config.Components) && s.config.Version == a.Config.Version && s.config.Branch == a.Config.Branch {
