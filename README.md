@@ -236,8 +236,8 @@ In **Settings** under **Concurrent GitHub reads**, **First 5 minutes** accepts 1
 Pass `-v` to show Debug messages in the terminal and the dashboard **Log** tab. Debug messages are hidden by default. With this flag, each outbound API request produces one line with the originating release (or `[app]`), the system, HTTP method, and resource path. The assistant omits query strings. For Quay storage redirects, it logs the original resource with a `(redirect)` suffix. For `ci-retest`, pass `-v` before the target list to send these lines to stderr.
 
 ```sh
-grep -F 'Debug: Calling API:' assistant.log
-grep -F 'Debug: Calling API: [5.0.1] GitHub GET /repos/stackrox/stackrox/pulls/23956' assistant.log
+grep -F 'Calling API:' assistant.log
+grep -F 'Debug: [5.0.1] Calling API: GitHub GET /repos/stackrox/stackrox/pulls/23956' assistant.log
 ```
 
 GitHub discovery reuses commit history in memory by default and logs cache hits at Debug level. In **Settings**, uncheck **Reuse GitHub commit history in memory** and select **Save cache settings** to turn it off and empty the cache. **Clear cache** empties it without changing the setting. A restart starts with an empty, enabled cache.

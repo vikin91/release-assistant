@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"release-assistant/internal/apilog"
 	"release-assistant/internal/app"
 	"release-assistant/internal/dispatch"
 	"release-assistant/internal/github"
@@ -1002,6 +1003,22 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 	}
 	if !strings.Contains(body, `href="https://quay.io/repository/fixture/fact?tag=3.25.1"`) {
 		t.Fatal("image evidence must link to the exact tag")
+	}
+}
+
+func TestAPILogPutsReleaseAfterLevel(t *testing.T) {
+	var terminal bytes.Buffer
+	log := app.NewLog(&terminal, true)
+	log.CallingAPIWithContext(apilog.WithRelease(t.Context(), "4.11.8"), "GitHub", "GET", "/repos/stackrox/stackrox")
+	log.CallingAPIWithContext(t.Context(), "Konflux", "GET", "/apis")
+	browser := activityText(app.Snapshot{LogEntries: log.Recent()})
+	for _, want := range []string{
+		"Debug: [4.11.8] Calling API: GitHub GET /repos/stackrox/stackrox",
+		"Debug: [app] Calling API: Konflux GET /apis",
+	} {
+		if !strings.Contains(terminal.String(), want) || !strings.Contains(browser, want) {
+			t.Errorf("expected %q in both terminal and browser activity", want)
+		}
 	}
 }
 

@@ -51,18 +51,19 @@ func NewLog(w io.Writer, debug bool) *Log { return &Log{output: w, debug: debug}
 
 // CallingAPI records an outbound HTTP attempt in the terminal and browser activity logs.
 func (l *Log) CallingAPI(system, method, resource string) {
-	l.Append(Record{
-		At: time.Now(), Decision: "api-call", Origin: "system",
-		message: fmt.Sprintf("Calling API: %s %s %s", system, method, resource),
-	})
+	l.callingAPI("", system, method, resource)
 }
 
 // CallingAPIWithContext records the release that initiated an outgoing request.
 func (l *Log) CallingAPIWithContext(ctx context.Context, system, method, resource string) {
-	version := cmp.Or(apilog.Release(ctx), "app")
+	l.callingAPI(cmp.Or(apilog.Release(ctx), "app"), system, method, resource)
+}
+
+func (l *Log) callingAPI(version, system, method, resource string) {
 	l.Append(Record{
 		At: time.Now(), Release: version, Decision: "api-call", Origin: "system",
-		message: fmt.Sprintf("Calling API: [%s] %s %s %s", version, system, method, resource),
+		message: fmt.Sprintf("Calling API: %s %s %s", system, method, resource),
+		labeled: version != "",
 	})
 }
 
@@ -117,7 +118,7 @@ func (l *Log) append(r Record) error {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	r.labeled = l.releaseLabels
+	r.labeled = r.labeled || l.releaseLabels
 	if len(l.recent) == maxRecentRecords {
 		l.recent = slices.Delete(l.recent, 0, 1)
 	}
@@ -126,11 +127,7 @@ func (l *Log) append(r Record) error {
 	stamp := r.At.Format(time.RFC3339)
 	fmt.Fprintf(&text, "%s %s: %s\n", stamp, level, strings.ReplaceAll(r.DisplayMessage(), "\n", "\n    "))
 	if l.debug && r.Payload != "" && r.Decision != "image" {
-		prefix := ""
-		if r.labeled {
-			prefix = "[" + cmp.Or(r.Release, "app") + "] "
-		}
-		fmt.Fprintf(&text, "%s Debug: %sRetry comment for %s:\n    %s\n", stamp, prefix, consoleRevision(r.Target, r.SHA), strings.ReplaceAll(r.Payload, "\n", "\n    "))
+		fmt.Fprintf(&text, "%s Debug: %sRetry comment for %s:\n    %s\n", stamp, r.releasePrefix(), consoleRevision(r.Target, r.SHA), strings.ReplaceAll(r.Payload, "\n", "\n    "))
 	}
 	if l.output != nil {
 		n, err := io.WriteString(l.output, text.String())
@@ -146,13 +143,16 @@ func (l *Log) append(r Record) error {
 // Message describes a decision independently of its release attribution.
 func (r Record) Message() string { return recordMessage(r) }
 
-// DisplayMessage includes release attribution when the app tracks profiles.
+// DisplayMessage prefixes the message with its release attribution when enabled.
 func (r Record) DisplayMessage() string {
-	message := r.Message()
-	if r.Decision == "api-call" || !r.labeled {
-		return message
+	return r.releasePrefix() + r.Message()
+}
+
+func (r Record) releasePrefix() string {
+	if !r.labeled {
+		return ""
 	}
-	return "[" + cmp.Or(r.Release, "app") + "] " + message
+	return "[" + cmp.Or(r.Release, "app") + "] "
 }
 
 // Level reports the severity shared by console and browser activity.
