@@ -74,6 +74,12 @@ func New(application Application) (http.Handler, error) {
 			}
 			return "/action?release=" + url.QueryEscape(id)
 		},
+		"activationForm": func(page pageModel, id, tab string) any {
+			return struct {
+				Page           pageModel
+				ProfileID, Tab string
+			}{page, id, tab}
+		},
 		"releaseLink": func(p pageModel, profile app.ReleaseProfile) any {
 			return struct {
 				Page    pageModel
@@ -255,7 +261,7 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 		if page.Profiles {
 			action.ProfileID = rand.Text()
 		}
-	case "configure", "open-release", "remove-release":
+	case "configure", "open-release", "activate-release", "remove-release":
 		action.ProfileID = profileID
 	}
 	if err := s.app.Apply(r.Context(), action); err != nil {
@@ -272,7 +278,11 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 	case "remove-release":
 		destination = "/"
 	case "open-release":
-		destination = profilePageURL(profileID, "")
+		destination = profilePageURL(profileID, r.PostForm.Get("tab"))
+	case "activate-release":
+		if tab := r.PostForm.Get("tab"); tab != "" {
+			destination = profilePageURL(profileID, validTab(tab))
+		}
 	case "configure":
 		destination = "/?tab=settings&saved=configuration#configuration-panel"
 		if profiles, ok := s.app.(profileApplication); ok && page.Profiles {
@@ -295,7 +305,7 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 	case "check-pr-retries":
 		destination += "#" + prRetryAnchor(action.Target)
 	}
-	if page.ProfileID != "" && action.Kind != "open-release" && action.Kind != "remove-release" && action.Kind != "add-release" {
+	if page.ProfileID != "" && action.Kind != "open-release" && action.Kind != "activate-release" && action.Kind != "remove-release" && action.Kind != "add-release" {
 		location, err := url.Parse(destination)
 		if err != nil {
 			http.Error(w, "invalid redirect", http.StatusInternalServerError)
@@ -410,8 +420,15 @@ func (s *server) makePage(token, message, profileID, tab string, configuring boo
 		if home || paused {
 			snapshot = s.app.Snapshot()
 		}
+		settingsGeneration := snapshot.Generation
+		inactive := found && snapshot.Config.Version != "" && !snapshot.Monitoring
+		if inactive {
+			// An unscoped workflow form must never act on the active release when submitted from a paused view.
+			snapshot.Generation = 0
+		}
 		page := makePage(snapshot, token, message)
-		page.Profiles, page.Home, page.Paused = true, home, paused
+		page.Profiles, page.Home, page.Paused, page.ViewingInactive = true, home, paused, inactive
+		page.SettingsGeneration = settingsGeneration
 		page.ProfileID, page.ActiveProfile = profileID, active
 		page.ReleaseProfiles, page.ProfileWarnings = saved, warnings
 		page.Tab = validTab(tab)
@@ -432,7 +449,7 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 	form := r.Form
 	a := app.Action{Kind: form.Get("kind"), Target: release.Target{Repo: form.Get("repo")}, SHA: form.Get("sha"), ID: form.Get("id")}
 	switch a.Kind {
-	case "add-release", "open-release", "remove-release":
+	case "add-release", "open-release", "activate-release", "remove-release":
 		return a, nil
 	case "configure":
 		if form.Has("generation") {

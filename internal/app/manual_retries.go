@@ -13,7 +13,7 @@ import (
 
 // manualRetryHeads selects current target identities independently of Konflux or write permission.
 // The caller holds the session lock.
-func (s *Session) manualRetryHeads(repo release.Repository) map[release.Target]string {
+func (s *releaseWork) manualRetryHeads(repo release.Repository) map[release.Target]string {
 	heads := make(map[release.Target]string)
 	includePR := func(pr release.PR) {
 		if s.choices.PRs[pr.Target] != release.Included || pr.State != "open" || pr.Merged ||
@@ -46,12 +46,12 @@ func checksWithoutFailures(pr release.PR) bool {
 }
 
 // currentManualRetries copies only reports still backed by the current selection and revision.
-func (s *Session) currentManualRetries(repo release.Repository) []release.ManualRetryReport {
+func (s *releaseWork) currentManualRetries(repo release.Repository, hasReader bool) []release.ManualRetryReport {
 	var reports []release.ManualRetryReport
 	for t, sha := range s.manualRetryHeads(repo) {
 		r, ok := s.manualRetries[t]
 		if !ok || r.SHA != sha {
-			if repo.Source.Name == "acs" && t.PR > 0 && s.options.ManualRetries != nil {
+			if repo.Source.Name == "acs" && t.PR > 0 && hasReader {
 				reports = append(reports, release.ManualRetryReport{Target: t, SHA: sha, Pending: true})
 			}
 			continue

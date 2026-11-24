@@ -78,6 +78,8 @@ type (
 		PendingPinningPR int
 		// Loading keeps the dashboard refreshing during startup and while included ACS PRs await CI results.
 		Loading bool
+		// Monitoring reports whether this snapshot comes from the active release.
+		Monitoring bool
 		// ResumedAt identifies the latest activation of previously observed work.
 		ResumedAt time.Time
 		// RefreshingResumed reports overdue observations that survived a release switch.
@@ -194,7 +196,7 @@ func New(d Discoverer, p Planner, i Inspector, dispatcher *dispatch.Dispatcher, 
 			s.errorText = err.Error()
 		} else {
 			s.restorePRChoices()
-			s.restoreComponentTags()
+			s.restoreComponentTags(s.options.ReleaseState)
 			if !o.PinningPROverride && s.config.PinningPR == 0 && !s.config.DetectPinningPR {
 				s.pendingPinningPR = o.ReleaseState.restorePinningChoice(&s.config)
 			}
@@ -265,7 +267,7 @@ func (s *Session) recordReadResult(target release.Target, operation, message str
 
 // Apply validates configuration and enforces session actions independently of the UI.
 func (s *Session) Apply(ctx context.Context, a Action) error {
-	if s.options.Profiles && (a.Kind == "add-release" || a.Kind == "remove-release" || a.Kind == "open-release" || a.Kind == "configure") {
+	if s.options.Profiles && (a.Kind == "add-release" || a.Kind == "remove-release" || a.Kind == "open-release" || a.Kind == "activate-release" || a.Kind == "configure") {
 		return s.applyProfile(a)
 	}
 	if a.Kind == "use-pinning-pr" {
@@ -280,9 +282,9 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		return fmt.Errorf("page belongs to an earlier configuration; reload")
 	}
 	shared := a.Kind == "clear-cache" || (a.Kind == "application-settings" && a.Interactive == nil && a.RequirePRLabel == nil)
-	if s.options.Profiles && a.ProfileID != "" && a.ProfileID != s.activeProfile && !shared {
+	if !s.targetsActiveProfile(a.ProfileID) && !shared {
 		s.mu.Unlock()
-		return fmt.Errorf("this release is not active; reopen it to continue")
+		return fmt.Errorf("activate this release to continue")
 	}
 	ctx = apilog.WithRelease(ctx, s.config.Version)
 	if a.Kind == "queue-send" || a.Kind == "queue-skip" {
@@ -315,7 +317,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		s.pendingPinningPR = pendingPinningPR
 		if !sameContext {
 			s.restorePRChoices()
-			s.restoreComponentTags()
+			s.restoreComponentTags(s.options.ReleaseState)
 		}
 		if pinChanged {
 			s.includePinningPR()
@@ -612,60 +614,72 @@ func (s *Session) hasTarget(t release.Target) bool {
 func (s *Session) Snapshot() Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.snapshot()
+	return s.snapshot(s.releaseWork, true)
 }
 
-func (s *Session) snapshot() Snapshot {
-	c := s.config
+func (s *Session) snapshot(work *releaseWork, active bool) Snapshot {
+	c := work.config
 	c.Components = slices.Clone(c.Components)
-	choices := s.choices
+	choices := work.choices
 	choices.PRs = maps.Clone(choices.PRs)
 	choices.Tags = maps.Clone(choices.Tags)
 	choices.Acknowledged = maps.Clone(choices.Acknowledged)
 	x := Snapshot{
-		RefreshIntervals: maps.Clone(s.options.RefreshIntervals), Config: c, Choices: choices, Error: s.errorText, Generation: s.generation,
-		PendingPinningPR: s.pendingPinningPR, ResumedAt: s.resumedAt, RefreshingResumed: s.hasOverdueObservations(),
-		Interactive: s.dispatcher.IsInteractive(), RequirePRLabel: s.dispatcher.RequiresPRLabel(), WritesEnabled: s.dispatcher.WritesEnabled(),
-		Authority: s.dispatcher.Views(), PRRetryChecks: make(map[release.Target]PRRetryCheck, len(s.prRetryChecks)),
+		RefreshIntervals: maps.Clone(s.options.RefreshIntervals), Config: c, Choices: choices, Error: work.errorText, Generation: s.generation,
+		PendingPinningPR: work.pendingPinningPR, ResumedAt: work.resumedAt,
+		Monitoring: active, Interactive: true, PRRetryChecks: make(map[release.Target]PRRetryCheck, len(work.prRetryChecks)),
 	}
-	if len(s.pendingTags) > 0 {
-		x.PendingTags = make(map[string]string, len(s.pendingTags))
-		for component, saved := range s.pendingTags {
+	if active {
+		x.Interactive, x.RequirePRLabel = s.dispatcher.IsInteractive(), s.dispatcher.RequiresPRLabel()
+		x.WritesEnabled, x.Authority = s.dispatcher.WritesEnabled(), s.dispatcher.Views()
+		x.RefreshingResumed = s.hasOverdueObservations()
+	}
+	if len(work.pendingTags) > 0 {
+		x.PendingTags = make(map[string]string, len(work.pendingTags))
+		for component, saved := range work.pendingTags {
 			x.PendingTags[component] = saved.Tag
 		}
 	}
-	for target, check := range s.prRetryChecks {
+	for target, check := range work.prRetryChecks {
 		check.Konflux = clonePlan(check.Konflux)
 		check.CI = cloneManualRetryReport(check.CI)
 		x.PRRetryChecks[target] = check
 	}
 	s.fillSharedSnapshot(&x)
-	if c.Validate() == nil {
+	if active && c.Validate() == nil {
 		for _, source := range append([]release.Source{c.ACS()}, c.Components...) {
-			if !s.initiallyLoaded[source.Name] || (s.repos[source.Name].TagsPending && s.choices.Tags[source.Name] == "" && s.duringStartup()) {
+			if !work.initiallyLoaded[source.Name] || (work.repos[source.Name].TagsPending && work.choices.Tags[source.Name] == "" && s.duringStartup()) {
 				x.Loading = true
 				break
 			}
 		}
 	}
-	for _, cycle := range s.history {
+	for _, cycle := range work.history {
 		cycle.Images = slices.Clone(cycle.Images)
 		cycle.Plan = clonePlan(cycle.Plan)
 		x.History = append(x.History, cycle)
 	}
-	for _, r := range s.repos {
-		x.ManualRetries = append(x.ManualRetries, s.currentManualRetries(r)...)
+	for _, r := range work.repos {
+		x.ManualRetries = append(x.ManualRetries, work.currentManualRetries(r, active && s.options.ManualRetries != nil)...)
 		x.Repositories = append(x.Repositories, cloneRepository(r))
 		for _, pr := range r.PRs {
-			if s.pendingPRChecks[pr.Target] && pr.State == "open" && pr.Evidence.Fresh() {
+			if active && work.pendingPRChecks[pr.Target] && pr.State == "open" && pr.Evidence.Fresh() {
 				x.Loading = true
 			}
 		}
 	}
 	slices.SortFunc(x.ManualRetries, func(a, b release.ManualRetryReport) int { return strings.Compare(a.Target.String(), b.Target.String()) })
-	s.syncRetestQueue(x.Authority, x.ManualRetries)
-	x.RetestQueue = slices.Clone(s.retestQueue)
-	x.RetestLog = slices.Clone(s.retestLog)
+	if active {
+		s.syncRetestQueue(x.Authority, x.ManualRetries)
+	}
+	x.RetestQueue = slices.Clone(work.retestQueue)
+	if !active {
+		for i := range x.RetestQueue {
+			x.RetestQueue[i].Sending = false
+			x.RetestQueue[i].Blocked = "Activate this release to send retries."
+		}
+	}
+	x.RetestLog = slices.Clone(work.retestLog)
 	x.Loading = x.Loading || slices.ContainsFunc(x.ManualRetries, func(r release.ManualRetryReport) bool { return r.Pending })
 	slices.SortFunc(x.Repositories, func(a, b release.Repository) int {
 		if a.Source.Name < b.Source.Name {
@@ -673,17 +687,17 @@ func (s *Session) snapshot() Snapshot {
 		}
 		return 1
 	})
-	x.Plans = s.plansForDisplay()
+	x.Plans = work.plansForDisplay()
 	slices.SortFunc(x.Plans, func(a, b release.Plan) int {
 		if a.Target.String() < b.Target.String() {
 			return -1
 		}
 		return 1
 	})
-	x.Inventory = s.inventory
-	x.Inventory.Versions = maps.Clone(s.inventory.Versions)
-	x.Inventory.Images = slices.Clone(s.inventory.Images)
-	x.Inventory.ReleaseImages = slices.Clone(s.inventory.ReleaseImages)
+	x.Inventory = work.inventory
+	x.Inventory.Versions = maps.Clone(work.inventory.Versions)
+	x.Inventory.Images = slices.Clone(work.inventory.Images)
+	x.Inventory.ReleaseImages = slices.Clone(work.inventory.ReleaseImages)
 	x.Assessment = release.Assess(release.Input{Config: c, Choices: choices, Repositories: x.Repositories, Inventory: x.Inventory})
 	return x
 }

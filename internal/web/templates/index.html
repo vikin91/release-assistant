@@ -11,26 +11,30 @@
 <body{{if .Home}} data-home="true"{{end}}{{if .Profiles}} data-profile="{{.ProfileID}}"{{end}} data-configured="{{.Configured}}" data-active-tab="{{.Tab}}" data-session="{{.CSRF}}:{{.Snapshot.Generation}}" data-loading="{{and .Configured .Snapshot.Loading}}"{{with .Snapshot.KonfluxHealth}} data-konflux-health="{{if .CheckedAt.IsZero}}pending{{else if .Healthy}}healthy{{else}}unverified{{end}}"{{end}}>
 <span id="new-tab-description" hidden>Opens in a new tab</span>
 <header class="topbar">
-  {{if .Profiles}}
+  {{if and .Profiles .ReleaseProfiles}}
   <nav class="release-switcher" aria-label="Tracked releases">
     {{if .ReleaseProfiles}}<div class="release-tabs">
     {{range .ReleaseProfiles}}
       {{template "open-release" (releaseLink $ .)}}
     {{end}}
     </div>{{end}}
-    <form method="post" action="/action" class="release-add">
-      <input type="hidden" name="csrf" value="{{.CSRF}}">
-      <button type="submit" name="kind" value="add-release">{{template "nav-icon" "plus"}}Add release</button>
-    </form>
   </nav>
   {{end}}
   <button type="button" class="drawer-toggle" popovertarget="release-navigation" aria-label="Open release navigation">{{template "nav-icon" "menu"}}</button>
   {{if $home}}<div class="release-identity"></div>{{else}}
   <div class="release-identity"><h1>{{if .Configured}}ACS {{.Snapshot.Config.Version}}{{else if .ProfileID}}Unconfigured release{{else}}{{.Title}}{{end}}</h1>{{if .Configured}}<code>{{.Snapshot.Config.Branch}}</code>{{end}}</div>
   {{end}}
+  {{if and .Profiles .Configured .ProfileID (not $home)}}
+    {{if .ViewingInactive}}
+    <span class="pill muted">Inactive</span>
+    {{template "activate-release" (activationForm . .ProfileID .Tab)}}
+    {{else}}
+    <span class="pill good">Active</span>
+    {{end}}
+  {{end}}
   {{template "konflux-status" .}}
   {{if .Profiles}}{{template "header-github-budget" .}}{{end}}
-  {{if and (not $home) (or .Configured (not .Profiles))}}
+  {{if and (not $home) (not .ViewingInactive) (or .Configured (not .Profiles))}}
   <details data-fold-key="write-mode" name="header-menu" class="header-menu">
     <summary>Write mode · {{if not .Snapshot.WritesEnabled}}Read-only{{else if .Snapshot.Interactive}}Interactive{{if .Snapshot.RequirePRLabel}} · Only labeled{{end}}{{else if .Snapshot.RequirePRLabel}}Only labeled{{else}}Full auto{{end}}</summary>
     <div class="menu-content write-mode-help">
@@ -90,13 +94,18 @@
 {{else}}
 <main>
   <div id="form-error" class="notice error" role="alert" data-live-preserve{{if not .Error}} hidden{{end}}>{{.Error}}</div>
+  {{if .ViewingInactive}}<p class="notice">Monitoring is paused for this release. Activate it to refresh its data and use release actions.</p>{{end}}
   {{if .Snapshot.RefreshingResumed}}
   <p class="notice" id="resumed-release" role="status">Showing saved observations while overdue checks refresh.</p>
   {{end}}
   {{if or .Configured .ProfileID}}
   {{range $tab := (slice "component-prs" "component-releases" "acs-prs" "acs-rcs")}}
   <section id="panel-{{$tab}}" class="workflow-panel" role="tabpanel" aria-labelledby="tab-{{$tab}}" data-workflow-panel="{{$tab}}" tabindex="0"{{if ne $.Tab $tab}} hidden{{end}}>
-    {{if $.Configured}}{{template "workflow-tab" (tabPage $ $tab)}}{{else}}
+    {{if $.Configured}}
+    {{if $.ViewingInactive}}<fieldset class="paused-controls" disabled>{{end}}
+    {{template "workflow-tab" (tabPage $ $tab)}}
+    {{if $.ViewingInactive}}</fieldset>{{end}}
+    {{else}}
     <h2 class="page-title">{{tabTitle $tab}}</h2>
     <p><a href="{{profilePage $.ProfileID "settings"}}" data-open-section>Configure this release</a> to start monitoring.</p>
     {{end}}
@@ -115,7 +124,9 @@
   </section>
   </section>
   <section id="panel-retest-queue" class="workflow-panel" role="tabpanel" aria-labelledby="tab-retest-queue" data-workflow-panel="retest-queue" tabindex="0"{{if ne .Tab "retest-queue"}} hidden{{end}}>
+    {{if .ViewingInactive}}<fieldset class="paused-controls" disabled>{{end}}
     {{template "retest-queue" .}}
+    {{if .ViewingInactive}}</fieldset>{{end}}
   </section>
   <section id="panel-settings" class="workflow-panel" role="tabpanel" aria-labelledby="tab-settings" data-workflow-panel="settings" tabindex="0"{{if ne .Tab "settings"}} hidden{{end}}>
   <h2 class="page-title">Settings</h2>

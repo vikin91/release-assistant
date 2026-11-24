@@ -104,10 +104,19 @@ func statePRTarget(key string) release.Target {
 }
 
 func (s *Session) restorePRChoices() {
-	if s.options.ReleaseState == nil {
+	s.releaseWork.restorePRChoices(s.options.ReleaseState)
+	for target, choice := range s.choices.PRs {
+		if choice == release.Excluded || choice == release.Ignored {
+			s.dispatcher.Ignore(target, true)
+		}
+	}
+}
+
+func (s *releaseWork) restorePRChoices(state *ReleaseState) {
+	if state == nil {
 		return
 	}
-	choices := s.options.ReleaseState.file.Releases[strings.TrimPrefix(s.config.Version, "v")]
+	choices := state.file.Releases[strings.TrimPrefix(s.config.Version, "v")]
 	for key, choice := range choices {
 		target := statePRTarget(key)
 		if target.Repo != s.config.ACS().Repo && !slices.ContainsFunc(s.config.Components, func(source release.Source) bool {
@@ -116,9 +125,6 @@ func (s *Session) restorePRChoices() {
 			continue
 		}
 		s.choices.PRs[target] = choice
-		if choice == release.Excluded || choice == release.Ignored {
-			s.dispatcher.Ignore(target, true)
-		}
 	}
 }
 

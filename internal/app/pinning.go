@@ -125,7 +125,7 @@ func (s *Session) confirmPinningPR(ctx context.Context, a Action) error {
 			return pr.Target == a.Target && pr.Base == source.Branch && pr.SHA == a.SHA
 		})
 	}
-	if a.Generation != s.generation || a.Target.Repo != source.Repo || !a.Target.Valid() || a.Target.PR <= 0 || a.SHA == "" || !reviewed() {
+	if a.Generation != s.generation || !s.targetsActiveProfile(a.ProfileID) || a.Target.Repo != source.Repo || !a.Target.Valid() || a.Target.PR <= 0 || a.SHA == "" || !reviewed() {
 		s.mu.Unlock()
 		return fmt.Errorf("PR evidence changed; review the current ACS release PR list")
 	}

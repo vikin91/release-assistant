@@ -17,7 +17,8 @@ import (
 type (
 	pageModel struct {
 		Title, CSRF, Error                                       string
-		Profiles, Home, Paused                                   bool
+		Profiles, Home, Paused, ViewingInactive                  bool
+		SettingsGeneration                                       uint64
 		ProfileID, ActiveProfile                                 string
 		ReleaseProfiles                                          []app.ReleaseProfile
 		ProfileWarnings                                          []string
@@ -139,7 +140,7 @@ func (p pageModel) AutomaticRetryPermissions() bool {
 
 func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 	model := pageModel{
-		CSRF: csrf, Error: errText, Snapshot: snapshot, Tab: "component-prs",
+		CSRF: csrf, Error: errText, Snapshot: snapshot, Tab: "component-prs", SettingsGeneration: snapshot.Generation,
 		ConfiguredSources: make(map[string]release.Source),
 		ConfigForm: url.Values{
 			"version": {snapshot.Config.Version}, "branch": {snapshot.Config.Branch}, "pinning_pr": {""},

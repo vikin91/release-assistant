@@ -25,11 +25,11 @@ func (s *ReleaseState) saveComponentTag(version string, source release.Source, t
 	return s.commit(next)
 }
 
-func (s *Session) restoreComponentTags() {
-	if s.options.ReleaseState == nil {
+func (s *releaseWork) restoreComponentTags(state *ReleaseState) {
+	if state == nil {
 		return
 	}
-	tags := s.options.ReleaseState.file.ComponentTags[strings.TrimPrefix(s.config.Version, "v")]
+	tags := state.file.ComponentTags[strings.TrimPrefix(s.config.Version, "v")]
 	for _, source := range s.config.Components {
 		saved, ok := tags[source.Name]
 		if !ok || saved.Repo != source.Repo || saved.Branch != source.Branch {

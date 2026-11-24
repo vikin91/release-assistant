@@ -219,7 +219,7 @@ test("explicit navigation opens and stores a section; same-hash reload preserves
   const page = makePage({ sections: [target], storage: savedState({ "repo-target": false }) });
   page.links.push(emitter({ hash: "#repo-target" }));
   page.start();
-  page.document.emit("click", { target: { closest: () => page.links[0] }, preventDefault() {} });
+  page.document.emit("click", { target: { closest: (selector) => selector === "[data-open-section]" ? page.links[0] : null }, preventDefault() {} });
   assert.equal(target.open, true);
   assert.deepEqual(page.stored(), { "repo-target": true });
 
@@ -711,4 +711,14 @@ test("restores the selected release's last screen and refreshes that profile", (
   assert.equal(page.document.body.dataset.activeTab, "acs-rcs");
   assert.equal(page.window.location.search, "?release=profile-a&tab=acs-rcs");
   assert.deepEqual(requests, ["/?release=profile-a&tab=acs-rcs"]);
+});
+
+test("Remove opens the matching release confirmation dialog", () => {
+  const first = emitter({ id: "remove-first", dataset: {}, showModal() { assert.fail("opened the wrong release"); } });
+  const second = emitter({ id: "remove-second", dataset: {}, showModal() { this.open = true; } });
+  const remove = { getAttribute: (name) => name === "aria-controls" ? second.id : null };
+  const page = makePage({ sections: [first, second] });
+  page.start();
+  page.document.emit("click", { target: { closest: (selector) => selector === "[data-confirm-remove]" ? remove : null } });
+  assert.equal(second.open, true);
 });

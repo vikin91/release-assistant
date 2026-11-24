@@ -2,7 +2,7 @@
 <section id="configuration-panel" class="panel settings-panel" aria-labelledby="setup-heading" data-live-preserve>
   <form method="post" action="{{profileAction .ProfileID}}" data-saved-config="{{.SavedConfigForm}}">
     <input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="kind" value="configure">
-    {{if .Profiles}}<input type="hidden" name="generation" value="{{.Snapshot.Generation}}">{{end}}
+    {{if .Profiles}}<input type="hidden" name="generation" value="{{.SettingsGeneration}}">{{end}}
     <table class="settings-table configuration-table" aria-labelledby="setup-heading">
       <colgroup><col><col class="settings-control-column"></colgroup>
       <thead><tr><th colspan="2"><h3 id="setup-heading">{{if .Configured}}Release configuration{{else}}Configure release{{end}}</h3>
@@ -43,7 +43,7 @@
 {{define "settings-navigation"}}
 <nav class="settings-navigation" aria-label="Settings sections">
   <a href="#configuration-panel">{{if .Configured}}Release configuration{{else}}Configure release{{end}}</a>
-  {{if .Configured}}<a href="#retry-settings">GitHub writes</a>{{end}}
+  {{if and .Configured (not .ViewingInactive)}}<a href="#retry-settings">GitHub writes</a>{{end}}
   {{if .Snapshot.StartupReadLimit}}<a href="#github-read-settings">Concurrent GitHub reads</a>{{end}}
   {{if .Snapshot.CacheAvailable}}<a href="#cache-settings">Discovery cache</a>{{end}}
   {{if .Snapshot.RefreshIntervals}}<a href="#refresh-settings">Refresh intervals</a>{{end}}
@@ -53,11 +53,11 @@
 {{define "settings-fields"}}
   <input type="hidden" name="tab" value="settings">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
-  <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
+  <input type="hidden" name="generation" value="{{.SettingsGeneration}}">
 {{end}}
 
 {{define "application-settings"}}
-{{if .Configured}}
+{{if and .Configured (not .ViewingInactive)}}
 <section class="panel settings-panel" id="retry-settings" aria-labelledby="retry-settings-heading">
   <form method="post" action="{{profileAction .ProfileID}}">
     {{template "settings-fields" .}}

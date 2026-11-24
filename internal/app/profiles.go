@@ -146,17 +146,28 @@ func (s *Session) ReleaseProfiles() (profiles []ReleaseProfile, active string, w
 // ProfilesEnabled reports whether the session serves release navigation.
 func (s *Session) ProfilesEnabled() bool { return s.options.Profiles }
 
+// targetsActiveProfile checks the optional scope on a release action under s.mu.
+func (s *Session) targetsActiveProfile(id string) bool {
+	return !s.options.Profiles || id == "" || id == s.activeProfile
+}
+
 // ProfileSnapshot returns the requested view without starting or switching polling.
 func (s *Session) ProfileSnapshot(id string) (Snapshot, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p, exists := profileByID(s.options.ReleaseState.file.Profiles, id)
 	if exists && s.activeProfile == id {
-		return s.snapshot(), true
+		return s.snapshot(s.releaseWork, true), true
 	}
-	x := Snapshot{Generation: s.generation, Interactive: true, RefreshIntervals: maps.Clone(s.options.RefreshIntervals)}
-	s.fillSharedSnapshot(&x)
-	return x, exists && p.Config.Version == ""
+	work := s.profiles[id]
+	if work == nil {
+		work = newReleaseWork()
+		work.config = profileConfig(p.Config)
+		work.restorePRChoices(s.options.ReleaseState)
+		work.restoreComponentTags(s.options.ReleaseState)
+		work.pendingPinningPR = s.options.ReleaseState.restorePinningChoice(&work.config)
+	}
+	return s.snapshot(work, false), exists
 }
 
 func (s *Session) applyProfile(a Action) error {
@@ -186,9 +197,15 @@ func (s *Session) applyProfile(a Action) error {
 		return fmt.Errorf("release profile no longer exists")
 	}
 	profile := next.Profiles[idx]
+	previousPinning := next.PinningPRs[profile.Config.Version]
 	switch a.Kind {
 	case "open-release":
-		if profile.Config.Version == "" || profile.ID == s.activeProfile {
+		return nil
+	case "activate-release":
+		if profile.Config.Version == "" {
+			return fmt.Errorf("save the release configuration before activating it")
+		}
+		if profile.ID == s.activeProfile {
 			return nil
 		}
 		setActiveProfile(&next, profile.ID)
@@ -209,7 +226,7 @@ func (s *Session) applyProfile(a Action) error {
 			maps.DeleteFunc(next.PinningPRs, func(version string, _ savedPinningChoice) bool { return stream(version) == key })
 		}
 	case "configure":
-		if !creating && (a.Generation != s.generation || (profile.Config.Version != "" && s.activeProfile != profile.ID)) {
+		if profile.ID == s.activeProfile && a.Generation != s.generation {
 			return fmt.Errorf("page belongs to an earlier release selection; reopen the release")
 		}
 		if err := a.Config.Validate(); err != nil {
@@ -227,7 +244,6 @@ func (s *Session) applyProfile(a Action) error {
 			storePinning(&next, a.Config)
 		}
 		next.Profiles[idx].Config = profileConfig(a.Config)
-		setActiveProfile(&next, profile.ID)
 	}
 	if err := state.commit(next); err != nil {
 		return err
@@ -241,6 +257,16 @@ func (s *Session) applyProfile(a Action) error {
 		delete(s.profiles, profile.ID)
 		s.dispatcher.Reset()
 	}
+	if a.Kind == "configure" && profile.ID != next.ActiveProfile {
+		if work := s.profiles[profile.ID]; work != nil {
+			saved := next.Profiles[idx].Config
+			if work.config.Version != saved.Version || work.config.Branch != saved.Branch || !slices.Equal(work.config.Components, saved.Components) ||
+				state.file.PinningPRs[saved.Version] != previousPinning {
+				delete(s.profiles, profile.ID)
+				s.dispatcher.ForgetRelease(profile.ID)
+			}
+		}
+	}
 	if a.Kind == "remove-release" {
 		delete(s.profiles, profile.ID)
 		if profile.ID == s.activeProfile {
@@ -248,6 +274,9 @@ func (s *Session) applyProfile(a Action) error {
 		}
 	}
 	if s.activeProfile != next.ActiveProfile {
+		if a.Kind == "activate-release" && s.activeProfile != "" {
+			s.snapshot(s.releaseWork, true)
+		}
 		s.activateProfile(next.ActiveProfile)
 	}
 	if a.Kind == "remove-release" {
@@ -292,7 +321,7 @@ func (s *Session) activateProfile(id string) {
 		if id != "" {
 			s.profiles[id] = s.releaseWork
 			s.restorePRChoices()
-			s.restoreComponentTags()
+			s.restoreComponentTags(s.options.ReleaseState)
 			s.pendingPinningPR = s.options.ReleaseState.restorePinningChoice(&s.config)
 		}
 	} else {

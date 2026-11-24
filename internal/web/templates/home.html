@@ -1,11 +1,15 @@
 {{define "open-release"}}
-<form method="post" action="/action">
+<a class="release-tab{{if eq .Page.ActiveProfile .Profile.ID}} active-release{{end}}" href="{{profilePage .Profile.ID ""}}"{{if eq .Page.ProfileID .Profile.ID}} aria-current="page"{{end}}>
+  {{.Profile.Label}}{{if eq .Page.ActiveProfile .Profile.ID}}<span class="active-dot" aria-label="Active"></span>{{end}}
+</a>
+{{end}}
+
+{{define "activate-release"}}
+<form method="post" action="/action" class="release-activation">
   <input type="hidden" name="csrf" value="{{.Page.CSRF}}">
-  <input type="hidden" name="kind" value="open-release">
-  <input type="hidden" name="profile" value="{{.Profile.ID}}">
-  <button type="submit" class="release-tab{{if eq .Page.ActiveProfile .Profile.ID}} active-release{{end}}"{{if eq .Page.ProfileID .Profile.ID}} aria-current="page"{{end}}>
-    {{.Profile.Label}}{{if eq .Page.ActiveProfile .Profile.ID}}<span class="active-dot" aria-label="Active"></span>{{end}}
-  </button>
+  <input type="hidden" name="profile" value="{{.ProfileID}}">
+  {{if .Tab}}<input type="hidden" name="tab" value="{{.Tab}}">{{end}}
+  <button type="submit" name="kind" value="activate-release">Activate release</button>
 </form>
 {{end}}
 
@@ -15,6 +19,10 @@
   {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
   {{if .Paused}}<p class="notice">Select a release to open its dashboard.</p>{{end}}
   {{range .ProfileWarnings}}<p class="notice warning" role="status">{{.}}</p>{{end}}
+  <form method="post" action="/action" class="release-add">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <button type="submit" name="kind" value="add-release">{{template "nav-icon" "plus"}}Add release</button>
+  </form>
   {{if not .ReleaseProfiles}}<p class="muted">No tracked releases yet. Select <strong>Add release</strong> to configure your first one.</p>{{end}}
   <ul class="release-list">
     {{range .ReleaseProfiles}}
@@ -23,17 +31,22 @@
         {{template "open-release" (releaseLink $ .)}}
         <p class="muted">{{if eq $.ActiveProfile .ID}}Active{{else if .LastActive.IsZero}}Inactive{{else}}Inactive · Last active {{when .LastActive}}{{end}}</p>
       </div>
+      <div class="release-actions">
+      {{if and .Config.Version (ne $.ActiveProfile .ID)}}{{template "activate-release" (activationForm $ .ID "")}}{{end}}
       {{if gt (len $.ReleaseProfiles) 1}}
-      <details class="release-remove" data-fold-key="remove-{{.ID}}">
-        <summary>Remove</summary>
-        <p>Remove {{.Label}} from tracking and delete its saved choices?</p>
-        <form method="post" action="/action">
+      <button type="button" class="release-remove" data-confirm-remove aria-controls="remove-{{.ID}}" aria-haspopup="dialog" aria-label="Remove {{.Label}}">Remove</button>
+      <dialog id="remove-{{.ID}}" class="release-remove-dialog" aria-labelledby="remove-title-{{.ID}}" aria-describedby="remove-description-{{.ID}}">
+        <h2 id="remove-title-{{.ID}}">Remove {{.Label}}?</h2>
+        <p id="remove-description-{{.ID}}">This stops tracking the release and deletes its saved choices.</p>
+        <form method="post" action="/action" class="control-row">
           <input type="hidden" name="csrf" value="{{$.CSRF}}">
           <input type="hidden" name="profile" value="{{.ID}}">
+          <button type="submit" formmethod="dialog" autofocus>Cancel</button>
           <button type="submit" name="kind" value="remove-release">Remove release</button>
         </form>
-      </details>
+      </dialog>
       {{end}}
+      </div>
     </li>
     {{end}}
   </ul>

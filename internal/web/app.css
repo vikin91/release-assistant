@@ -467,16 +467,28 @@ thead th { @apply text-xs font-medium text-muted-foreground; }
 #activity-log { background: var(--background); }
 
 .release-switcher { display: flex; flex-basis: 100%; align-items: center; gap: .6rem; min-width: 0; }
-.release-add { flex: none; margin: .2rem 0; }
-.release-add button { border-style: dashed; white-space: nowrap; }
+.release-activation { margin: 0; }
+.release-actions { display: flex; align-items: start; flex-wrap: wrap; gap: .4rem; }
+.paused-controls { display: contents; }
 .release-logo { display: inline-flex; align-items: center; gap: .5rem; color: var(--foreground); font-weight: 600; flex: none; }
 .release-tabs { display: flex; gap: .4rem; overflow-x: auto; min-width: 0; }
-.release-tabs form, .release-list-item form { margin: .2rem 0; }
-.release-tab { white-space: nowrap; }
+.release-tabs .release-tab, .release-list-item form { margin: .2rem 0; }
+.release-tab {
+  @apply inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-input bg-card px-3 py-1.5 text-sm font-medium text-foreground no-underline;
+  white-space: nowrap;
+}
+.release-tab:hover { background: var(--accent); text-decoration: none; }
 .release-tab[aria-current=page] { background: var(--accent); border-color: var(--primary); }
 .active-release { border-color: var(--primary); }
 .active-dot { width: .45rem; height: .45rem; border-radius: 50%; background: var(--green); }
 .release-list { list-style: none; max-width: 54rem; padding: 0; }
 .release-list-item { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .65rem; margin: .75rem 0; padding: 1rem; }
 .release-list-item p { margin: .25rem 0 0; }
-.release-remove summary { cursor: pointer; color: var(--muted-foreground); }
+.release-remove { align-self: flex-start; margin: .2rem 0; }
+.release-remove-dialog {
+  position: fixed; inset: 0; margin: auto; width: min(28rem, 100% - 2rem); padding: 1.25rem;
+  border: 1px solid var(--border); border-radius: .75rem; background: var(--popover); color: var(--foreground);
+}
+.release-remove-dialog::backdrop { background: #000a; }
+.release-remove-dialog form { justify-content: flex-end; margin-top: 1.25rem; }
+.release-remove-dialog button[value=remove-release] { color: var(--red); }

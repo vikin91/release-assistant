@@ -227,7 +227,7 @@ func (item RetestItem) MatchesProposal(proposal release.Proposal) bool {
 func (s *Session) applyRetestDecision(ctx context.Context, a Action) error {
 	var reports []release.ManualRetryReport
 	for _, repo := range s.repos {
-		reports = append(reports, s.currentManualRetries(repo)...)
+		reports = append(reports, s.currentManualRetries(repo, s.options.ManualRetries != nil)...)
 	}
 	s.syncRetestQueue(s.dispatcher.Views(), reports)
 	index := slices.IndexFunc(s.retestQueue, func(item RetestItem) bool { return item.ID == a.QueueID })

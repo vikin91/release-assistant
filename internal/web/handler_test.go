@@ -1281,7 +1281,7 @@ func TestHomeKeepsSidebarAndReleaseTabs(t *testing.T) {
 		handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://localhost"+path, nil))
 		body := response.Body.String()
 		header, _, ok := strings.Cut(body, "</header>")
-		if response.Code != http.StatusOK || !ok || strings.Count(header, `<button type="submit" class="release-tab`) != 2 ||
+		if response.Code != http.StatusOK || !ok || strings.Count(header, `<a class="release-tab`) != 2 ||
 			!strings.Contains(header, "ACS 5.0.1") || !strings.Contains(header, "ACS 5.1.1") ||
 			!strings.Contains(header, `class="release-tab active-release"`) {
 			t.Fatalf("%s did not render both release tabs and the active marker", path)
@@ -1313,9 +1313,9 @@ func TestSaveUnboundConfigurationCreatesRelease(t *testing.T) {
 	b.handler.ServeHTTP(settings, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/?tab=settings", nil))
 	body := settings.Body.String()
 	header, _, _ := strings.Cut(body, "</header>")
-	if !strings.Contains(header, `value="add-release"`) ||
+	if strings.Contains(header, `value="add-release"`) ||
 		!strings.Contains(body, `<form method="post" action="/action" data-saved-config=`) {
-		t.Fatal("initial Settings must show the tab strip and a usable unbound configuration form")
+		t.Fatal("initial Settings must show a usable configuration form and keep Add release on Home")
 	}
 	form := url.Values{
 		"kind": {"configure"}, "tab": {"settings"},
@@ -1324,23 +1324,47 @@ func TestSaveUnboundConfigurationCreatesRelease(t *testing.T) {
 		"fact_repo": {"stackrox/fact"}, "fact_stream": {"0.4"},
 		"collector_repo": {"stackrox/collector"}, "collector_stream": {"3.26"},
 	}
-	save := func(want string) {
+	save := func(want string) string {
 		t.Helper()
 		response := b.post(form)
-		saved, active, _ := session.ReleaseProfiles()
 		redirect, err := url.Parse(response.Header().Get("Location"))
-		if response.Code != http.StatusSeeOther || err != nil || redirect.Query().Get("release") != active {
-			t.Fatalf("save %s did not redirect to the active profile: %d %s", want, response.Code, response.Body.String())
+		if response.Code != http.StatusSeeOther || err != nil || redirect.Query().Get("release") == "" {
+			t.Fatalf("save %s did not redirect to its profile: %d %s", want, response.Code, response.Body.String())
 		}
-		if len(saved) == 0 || session.Snapshot().Config.Version != want {
-			t.Fatalf("saved profiles = %+v, active = %s", saved, active)
+		id := redirect.Query().Get("release")
+		view, found := session.ProfileSnapshot(id)
+		if !found || view.Config.Version != want || view.Monitoring {
+			t.Fatalf("saved profile = %+v, monitoring = %v", view.Config, view.Monitoring)
 		}
+		return id
 	}
-	save("5.0.1")
+	firstID := save("5.0.1")
+	if _, active, _ := session.ReleaseProfiles(); active != "" {
+		t.Fatalf("saving started polling %s before activation", active)
+	}
+	response := b.post(url.Values{"kind": {"activate-release"}, "profile": {firstID}})
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/" {
+		t.Fatalf("activation from Home = %d, %s", response.Code, response.Header().Get("Location"))
+	}
 	form.Set("version", "5.1.1")
 	form.Set("branch", "release-5.1")
 	form.Set("profile", "missing-profile")
-	save("5.1.1")
+	secondID := save("5.1.1")
+	if _, active, _ := session.ReleaseProfiles(); active != firstID {
+		t.Fatalf("saving switched monitoring from %s to %s", firstID, active)
+	}
+	view := httptest.NewRecorder()
+	b.handler.ServeHTTP(view, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080"+profilePageURL(secondID, "settings"), nil))
+	if !strings.Contains(view.Body.String(), "Activate release") || !strings.Contains(view.Body.String(), "Monitoring is paused") {
+		t.Fatal("opening the second release should show an activation button and paused status")
+	}
+	if _, active, _ := session.ReleaseProfiles(); active != firstID {
+		t.Fatalf("browsing switched monitoring from %s to %s", firstID, active)
+	}
+	response = b.post(url.Values{"kind": {"activate-release"}, "profile": {secondID}, "tab": {"settings"}})
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != profilePageURL(secondID, "settings") {
+		t.Fatalf("activation from Settings = %d, %s", response.Code, response.Header().Get("Location"))
+	}
 	form.Del("profile")
 	form.Set("version", "5.0.2")
 	form.Set("branch", "release-5.0")

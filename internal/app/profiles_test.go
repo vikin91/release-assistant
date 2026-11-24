@@ -55,15 +55,25 @@ func TestReleaseProfilesResumeOnlyDuePolls(t *testing.T) {
 		}
 		before := s.Snapshot()
 		d.Interactive(false)
-		apply(t, s, Action{Kind: "open-release", ProfileID: profiles[1].ID})
+		view, found := s.ProfileSnapshot(profiles[1].ID)
+		synctest.Wait()
+		if !found || view.Config.Version != b.Version || view.Monitoring || view.WritesEnabled || len(requests()) != initial {
+			t.Fatalf("browsing inactive release: found=%v, config=%+v, monitoring=%v, writes=%v, new reads=%d",
+				found, view.Config, view.Monitoring, view.WritesEnabled, len(requests())-initial)
+		}
+		apply(t, s, Action{Kind: "activate-release", ProfileID: profiles[1].ID})
 		synctest.Wait()
 		if len(requests()) <= initial {
-			t.Fatal("first visit skipped initialization")
+			t.Fatal("explicit activation skipped initialization")
 		}
 		total := len(requests())
-		apply(t, s, Action{Kind: "open-release", ProfileID: profiles[0].ID})
+		apply(t, s, Action{Kind: "activate-release", ProfileID: profiles[0].ID})
 		synctest.Wait()
 		after := s.Snapshot()
+		paused, found := s.ProfileSnapshot(profiles[1].ID)
+		if !found || paused.Monitoring || paused.WritesEnabled || len(paused.Repositories) == 0 {
+			t.Fatalf("paused release lost its prior observations")
+		}
 		if len(requests()) != total || len(before.Repositories) != len(after.Repositories) || !after.Interactive || after.ResumedAt.IsZero() {
 			t.Fatalf("switch back got %d new reads, %d repositories, Interactive=%v, resumed=%v",
 				len(requests())-total, len(after.Repositories), after.Interactive, after.ResumedAt)

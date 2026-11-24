@@ -18,7 +18,7 @@ type tagCheckObservation struct {
 
 // tagCheckTarget returns the selected tag only while discovery verifies its commit.
 // The caller holds the session lock.
-func (s *Session) tagCheckTarget(repo release.Repository) (release.Target, string) {
+func (s *releaseWork) tagCheckTarget(repo release.Repository) (release.Target, string) {
 	if repo.Source.Name == "acs" {
 		if rcImageWaitReason(repo.Candidate) == "" {
 			return repo.Candidate.Target, repo.Candidate.SHA
@@ -84,7 +84,7 @@ func (s *Session) readSelectedTagChecks(ctx context.Context, generation, revisio
 
 // plansForDisplay joins independent GitHub and Konflux observations only for the current tag revision.
 // The joined plans are display data. The dispatcher receives only the planner's original evidence.
-func (s *Session) plansForDisplay() []release.Plan {
+func (s *releaseWork) plansForDisplay() []release.Plan {
 	plans := maps.Clone(s.plans)
 	for source, observed := range s.tagChecks {
 		target, sha := s.tagCheckTarget(s.repos[source])

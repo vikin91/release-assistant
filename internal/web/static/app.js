@@ -40,7 +40,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (openingLog) restoreLogOnOpen?.();
     if (openingQueue) refreshQueueOnOpen?.();
     // Shared forms return to the activity the reader is using.
-    for (const input of document.querySelectorAll("#configuration-panel input[name=tab], #retry-settings input[name=tab]")) input.value = tab;
+    for (const input of document.querySelectorAll("#configuration-panel input[name=tab], #retry-settings input[name=tab], .release-activation input[name=tab]")) input.value = tab;
     if (profile) {
       try {
         window.sessionStorage.setItem(tabKey, tab);
@@ -99,6 +99,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
   document.addEventListener("click", (event) => {
+    const remove = event.target.closest("[data-confirm-remove]");
+    if (remove) {
+      document.getElementById(remove.getAttribute("aria-controls")).showModal();
+      return;
+    }
     const tab = event.target.closest("[data-workflow-tab]");
     if (tab?.dataset?.workflowTab && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && (!event.button || event.button === 0)) {
       event.preventDefault();
@@ -293,7 +298,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (document.body.dataset.home === "true") {
       const refreshHome = async () => {
         try {
-          if (document.hidden || document.querySelector(".release-remove[open]")) return;
+          if (document.hidden || document.querySelector(".release-remove-dialog[open]")) return;
           const response = await fetch("/", { cache: "no-store", signal: AbortSignal.timeout(5_000) });
           if (!response.ok) return;
           const incoming = new DOMParser().parseFromString(await response.text(), "text/html");
@@ -301,7 +306,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const current = document.querySelector(selector);
             const next = incoming.querySelector(selector);
             if (current && next && !current.contains(document.activeElement) &&
-                !current.querySelector("details[open]") && current.innerHTML !== next.innerHTML) {
+                !current.querySelector("details[open], dialog[open]") && current.innerHTML !== next.innerHTML) {
               current.replaceWith(next);
             }
           }

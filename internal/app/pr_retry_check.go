@@ -23,7 +23,7 @@ type PRRetryCheck struct {
 // retryCheckAllowed requires the selected, open head in the current release.
 // The caller holds the session lock.
 func (s *Session) retryCheckAllowed(a Action) bool {
-	if a.Generation != s.generation || !a.Target.Valid() || a.Target.PR == 0 || a.SHA == "" ||
+	if a.Generation != s.generation || !s.targetsActiveProfile(a.ProfileID) || !a.Target.Valid() || a.Target.PR == 0 || a.SHA == "" ||
 		s.choices.PRs[a.Target] != release.Included {
 		return false
 	}
