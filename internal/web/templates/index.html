@@ -115,6 +115,7 @@
   <section id="panel-activity" class="workflow-panel" role="tabpanel" aria-labelledby="tab-activity" data-workflow-panel="activity" tabindex="0"{{if ne .Tab "activity"}} hidden{{end}}>
   <h2 class="page-title">Activity</h2>
   {{template "konflux-diagnostics" .}}
+  {{template "github-read-stats" .Snapshot}}
   <section class="panel" id="activity-console" data-live-preserve>
     <h3 id="activity-details">Log</h3>
     <p class="muted">Monitoring continues when you switch tabs. The latest 1,000 events refresh every two seconds.</p>

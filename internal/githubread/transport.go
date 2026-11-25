@@ -61,6 +61,7 @@ type (
 		until        time.Time
 		blocked      string
 		now          func() time.Time
+		stats        map[readWork]*ReadStats
 	}
 	releaseBody struct {
 		io.ReadCloser
@@ -111,7 +112,7 @@ func New(base http.RoundTripper) *Transport {
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	return &Transport{base: base, startupLimit: 3, ongoingLimit: 1, changed: make(chan struct{}), allowance: 3000, now: time.Now}
+	return &Transport{base: base, startupLimit: 3, ongoingLimit: 1, changed: make(chan struct{}), allowance: 3000, now: time.Now, stats: make(map[readWork]*ReadStats)}
 }
 
 // StartMonitoring opens the five-minute startup window once per process.
@@ -221,6 +222,8 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return t.base.RoundTrip(req)
 	}
 	t.mu.Lock()
+	queuedAt := t.now()
+	stats := t.statsFor(req.Context())
 	t.pending = append(t.pending, req)
 	remove := func() {
 		t.pending = slices.DeleteFunc(t.pending, func(p *http.Request) bool { return p == req })
@@ -229,6 +232,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	usage, _ := req.Context().Value(usageKey{}).(*Usage)
 	for {
 		if err := req.Context().Err(); err != nil {
+			stats.Canceled++
 			remove()
 			t.mu.Unlock()
 			return nil, err
@@ -238,13 +242,16 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		var deferred *DeferredError
 		switch {
 		case now.Before(t.until):
+			stats.PauseDeferred++
 			deferred = &DeferredError{Reason: t.blocked, Until: t.until}
 		case len(t.calls) >= t.allowance:
+			stats.HourlyDeferred++
 			deferred = &DeferredError{
 				Reason: fmt.Sprintf("Release Assistant deferred this request before contacting GitHub. Its internal limit is %d reads per rolling hour", t.allowance),
 				Until:  t.calls[0].Add(time.Hour),
 			}
 		case usage != nil && usage.limit > 0 && usage.Calls() >= int64(usage.limit):
+			stats.CycleDeferred++
 			deferred = &DeferredError{
 				Reason: fmt.Sprintf("Release Assistant deferred this request before contacting GitHub. This source reached its internal limit of %d reads per cycle", usage.limit),
 				Until:  now.Add(time.Minute),
@@ -275,7 +282,12 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	remove()
 	t.active++
 	t.last = class(req).source
-	t.calls = append(t.calls, t.now())
+	startedAt := t.now()
+	t.calls = append(t.calls, startedAt)
+	wait := max(0, startedAt.Sub(queuedAt))
+	stats.Reads++
+	stats.HTTPWait += wait
+	stats.MaxHTTPWait = max(stats.MaxHTTPWait, wait)
 	if usage != nil {
 		usage.calls.Add(1)
 	}
@@ -290,7 +302,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		finish()
 		return nil, fmt.Errorf("GitHub transport returned no response")
 	}
-	t.record(resp)
+	t.record(resp, stats)
 	if resp.Body == nil {
 		resp.Body = http.NoBody
 	}
@@ -300,7 +312,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func (b *releaseBody) Close() error { defer b.once.Do(b.release); return b.ReadCloser.Close() }
 
-func (t *Transport) record(resp *http.Response) {
+func (t *Transport) record(resp *http.Response, stats *ReadStats) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	now := t.now()
@@ -317,6 +329,7 @@ func (t *Transport) record(resp *http.Response) {
 	if !limited {
 		return
 	}
+	stats.RateLimited++
 	var until time.Time
 	if seconds, err := strconv.ParseUint(resp.Header.Get("Retry-After"), 10, 32); err == nil {
 		until = now.Add(time.Duration(seconds) * time.Second)

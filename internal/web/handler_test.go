@@ -1160,6 +1160,27 @@ func TestSidebarReadBudget(t *testing.T) {
 	}
 }
 
+func TestLogShowsGitHubReadStatistics(t *testing.T) {
+	snapshot := app.Snapshot{
+		GitHubReadBudget: githubread.Budget{Limit: 3000},
+		GitHubReadStats: []githubread.ReadStats{{
+			Repository: "stackrox/fact", Work: "CI Retest scheduled", Reads: 2,
+			HTTPWait: 500 * time.Millisecond, MaxHTTPWait: 350 * time.Millisecond,
+			CIStarts: 1, CIWait: 2 * time.Second, CycleDeferred: 4,
+		}},
+	}
+	panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t), "activity")
+	stats := between(t, panel, `id="github-read-stats"`, "</details>")
+	for _, want := range []string{
+		"GitHub read statistics", "stackrox/fact", "CI Retest scheduled", "250ms / 350ms", "<td>2s</td>",
+		"Cycle deferrals", "<td>4</td>",
+	} {
+		if !strings.Contains(stats, want) {
+			t.Errorf("statistics missing %q", want)
+		}
+	}
+}
+
 func TestGitHubReadLimitSettings(t *testing.T) {
 	reads := githubread.New(nil)
 	cache := github.NewCommitWindowCache(nil)

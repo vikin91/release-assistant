@@ -56,7 +56,9 @@ func (s *Session) checkPRRetries(ctx context.Context, a Action) error {
 	ctx, cancel := context.WithTimeout(ctx, s.options.Timeout)
 	defer cancel()
 	if reader, ok := s.discovery.(PRReader); ok {
-		pr, err := reader.ReadPR(githubread.WithPriority(ctx, githubread.PRs, source.Repo), a.Target)
+		prCtx := githubread.WithPriority(ctx, githubread.PRs, source.Repo)
+		prCtx = githubread.WithWork(prCtx, source.Repo, "On-demand PR status")
+		pr, err := reader.ReadPR(prCtx, a.Target)
 		if canceled(ctx) {
 			return ctx.Err()
 		}
@@ -82,7 +84,7 @@ func (s *Session) checkPRRetries(ctx context.Context, a Action) error {
 	var reads sync.WaitGroup
 	var konfluxHeadChanged bool
 	reads.Go(func() {
-		plan, err := s.planKonflux(ctx, a.Target)
+		plan, err := s.planKonflux(githubread.WithWork(ctx, a.Target.Repo, "Konflux on demand"), a.Target)
 		if err != nil {
 			plan.Evidence.Known = false
 			if plan.Evidence.Error == "" {
@@ -101,7 +103,8 @@ func (s *Session) checkPRRetries(ctx context.Context, a Action) error {
 		check.Konflux = plan
 	})
 	var ciHeadChanged bool
-	check.CI, ciHeadChanged, _ = readManualRetry(ctx, s.options.CIPlanner, a.Target, a.SHA)
+	ciCtx := githubread.WithWork(ctx, a.Target.Repo, "CI Retest on demand")
+	check.CI, ciHeadChanged, _ = readManualRetry(ciCtx, s.options.CIPlanner, a.Target, a.SHA)
 	check.CI.At = check.Started
 	reads.Wait()
 	if konfluxHeadChanged || ciHeadChanged {

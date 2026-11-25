@@ -148,6 +148,14 @@ func (s *Session) runPRRetry(ctx context.Context, job scheduledPRRetry) {
 	readCtx, cancel := context.WithTimeout(ctx, s.options.Timeout)
 	defer cancel()
 	readCtx = githubread.WithPriority(readCtx, githubread.Background, job.target.Repo)
+	readCtx = githubread.WithWork(readCtx, job.target.Repo, "CI Retest scheduled")
+	if reads := s.options.GitHubReads; reads != nil {
+		due := job.queuedAt
+		if job.nextAt.After(due) {
+			due = job.nextAt
+		}
+		reads.RecordCIStart(readCtx, due)
+	}
 	report, changedHead, err := readManualRetry(readCtx, s.options.CIPlanner, job.target, job.sha)
 
 	s.mu.Lock()

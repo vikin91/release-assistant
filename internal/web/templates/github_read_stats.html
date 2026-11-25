@@ -1,0 +1,28 @@
+{{define "github-read-stats"}}
+{{if .GitHubReadBudget.Limit}}
+<details class="panel" id="github-read-stats">
+  <summary class="section-summary">GitHub read statistics</summary>
+  <p class="muted">Totals across releases since the app started. HTTP wait measures time before a read starts. CI job wait measures time from when a scheduled attempt is due until CI Retest starts.</p>
+  {{if .GitHubReadStats}}
+  <div class="github-read-table-scroll" tabindex="0" role="region" aria-label="GitHub read statistics">
+    <table class="github-read-table" aria-label="GitHub read statistics">
+      <thead>
+        <tr><th scope="col">Repository</th><th scope="col">Work</th><th scope="col">Reads</th><th scope="col">HTTP wait (avg / max)</th><th scope="col">CI job wait (avg)</th><th scope="col">Canceled before read</th><th scope="col">Cycle deferrals</th><th scope="col">Hourly deferrals</th><th scope="col">GitHub pause deferrals</th><th scope="col">Rate-limit responses</th></tr>
+      </thead>
+      <tbody>
+        {{range .GitHubReadStats}}
+        <tr>
+          <th scope="row">{{if .Repository}}{{.Repository}}{{else}}—{{end}}</th>
+          <td>{{.Work}}</td><td>{{.Reads}}</td>
+          <td>{{if .Reads}}{{readWait .HTTPWait .Reads}} / {{readWait .MaxHTTPWait 1}}{{else}}—{{end}}</td>
+          <td>{{readWait .CIWait .CIStarts}}</td><td>{{.Canceled}}</td>
+          <td>{{.CycleDeferred}}</td><td>{{.HourlyDeferred}}</td><td>{{.PauseDeferred}}</td><td>{{.RateLimited}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}<p class="muted">No GitHub read activity yet.</p>{{end}}
+</details>
+{{end}}
+{{end}}

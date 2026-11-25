@@ -197,9 +197,16 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 	}
 }
 
+var pollReadNames = [...]string{
+	pollTags: "Tag and RC discovery", pollPRs: "PR discovery",
+	pollChecks: "PR status", pollTagChecks: "Tag checks",
+	pollBuilds: "Konflux and build checks", pollImages: "Release images",
+}
+
 func (s *Session) fetchPoll(ctx context.Context, generation, revision uint64, source release.Source, job pollJob, startupTags bool, usage *githubread.Usage) error {
 	work := sourceWork{revision: revision, scheduled: true}
 	ctx = githubread.WithPriority(ctx, githubread.Builds, source.Repo)
+	ctx = githubread.WithWork(ctx, source.Repo, pollReadNames[job.kind])
 	switch job.kind {
 	case pollPRs:
 		work.scope = ReadPRs | ReadTargets

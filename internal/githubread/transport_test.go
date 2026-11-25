@@ -46,7 +46,8 @@ func TestRollingAndSourceAllowancesShareActualReads(t *testing.T) {
 	now := time.Now()
 	limiter.now = func() time.Time { return now }
 	limiter.allowance = 3
-	ctx, usage := Track(t.Context(), 2)
+	discovery := WithWork(t.Context(), "example/fact", "PR discovery")
+	ctx, usage := Track(discovery, 2)
 	for range 2 {
 		if err := read(t, limiter, ctx, "discovery"); err != nil {
 			t.Fatal(err)
@@ -57,6 +58,10 @@ func TestRollingAndSourceAllowancesShareActualReads(t *testing.T) {
 	}
 	if usage.Calls() != 2 || calls.Load() != 2 {
 		t.Fatal("deferred reads consumed network calls")
+	}
+	if got := limiter.Stats(); len(got) != 1 || got[0].Reads != 2 || got[0].CycleDeferred != 1 ||
+		got[0].Repository != "example/fact" || got[0].Work != "PR discovery" {
+		t.Fatalf("discovery statistics = %+v", got)
 	}
 	for range 2 {
 		ctx, _ := Track(t.Context(), 80)
@@ -69,9 +74,13 @@ func TestRollingAndSourceAllowancesShareActualReads(t *testing.T) {
 	if budget.Remaining != 0 || budget.Limit != 3 || !budget.NextSlot.Equal(now.Add(time.Hour)) {
 		t.Fatalf("exhausted budget = %+v", budget)
 	}
-	err := read(t, limiter, t.Context(), "deferred")
+	err := read(t, limiter, WithWork(t.Context(), "example/fact", "CI Retest scheduled"), "deferred")
 	if err == nil || !strings.Contains(err.Error(), "before contacting GitHub. Its internal limit is 3 reads per rolling hour") {
 		t.Fatalf("hourly allowance: %v", err)
+	}
+	if got := limiter.Stats(); len(got) != 3 || got[1].Work != "CI Retest scheduled" ||
+		got[1].Reads != 0 || got[1].HourlyDeferred != 1 || got[1].CycleDeferred != 0 {
+		t.Fatalf("statistics for the hourly allowance = %+v", got)
 	}
 	now = now.Add(time.Hour)
 	if got := limiter.Budget(); got.Remaining != 3 || !got.NextSlot.IsZero() {
@@ -139,13 +148,17 @@ func TestRateLimitStopsOtherClientsUntilReset(t *testing.T) {
 		return r, nil
 	}))
 	limiter.now = func() time.Time { return now }
-	if err := read(t, limiter, t.Context(), "planner"); err != nil {
+	if err := read(t, limiter, WithWork(t.Context(), "example/b", "CI Retest scheduled"), "planner"); err != nil {
 		t.Fatal(err)
 	}
-	err := read(t, limiter, t.Context(), "discovery")
+	err := read(t, limiter, WithWork(t.Context(), "example/a", "PR discovery"), "discovery")
 	deferred, ok := errors.AsType[*DeferredError](err)
 	if !ok || !strings.Contains(deferred.Reason, "GitHub reported a rate limit") || !deferred.Until.Equal(now.Add(2*time.Minute)) || calls != 1 {
 		t.Fatalf("calls=%d error=%v", calls, err)
+	}
+	if got := limiter.Stats(); len(got) != 2 || got[0].PauseDeferred != 1 || got[0].Reads != 0 ||
+		got[1].RateLimited != 1 || got[1].Reads != 1 {
+		t.Fatalf("provider pause statistics = %+v", got)
 	}
 	now = now.Add(2 * time.Minute)
 	if err := read(t, limiter, t.Context(), "retry"); err != nil {
@@ -176,6 +189,7 @@ func TestPriorityFairnessAndCancellation(t *testing.T) {
 		start(ctx, "canceled")
 		cancel()
 		synctest.Wait()
+		time.Sleep(125 * time.Millisecond)
 		if err := first.Body.Close(); err != nil {
 			t.Fatal(err)
 		}
@@ -187,6 +201,12 @@ func TestPriorityFairnessAndCancellation(t *testing.T) {
 		}
 		if len(limiter.pending) != 0 || limiter.active != 0 {
 			t.Fatal("request slot leaked")
+		}
+		const wait = 125 * time.Millisecond
+		if got := limiter.Stats(); len(got) != 4 || got[0].Repository != "a" || got[0].Reads != 2 ||
+			got[0].HTTPWait != wait || got[0].MaxHTTPWait != wait ||
+			got[3].Repository != "c" || got[3].Reads != 0 || got[3].Canceled != 1 {
+			t.Fatalf("HTTP queue measurements = %+v", got)
 		}
 	})
 }

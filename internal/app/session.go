@@ -62,6 +62,7 @@ type (
 		StartupReadLimit             int
 		OngoingReadLimit             int
 		GitHubReadBudget             githubread.Budget
+		GitHubReadStats              []githubread.ReadStats
 		// WritesEnabled reports startup permission; target grants remain independent.
 		WritesEnabled   bool
 		Error, LogError string
@@ -730,6 +731,7 @@ func (s *Session) fillSharedSnapshot(x *Snapshot) {
 	if s.options.GitHubReads != nil {
 		x.StartupReadLimit, x.OngoingReadLimit = s.options.GitHubReads.ReadLimits()
 		x.GitHubReadBudget = s.options.GitHubReads.Budget()
+		x.GitHubReadStats = s.options.GitHubReads.Stats()
 	}
 	if planner, ok := s.planner.(interface{ ReadIssues() []konflux.ReadIssue }); ok {
 		x.KonfluxReadIssues = planner.ReadIssues()

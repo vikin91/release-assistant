@@ -130,6 +130,7 @@ func (s *Session) readManualRetries(ctx context.Context, generation, revision ui
 	s.prioritizeNewPRs(targets)
 	s.mu.Unlock()
 	ctx = githubread.WithPriority(ctx, githubread.Background, source.Repo)
+	ctx = githubread.WithWork(ctx, source.Repo, "CI Retest")
 	reports := make(map[release.Target]release.ManualRetryReport)
 	var errs []error
 	for _, target := range targets {

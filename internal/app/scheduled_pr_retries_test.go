@@ -213,8 +213,15 @@ func TestScheduledPRRetriesUseSharedLimiterOutsideSourceCycle(t *testing.T) {
 		if got, want := githubCalls(), []string{"/discovery", "/pr", "/pr", "/checks"}; !slices.Equal(got, want) || usage.Calls() != 1 {
 			t.Fatalf("resumed reads = %v with %d source reads, want %v with one source read", got, usage.Calls(), want)
 		}
-		if got := s.Snapshot().ManualRetries; len(got) != 1 || got[0].SHA != "head" || got[0].Incomplete {
+		snapshot := s.Snapshot()
+		if got := snapshot.ManualRetries; len(got) != 1 || got[0].SHA != "head" || got[0].Incomplete {
 			t.Fatalf("report after resuming: %+v", got)
+		}
+		if got := snapshot.GitHubReadStats; !slices.ContainsFunc(got, func(row githubread.ReadStats) bool {
+			return row.Repository == source.Repo && row.Work == "CI Retest scheduled" && row.CIStarts == 2 &&
+				row.Reads == 3 && row.RateLimited == 1 && row.CIWait == 0
+		}) {
+			t.Fatalf("CI queue measurements = %+v", got)
 		}
 	})
 }

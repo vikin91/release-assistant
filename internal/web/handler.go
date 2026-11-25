@@ -67,6 +67,7 @@ func New(application Application) (http.Handler, error) {
 		"pinVersion":                  pinVersion, "pinDiffers": pinDiffers,
 		"tabPage": tabPage, "tabTitle": tabTitle, "tabHelp": tabHelp, "tabStep": tabStep,
 		"truth": truthLabel, "when": formatTime, "quotaReset": quotaReset, "url": safeURL,
+		"readWait": formatReadWait,
 		"activity": activityText, "commentURL": commentURL, "profilePage": profilePageURL,
 		"profileAction": func(id string) string {
 			if id == "" {
@@ -653,6 +654,17 @@ func formHasValue(values url.Values, name, want string) bool {
 	}
 	return false
 }
+func formatReadWait(total time.Duration, samples uint64) string {
+	if samples == 0 {
+		return "—"
+	}
+	wait := total / time.Duration(samples)
+	if wait < time.Millisecond {
+		return "<1ms"
+	}
+	return wait.Round(time.Millisecond).String()
+}
+
 func formatTime(t time.Time) string {
 	if t.IsZero() {
 		return "time unavailable"
