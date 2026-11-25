@@ -22,8 +22,8 @@ type (
 
 // HeadBranch keeps the automated and manual branch names identical for a reviewed diff.
 func (r PinningRequest) HeadBranch() string {
-	signature := PinSignature(r.Changes)
-	return fmt.Sprintf("release-assistant/pin-%s-%s-%s", strings.TrimPrefix(r.Version, "v"), r.Head[:min(12, len(r.Head))], signature[:12])
+	digest := sha256.Sum256([]byte(r.Branch + "\x00" + r.Head + "\x00" + PinSignature(r.Changes)))
+	return fmt.Sprintf("release-assistant/pin-%s-%x", strings.TrimPrefix(r.Version, "v"), digest[:4])
 }
 
 // Title identifies the release receiving the pin update.
