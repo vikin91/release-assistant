@@ -27,12 +27,14 @@ func tagRebuild(tag tagModel, plans []release.Plan) *tagRebuildModel {
 	base := "https://github.com/" + target.Repo
 	query := url.Values{"query": {"event:push branch:" + target.Tag}}
 	runURL := base + "/actions/runs/"
-	endpoint := "gh api --method POST repos/" + target.Repo + "/actions/runs/"
+	rerunCommand := func(runID string) string {
+		return "gh run rerun " + runID + " --repo " + target.Repo
+	}
 	rebuild := &tagRebuildModel{
 		CommitURL:      base + "/commit/" + url.PathEscape(tag.Tag.SHA),
 		KonfluxComment: "/test tag:" + target.Tag,
 		ActionsURL:     base + "/actions?" + query.Encode(),
-		ExampleCommand: endpoint + "RUN_ID/rerun",
+		ExampleCommand: rerunCommand("RUN_ID"),
 	}
 	seen := make(map[string]bool)
 	for _, plan := range plans {
@@ -51,7 +53,7 @@ func tagRebuild(tag tagModel, plans []release.Plan) *tagRebuildModel {
 			seen[id] = true
 			rebuild.Workflows = append(rebuild.Workflows, tagRebuildWorkflow{
 				Name: cmp.Or(check.WorkflowName, "Workflow run "+id), URL: check.WorkflowURL,
-				Command: endpoint + id + "/rerun",
+				Command: rerunCommand(id),
 			})
 		}
 	}

@@ -79,18 +79,18 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 		`href="https://github.com/acme/fact/commit/fact-current-sha"`,
 		"<code>/test tag:3.25.1</code>",
 		`href="https://github.com/acme/fact/actions/runs/101"`,
-		"<code>gh api --method POST repos/acme/fact/actions/runs/101/rerun</code>",
+		"<code>gh run rerun 101 --repo acme/fact</code>",
 		`type="button" data-copy-text`,
 	} {
 		if !strings.Contains(factRebuild, want) {
 			t.Errorf("manual Fact rebuild missing %q", want)
 		}
 	}
-	if strings.Count(factRebuild, "/101/rerun") != 1 || strings.Contains(factRebuild, "<form") || len(application.actions) != 0 {
+	if strings.Count(factRebuild, "gh run rerun 101 --repo acme/fact") != 1 || strings.Contains(factRebuild, "<form") || len(application.actions) != 0 {
 		t.Fatal("manual rebuild should render one command per workflow and perform no actions")
 	}
 	collectorRebuild := between(t, tagDetails, `data-fold-key="tag-rebuild:collector:acme/collector@3.25.4">`, "</details>")
-	for _, want := range []string{"/test tag:3.25.4", "/actions?query=event%3Apush+branch%3A3.25.4", "repos/acme/collector/actions/runs/RUN_ID/rerun"} {
+	for _, want := range []string{"/test tag:3.25.4", "/actions?query=event%3Apush+branch%3A3.25.4", "gh run rerun RUN_ID --repo acme/collector"} {
 		if !strings.Contains(html.UnescapeString(collectorRebuild), want) {
 			t.Errorf("manual Collector rebuild fallback missing %q", want)
 		}
