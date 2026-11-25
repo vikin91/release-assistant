@@ -12,7 +12,7 @@
           <table class="tag-options" aria-label="{{title $source.Name}} release tags">
             <thead><tr><th scope="col">Tag</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
             <tbody>
-            <tr><th scope="row"><a aria-describedby="new-tab-description" href="https://github.com/{{$source.Repo}}/tree/refs/tags/{{.CurrentTag}}" target="_blank" rel="noreferrer"><code>{{.CurrentTag}}</code></a></th>
+            <tr><th scope="row"><a aria-describedby="new-tab-description" href="https://github.com/{{$source.Repo}}/{{with and .SelectedTag .SelectedTag.Tag.SHA}}commit/{{.}}{{else}}tree/refs/tags/{{.CurrentTag}}{{end}}" target="_blank" rel="noreferrer"><code>{{.CurrentTag}}</code></a></th>
             <td class="component-tag-coverage"><strong>Selected</strong>
               <span class="pill {{truth .Coverage.Status}}">
                 {{- if index $.Snapshot.PendingTags $source.Name}}Waiting for tag verification
@@ -49,13 +49,6 @@
             {{if and .CurrentTag .Coverage.Reason}}<p>{{.Coverage.Reason}}</p>{{end}}
             {{with .SelectedTag}}
               {{template "tag-observation" .}}
-              {{with .Validation}}
-                <h4>GitHub checks for the selected tag</h4>
-                {{if .Evidence.Error}}<p class="error-text">{{.Evidence.Error}}</p>{{end}}
-                {{if .Checks}}<ol>{{range .Checks}}
-                  <li>{{if url .URL}}<a href="{{url .URL}}" target="_blank" rel="noreferrer">{{.Name}}</a>{{else}}{{.Name}}{{end}} · {{if .Conclusion}}{{.Conclusion}}{{else}}{{.Status}}{{end}}</li>
-                {{end}}</ol>{{else if .Evidence.Fresh}}<p>No checks reported for this commit.</p>{{else if not .Evidence.Error}}<p>Waiting for GitHub check results.</p>{{end}}
-              {{end}}
               {{if $.AutomaticRetryPermissions}}{{template "tag-comment-permission" .}}{{end}}
             {{else}}{{if and .CurrentTag (not .Coverage.Reason) (not (index $.Snapshot.PendingTags $source.Name))}}<p class="muted">The selected tag is absent from current discovery.</p>{{end}}{{end}}
           </details>

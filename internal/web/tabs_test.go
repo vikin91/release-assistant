@@ -88,7 +88,7 @@ func TestComponentReleasesShowsSavedTagWhileItIsBeingVerified(t *testing.T) {
 		PendingTags: map[string]string{"fact": "v0.4.7"},
 	}})
 	panel := activityPanel(t, browser.getBody(t), "component-releases")
-	for _, want := range []string{"<code>v0.4.7</code>", "1 of 2 selected", "Waiting for tag verification", "Clear selection"} {
+	for _, want := range []string{`href="https://github.com/acme/fact/tree/refs/tags/v0.4.7"`, "<code>v0.4.7</code>", "1 of 2 selected", "Waiting for tag verification", "Clear selection"} {
 		if !strings.Contains(panel, want) {
 			t.Errorf("component release panel missing %q", want)
 		}

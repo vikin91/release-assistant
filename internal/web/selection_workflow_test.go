@@ -51,8 +51,9 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 	tagDetails := between(t, body, `<div id="tag-selection">`, `<section class="panel" id="component-images-panel">`)
 	for _, want := range []string{
 		"Component tags", "2 of 2 selected · 1 coverage issue · 1 unverified",
-		"<code>3.25.1</code>", "<code>3.25.4</code>", "Missing an included merge", "Coverage unverified",
-		"GitHub checks for the selected tag", "Fact tag smoke test · success", "Waiting for GitHub check results.",
+		`href="https://github.com/acme/fact/commit/fact-current-sha" target="_blank" rel="noreferrer"><code>3.25.1</code></a>`,
+		`href="https://github.com/acme/collector/commit/collector-current-sha" target="_blank" rel="noreferrer"><code>3.25.4</code></a>`,
+		"Missing an included merge", "Coverage unverified",
 	} {
 		if !strings.Contains(tagDetails, want) {
 			t.Errorf("tag selection missing %q", want)
@@ -61,12 +62,9 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 	if !strings.Contains(body, `<div id="tag-selection">`) {
 		t.Fatal("selected tag status must not automatically fold the section")
 	}
-	if strings.Contains(tagDetails, "Collector test for another commit") {
-		t.Fatal("selected Collector tag displayed checks from another commit")
-	}
-	for _, forbidden := range []string{"Confirm fact 3.25.1", "Confirm collector 3.25.4"} {
+	for _, forbidden := range []string{"GitHub checks for the selected tag", "Fact tag smoke test", "Collector test for another commit", "Confirm fact 3.25.1", "Confirm collector 3.25.4"} {
 		if strings.Contains(tagDetails, forbidden) {
-			t.Errorf("current selection offers redundant confirmation %q", forbidden)
+			t.Errorf("tag selection unexpectedly displays %q", forbidden)
 		}
 	}
 	if !strings.Contains(tagDetails, `<table class="tag-options"`) || !strings.Contains(tagDetails, "Switch to fact 3.25.2") ||
