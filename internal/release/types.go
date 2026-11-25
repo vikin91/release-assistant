@@ -111,7 +111,9 @@ type (
 		Candidate Candidate
 		Head      string
 		PRs       []PR
-		Tags      []Tag
+		// PRListEvidence records whether GitHub returned the full list of open PRs for the branch.
+		PRListEvidence Evidence
+		Tags           []Tag
 		// TagsPending prevents an incomplete inventory from proving that tags are absent.
 		TagsPending  bool
 		PinDiscovery PinDiscovery

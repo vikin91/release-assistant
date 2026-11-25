@@ -30,7 +30,6 @@ type (
 		Repos                                      []repoModel
 		TagRepos                                   []repoModel
 		TagCounts                                  tagSelectionCounts
-		Problems                                   []release.Condition
 		Plans                                      []planModel
 		ManualRetries                              []release.ManualRetryReport
 		KonfluxStatus                              []konfluxClusterStatus
@@ -387,11 +386,6 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 					model.TagCounts.Unverified++
 				}
 			}
-		}
-	}
-	for _, condition := range snapshot.Assessment.Conditions {
-		if condition.Status == "" && strings.HasPrefix(condition.Name, "included PR ") {
-			model.Problems = append(model.Problems, condition)
 		}
 	}
 	model.PinPRState = "Pending"

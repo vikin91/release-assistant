@@ -197,7 +197,9 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 	var prErr error
 	if req.Reads(app.ReadPRs) {
 		prs, prErr = c.listOpenPRs(ctx, source)
+		result.PRListEvidence = release.Evidence{At: time.Now(), Known: prErr == nil}
 		if prErr != nil {
+			result.PRListEvidence.Error = requestProblem(prErr)
 			issues = append(issues, prErr)
 		} else if req.Scope == app.ReadAll {
 			var historyErr error

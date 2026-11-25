@@ -12,7 +12,15 @@
       </summary>
     <header class="pr-list-source">
       <div>{{$source.Repo}} · {{if and $source.Repo $source.Branch}}<a aria-describedby="new-tab-description" href="https://github.com/{{$source.Repo}}/commits/{{$source.Branch | urlquery}}" target="_blank" rel="noreferrer">{{$source.Branch}}</a>{{else}}{{$source.Branch}}{{end}}</div>
-      {{with $repository.Evidence}}
+      {{if not $repository.PRListEvidence.At.IsZero}}
+        <div class="evidence">
+          {{with $repository.PRListEvidence}}
+            {{if .Fresh}}<span>Open PRs checked {{when .At}}</span>{{else if .Known}}<span>Open PRs last checked {{when .At}}</span>{{end}}
+            {{if .Error}}<span class="error-text">{{.Error}}</span>{{end}}
+          {{end}}
+          {{with url $repository.Evidence.URL}}<a aria-describedby="new-tab-description" href="{{.}}" target="_blank" rel="noreferrer">Branch source</a>{{end}}
+        </div>
+      {{else}}{{with $repository.Evidence}}
         {{$sourceURL := url .URL}}
         {{if or (not .At.IsZero) .Error $sourceURL}}
           <div class="evidence">
@@ -21,7 +29,7 @@
             {{if $sourceURL}}<a aria-describedby="new-tab-description" href="{{$sourceURL}}" target="_blank" rel="noreferrer">Branch source</a>{{end}}
           </div>
         {{end}}
-      {{end}}
+      {{end}}{{end}}
     </header>
     {{if $triage.PinDiscoveryStatus}}<p>{{$triage.PinDiscoveryStatus}}</p>{{end}}
     <fieldset class="pr-list-filters" data-live-preserve>

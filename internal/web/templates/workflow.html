@@ -30,11 +30,6 @@
     </div>
   {{end}}
   {{if or $component (eq .Tab "acs-prs")}}
-    {{if .Problems}}
-    <details class="panel" id="{{.Tab}}-pr-evidence"><summary>Unverified included PRs</summary>
-      <ol>{{range .Problems}}<li>{{.Name}} · {{.Reason}}{{range .Evidence}}{{if .Error}} · {{.Error}}{{end}}{{end}}</li>{{end}}</ol>
-    </details>
-    {{end}}
     {{template "pr-list" .}}
   {{end}}
   {{if eq .Tab "component-releases"}}{{template "component-releases" .}}{{end}}

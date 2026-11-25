@@ -19,6 +19,7 @@ func retainDiscoveryFailure(previous, latest release.Repository, cause error) re
 		evidence.Error = cause.Error()
 	}
 	retained.Evidence = evidence
+	retained.PRListEvidence = latest.PRListEvidence
 	retained.PinDiscovery = latest.PinDiscovery
 	retained.PinDiscovery.Evidence = evidence
 	if previous.Source.Name == "acs" || latest.Source.Name == "acs" {
@@ -38,6 +39,14 @@ func retainDiscoveryFailure(previous, latest release.Repository, cause error) re
 		retained.PRs[i].Evidence.Error = evidence.Error
 		retained.PRs[i].ChecksEvidence.Known = false
 		retained.PRs[i].CheckResultsEvidence.Known = false
+	}
+	for _, pr := range latest.PRs {
+		index := slices.IndexFunc(retained.PRs, func(previous release.PR) bool { return previous.Target == pr.Target })
+		if index < 0 {
+			retained.PRs = append(retained.PRs, pr)
+		} else {
+			retained.PRs[index] = pr
+		}
 	}
 	for i := range retained.Tags {
 		retained.Tags[i].Evidence.Known = false

@@ -379,7 +379,6 @@ func TestPageEscapesExternalTextAndShowsUnknownEvidenceAndExactOffer(t *testing.
 		Choices:      release.Choices{PRs: map[release.Target]release.Choice{target: release.Included}},
 		Repositories: []release.Repository{{Source: source, PRs: []release.PR{{Target: target, SHA: "head-sha", Title: `<script>alert("x")</script>`, URL: "javascript:alert(1)", State: "open", Base: source.Branch, Evidence: release.Evidence{At: time.Now(), Error: "head observation partial"}}}}},
 		Assessment: release.Assessment{
-			Conditions:            []release.Condition{{Name: "included PR " + target.String(), Status: "", Reason: "Coverage cannot be established", Evidence: []release.Evidence{{Error: "compare API unavailable"}}}},
 			PinningRecommendation: "Create an ACS pinning PR against release-5.0 to set COLLECTOR_VERSION to 3.25.7.",
 		},
 		Plans:       []release.Plan{{Target: target, SHA: "head-sha", Evidence: release.Evidence{Known: false, Error: "partial plan"}, Proposals: []release.Proposal{proposal}}},
@@ -395,7 +394,7 @@ func TestPageEscapesExternalTextAndShowsUnknownEvidenceAndExactOffer(t *testing.
 	if strings.Contains(text, `<script>alert("x")</script>`) {
 		t.Fatal("external PR title was rendered as markup")
 	}
-	for _, needle := range []string{"&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", "unknown", "compare API unavailable", "/konflux-retest unit", "Open Retest Queue", "<p>Create an ACS pinning PR against release-5.0 to set COLLECTOR_VERSION to 3.25.7.</p>"} {
+	for _, needle := range []string{"&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", "Unable to verify PR #7.", "/konflux-retest unit", "Open Retest Queue", "<p>Create an ACS pinning PR against release-5.0 to set COLLECTOR_VERSION to 3.25.7.</p>"} {
 		if !strings.Contains(text, needle) {
 			t.Errorf("rendered page missing %q", needle)
 		}

@@ -52,11 +52,13 @@ func Assess(in Input) Assessment {
 	prStates := make(map[Target]Truth, len(included))
 	for _, target := range included {
 		pr, repo, found := findPR(repos, prSources, target)
-		status, reason := assessIncludedPR(in.Config, target, pr, repo, found)
+		status, reason := assessIncludedPR(in.Config, target, pr, found)
 		prStates[target] = status
 		var evidence []Evidence
 		if found {
-			evidence = []Evidence{repo.Evidence, pr.Evidence}
+			evidence = []Evidence{pr.Evidence}
+		} else if !repo.PRListEvidence.At.IsZero() {
+			evidence = []Evidence{repo.PRListEvidence}
 		}
 		add("included PR "+target.String(), status, reason, evidence...)
 	}
@@ -159,15 +161,12 @@ func findPR(repos map[string]Repository, sources []Source, target Target) (PR, R
 	return PR{}, Repository{}, false
 }
 
-func assessIncludedPR(config Config, target Target, pr PR, repo Repository, found bool) (Truth, string) {
+func assessIncludedPR(config Config, target Target, pr PR, found bool) (Truth, string) {
 	if !target.Valid() || target.PR == 0 {
 		return "", "Included target is not a valid PR target"
 	}
-	if !found || !repo.Evidence.Fresh() {
-		return "", "Included PR was not found in fresh repository discovery"
-	}
-	if !pr.Evidence.Fresh() {
-		return "", "Included PR state is not fresh"
+	if !found || !pr.Evidence.Fresh() {
+		return "", "Could not verify the included PR's state"
 	}
 	if pr.Base == "" {
 		return "", "Included PR target branch is unknown"

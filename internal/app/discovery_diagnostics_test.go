@@ -39,6 +39,21 @@ func TestDiscoveryFailuresPreserveTheirSpecificSource(t *testing.T) {
 	}
 }
 
+func TestDiscoveryBranchFailurePreservesVerifiedPRMerge(t *testing.T) {
+	target := release.Target{Repo: "stackrox/collector", PR: 4339}
+	previous := release.Repository{PRs: []release.PR{{Target: target, State: "open", Evidence: observed()}}}
+	merged := release.PR{Target: target, State: "merged", Merged: true, MergeSHA: "merge", Evidence: observed()}
+	latest := release.Repository{PRs: []release.PR{merged}, PRListEvidence: observed()}
+	retained := retainDiscoveryFailure(previous, latest, errors.New("branch lookup failed"))
+	if !retained.PRListEvidence.Fresh() || len(retained.PRs) != 1 {
+		t.Fatalf("expected the latest PR observations, got %+v", retained)
+	}
+	pr := retained.PRs[0]
+	if !pr.Evidence.Fresh() || !pr.Merged || pr.MergeSHA != merged.MergeSHA {
+		t.Fatalf("verified merge was discarded: %+v", pr)
+	}
+}
+
 func TestPinFailureMapsAreSnapshotCopies(t *testing.T) {
 	s, f, config := newPinningSession(t)
 	repo := f.repos["acs"]

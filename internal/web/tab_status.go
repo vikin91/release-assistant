@@ -117,6 +117,7 @@ func (p pageModel) prStatus(scope string) tabStatus {
 	pin := p.Snapshot.Config.PinningTarget()
 	undecided := 0
 	seen := make(map[release.Target]bool)
+	listChecked := make(map[string]bool)
 	var checks, inventory tabStatus
 	var componentRepo string
 	for _, repo := range p.Repos {
@@ -125,10 +126,16 @@ func (p pageModel) prStatus(scope string) tabStatus {
 			continue
 		}
 		componentRepo = source.Repo
-		evidence := repo.Repository.Evidence
+		evidence := repo.Repository.PRListEvidence
+		listChecked[source.Repo] = !evidence.At.IsZero()
+		if evidence.At.IsZero() {
+			evidence = repo.Repository.Evidence
+		}
 		switch {
+		case evidence.Error != "" && listChecked[source.Repo]:
+			inventory.add(tabNeedsAttention, "Could not list open PRs for "+source.Repo+".")
 		case evidence.Error != "":
-			inventory.add(tabNeedsAttention, "Unable to verify PRs for "+source.Repo+".")
+			inventory.add(tabNeedsAttention, "GitHub observations for "+source.Repo+" are incomplete.")
 		case !evidence.Fresh():
 			inventory.add(tabPending, "")
 		}
@@ -156,6 +163,8 @@ func (p pageModel) prStatus(scope string) tabStatus {
 			if scope == "acs" && target == pin && p.PinningPR != nil {
 				item := pullRequestStatus(p.PinningPR.PR, p.Snapshot.Config.Branch)
 				checks.add(item.State, item.Reason)
+			} else if listChecked[target.Repo] {
+				checks.add(tabNeedsAttention, fmt.Sprintf("Could not verify included PR #%d.", target.PR))
 			} else {
 				status.add(tabPending, "")
 			}

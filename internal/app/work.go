@@ -115,6 +115,7 @@ func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) re
 		}
 	}
 	if !request.Reads(ReadPRs) {
+		latest.PRListEvidence = old.PRListEvidence
 		latest.PinDiscovery = old.PinDiscovery
 		if old.Head != latest.Head {
 			latest.PinDiscovery.Files = nil

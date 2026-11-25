@@ -28,6 +28,37 @@ type fakeServer struct {
 	handler http.Handler
 }
 
+func TestDiscoverReadsIncludedPRDirectlyWhenOpenListFails(t *testing.T) {
+	const branch = "release-3.24"
+	source := release.Source{Name: "collector", Repo: "stackrox/collector", Branch: branch}
+	target := release.Target{Repo: source.Repo, PR: 4339}
+	server := newFakeServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/stackrox/collector/branches/" + branch:
+			_, _ = io.WriteString(w, `{"commit":{"sha":"branch-head"}}`)
+		case "/repos/stackrox/collector/pulls":
+			http.Error(w, "unable to list open PRs", http.StatusBadGateway)
+		case "/repos/stackrox/collector/pulls/4339":
+			_, _ = io.WriteString(w, `{"number":4339,"state":"closed","merged":true,"merge_commit_sha":"merge",
+				"head":{"sha":"pr-head"},"base":{"ref":"release-3.24"}}`)
+		default:
+			t.Errorf("unexpected request %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	client := New(server.URL, "", server.Client())
+	repo, err := client.Discover(t.Context(), app.DiscoveryRequest{
+		Source: source, Scope: app.ReadPRs | app.ReadTargets, Tracked: []release.Target{target},
+	})
+	if err == nil || repo.PRListEvidence.Fresh() || repo.PRListEvidence.Error == "" {
+		t.Fatalf("open PR list failure was lost: %+v, %v", repo.PRListEvidence, err)
+	}
+	if len(repo.PRs) != 1 || repo.PRs[0].Target != target || !repo.PRs[0].Merged || repo.PRs[0].MergeSHA != "merge" ||
+		repo.PRs[0].Base != branch || !repo.PRs[0].Evidence.Fresh() {
+		t.Fatalf("included PR merge was not verified by the individual read: %+v", repo.PRs)
+	}
+}
+
 func newFakeServer(handler http.Handler) *fakeServer {
 	return &fakeServer{URL: "https://api.github.test", handler: handler}
 }

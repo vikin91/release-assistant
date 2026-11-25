@@ -101,6 +101,31 @@ func TestWorkflowPRStatuses(t *testing.T) {
 	}
 }
 
+func TestWorkflowKeepsVerifiedMergeWhenRepositoryReadIsIncomplete(t *testing.T) {
+	s := workflowStatusSnapshot()
+	repo := &s.Repositories[1]
+	repo.PRListEvidence = repo.Evidence
+	repo.Evidence.Error = "one or more GitHub observations are incomplete"
+	pr := release.PR{
+		Target: release.Target{Repo: repo.Source.Repo, PR: 4339},
+		Base:   repo.Source.Branch, State: "merged", Merged: true, MergeSHA: "merge",
+		Evidence: repo.PRListEvidence,
+	}
+	repo.PRs = []release.PR{pr}
+	s.Choices.PRs[pr.Target] = release.Included
+	assertTabStatus(t, s, "collector-prs", tabComplete, "")
+
+	repo.PRListEvidence.Known = false
+	repo.PRListEvidence.Error = "open PR list failed"
+	assertTabStatus(t, s, "collector-prs", tabNeedsAttention, "Could not list open PRs for "+repo.Source.Repo+".")
+	assessWorkflow(&s)
+	body := newBrowser(t, &fakeApplication{snapshot: s}).getBody(t)
+	panel := activityPanel(t, body, "collector-prs")
+	if !strings.Contains(panel, "Included PRs merged (1)") || strings.Contains(panel, "Unverified included PRs") {
+		t.Fatalf("expected the verified merge in the Collector PR list")
+	}
+}
+
 func TestWorkflowComponentReleaseStatus(t *testing.T) {
 	tests := map[string]struct {
 		update   func(*app.Snapshot)

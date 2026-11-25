@@ -205,6 +205,9 @@ func dashboardRepository(previous, current release.Repository, completeTags bool
 		result.Head = previous.Head
 		result.Evidence = historicalEvidence(previous.Evidence, attempt)
 	}
+	if !current.PRListEvidence.Fresh() && previous.PRListEvidence.Known {
+		result.PRListEvidence = historicalEvidence(previous.PRListEvidence, current.PRListEvidence)
+	}
 	for _, old := range previous.PRs {
 		index := slices.IndexFunc(result.PRs, func(pr release.PR) bool { return pr.Target == old.Target })
 		if index >= 0 {

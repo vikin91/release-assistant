@@ -317,6 +317,21 @@ func TestAssessReportsIndependentReleaseEvidence(t *testing.T) {
 				}
 			},
 		},
+		"should accept a verified PR merge despite a partial repository read": {
+			mutate: func(in *Input) {
+				repo := &in.Repositories[2]
+				pr := mergedPR("collector", 4339, "merge")
+				repo.PRs = append(repo.PRs, pr)
+				repo.Evidence.Error = "tag coverage read failed"
+				in.Choices.PRs[pr.Target] = Included
+			},
+			check: func(t *testing.T, a Assessment) {
+				pr := conditionByName(t, a, "included PR stackrox/collector#4339")
+				if pr.Status != Yes || len(pr.Evidence) != 1 || !pr.Evidence[0].Fresh() {
+					t.Fatalf("verified merge was masked by an unrelated read: %+v", pr)
+				}
+			},
+		},
 		"should propose a tag when none is selected": {
 			mutate: func(in *Input) { delete(in.Choices.Tags, "fact") },
 			check: func(t *testing.T, a Assessment) {

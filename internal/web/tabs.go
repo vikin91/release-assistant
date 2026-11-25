@@ -158,16 +158,6 @@ func tabPage(page pageModel, tab string) pageModel {
 		}
 	}
 	page.Authority = authority
-	problems := make([]release.Condition, 0, len(page.Problems))
-	for _, problem := range page.Problems {
-		for target := range page.Snapshot.Choices.PRs {
-			if problem.Name == "included PR "+target.String() && matchesTarget(target) {
-				problems = append(problems, problem)
-				break
-			}
-		}
-	}
-	page.Problems = problems
 	switch tab {
 	case "acs-rcs":
 		page.prepareRC()
