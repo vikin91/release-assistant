@@ -82,6 +82,7 @@ func (d *Dispatcher) CreatePinningPR(ctx context.Context, req release.PinningReq
 	}
 	number, err := d.options.PinningWriter.OpenPinningPR(ctx, req)
 	receipt := PinningReceipt{}
+	decision := "pinning-pr"
 	result := "Created PR #" + strconv.Itoa(number)
 	if err == nil && number > 0 {
 		receipt = PinningReceipt{
@@ -92,10 +93,11 @@ func (d *Dispatcher) CreatePinningPR(ctx context.Context, req release.PinningReq
 		if err == nil {
 			err = fmt.Errorf("GitHub did not confirm the pull request number")
 		}
+		decision = "pinning-pr-error"
 		result = err.Error()
 	}
 	d.mu.Lock()
-	d.logEvent(version, release.Target{Repo: req.Repo, PR: number}, req.Head, "pinning-pr", req.Branch, result, "user")
+	d.logEvent(version, release.Target{Repo: req.Repo, PR: number}, req.Head, decision, req.Branch, result, "user")
 	d.mu.Unlock()
 	return receipt, diff, err
 }

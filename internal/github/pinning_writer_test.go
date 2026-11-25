@@ -5,12 +5,40 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"release-assistant/internal/release"
 )
+
+func TestPinningWriterReportsBranchErrorBeforeLookingUpExistingRef(t *testing.T) {
+	t.Setenv("GH_TOKEN", "fixture-credential")
+	path := filepath.Join(t.TempDir(), "fake-gh")
+	script := "#!/bin/sh\n" +
+		"if [ \"$5\" = POST ]; then\n" +
+		"  printf '%s\\n' 'gh: Forbidden (HTTP 403)' >&2\n" +
+		"  printf '{\"errors\":[{\"message\":\"Branch creation restricted for %s\"}]}' \"$GH_TOKEN\"\n" +
+		"else\n" +
+		"  printf '%s\\n' 'gh: Not Found (HTTP 404)' >&2\n" +
+		"fi\n" +
+		"exit 1\n"
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writer := pinningCLI{path: path}
+	writer.run = writer.api
+	req := release.PinningRequest{Repo: "stackrox/stackrox", Branch: "release-5.0", Head: "base", Version: "5.0.1",
+		Changes: []release.PinChange{{Path: "FACT_VERSION", Before: "0.3.76\n", After: "0.3.77\n"}}}
+	_, err := writer.OpenPinningPR(t.Context(), req)
+	if err == nil || !strings.Contains(err.Error(), "Forbidden (HTTP 403)") ||
+		!strings.Contains(err.Error(), "Branch creation restricted for [redacted]") ||
+		strings.Contains(err.Error(), "fixture-credential") || strings.Contains(err.Error(), "HTTP 404") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
 
 func TestPinningWriterOpensRegularPR(t *testing.T) {
 	for _, recovered := range []bool{false, true} {

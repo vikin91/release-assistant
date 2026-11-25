@@ -24,8 +24,9 @@
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
       <input type="hidden" name="id" value="{{$preview.ID}}">
-      <button type="submit" class="button-primary" aria-describedby="pinning-submit-help{{if or $preview.Reasons $preview.Duplicate}} pinning-blockers{{end}}"{{if or (not $preview.ID) $preview.Reasons $preview.Duplicate}} disabled{{end}}>Create pinning PR</button>
+      <button type="submit" class="button-primary" aria-describedby="pinning-submit-help pinning-token-help{{if or $preview.Reasons $preview.Duplicate}} pinning-blockers{{end}}"{{if or (not $preview.ID) $preview.Reasons $preview.Duplicate}} disabled{{end}}>Create pinning PR</button>
       <p class="muted" id="pinning-submit-help">Release Assistant uses your local <code>gh</code> CLI to open a PR ready for review under your signed-in GitHub account.{{if $preview.Request.Changes}} Files to change: {{range $i, $change := $preview.Request.Changes}}{{if $i}}, {{end}}<code>{{$change.Path}}</code>{{end}}.{{end}}</p>
+      <p class="muted" id="pinning-token-help">The GitHub account needs push access to <code>{{$preview.Request.Repo}}</code>. For a fine-grained token, grant <strong>Contents: write</strong> and <strong>Pull requests: write</strong> on that repository. For a classic token, use the <code>repo</code> scope.</p>
     </form>
     {{if or $preview.Reasons $preview.Duplicate}}
       <div id="pinning-blockers">
@@ -37,5 +38,18 @@
     {{with .Snapshot.CreatedPinningPR}}{{if .Number}}
       <p class="notice" role="status">Created <a href="{{url .URL}}" target="_blank" rel="noreferrer">PR #{{.Number}}</a> against <code>{{.Branch}}</code> · {{when .At}}</p>
     {{end}}{{end}}
+  </section>
+  <section class="panel" aria-labelledby="manual-pinning-heading">
+    <h3 id="manual-pinning-heading">Manual steps to create a pinning PR</h3>
+    {{with manualPinningCommand $preview.Request}}
+      <p class="muted">Run from a clean <code>{{$preview.Request.Repo}}</code> checkout with <code>origin</code> pointing to that repository. If the branch already exists, choose an unused branch name in the command.</p>
+      <div class="copyable-text rerun-command">
+        <pre><code>{{.}}</code></pre>
+        <button type="button" data-copy-text>Copy command</button>
+        <span role="status" data-copy-status data-live-preserve></span>
+      </div>
+    {{else}}
+      <p class="muted">The command is available when the preview contains a pin change.</p>
+    {{end}}
   </section>
 {{end}}

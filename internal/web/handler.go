@@ -66,7 +66,7 @@ func New(application Application) (http.Handler, error) {
 		"retryCommentPermissionLabel": func() string { return retryCommentPermissionLabel },
 		"pinVersion":                  pinVersion, "pinDiffers": pinDiffers,
 		"tabPage": tabPage, "tabTitle": tabTitle, "tabHelp": tabHelp, "tabStep": tabStep,
-		"prComponent": prComponent,
+		"prComponent": prComponent, "manualPinningCommand": manualPinningCommand,
 		"tabLink": func(page pageModel, tab, label string) any {
 			return struct {
 				Page       pageModel

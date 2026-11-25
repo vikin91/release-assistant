@@ -20,6 +20,17 @@ type (
 	}
 )
 
+// HeadBranch keeps the automated and manual branch names identical for a reviewed diff.
+func (r PinningRequest) HeadBranch() string {
+	signature := PinSignature(r.Changes)
+	return fmt.Sprintf("release-assistant/pin-%s-%s-%s", strings.TrimPrefix(r.Version, "v"), r.Head[:min(12, len(r.Head))], signature[:12])
+}
+
+// Title identifies the release receiving the pin update.
+func (r PinningRequest) Title() string {
+	return "chore(release): update component pins for " + r.Version
+}
+
 // PinPaths defines the version files present in each ACS release series.
 func PinPaths(version string) map[string]string {
 	paths := map[string]string{"fact": "FACT_VERSION", "collector": "COLLECTOR_VERSION"}
