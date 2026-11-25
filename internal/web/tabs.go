@@ -55,14 +55,9 @@ func tabHelp(tab string) string {
 // tabPage scopes presentation while all activities share the same release session.
 func tabPage(page pageModel, tab string) pageModel {
 	page.Tab = tab
-	page.PRSection = "pr-selection"
-	page.RetrySection = "retry-proposals"
-	page.RetryDetails = "retry-details"
-	if tab != "component-prs" {
-		page.PRSection = tab + "-pr-selection"
-		page.RetrySection = tab + "-retry"
-		page.RetryDetails = tab + "-retry-details"
-	}
+	page.PRSection = tab + "-pr-selection"
+	page.RetrySection = tab + "-retry"
+	page.RetryDetails = tab + "-retry-details"
 	acsRepo := page.Snapshot.Config.ACS().Repo
 	matchesTarget := func(target release.Target) bool {
 		switch tab {

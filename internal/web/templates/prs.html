@@ -2,17 +2,28 @@
   <section class="panel" aria-labelledby="{{.PRSection}}-heading" id="{{.PRSection}}-panel">
     {{$triage := .PRList}}
     {{$component := eq .Tab "component-prs"}}
+    {{$repository := (index $triage.Repos 0).Repository}}
+    {{$source := $repository.Source}}
+    {{$name := "ACS release"}}
+    {{if $component}}{{$name = title $source.Name}}{{end}}
     <details id="{{.PRSection}}" class="pr-list" open>
-      <summary id="{{.PRSection}}-heading" class="section-summary">{{if $component}}Component PRs{{else}}ACS release PRs{{end}}
+      <summary id="{{.PRSection}}-heading" class="section-summary">{{$name}} PRs
         <span class="pr-list-counts">{{$triage.Open}} open · {{$triage.AwaitingMerge}} awaiting merge{{if $triage.Closed}} · {{$triage.Closed}} included and closed{{end}} · {{$triage.Undecided}} undecided{{if $triage.Merged}} · {{$triage.Merged}} included and merged{{end}}</span>
       </summary>
+    <header class="pr-list-source">
+      <div>{{$source.Repo}} · {{if and $source.Repo $source.Branch}}<a aria-describedby="new-tab-description" href="https://github.com/{{$source.Repo}}/commits/{{$source.Branch | urlquery}}" target="_blank" rel="noreferrer">{{$source.Branch}}</a>{{else}}{{$source.Branch}}{{end}}</div>
+      {{with $repository.Evidence}}
+        {{$sourceURL := url .URL}}
+        {{if or (not .At.IsZero) .Error $sourceURL}}
+          <div class="evidence">
+            {{if not .At.IsZero}}<span>{{if .Fresh}}Head observed{{else if .Known}}Head last observed{{else}}Head unknown as of{{end}} {{when .At}}</span>{{end}}
+            {{if .Error}}<span class="error-text">{{.Error}}</span>{{end}}
+            {{if $sourceURL}}<a aria-describedby="new-tab-description" href="{{$sourceURL}}" target="_blank" rel="noreferrer">Branch source</a>{{end}}
+          </div>
+        {{end}}
+      {{end}}
+    </header>
     {{if $triage.PinDiscoveryStatus}}<p>{{$triage.PinDiscoveryStatus}}</p>{{end}}
-    {{if .ComponentPRNotice}}<p class="muted">{{.ComponentPRNotice}}</p>{{end}}
-    {{if .Problems}}
-    <details id="{{.Tab}}-pr-evidence"><summary>Unverified included PRs</summary>
-      <ol>{{range .Problems}}<li>{{.Name}} · {{.Reason}}{{range .Evidence}}{{if .Error}} · {{.Error}}{{end}}{{end}}</li>{{end}}</ol>
-    </details>
-    {{end}}
     <fieldset class="pr-list-filters" data-live-preserve>
       <legend>Filter open and selected PRs</legend>
       <label><input type="radio" name="{{.PRSection}}-filter" value="all" checked> All</label>
@@ -26,33 +37,22 @@
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
       <input type="hidden" name="kind" value="{{if $component}}component-pr-choices{{else}}acs-pr-choices{{end}}">
+      {{if $component}}<input type="hidden" name="component" value="{{$source.Name}}">{{end}}
       <button type="submit" name="choice" value="included"{{if not $triage.Selectable}} disabled{{end}}>Include all</button>
       <button type="submit" name="choice" value="excluded"{{if not $triage.Selectable}} disabled{{end}}>Exclude all</button>
       <button type="submit" name="choice" value="ignored"{{if not $triage.Selectable}} disabled{{end}}>Ignore &amp; hide all</button>
-      <span class="muted">Applies to all selectable {{if $component}}Component{{else}}ACS release{{end}} PRs across filters.</span>
+      <span class="muted">Applies to all selectable {{$name}} PRs across filters.</span>
     </form>
     {{if and (not $triage.Selectable) $triage.Ignored}}<p class="muted pr-list-all-hidden">Use Ignored &amp; hidden to review the PRs you hid.</p>{{end}}
     <p class="pr-list-filter-help muted">Included PRs that are blocked, have a failed check, or closed without merging.</p>
     <p class="pr-list-filter-empty muted">No PRs match this filter.</p>
-    {{range $triage.Repos}}
-      {{$branch := .Repository.Source.Branch}}
-      <article class="pr-repo" data-live-key="pr-repo:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}">
-        <header class="pr-repo-heading">
-          {{with .Repository.Source}}<h3>{{title .Name}} <span class="muted">{{.Repo}} · {{if and .Repo .Branch}}<a aria-describedby="new-tab-description" href="https://github.com/{{.Repo}}/commits/{{.Branch | urlquery}}" target="_blank" rel="noreferrer">{{.Branch}}</a>{{else}}{{.Branch}}{{end}}</span></h3>{{end}}
-          {{with .Repository.Evidence}}
-            {{$sourceURL := url .URL}}
-            {{if or (not .At.IsZero) .Error $sourceURL}}
-              <div class="evidence">
-                {{if not .At.IsZero}}<span>{{if .Fresh}}Head observed{{else if .Known}}Head last observed{{else}}Head unknown as of{{end}} {{when .At}}</span>{{end}}
-                {{if .Error}}<span class="error-text">{{.Error}}</span>{{end}}
-                {{if $sourceURL}}<a aria-describedby="new-tab-description" href="{{$sourceURL}}" target="_blank" rel="noreferrer">Branch source</a>{{end}}
-              </div>
-            {{end}}
-          {{end}}
-        </header>
+    {{with index $triage.Repos 0}}
+      <table class="pr-list-table" aria-labelledby="{{$.PRSection}}-heading">
+        <tbody>
         {{range .PRs}}
           {{$row := index $triage.Rows .PR.Target}}
-          <article class="pr-card" data-live-key="pr:{{.PR.Target}}" data-release-choice="{{.ChoiceLabel}}"{{if $row.Attention}} data-pr-attention{{end}}>
+          <tr data-live-key="pr:{{.PR.Target}}"><td>
+          <article class="pr-card" data-release-choice="{{.ChoiceLabel}}"{{if $row.Attention}} data-pr-attention{{end}}>
             <div class="pr-summary">
               <div class="pr-title">
                 <a aria-describedby="new-tab-description" href="{{url .PR.URL}}" target="_blank" rel="noreferrer">#{{.PR.Target.PR}} {{.PR.Title}}</a>
@@ -90,13 +90,23 @@
               <form method="post" action="/action#{{$.PRSection}}" class="inline-form grant-form" data-autosubmit><input type="hidden" name="tab" value="{{$.Tab}}"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="grant"><input type="hidden" name="repo" value="{{.PR.Target.Repo}}"><input type="hidden" name="pr" value="{{.PR.Target.PR}}"><input type="hidden" name="sha" value="{{.PR.SHA}}"><input type="hidden" name="enabled" value="false"><label class="check{{if not .CanGrant}} disabled-control{{end}}" title="Saves immediately"><input type="checkbox" name="enabled" value="true" {{if and .Authority .Authority.Granted}}checked{{end}}{{if not .CanGrant}} disabled{{end}}> {{retryCommentPermissionLabel}}</label><noscript><button type="submit"{{if not .CanGrant}} disabled{{end}}>Apply automatic posting permission</button></noscript></form>
               {{end}}
               {{if .PR.OptOut}}<span class="error-text">Writes disabled by opt-out label</span>{{end}}
-              {{with $.PRRetryStatus .PR $branch}}{{template "pr-retry-check" .}}{{end}}
+              {{if and $component (eq .Choice "included") (eq .PR.State "open") .PR.SHA}}
+                {{$sha := .PR.SHA}}
+                {{with .Authority}}{{if eq .SHA $sha}}
+                  {{if .Message}}<p class="build-retry-note">{{.Message}}</p>{{end}}
+                  {{range .Warnings}}<p class="build-retry-note unknown">{{.}}</p>{{end}}
+                {{end}}{{end}}
+              {{end}}
+              {{with $.PRRetryStatus .PR $source.Branch}}{{template "pr-retry-check" .}}{{end}}
             </div>{{end}}
           </article>
-        {{else}}<p class="muted">No open PR observations. New PRs continue to appear as discovery refreshes.</p>{{end}}
+          </td></tr>
+        {{end}}
+        </tbody>
+      </table>
+        {{if not .PRs}}<p class="muted pr-list-no-observations">No open PR observations. New PRs continue to appear as discovery refreshes.</p>{{end}}
         {{if .MergedPRs}}<details class="merged-prs" data-fold-key="merged-prs:{{.Repository.Source.Repo}}"><summary>Included PRs merged ({{len .MergedPRs}})</summary><ol>{{range .MergedPRs}}<li><a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">#{{.Target.PR}} {{.Title}}</a>{{if eq .Target $.Snapshot.Config.PinningTarget}} · <a class="pill yes" href="/?tab=acs-prs#pinning-details" data-open-section>Confirmed pinning PR</a>{{end}}{{if not .Evidence.Fresh}} · <span class="unknown">last observed merged</span>{{end}}</li>{{end}}</ol></details>{{end}}
-      </article>
-    {{else}}<p class="muted">No repository observations yet.</p>{{end}}
+    {{end}}
     </details>
   </section>
 {{end}}

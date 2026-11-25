@@ -81,9 +81,9 @@ func (p pageModel) BuildRetries() []*buildRetryTarget {
 			row.Status = p.retryStatus(&offer)
 		}
 	}
-	if p.Tab == "acs-prs" || p.Tab == "component-prs" {
+	if p.Tab == "acs-prs" {
 		for target, choice := range p.Snapshot.Choices.PRs {
-			if choice == release.Included && ((p.Tab == "acs-prs") == (target.Repo == p.Snapshot.Config.ACS().Repo)) && target.PR > 0 {
+			if choice == release.Included && target.Repo == p.Snapshot.Config.ACS().Repo && target.PR > 0 {
 				targetGroup(target)
 			}
 		}

@@ -24,6 +24,43 @@ func TestPRListsShowSelectionAndObservedChecks(t *testing.T) {
 	}
 }
 
+func TestComponentPRTablesHaveIndependentControls(t *testing.T) {
+	config := prefilledConfig("4.10.12")
+	config.Branch = "release-4.10"
+	snapshot := app.Snapshot{Config: config}
+	for _, source := range config.Components {
+		target := release.Target{Repo: source.Repo, PR: 42}
+		snapshot.Repositories = append(snapshot.Repositories, release.Repository{
+			Source: source,
+			PRs:    []release.PR{{Target: target, Title: "Change " + source.Name, State: "open"}},
+		})
+	}
+	browser := newBrowser(t, &fakeApplication{snapshot: snapshot})
+	panel := activityPanel(t, browser.getBody(t), "component-prs")
+	if strings.Count(panel, `<table class="pr-list-table"`) != 3 || strings.Contains(panel, "Checks of Included PRs") {
+		t.Fatal("expected three component tables and no separate check summary")
+	}
+	for component, heading := range map[string]string{"collector": "Collector PRs", "fact": "Fact PRs", "scanner": "Scanner PRs"} {
+		t.Run(component, func(t *testing.T) {
+			section := componentPRSection(component)
+			table := between(t, panel, `id="`+section+`-panel"`, "</section>")
+			for _, want := range []string{
+				heading,
+				`name="` + section + `-filter"`,
+				`name="component" value="` + component + `"`,
+				"Change " + component,
+			} {
+				if !strings.Contains(table, want) {
+					t.Errorf("missing %q in %s", want, section)
+				}
+			}
+			if strings.Count(table, "Change ") != 1 || strings.Count(table, `name="kind" value="component-pr-choices"`) != 1 {
+				t.Fatal("the table contains rows or controls from another component")
+			}
+		})
+	}
+}
+
 func TestPRListsShowSavedHiddenPRsWithoutAnObservation(t *testing.T) {
 	config := validACS5Config()
 	for tab, source := range map[string]release.Source{"component-prs": config.Components[0], "acs-prs": config.ACS()} {
@@ -77,7 +114,7 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 	merged := pr(7, "closed", "success")
 	merged.Merged = true
 	repo := release.Repository{Source: source, PRs: []release.PR{open, candidate, closed, stale, clean, excluded, merged}}
-	section := "pr-selection"
+	section := componentPRSection(source.Name)
 	if tab == "acs-prs" {
 		config.PinningPR = 8
 		pin := pr(8, "open", "success")
@@ -235,10 +272,19 @@ func TestBulkPRChoicesSubmitTheCurrentGeneration(t *testing.T) {
 			}}
 			browser := newBrowser(t, application)
 			panel := activityPanel(t, browser.getBody(t), tab)
+			if tab == "component-prs" {
+				panel = between(t, panel, `id="`+componentPRSection(tc.source.Name)+`-panel"`, "</section>")
+			}
 			form := formContaining(t, panel, `class="control-row pr-list-bulk"`)
 			values := url.Values{}
 			for _, field := range []string{"tab", "kind", "generation"} {
 				values.Set(field, formInputValue(t, form, field))
+			}
+			var component, fragment string
+			if tab == "component-prs" {
+				component = tc.source.Name
+				fragment = "#" + componentPRSection(component)
+				values.Set("component", formInputValue(t, form, "component"))
 			}
 			for choice, label := range map[release.Choice]string{
 				release.Included: "Include all", release.Excluded: "Exclude all", release.Ignored: "Ignore &amp; hide all",
@@ -248,11 +294,11 @@ func TestBulkPRChoicesSubmitTheCurrentGeneration(t *testing.T) {
 				}
 				values.Set("choice", string(choice))
 				if response := browser.post(values); response.Code != http.StatusSeeOther ||
-					response.Header().Get("Location") != "/?tab="+tab {
+					response.Header().Get("Location") != "/?tab="+tab+fragment {
 					t.Fatal("bulk action failed or lost its tab")
 				}
 				action := application.actions[len(application.actions)-1]
-				if action.Kind != tc.kind || action.Choice != choice || action.Generation != 12 {
+				if action.Kind != tc.kind || action.Choice != choice || action.Generation != 12 || action.Component != component {
 					t.Fatalf("unexpected bulk action: %+v", action)
 				}
 			}

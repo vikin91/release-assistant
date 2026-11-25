@@ -23,11 +23,13 @@ func TestActivityTabsWorkWithoutComponentTags(t *testing.T) {
 		Config: config, Generation: 7,
 		Choices: release.Choices{PRs: map[release.Target]release.Choice{component: release.Included, acs: release.Included}},
 		Repositories: []release.Repository{
-			{Source: config.Components[0], PRs: []release.PR{{Target: component, Title: "Component change", State: "open"}}},
+			{Source: config.Components[0], PRs: []release.PR{{
+				Target: component, Title: "Component change", State: "open", Base: config.Components[0].Branch, SHA: "head",
+			}}},
 			{Source: config.ACS(), PRs: []release.PR{{Target: acs, Title: "ACS change", State: "open"}}},
 		},
-		Plans:     []release.Plan{{Target: component, Message: "component-build-observation"}, {Target: acs, Message: "acs-build-observation"}},
-		Authority: []dispatch.View{{Target: component, Message: "component-write-offer"}, {Target: acs, Message: "acs-write-offer"}},
+		Plans:     []release.Plan{{Target: component, SHA: "head", Message: "component-build-observation"}, {Target: acs, Message: "acs-build-observation"}},
+		Authority: []dispatch.View{{Target: component, SHA: "head", Message: "component-write-offer"}, {Target: acs, Message: "acs-write-offer"}},
 	}}
 	browser := newBrowser(t, application)
 	for _, tab := range []string{"component-prs", "component-releases", "acs-prs", "acs-rcs", "activity", "settings"} {

@@ -8,6 +8,27 @@ import (
 	"release-assistant/internal/release"
 )
 
+func componentPRSection(component string) string {
+	return component + "-pr-selection"
+}
+
+// PRLists scopes each list's rows, filters and bulk controls to one source.
+func (p pageModel) PRLists() []pageModel {
+	lists := make([]pageModel, 0, len(p.Repos))
+	for i, repo := range p.Repos {
+		list := p
+		list.Repos = p.Repos[i : i+1]
+		if p.Tab == "component-prs" {
+			list.PRSection = componentPRSection(repo.Repository.Source.Name)
+		}
+		lists = append(lists, list)
+	}
+	slices.SortFunc(lists, func(a, b pageModel) int {
+		return cmp.Compare(a.Repos[0].Repository.Source.Name, b.Repos[0].Repository.Source.Name)
+	})
+	return lists
+}
+
 type (
 	prListModel struct {
 		PinDiscoveryStatus                       string

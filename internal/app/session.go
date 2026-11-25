@@ -374,11 +374,17 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			}
 			targets = map[release.Target]string{a.Target: a.SHA}
 		} else {
-			sources := s.config.Components
-			if a.Kind == "acs-pr-choices" {
-				sources = []release.Source{s.config.ACS()}
+			source := s.config.ACS()
+			if a.Kind == "component-pr-choices" {
+				index := slices.IndexFunc(s.config.Components, func(source release.Source) bool {
+					return source.Name == a.Component
+				})
+				if index < 0 {
+					return fmt.Errorf("unknown component for bulk PR selection")
+				}
+				source = s.config.Components[index]
 			}
-			targets = s.bulkPRTargets(sources, a.Choice)
+			targets = s.bulkPRTargets(source, a.Choice)
 			if len(targets) == 0 {
 				return nil
 			}
@@ -599,17 +605,15 @@ func (s *Session) setPRChoice(target release.Target, sha string, choice release.
 	s.record(target, sha, "inclusion", "", string(choice), "user")
 }
 
-func (s *Session) bulkPRTargets(sources []release.Source, choice release.Choice) map[release.Target]string {
+func (s *Session) bulkPRTargets(source release.Source, choice release.Choice) map[release.Target]string {
 	targets := make(map[release.Target]string)
 	pinning := s.config.PinningTarget()
-	for _, source := range sources {
-		for _, pr := range s.repos[source.Name].PRs {
-			current := s.choices.PRs[pr.Target]
-			if pr.Target.Repo != source.Repo || pr.Target == pinning || current == choice || !pr.Selectable(current) {
-				continue
-			}
-			targets[pr.Target] = pr.SHA
+	for _, pr := range s.repos[source.Name].PRs {
+		current := s.choices.PRs[pr.Target]
+		if pr.Target.Repo != source.Repo || pr.Target == pinning || current == choice || !pr.Selectable(current) {
+			continue
 		}
+		targets[pr.Target] = pr.SHA
 	}
 	return targets
 }

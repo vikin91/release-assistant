@@ -1,5 +1,5 @@
 {{define "build-retries"}}
-  {{$prs := or (eq .Tab "acs-prs") (eq .Tab "component-prs")}}
+  {{$prs := eq .Tab "acs-prs"}}
   <section class="panel" id="{{.RetrySection}}">
     {{if $prs}}<h3 id="{{.Tab}}-retry-heading">Checks of Included PRs</h3>{{end}}
     <details id="{{.RetryDetails}}" open>
@@ -9,7 +9,7 @@
       </summary>
       {{else}}<summary class="section-summary">Konflux check retries</summary>{{end}}
       {{range .BuildRetries}}
-        <article class="build-retry-target" {{if .Target.PR}}id="{{if eq $.Tab "acs-prs"}}acs-pr-retries-{{.Target.PR}}{{else}}component-pr-retries-{{.Target}}{{end}}" {{end}}data-live-key="build-retries:{{.Target}}">
+        <article class="build-retry-target" {{if .Target.PR}}id="acs-pr-retries-{{.Target.PR}}" {{end}}data-live-key="build-retries:{{.Target}}">
           {{if .Target.PR}}
             <header class="build-retry-pr-heading">
               {{template "pr-title-and-link" .}}

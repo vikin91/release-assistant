@@ -13,7 +13,9 @@ import (
 )
 
 func TestWriteModeControls(t *testing.T) {
-	prTarget := release.Target{Repo: "acme/rox", PR: 12}
+	config := validACS5Config()
+	source := config.Components[1]
+	prTarget := release.Target{Repo: source.Repo, PR: 12}
 	tagTarget := release.Target{Repo: "acme/fact", Tag: "3.25.7"}
 	proposal := release.Proposal{Target: prTarget, SHA: "head-sha", Job: "unit", RunID: "run-77", Payload: "/konflux-retest unit"}
 
@@ -37,19 +39,20 @@ func TestWriteModeControls(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			application := &fakeApplication{snapshot: app.Snapshot{
-				Config: validACS5Config(), Generation: 9, WritesEnabled: tc.writesEnabled, Interactive: tc.interactive, RequirePRLabel: tc.requireLabel,
+				Config: config, Generation: 9, WritesEnabled: tc.writesEnabled, Interactive: tc.interactive, RequirePRLabel: tc.requireLabel,
 				Choices: release.Choices{
 					Tags: map[string]string{"fact": "3.25.7", "collector": "3.25.4"},
 					PRs:  map[release.Target]release.Choice{prTarget: release.Included},
 				},
 				Repositories: []release.Repository{
-					{Source: release.Source{Name: "acs", Repo: "acme/rox", Branch: "release-5.0"}, PRs: []release.PR{{Target: prTarget, SHA: "head-sha", Title: "Included PR", State: "open", Base: "release-5.0", OptOut: tc.optOut, CommentLabel: !tc.missingLabel, Evidence: release.Evidence{Known: true, At: time.Now()}}}},
+					{Source: source, PRs: []release.PR{{Target: prTarget, SHA: "head-sha", Title: "Included PR", State: "open", Base: source.Branch, OptOut: tc.optOut, CommentLabel: !tc.missingLabel, Evidence: release.Evidence{Known: true, At: time.Now()}}}},
 					{Source: release.Source{Name: "fact", Repo: "acme/fact", Branch: "release-3.25", Stream: "3.25"}, Tags: []release.Tag{
 						{Name: "3.25.7", SHA: "tag-sha", Belongs: release.Yes, Evidence: release.Evidence{Known: true, At: time.Now()}},
 						{Name: "3.25.8", SHA: "next-tag-sha", Belongs: release.Yes, Evidence: release.Evidence{Known: true, At: time.Now()}},
 					}},
 				},
-				Plans: []release.Plan{{Target: prTarget, SHA: proposal.SHA, Proposals: []release.Proposal{proposal}}},
+				Plans:       []release.Plan{{Target: prTarget, SHA: proposal.SHA, Proposals: []release.Proposal{proposal}}},
+				RetestQueue: []app.RetestItem{{ID: 1, Target: prTarget, Kind: "konflux", Payload: proposal.Payload}},
 				Authority: []dispatch.View{
 					{Target: prTarget, SHA: proposal.SHA, Granted: true, OptOut: tc.optOut, Offers: []dispatch.Offer{{ID: "offer-1", Proposal: proposal, Allowed: true, CanApprove: true}}},
 					{Target: tagTarget, SHA: "tag-sha", Granted: true, OptOut: tc.optOut},

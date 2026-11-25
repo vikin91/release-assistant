@@ -311,6 +311,8 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 		destination = "/?tab=settings&saved=cache-clear#cache-settings"
 	case "check-pr-retries":
 		destination += "#" + prRetryAnchor(action.Target)
+	case "component-pr-choices":
+		destination += "#" + componentPRSection(action.Component)
 	}
 	if page.ProfileID != "" && action.Kind != "open-release" && action.Kind != "activate-release" && action.Kind != "remove-release" && action.Kind != "add-release" {
 		location, err := url.Parse(destination)
@@ -533,10 +535,11 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 		}
 	case "component-pr-choices", "acs-pr-choices":
 		a.Choice = release.Choice(lastFormValue(form, "choice"))
+		a.Component = form.Get("component")
 		tab := form.Get("tab")
 		if a.Target != (release.Target{}) ||
-			(a.Kind == "component-pr-choices" && tab != "component-prs") ||
-			(a.Kind == "acs-pr-choices" && tab != "acs-prs") {
+			(a.Kind == "component-pr-choices" && (tab != "component-prs" || a.Component == "")) ||
+			(a.Kind == "acs-pr-choices" && (tab != "acs-prs" || a.Component != "")) {
 			return a, fmt.Errorf("bulk selection requires the matching PR list")
 		}
 	case "grant":

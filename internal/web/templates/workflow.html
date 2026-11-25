@@ -18,8 +18,16 @@
     <p class="notice">The previous patch was published, no open ACS PRs were observed, and the component branches still match the previous pins. A new patch may be unnecessary.</p>
   {{end}}
   {{if eq .Tab "acs-prs"}}{{template "acs-pinning" .}}{{end}}
-  {{if or (eq .Tab "component-prs") (eq .Tab "acs-prs")}}{{template "pr-list" .}}{{end}}
+  {{if or (eq .Tab "component-prs") (eq .Tab "acs-prs")}}
+    {{if .ComponentPRNotice}}<p class="muted">{{.ComponentPRNotice}}</p>{{end}}
+    {{if .Problems}}
+    <details class="panel" id="{{.Tab}}-pr-evidence"><summary>Unverified included PRs</summary>
+      <ol>{{range .Problems}}<li>{{.Name}} · {{.Reason}}{{range .Evidence}}{{if .Error}} · {{.Error}}{{end}}{{end}}</li>{{end}}</ol>
+    </details>
+    {{end}}
+    {{range .PRLists}}{{template "pr-list" .}}{{end}}
+  {{end}}
   {{if eq .Tab "component-releases"}}{{template "component-releases" .}}{{end}}
-  {{if eq .Tab "acs-rcs"}}{{template "acs-rcs" .}}{{else}}{{template "build-retries" .}}{{end}}
+  {{if eq .Tab "acs-rcs"}}{{template "acs-rcs" .}}{{else if ne .Tab "component-prs"}}{{template "build-retries" .}}{{end}}
   {{if or (eq .Tab "acs-rcs") (and (eq .Tab "component-releases") .ManualRetries)}}{{template "manual-ci-retries" .}}{{end}}
 {{end}}

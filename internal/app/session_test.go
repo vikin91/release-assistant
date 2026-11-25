@@ -352,7 +352,7 @@ func TestBulkComponentPRChoices(t *testing.T) {
 	factPR := release.Target{Repo: fact.Source.Repo, PR: 41}
 	closedPR := release.Target{Repo: fact.Source.Repo, PR: 42}
 	mergedPR := release.Target{Repo: fact.Source.Repo, PR: 43}
-	acrossRepos := release.Target{Repo: collector.Source.Repo, PR: 44}
+	collectorPR := release.Target{Repo: collector.Source.Repo, PR: 44}
 	acsPR := release.Target{Repo: acs.Source.Repo, PR: 45}
 	hiddenPR := release.Target{Repo: fact.Source.Repo, PR: 46}
 	fact.PRs = []release.PR{
@@ -361,7 +361,7 @@ func TestBulkComponentPRChoices(t *testing.T) {
 		{Target: mergedPR, State: "closed", Merged: true},
 		{Target: hiddenPR, State: "open"},
 	}
-	collector.PRs = []release.PR{{Target: acrossRepos, State: "open"}}
+	collector.PRs = []release.PR{{Target: collectorPR, State: "open"}}
 	acs.PRs = []release.PR{{Target: acsPR, State: "open"}}
 	f.repos["fact"], f.repos["collector"], f.repos["acs"] = fact, collector, acs
 	refreshAll(t, s)
@@ -369,23 +369,34 @@ func TestBulkComponentPRChoices(t *testing.T) {
 		apply(t, s, Action{Kind: "choice", Target: target, Choice: release.Included})
 	}
 	apply(t, s, Action{Kind: "choice", Target: factPR, Choice: release.Excluded})
+	apply(t, s, Action{Kind: "choice", Target: collectorPR, Choice: release.Included})
 	apply(t, s, Action{Kind: "choice", Target: hiddenPR, Choice: release.Ignored})
 
 	checkChoices := func(choice release.Choice) {
 		t.Helper()
 		choices := s.Snapshot().Choices.PRs
-		for _, target := range []release.Target{factPR, closedPR, acrossRepos} {
+		for _, target := range []release.Target{factPR, closedPR} {
 			if choices[target] != choice {
 				t.Errorf("choice for %s = %q, want %q", target, choices[target], choice)
 			}
 		}
-		if choices[acsPR] != release.Included || choices[mergedPR] != release.Included || choices[hiddenPR] != release.Ignored {
-			t.Errorf("bulk %s changed an ACS, merged, or hidden PR", choice)
+		if choices[collectorPR] != release.Included || choices[acsPR] != release.Included ||
+			choices[mergedPR] != release.Included || choices[hiddenPR] != release.Ignored {
+			t.Errorf("bulk %s changed a PR outside the selectable Fact PRs", choice)
 		}
 	}
-	apply(t, s, Action{Kind: "component-pr-choices", Choice: release.Included})
+	generation := s.Snapshot().Generation
+	for _, component := range []string{"", "acs", "scanner"} {
+		err := s.Apply(t.Context(), Action{
+			Kind: "component-pr-choices", Component: component, Generation: generation, Choice: release.Ignored,
+		})
+		if err == nil {
+			t.Errorf("bulk selection accepted unconfigured component %q", component)
+		}
+	}
+	apply(t, s, Action{Kind: "component-pr-choices", Component: "fact", Choice: release.Included})
 	checkChoices(release.Included)
-	apply(t, s, Action{Kind: "component-pr-choices", Choice: release.Excluded})
+	apply(t, s, Action{Kind: "component-pr-choices", Component: "fact", Choice: release.Excluded})
 	checkChoices(release.Excluded)
 
 	apply(t, s, Action{Kind: "choice", Target: closedPR, Choice: release.Included})
@@ -394,7 +405,7 @@ func TestBulkComponentPRChoices(t *testing.T) {
 	s.plans[factPR] = release.Plan{Target: factPR}
 	s.plans[acsPR] = release.Plan{Target: acsPR}
 
-	apply(t, s, Action{Kind: "component-pr-choices", Choice: release.Ignored})
+	apply(t, s, Action{Kind: "component-pr-choices", Component: "fact", Choice: release.Ignored})
 	checkChoices(release.Ignored)
 	snapshot := s.Snapshot()
 	if s.plans[acsPR].Target != acsPR {

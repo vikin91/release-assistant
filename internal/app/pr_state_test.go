@@ -45,7 +45,7 @@ func TestPRStateRestoresChoicesByPatchRelease(t *testing.T) {
 	original := session(state, release.Config{})
 	apply(t, original, Action{Kind: "configure", Config: config})
 	refreshAll(t, original)
-	apply(t, original, Action{Kind: "component-pr-choices", Choice: release.Included})
+	apply(t, original, Action{Kind: "component-pr-choices", Component: "fact", Choice: release.Included})
 	apply(t, original, Action{Kind: "choice", Target: collector, Choice: release.Excluded})
 	apply(t, original, Action{Kind: "acs-pr-choices", Choice: release.Ignored})
 	apply(t, original, Action{Kind: "choice", Target: acs, Choice: release.Excluded})
@@ -105,10 +105,12 @@ func TestPRStateSaveFailureLeavesBulkChoicesIntact(t *testing.T) {
 	}
 	f.repos["fact"] = repo
 	refreshAll(t, s)
-	apply(t, s, Action{Kind: "component-pr-choices", Choice: release.Included})
+	apply(t, s, Action{Kind: "component-pr-choices", Component: "fact", Choice: release.Included})
 	before := s.Snapshot()
 	state.path = t.TempDir()
-	err = s.Apply(t.Context(), Action{Kind: "component-pr-choices", Generation: before.Generation, Choice: release.Ignored})
+	err = s.Apply(t.Context(), Action{
+		Kind: "component-pr-choices", Component: "fact", Generation: before.Generation, Choice: release.Ignored,
+	})
 	if err == nil || !strings.Contains(err.Error(), "save release state") {
 		t.Fatalf("bulk action returned %v", err)
 	}

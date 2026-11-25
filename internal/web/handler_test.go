@@ -368,14 +368,16 @@ func TestOpaqueOriginRequiresSameOriginFetchMetadataAndCSRF(t *testing.T) {
 }
 
 func TestPageEscapesExternalTextAndShowsUnknownEvidenceAndExactOffer(t *testing.T) {
-	target := release.Target{Repo: "acme/rox", PR: 7}
+	config := validACS5Config()
+	source := config.Components[0]
+	target := release.Target{Repo: source.Repo, PR: 7}
 	proposal := release.Proposal{Target: target, SHA: "head-sha", Job: "unit", RunID: "run-77", Payload: "/konflux-retest unit"}
 	appFake := &fakeApplication{snapshot: app.Snapshot{
-		Config:       validACS5Config(),
+		Config:       config,
 		Generation:   4,
 		Interactive:  true,
 		Choices:      release.Choices{PRs: map[release.Target]release.Choice{target: release.Included}},
-		Repositories: []release.Repository{{Source: release.Source{Name: "acs", Repo: "acme/rox", Branch: "release"}, PRs: []release.PR{{Target: target, SHA: "head-sha", Title: `<script>alert("x")</script>`, URL: "javascript:alert(1)", State: "open", Base: "release", Evidence: release.Evidence{At: time.Now(), Error: "head observation partial"}}}}},
+		Repositories: []release.Repository{{Source: source, PRs: []release.PR{{Target: target, SHA: "head-sha", Title: `<script>alert("x")</script>`, URL: "javascript:alert(1)", State: "open", Base: source.Branch, Evidence: release.Evidence{At: time.Now(), Error: "head observation partial"}}}}},
 		Assessment: release.Assessment{
 			Conditions:            []release.Condition{{Name: "included PR " + target.String(), Status: "", Reason: "Coverage cannot be established", Evidence: []release.Evidence{{Error: "compare API unavailable"}}}},
 			PinningRecommendation: "Create an ACS pinning PR against release-5.0 to set COLLECTOR_VERSION to 3.25.7.",
@@ -494,7 +496,7 @@ func TestRecommendedTagConfirmationIsSeparateFromPRSelection(t *testing.T) {
 	b.handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/", nil))
 	body := w.Body.String()
 	tags := between(t, body, `<div id="tag-selection">`, `<section class="panel" id="component-images-panel">`)
-	prs := between(t, body, `<section class="panel" aria-labelledby="pr-selection-heading"`, `</section>`)
+	prs := between(t, body, `<section class="panel" aria-labelledby="fact-pr-selection-heading"`, `</section>`)
 	if strings.Contains(tags, "A selectable change") || !strings.Contains(prs, "A selectable change") {
 		t.Fatal("component PRs and tags must have separate activity views")
 	}
@@ -994,7 +996,7 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 			t.Errorf("missing stale component evidence %q", want)
 		}
 	}
-	if !strings.Contains(body, `<details id="pr-selection" class="pr-list" open>`) {
+	if !strings.Contains(body, `<details id="fact-pr-selection" class="pr-list" open>`) {
 		t.Error("PR selection must stay visible and directly linkable")
 	}
 	for _, control := range []string{`<details id="component-images" open>`, `<details id="acs-prs-retry-details" open>`, `<details id="component-releases-retry-details" open>`} {
