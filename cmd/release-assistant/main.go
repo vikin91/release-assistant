@@ -113,7 +113,7 @@ func run() error {
 	options.CIPlanner = ciretest.New(retry.Config{GitHubToken: plannerConfig.GitHubToken, HTTPClient: client})
 	plannerConfig.HTTPClient = client
 	plannerConfig.OnReadPauseChange = log.KonfluxReadPauseChanged
-	plannerConfig.CommentFooter = "*posted from release-assistant " + buildVersion() + "*"
+	plannerConfig.CommentFooter = "<sub>posted from release-assistant " + buildVersion() + "</sub>"
 	planner := konflux.New(plannerConfig)
 	options.KonfluxProbe = planner.ProbeHealth
 	inspector := images.New(client, plannerConfig.QuayUsername, plannerConfig.QuayPassword)

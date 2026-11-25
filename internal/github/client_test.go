@@ -512,7 +512,7 @@ func pinningDiscoveryServer(t *testing.T, pr string, refs map[string]bool, value
 }
 
 func TestWriterUsesPRIssueAndCommitCommentEndpoints(t *testing.T) {
-	const footer = "*posted from release-assistant v1.2.3*"
+	const footer = "<sub>posted from release-assistant v1.2.3</sub>"
 	tests := []struct {
 		name                           string
 		target                         release.Target
