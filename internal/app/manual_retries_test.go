@@ -44,8 +44,8 @@ func TestMonitorManualRetries(t *testing.T) {
 	})
 	refresh := func() Snapshot {
 		t.Helper()
-		if err := fetchSourcePolls(t, s, source, pollChecks, pollTagChecks); err == nil {
-			t.Fatal("the failed PR retry read should schedule a retry")
+		if err := fetchSourcePolls(t, s, source, pollChecks, pollTagChecks); err != nil {
+			t.Fatal(err)
 		}
 		return s.Snapshot()
 	}

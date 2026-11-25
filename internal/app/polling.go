@@ -211,10 +211,11 @@ func (s *Session) fetchPoll(ctx context.Context, generation, revision uint64, so
 		ctx = githubread.WithPriority(ctx, githubread.PRs, source.Repo)
 	case pollChecks:
 		work.scope = ReadTargets | ReadChecks
-		if err := s.refresh(ctx, generation, source, true, work); err != nil {
-			return err
+		err := s.refresh(ctx, generation, source, true, work)
+		if !canceled(ctx) {
+			s.enqueuePRRetries(generation, revision, source)
 		}
-		return s.refreshPRRetries(ctx, generation, revision, source)
+		return err
 	case pollTags:
 		ctx = githubread.WithPriority(ctx, githubread.Tags, source.Repo)
 		if source.Name == "acs" {

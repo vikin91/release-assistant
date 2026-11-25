@@ -113,9 +113,8 @@ func TestManualPRAndTagChecksKeepIndependentReports(t *testing.T) {
 		}
 		return report, readErr
 	})
-	if err := s.refreshPRRetries(t.Context(), s.generation, s.workRevision, source); err != nil {
-		t.Fatal(err)
-	}
+	s.enqueuePRRetries(s.generation, s.workRevision, source)
+	drainReadyPRRetries(t, s)
 	if !slices.Equal(calls, []release.Target{pr.Target}) {
 		t.Fatalf("PR refresh also read a tag: %v", calls)
 	}

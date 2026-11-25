@@ -113,6 +113,7 @@ type (
 		generation    uint64
 		workRevision  uint64
 		pollChanged   chan struct{}
+		ciRetryJobs   map[release.Target]scheduledPRRetry
 		startupUntil  time.Time
 		konfluxHealth *konflux.Health
 		discovery     Discoverer

@@ -105,14 +105,10 @@ func (s *Session) refreshManualRetries(ctx context.Context, generation, revision
 	_ = s.readManualRetries(ctx, generation, revision, source, ReadAll)
 }
 
-func (s *Session) refreshPRRetries(ctx context.Context, generation, revision uint64, source release.Source) error {
-	return s.readManualRetries(ctx, generation, revision, source, ReadPRs)
-}
-
 // readManualRetries replaces only the reports covered by this type of refresh.
 func (s *Session) readManualRetries(ctx context.Context, generation, revision uint64, source release.Source, scope DiscoveryScope) error {
 	inScope := func(target release.Target) bool {
-		return scope == ReadAll || (scope == ReadPRs && target.PR > 0) || (scope == ReadTags && target.Tag != "")
+		return scope == ReadAll || target.Tag != ""
 	}
 	planner := s.options.CIPlanner
 	if planner == nil {
@@ -152,13 +148,20 @@ func (s *Session) readManualRetries(ctx context.Context, generation, revision ui
 	}
 	currentHeads := s.manualRetryHeads(s.repos[source.Name], false)
 	for target, previous := range s.manualRetries {
-		_, refreshed := reports[target]
-		if target.Repo == source.Repo && inScope(target) && (refreshed || currentHeads[target] != previous.SHA) {
+		if target.Repo == source.Repo && inScope(target) && currentHeads[target] != previous.SHA {
 			delete(s.manualRetries, target)
 		}
 	}
 	for target, report := range reports {
-		s.manualRetries[target] = report
+		s.storeManualRetry(target, report)
 	}
 	return errors.Join(errs...)
+}
+
+// storeManualRetry preserves the latest report when reads finish out of order.
+// The caller holds the session lock.
+func (s *Session) storeManualRetry(target release.Target, report release.ManualRetryReport) {
+	if previous := s.manualRetries[target]; previous.SHA != report.SHA || !previous.At.After(report.At) {
+		s.manualRetries[target] = report
+	}
 }
