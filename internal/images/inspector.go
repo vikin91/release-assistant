@@ -33,12 +33,6 @@ func New(httpClient *http.Client, username, password string) *Inspector {
 	return &Inspector{registry: newRegistryClient("https://quay.io", httpClient, username, password)}
 }
 
-// WithQuayAPIToken configures the read-only Quay API token before the inspector starts polling.
-func (i *Inspector) WithQuayAPIToken(token string) *Inspector {
-	i.registry.apiToken = strings.TrimSpace(token)
-	return i
-}
-
 type imagePattern struct {
 	component string
 	name      string
@@ -198,12 +192,13 @@ func (i *Inspector) observeImage(ctx context.Context, image release.Image, force
 }
 
 func imageProbe(image release.Image) registryProbe {
-	return registryProbe{reference: image.Reference, tagMapping: image.Component != "acs", public: image.Family == release.ImagePublic}
+	return registryProbe{reference: image.Reference, componentImage: image.Component != "acs"}
 }
 
 func (observation registryObservation) apply(image *release.Image) {
 	image.Present, image.Evidence.At = observation.present, observation.at
-	image.TagUpdatedAt, image.TagDigest, image.TagError = observation.tagUpdatedAt, observation.tagDigest, observation.tagError
+	image.CreatedAt, image.CreatedPlatform = observation.created, observation.platform
+	image.ManifestDigest = observation.digest
 }
 
 func componentPatterns(config release.Config) []imagePattern {

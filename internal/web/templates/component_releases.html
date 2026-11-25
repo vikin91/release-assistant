@@ -135,7 +135,7 @@
   <div class="component-image-table-scroll">
     <table class="component-image-table" aria-labelledby="component-images-heading">
       <colgroup><col class="component-image-identity"><col class="component-image-identity"><col><col><col></colgroup>
-      <thead><tr><th scope="col">Component</th><th scope="col">Image</th><th scope="col">CI</th><th scope="col">Konflux</th><th scope="col">Public Quay</th></tr></thead>
+      <thead><tr><th scope="col">Component</th><th scope="col">Image</th><th scope="col">rhscsn</th><th scope="col">Konflux</th><th scope="col">Starkrox.io</th></tr></thead>
       {{range .}}
       <tbody>
         {{$group := .}}
@@ -162,8 +162,8 @@
     <details class="component-image-check" data-fold-key="component-image:{{.Check.Image.Component}}:{{.Check.Image.Family}}:{{.Name}}">
       <summary>
         <span class="pill component-image-status {{truth .Check.Status}}">{{template "image-status-label" .}}</span>
-        {{if and (eq (truth .Check.Status) "yes") .Check.Image.Evidence.Fresh (not .Check.Image.TagUpdatedAt.IsZero)}}
-          <time class="pill component-image-age" datetime="{{.Check.Image.TagUpdatedAt.Format "2006-01-02T15:04:05Z07:00"}}" title="Tag updated {{when .Check.Image.TagUpdatedAt}}">Tag age {{imageAge .Check.Image.TagUpdatedAt}}</time>
+        {{if and (eq (truth .Check.Status) "yes") .Check.Image.Evidence.Fresh (not .Check.Image.CreatedAt.IsZero)}}
+          <time class="pill component-image-age" datetime="{{.Check.Image.CreatedAt.Format "2006-01-02T15:04:05Z07:00"}}" title="Created {{when .Check.Image.CreatedAt}}{{with .Check.Image.CreatedPlatform}} ({{.}}){{end}}">Age {{imageAge .Check.Image.CreatedAt}}</time>
         {{end}}
         {{if not .Check.Status}}
           <span class="component-image-note">{{if .Check.Image.Evidence.Historical}}{{template "historical-evidence" .Check.Image.Evidence}}{{else if and .Check.Required (not .Check.SelectedTag)}}No tag selected{{else if and (not .Check.Image.Evidence.Fresh) .Check.Image.Present}}Last result unverified{{else if and .Check.Image.Reference .Check.Image.Evidence.Error}}Registry check failed{{else if and .Check.Image.Reference .Check.Image.Evidence.At.IsZero}}Waiting for Quay{{else}}{{.Check.Reason}}{{end}}</span>
@@ -185,8 +185,10 @@
         {{if .Check.Image.Evidence.Error}}<p class="error-text">{{.Check.Image.Evidence.Error}}</p>{{end}}
         {{if .Check.Image.Evidence.Fresh}}
           {{if eq .Check.Image.Present "yes"}}
-            {{if .Check.Image.TagUpdatedAt.IsZero}}<p class="muted">Tag update time unavailable. {{.Check.Image.TagError}}</p>
-            {{else}}<p>Tag updated {{when .Check.Image.TagUpdatedAt}}</p><p>Digest <code>{{.Check.Image.TagDigest}}</code></p>{{end}}
+            {{if .Check.Image.CreatedAt.IsZero}}<p class="muted">Image creation time unavailable</p>
+            {{else}}<p>Created {{when .Check.Image.CreatedAt}}{{with .Check.Image.CreatedPlatform}} ({{.}}){{end}}</p>{{end}}
+            {{with .Check.Image.DigestChangedAt}}<p>Digest change detected <time datetime="{{.Format "2006-01-02T15:04:05Z07:00"}}" title="{{when .}}">{{imageAge .}} ago</time></p>{{end}}
+            {{with .Check.Image.ManifestDigest}}<p>Digest <code>{{.}}</code></p>{{end}}
           {{end}}
           <p>Checked {{when .Check.Image.Evidence.At}}</p>
         {{else if .Check.Image.Present}}

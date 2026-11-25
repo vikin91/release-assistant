@@ -31,11 +31,11 @@ func TestInspectUsesSavedComponentPatternsForSupportedStreams(t *testing.T) {
 			inspector := New(testHTTPClient(func(request *http.Request) *http.Response {
 				requests++
 				manifest := strings.HasPrefix(request.URL.Path, "/v2/rhacs-eng/")
-				publicTag := strings.HasPrefix(request.URL.Path, "/api/v1/repository/stackrox-io/")
-				if request.URL.Host != "quay.io" || !manifest && !publicTag {
+				publicManifest := strings.HasPrefix(request.URL.Path, "/v2/stackrox-io/")
+				if request.URL.Host != "quay.io" || !manifest && !publicManifest {
 					t.Errorf("unexpected non-Quay registry request: %s", request.URL)
 				}
-				return availableComponentResponse(request)
+				return response(http.StatusOK, validImageManifest, nil)
 			}), "", "")
 			config := configFor(tt.version)
 			tags := map[string]string{"fact": "0.3.77", "collector": "v0.4.20"}
@@ -142,7 +142,9 @@ func TestInspectAcceptsConfiguredComponentStreamsIndependentOfACS(t *testing.T) 
 			for index := range config.Components {
 				config.Components[index].Stream = tt.streams[config.Components[index].Name]
 			}
-			inspector := New(testHTTPClient(availableComponentResponse), "", "")
+			inspector := New(testHTTPClient(func(*http.Request) *http.Response {
+				return response(http.StatusOK, validImageManifest, nil)
+			}), "", "")
 			inventory, err := inspector.Inspect(t.Context(), config, tt.tags)
 			if err != nil {
 				t.Fatalf("Inspect() error = %v", err)
@@ -215,7 +217,7 @@ func TestInspectKeepsRegistryAbsenceDistinctFromUnknown(t *testing.T) {
 				t.Fatalf("Inspect() error = %v, wantErr=%t", err, tt.wantErr)
 			}
 			for _, image := range inventory.Images {
-				if image.Family != release.ImagePublic && image.Present != tt.want {
+				if image.Present != tt.want {
 					t.Errorf("image availability = %q, want %q: %#v", image.Present, tt.want, image)
 				}
 			}

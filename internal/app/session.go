@@ -1520,6 +1520,7 @@ func (s *Session) refreshImagesScoped(ctx context.Context, generation uint64, in
 func (s *Session) publishImageInventory(inventory release.Inventory, versions map[string]string, includeRC bool, err error, complete bool) {
 	c := s.config
 	rc := s.repos["acs"].Candidate
+	s.trackImageDigestChanges(inventory.Images)
 	s.observeDashboardImages(inventory, includeRC, complete, err)
 	if complete {
 		message := ""

@@ -139,10 +139,13 @@ type (
 		BuildJob string
 		Present  Truth
 		Evidence Evidence
-		// TagUpdatedAt is when Quay started serving TagDigest for this tag.
-		TagUpdatedAt time.Time
-		TagDigest    string
-		TagError     string
+		// CreatedAt is the creation time reported by the image or its platform config.
+		CreatedAt       time.Time
+		CreatedPlatform string
+		// ManifestDigest is the last verified digest served for the reference.
+		ManifestDigest string
+		// DigestChangedAt is when Release Assistant first observed the current digest replacing another digest.
+		DigestChangedAt time.Time
 		// PublishingSince starts when publication is underway and this image is still missing.
 		PublishingSince time.Time
 	}

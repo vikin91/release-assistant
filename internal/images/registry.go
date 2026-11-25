@@ -31,7 +31,6 @@ type (
 		http     *http.Client
 		username string
 		password string
-		apiToken string
 
 		confirmedPresence sync.Map // registryProbe to confirmed registryObservation
 		probes            chan struct{}
@@ -39,16 +38,14 @@ type (
 	}
 
 	registryProbe struct {
-		reference  string
-		tagMapping bool
-		public     bool
+		reference      string
+		componentImage bool
 	}
 
 	registryObservation struct {
-		present             release.Truth
-		at                  time.Time
-		tagUpdatedAt        time.Time
-		tagDigest, tagError string
+		present          release.Truth
+		at, created      time.Time
+		digest, platform string
 	}
 
 	manifestDescriptor struct {
@@ -96,7 +93,7 @@ func (c *registryClient) confirmed(probe registryProbe) (registryObservation, bo
 }
 
 func (c *registryClient) observe(ctx context.Context, probe registryProbe, force bool) (registryObservation, error) {
-	if !force && !probe.tagMapping {
+	if !force && !probe.componentImage {
 		if observation, ok := c.confirmed(probe); ok {
 			return observation, nil
 		}
@@ -107,21 +104,11 @@ func (c *registryClient) observe(ctx context.Context, probe registryProbe, force
 	case <-ctx.Done():
 		return registryObservation{at: time.Now()}, ctx.Err()
 	}
-	var observation registryObservation
-	var err error
-	if probe.public {
-		repository, tag, ok := splitReference(probe.reference)
-		if !ok {
-			return observation, errors.New("expected image reference is invalid")
-		}
-		observation, err = c.activeTag(ctx, repository, tag, "")
-	} else {
-		observation, err = c.checkManifest(ctx, probe)
-	}
+	observation, err := c.checkManifest(ctx, probe)
 	if observation.at.IsZero() {
 		observation.at = time.Now()
 	}
-	if probe.tagMapping {
+	if probe.componentImage {
 		return observation, err
 	}
 	if force {
@@ -152,7 +139,8 @@ func (c *registryClient) checkManifest(ctx context.Context, probe registryProbe)
 	if response.StatusCode == http.StatusUnauthorized {
 		challenge := response.Header.Get("WWW-Authenticate")
 		_ = response.Body.Close()
-		token, err := c.registryToken(ctx, challenge, repository)
+		anonymous := probe.componentImage && strings.HasPrefix(repository, "stackrox-io/")
+		token, err := c.registryToken(ctx, challenge, repository, anonymous)
 		if err != nil {
 			return observation, err
 		}
@@ -176,10 +164,11 @@ func (c *registryClient) checkManifest(ctx context.Context, probe registryProbe)
 		}
 		observation.present = release.Yes
 		observation.at = time.Now()
-		if probe.tagMapping {
+		if probe.componentImage {
 			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
-			observation = c.withTagMapping(ctx, observation, repository, tag, fmt.Sprintf("sha256:%x", sha256.Sum256(data)))
+			observation.digest = fmt.Sprintf("sha256:%x", sha256.Sum256(data))
+			observation.created, observation.platform = c.imageCreation(ctx, repository, authorization, data, manifest)
 		}
 		return observation, nil
 	case http.StatusNotFound:
@@ -306,7 +295,7 @@ func (c *registryClient) request(ctx context.Context, address, authorization, ac
 	return response, nil
 }
 
-func (c *registryClient) registryToken(ctx context.Context, challenge, repository string) (string, error) {
+func (c *registryClient) registryToken(ctx context.Context, challenge, repository string, anonymous bool) (string, error) {
 	params, ok := parseBearerChallenge(challenge)
 	if !ok {
 		return "", errors.New("quay requires unsupported registry authentication; image availability is unknown")
@@ -322,7 +311,7 @@ func (c *registryClient) registryToken(ctx context.Context, challenge, repositor
 	if base.Hostname() == "quay.io" && (realm.Scheme != "https" || realm.Path != "/v2/auth") {
 		return "", errors.New("quay requested an unsupported token endpoint")
 	}
-	if (c.username == "") != (c.password == "") {
+	if !anonymous && (c.username == "") != (c.password == "") {
 		return "", errors.New("quay token authentication requires both username and password")
 	}
 	query := realm.Query()
@@ -330,7 +319,7 @@ func (c *registryClient) registryToken(ctx context.Context, challenge, repositor
 	query.Set("scope", params["scope"])
 	realm.RawQuery = query.Encode()
 	authorization := ""
-	if c.username != "" {
+	if !anonymous && c.username != "" {
 		authorization = "Basic " + base64.StdEncoding.EncodeToString([]byte(c.username+":"+c.password))
 	}
 	response, err := c.request(ctx, realm.String(), authorization, "application/json")

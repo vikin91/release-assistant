@@ -102,3 +102,43 @@ func TestImageRefreshShowsSavedRowsUntilEachRegistryResult(t *testing.T) {
 		t.Fatalf("updated observation was not saved: %v", err)
 	}
 }
+
+func TestImageDigestChangeSurvivesRestartsAndFailedReads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	s, _ := newFixture()
+	s.config = configuration()
+	firstSeen := time.Now().Add(-time.Hour)
+	updated := firstSeen.Add(20 * time.Minute)
+	const ref = "quay.io/rhacs-eng/scanner:2.39.28"
+
+	for _, step := range []struct {
+		name, digest string
+		at, want     time.Time
+		fail         bool
+	}{
+		{name: "first sighting establishes a baseline", digest: "first", at: firstSeen},
+		{name: "failed read retains the baseline", at: firstSeen.Add(time.Minute), fail: true},
+		{name: "new digest records the detection time", digest: "second", at: updated, want: updated},
+		{name: "the same digest keeps its detection time", digest: "second", at: updated.Add(time.Minute), want: updated},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			state, err := OpenReleaseState(path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.options.ReleaseState = state
+			s.inventory = release.Inventory{}
+			rows := []release.Image{{
+				Reference: ref, Present: release.Yes, ManifestDigest: step.digest,
+				Evidence: release.Evidence{At: step.at, Known: !step.fail},
+			}}
+			s.trackImageDigestChanges(rows)
+			if !rows[0].DigestChangedAt.Equal(step.want) {
+				t.Fatalf("got change time %v, want %v", rows[0].DigestChangedAt, step.want)
+			}
+			if err := state.saveImageObservations(release.Inventory{Images: rows}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
