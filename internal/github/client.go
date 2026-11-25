@@ -96,7 +96,8 @@ func (c *Client) getObservation(ctx context.Context, endpoint string, dst any, s
 
 func (c *Client) readObservation(ctx context.Context, method, endpoint string, payload io.Reader, dst any, storable *bool) (err error) {
 	cycle, _ := ctx.Value(discoveryCycleKey{}).(*discoveryCycle)
-	cacheable := cycle != nil && method == http.MethodGet && cacheableObservation(endpoint)
+	diff, rawDiff := dst.(*pinPRDiff)
+	cacheable := cycle != nil && method == http.MethodGet && !rawDiff && cacheableObservation(endpoint)
 	var capture bytes.Buffer
 	if cacheable {
 		if read, ok := cycle.reads[endpoint]; ok {
@@ -124,6 +125,9 @@ func (c *Client) readObservation(ctx context.Context, method, endpoint string, p
 		return fmt.Errorf("build GitHub %s %s request failed", method, safeEndpoint(requestURL, c.token))
 	}
 	c.authorize(req)
+	if rawDiff {
+		req.Header.Set("Accept", "application/vnd.github.diff")
+	}
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -144,6 +148,14 @@ func (c *Client) readObservation(ctx context.Context, method, endpoint string, p
 	}
 	const maxResponseBytes = 8 << 20
 	limited := &io.LimitedReader{R: resp.Body, N: maxResponseBytes}
+	if rawDiff {
+		data, err := io.ReadAll(limited)
+		if err != nil || limited.N == 0 {
+			return fmt.Errorf("GitHub pull request diff is incomplete")
+		}
+		*diff = pinPRDiff(data)
+		return nil
+	}
 	var body io.Reader = limited
 	if cacheable {
 		body = io.TeeReader(body, &capture)

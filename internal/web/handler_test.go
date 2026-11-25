@@ -677,8 +677,8 @@ func TestIncompleteInitialConfigKeepsSetupOpenAndVersionInTitle(t *testing.T) {
 	if !strings.Contains(body, "<title>ACS 5.0.1 Release Assistant</title>") || !strings.Contains(body, `<h3 id="setup-heading">`) {
 		t.Fatal("incomplete CLI configuration did not keep setup visible")
 	}
-	if n := strings.Count(body, `role="tab" aria-disabled="true"`); n != 4 {
-		t.Fatalf("incomplete configuration shows %d disabled phases, want 4", n)
+	if n := strings.Count(body, `role="tab" aria-disabled="true"`); n != 5 {
+		t.Fatalf("incomplete configuration shows %d disabled phases, want 5", n)
 	}
 	if !strings.Contains(body, "Setup required</span>") || strings.Contains(body, `data-workflow-tab="component-prs"`) {
 		t.Fatal("initial setup must flag Settings and disable phase navigation")

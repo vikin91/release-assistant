@@ -531,6 +531,10 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 	}
 	a.Target.Tag = form.Get("tag")
 	switch a.Kind {
+	case "create-pinning-pr":
+		if a.ID == "" {
+			return a, fmt.Errorf("the reviewed pinning request is missing")
+		}
 	case "use-pinning-pr":
 		if a.Target.PR < 1 || !a.Target.Valid() || a.SHA == "" {
 			return a, fmt.Errorf("pinning PR selection requires the reviewed PR and SHA")

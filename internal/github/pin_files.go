@@ -20,7 +20,7 @@ func (c *Client) discoverPinFiles(ctx context.Context, req app.DiscoveryRequest,
 	if branchHead == "" {
 		d.Evidence.Error = "Release branch head unavailable."
 	}
-	paths := pinPaths(req.Version)
+	paths := release.PinPaths(req.Version)
 	for _, pr := range prs {
 		if pr.State == "closed" {
 			continue
@@ -29,22 +29,24 @@ func (c *Client) discoverPinFiles(ctx context.Context, req app.DiscoveryRequest,
 			d.Evidence.Error = "Incomplete PR identity."
 			continue
 		}
-		if cached, ok := req.PreviousPinFiles[pr.Number]; ok && cached.Head == pr.Head.SHA && cached.Base == pr.Base.SHA {
+		if cached, ok := req.PreviousPinFiles[pr.Number]; ok && cached.Head == pr.Head.SHA && cached.Base == pr.Base.SHA && (!req.ComparePinDiffs || cached.Diff != "") {
 			d.Files[pr.Number] = cached
 			continue
 		}
-		reason, err := c.changedPinReason(ctx, req.Source.Repo, pr, paths)
+		match, err := c.changedPinFiles(ctx, req.Source.Repo, pr, paths, req.ComparePinDiffs)
 		if err != nil {
 			d.Evidence.Error = fmt.Sprintf("PR #%d: %s", pr.Number, err)
 			continue
 		}
-		d.Files[pr.Number] = release.PinFileMatch{Head: pr.Head.SHA, Base: pr.Base.SHA, Reason: reason}
+		d.Files[pr.Number] = match
 	}
 	return d
 }
 
-// changedPinReason verifies that the mutable files endpoint still describes the listed revision.
-func (c *Client) changedPinReason(ctx context.Context, repo string, pr prResponse, paths map[string]string) (string, error) {
+// changedPinFiles verifies that the mutable files endpoint still describes the listed revision.
+func (c *Client) changedPinFiles(ctx context.Context, repo string, pr prResponse, paths map[string]string, compare bool) (release.PinFileMatch, error) {
+	match := release.PinFileMatch{Head: pr.Head.SHA, Base: pr.Base.SHA}
+	candidate := make(map[string]bool)
 	endpoint := fmt.Sprintf("%s/pulls/%d", repoPath(repo), pr.Number)
 	changed := map[string]bool{}
 	count := 0
@@ -53,6 +55,9 @@ func (c *Client) changedPinReason(ctx context.Context, repo string, pr prRespons
 		var file struct {
 			Filename string
 			Previous string `json:"previous_filename"`
+			Status   string `json:"status"`
+			Added    *int   `json:"additions"`
+			Deleted  *int   `json:"deletions"`
 		}
 		if err := json.Unmarshal(raw, &file); err != nil || file.Filename == "" {
 			return fmt.Errorf("incomplete changed-file record")
@@ -60,22 +65,39 @@ func (c *Client) changedPinReason(ctx context.Context, repo string, pr prRespons
 		for _, path := range paths {
 			if path == file.Filename || path == file.Previous {
 				changed[path] = true
+				if file.Filename == path && file.Previous == "" && file.Status == "modified" &&
+					(file.Added == nil || *file.Added == 1) && (file.Deleted == nil || *file.Deleted == 1) {
+					candidate[path] = true
+				}
 			}
 		}
 		return nil
 	})
 	if err != nil {
-		return "", err
+		return match, err
+	}
+	if compare {
+		match.Diff = "-"
+		if count != 0 && count == len(candidate) {
+			var raw pinPRDiff
+			if err := c.get(ctx, endpoint, &raw); err != nil {
+				return match, err
+			}
+			if !strings.HasPrefix(string(raw), "diff --git ") {
+				return match, fmt.Errorf("GitHub did not return the pull request diff")
+			}
+			match.Diff = exactPinDiff(string(raw), candidate)
+		}
 	}
 	var current prResponse
 	if err := c.get(ctx, endpoint, &current); err != nil {
-		return "", err
+		return match, err
 	}
 	if current.Number != pr.Number || current.Base != pr.Base || current.Head != pr.Head || current.State != "open" {
-		return "", fmt.Errorf("PR changed during file discovery")
+		return match, fmt.Errorf("PR changed during file discovery")
 	}
 	if current.ChangedFiles != nil && *current.ChangedFiles != count {
-		return "", fmt.Errorf("incomplete changed-file list")
+		return match, fmt.Errorf("incomplete changed-file list")
 	}
 	var names []string
 	for _, component := range []string{"fact", "collector", "scanner"} {
@@ -84,11 +106,12 @@ func (c *Client) changedPinReason(ctx context.Context, repo string, pr prRespons
 		}
 	}
 	if len(names) == 0 {
-		return "", nil
+		return match, nil
 	}
 	last := names[len(names)-1]
 	if len(names) > 1 {
 		last = strings.Join(names[:len(names)-1], ", ") + " and " + last
 	}
-	return "Changes " + last + ".", nil
+	match.Reason = "Changes " + last + "."
+	return match, nil
 }

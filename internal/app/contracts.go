@@ -23,9 +23,11 @@ type (
 		PreviousCandidate release.Candidate
 		PinningPR         int
 		DetectPinningPR   bool
-		PreviousPinFiles  map[int]release.PinFileMatch
-		Version           string
-		Scope             DiscoveryScope
+		// ComparePinDiffs retains exact pin-only signatures for PR creation.
+		ComparePinDiffs  bool
+		PreviousPinFiles map[int]release.PinFileMatch
+		Version          string
+		Scope            DiscoveryScope
 		// TagRefresh identifies a manual inventory restart across its bounded batches.
 		TagRefresh string
 		// Progress publishes verified tags while the remaining inventory is still loading.

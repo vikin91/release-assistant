@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"release-assistant/internal/dispatch"
 	"release-assistant/internal/release"
 )
 
@@ -27,10 +28,11 @@ type (
 	}
 
 	dashboardState struct {
-		Config       release.Config                `json:"config"`
-		Repositories map[string]release.Repository `json:"repositories,omitempty"`
-		Plans        map[string]release.Plan       `json:"plans,omitempty"`
-		Images       map[string]dashboardImages    `json:"images,omitempty"`
+		CreatedPinningPR dispatch.PinningReceipt       `json:"createdPinningPR,omitzero"`
+		Config           release.Config                `json:"config"`
+		Repositories     map[string]release.Repository `json:"repositories,omitempty"`
+		Plans            map[string]release.Plan       `json:"plans,omitempty"`
+		Images           map[string]dashboardImages    `json:"images,omitempty"`
 	}
 
 	dashboardImages struct {
@@ -204,6 +206,10 @@ func dashboardRepository(previous, current release.Repository, completeTags bool
 	if !current.Evidence.Fresh() && previous.Evidence.Known && (current.Head == "" || current.Head == previous.Head) {
 		result.Head = previous.Head
 		result.Evidence = historicalEvidence(previous.Evidence, attempt)
+	}
+	if current.PinDiscovery.Evidence.At.IsZero() && previous.PinDiscovery.Evidence.Known {
+		result.PinDiscovery = previous.PinDiscovery
+		result.PinDiscovery.Evidence = historicalEvidence(previous.PinDiscovery.Evidence, current.PinDiscovery.Evidence)
 	}
 	if !current.PRListEvidence.Fresh() && previous.PRListEvidence.Known {
 		result.PRListEvidence = historicalEvidence(previous.PRListEvidence, current.PRListEvidence)
@@ -482,6 +488,7 @@ func (s *Session) applyDashboard(x *Snapshot, work *releaseWork, profileID strin
 	if !ok || !sameDashboardConfig(work.config, saved.Config) {
 		return
 	}
+	x.CreatedPinningPR = saved.CreatedPinningPR
 	sources := append([]release.Source{work.config.ACS()}, work.config.Components...)
 	if x.Monitoring && !x.Loading {
 		x.Loading = slices.ContainsFunc(sources, func(source release.Source) bool {

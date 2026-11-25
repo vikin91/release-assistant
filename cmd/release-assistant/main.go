@@ -61,7 +61,7 @@ func run() error {
 	flag.DurationVar(&limits.Gap, "comment-gap", time.Minute, "minimum gap for the same comment on the same target and commit")
 	flag.DurationVar(&limits.SlowGap, "slow-gap", time.Hour, "minimum gap for repeating the same comment at the job failure threshold")
 	flag.IntVar(&limits.Threshold, "failure-threshold", 10, "distinct consecutive failed runs before slowdown")
-	flag.BoolVar(&limits.EnableWrites, "enable-writes", false, "allow retry comments after per-target RW permission and required confirmation")
+	flag.BoolVar(&limits.EnableWrites, "enable-writes", false, "allow authorized retry comments and explicitly requested pinning PRs")
 	flag.Func("allow-konflux-lookup",
 		"Konflux lookup for APP_ID,API_HOST,NAMESPACE (repeatable, replaces default "+defaultKonfluxLookup+")",
 		allowedLookups.Add)
@@ -117,6 +117,7 @@ func run() error {
 	planner := konflux.New(plannerConfig)
 	options.KonfluxProbe = planner.ProbeHealth
 	inspector := images.New(client, plannerConfig.QuayUsername, plannerConfig.QuayPassword)
+	limits.PinningWriter = github.NewPinningWriter()
 	dispatcher := dispatch.New(gh, planner, github.NewWriter(gh, log), limits)
 	session := app.New(gh, planner, inspector, dispatcher, log, options)
 

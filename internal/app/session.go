@@ -87,6 +87,10 @@ type (
 		ImagesRefreshing bool
 		// Monitoring reports whether this snapshot comes from the active release.
 		Monitoring bool
+		// PinningPreview reflects the current tags, images, and duplicate evidence.
+		PinningPreview PinningPreview
+		// CreatedPinningPR restores the last successful creation for the release.
+		CreatedPinningPR dispatch.PinningReceipt
 		// ResumedAt identifies the latest activation of previously observed work.
 		ResumedAt time.Time
 		// RefreshingResumed reports overdue observations that survived a release switch.
@@ -161,6 +165,9 @@ type (
 		history          []Cycle
 		pendingPinningPR int
 		resumedAt        time.Time
+
+		creatingPinningPR bool
+		createdPinningPR  dispatch.PinningReceipt
 	}
 )
 
@@ -284,6 +291,9 @@ func (s *Session) recordReadResult(target release.Target, operation, message str
 func (s *Session) Apply(ctx context.Context, a Action) error {
 	if s.options.Profiles && (a.Kind == "add-release" || a.Kind == "remove-release" || a.Kind == "open-release" || a.Kind == "activate-release" || a.Kind == "configure") {
 		return s.applyProfile(a)
+	}
+	if a.Kind == "create-pinning-pr" {
+		return s.createPinningPR(ctx, a)
 	}
 	if a.Kind == "use-pinning-pr" {
 		return s.confirmPinningPR(ctx, a)
@@ -755,6 +765,11 @@ func (s *Session) profileSnapshot(work *releaseWork, active bool, profileID stri
 		return 1
 	})
 	x.Assessment = release.Assess(release.Input{Config: c, Choices: choices, Repositories: x.Repositories, Inventory: x.Inventory})
+	x.PinningPreview = pinningPreview(x, s.dispatcher.PinningAvailable(), work.creatingPinningPR)
+	if work.createdPinningPR.Number != 0 {
+		x.CreatedPinningPR = work.createdPinningPR
+	}
+	x.CreatedPinningPR.Changes = slices.Clone(x.CreatedPinningPR.Changes)
 	return x
 }
 func (s *Session) fillSharedSnapshot(x *Snapshot) {
@@ -792,13 +807,16 @@ func cloneRepository(r release.Repository) release.Repository {
 		r.Tags[i].Contains = maps.Clone(r.Tags[i].Contains)
 	}
 	r.Pins.Versions = maps.Clone(r.Pins.Versions)
+	r.Pins.Contents = maps.Clone(r.Pins.Contents)
 	r.Pins.Paths = maps.Clone(r.Pins.Paths)
 	r.Pins.Failures = maps.Clone(r.Pins.Failures)
 	r.PreviousPins.Versions = maps.Clone(r.PreviousPins.Versions)
+	r.PreviousPins.Contents = maps.Clone(r.PreviousPins.Contents)
 	r.PreviousPins.Paths = maps.Clone(r.PreviousPins.Paths)
 	r.PreviousPins.Failures = maps.Clone(r.PreviousPins.Failures)
 	r.PinDiscovery.Files = maps.Clone(r.PinDiscovery.Files)
 	r.PinningPins.Versions = maps.Clone(r.PinningPins.Versions)
+	r.PinningPins.Contents = maps.Clone(r.PinningPins.Contents)
 	r.PinningPins.Paths = maps.Clone(r.PinningPins.Paths)
 	r.PinningPins.Failures = maps.Clone(r.PinningPins.Failures)
 	if r.PinningPR != nil {
@@ -904,9 +922,12 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	if source.Name == "acs" {
 		request.PinningPR = max(c.PinningPR, s.pendingPinningPR)
 		request.PreviousCandidate = s.repos["acs"].Candidate
-		if request.Reads(ReadPRs) && c.PinningPR == 0 {
-			request.DetectPinningPR = true
-			request.PreviousPinFiles = s.repos["acs"].PinDiscovery.Files
+		if request.Reads(ReadPRs) {
+			request.DetectPinningPR = c.PinningPR == 0
+			request.ComparePinDiffs = s.dispatcher.PinningAvailable()
+			if request.DetectPinningPR || request.ComparePinDiffs {
+				request.PreviousPinFiles = s.previousPinFiles(s.repos["acs"])
+			}
 		}
 	}
 	if source.Name == "acs" && request.Reads(ReadRC) && scoped && s.duringStartup() && s.repos[source.Name].Candidate.Target.Tag == "" {

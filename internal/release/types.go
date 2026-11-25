@@ -96,12 +96,18 @@ type (
 	// Pins separates actual branch pins from a proposed PR's values.
 	Pins struct {
 		Versions, Paths map[string]string
+		// Contents preserves formatting when replacing a version.
+		Contents map[string]string `json:",omitempty"`
 		// Failures records the safe read error for each component version file.
 		Failures map[string]string
 		Evidence Evidence
 	}
 	// PinFileMatch records a complete file comparison for one PR revision.
-	PinFileMatch struct{ Head, Base, Reason string }
+	PinFileMatch struct {
+		Head, Base, Reason string
+		// Diff is empty until verified and "-" when the PR cannot match a pinning diff.
+		Diff string `json:",omitempty"`
+	}
 	// PinDiscovery records verified comparisons and whether all open PRs were inspected.
 	PinDiscovery struct {
 		Files    map[int]PinFileMatch

@@ -40,7 +40,11 @@ controls or write-capable credentials confers no permission.
    a popup that explains each mode and how to enable it. Show **Allowed by
    label** beside qualifying PRs only while the label requirement is enabled.
 6. Keep GitHub and Konflux reads separate from write-capable adapters. The only
-   supported external writes are Konflux retry comments posted to GitHub.
+   supported external writes are Konflux retry comments posted to GitHub,
+   with one exception. An explicit **Create pinning PR** click with
+   `--enable-writes` authorizes `internal/dispatch` to use the local `gh`
+   CLI to create the StackRox branch, commit the reviewed version-file
+   changes, and open the PR. The authorization does not include merging.
    Keep job eligibility in `konflux-retest`. Test authorization with fake
    writers and assert that denied requests never reach the writer.
 7. Route every Konflux build retry through the public `konflux-retest` interface.

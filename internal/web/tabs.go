@@ -12,7 +12,7 @@ func validTab(tab string) string {
 		return tab
 	}
 	switch tab {
-	case "component-releases", "acs-prs", "acs-rcs", "activity", "retest-queue", "settings":
+	case "component-releases", "create-pinning-pr", "acs-prs", "acs-rcs", "activity", "retest-queue", "settings":
 		return tab
 	default:
 		return "component-prs"
@@ -45,7 +45,7 @@ func (p pageModel) ComponentPRTabs() []string {
 // ReleasePhaseTabs orders the workflow panels to match the sidebar.
 func (p pageModel) ReleasePhaseTabs() []string {
 	tabs := append([]string{"component-prs"}, p.ComponentPRTabs()...)
-	return append(tabs, "component-releases", "acs-prs", "acs-rcs")
+	return append(tabs, "component-releases", "create-pinning-pr", "acs-prs", "acs-rcs")
 }
 
 func (p pageModel) availableTab(tab string) string {
@@ -66,6 +66,8 @@ func tabTitle(tab string) string {
 		return "Retest Queue"
 	case "component-releases":
 		return "Component releases"
+	case "create-pinning-pr":
+		return "Create pinning PR"
 	case "acs-prs":
 		return "ACS PRs"
 	case "acs-rcs":

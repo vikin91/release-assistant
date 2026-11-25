@@ -403,7 +403,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 	} else if source.Name == "acs" && req.Reads(app.ReadPRs) {
 		result.Candidate = c.completeCandidatePRs(ctx, source, req.PreviousCandidate, result.Head)
 	}
-	if source.Name == "acs" && req.DetectPinningPR && req.Reads(app.ReadPRs) {
+	if source.Name == "acs" && (req.DetectPinningPR || req.ComparePinDiffs) && req.Reads(app.ReadPRs) {
 		result.PinDiscovery = c.discoverPinFiles(ctx, req, prs, prErr, result.Head)
 	}
 	if req.Reads(app.ReadPRs) {
@@ -746,17 +746,9 @@ func cmpInt(a, b int) int {
 	return 0
 }
 
-func pinPaths(version string) map[string]string {
-	paths := map[string]string{"fact": "FACT_VERSION", "collector": "COLLECTOR_VERSION"}
-	if major, _, _, ok := release.Version(version); ok && major == 4 {
-		paths["scanner"] = "SCANNER_VERSION"
-	}
-	return paths
-}
-
 func (c *Client) readPins(ctx context.Context, repo, sha, version string) (release.Pins, error) {
-	p := release.Pins{Versions: map[string]string{}, Paths: map[string]string{}, Evidence: release.Evidence{At: time.Now(), Known: true, URL: "https://github.com/" + repo + "/tree/" + sha}}
-	paths := pinPaths(version)
+	p := release.Pins{Versions: map[string]string{}, Paths: map[string]string{}, Contents: map[string]string{}, Evidence: release.Evidence{At: time.Now(), Known: true, URL: "https://github.com/" + repo + "/tree/" + sha}}
+	paths := release.PinPaths(version)
 	var issues []error
 	for _, name := range []string{"fact", "collector", "scanner"} {
 		path, required := paths[name]
@@ -773,6 +765,7 @@ func (c *Client) readPins(ctx context.Context, repo, sha, version string) (relea
 			issues = append(issues, fmt.Errorf("read %s version pin: %w", name, err))
 			continue
 		}
+		p.Contents[name] = string(data)
 		p.Versions[name] = strings.TrimSpace(string(data))
 		if p.Versions[name] == "" {
 			if p.Failures == nil {

@@ -1,4 +1,5 @@
 {{define "workflow-tab"}}
+  {{if eq .Tab "create-pinning-pr"}}{{template "create-pinning-pr" .}}{{else}}
   {{$component := prComponent .Tab}}
   <div class="workflow-heading">
     <p class="eyebrow">{{tabStep .Tab}}</p><h2 class="page-title">{{tabTitle .Tab}}</h2>
@@ -35,6 +36,7 @@
   {{if eq .Tab "component-releases"}}{{template "component-releases" .}}{{end}}
   {{if eq .Tab "acs-rcs"}}{{template "acs-rcs" .}}{{else if or (eq .Tab "component-releases") (eq .Tab "acs-prs")}}{{template "build-retries" .}}{{end}}
   {{if or (eq .Tab "acs-rcs") (and (eq .Tab "component-releases") .ManualRetries)}}{{template "manual-ci-retries" .}}{{end}}
+  {{end}}
 {{end}}
 
 {{define "workflow-tab-link"}}

@@ -18,9 +18,11 @@ type (
 	Options struct {
 		// EnableWrites allows grants and dispatch for this process; the default is read-only.
 		EnableWrites bool
-		Gap, SlowGap time.Duration
-		Threshold    int
-		Now          func() time.Time
+		// PinningWriter is available only to the explicit pinning action.
+		PinningWriter PinningWriter
+		Gap, SlowGap  time.Duration
+		Threshold     int
+		Now           func() time.Time
 	}
 	// Event records a permission decision or one delivery attempt without credentials.
 	Event struct {
@@ -59,6 +61,7 @@ type (
 		reader                               Reader
 		planner                              Planner
 		writer                               Writer
+		pinningInFlight                      bool
 		options                              Options
 		targets                              map[release.Target]*targetState
 		attempts                             map[commentKey]commentAttempt

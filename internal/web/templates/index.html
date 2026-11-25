@@ -60,17 +60,17 @@
   {{if .Profiles}}<a class="sidebar-home" href="/"{{if .Home}} aria-current="page"{{end}}>{{template "nav-icon" "home"}}Home</a>{{end}}
   <h2 class="phases-title">Release phases</h2>
   <nav class="workflow-tabs flex flex-col gap-0.5" {{if not $home}}role="tablist" aria-orientation="vertical" {{end}}aria-label="Release work">
-    {{range $i, $tab := (slice "component-prs" "component-releases" "acs-prs" "acs-rcs" "activity" "retest-queue" "settings")}}
+    {{range $i, $tab := (slice "component-prs" "component-releases" "create-pinning-pr" "acs-prs" "acs-rcs" "activity" "retest-queue" "settings")}}
     {{if eq $tab "activity"}}<span class="nav-separator" aria-hidden="true"></span>{{end}}
     {{$label := tabTitle $tab}}
-    {{if lt $i 4}}{{$label = printf "%s. %s" (index (slice "1" "2" "3" "4") $i) $label}}{{end}}
+    {{if and (lt $i 5) (ne $tab "create-pinning-pr")}}{{$label = printf "%s. %s" (index (slice "1" "2" "" "3" "4") $i) $label}}{{end}}
     {{if $home}}
       {{if or $.ActiveProfile (eq $tab "activity")}}
       <a class="phase-link" href="{{profilePage $.ActiveProfile $tab}}">{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}{{if eq $tab "retest-queue"}} ({{len $.Snapshot.RetestQueue}}){{end}}</span></a>
       {{else}}
       <span class="phase-link" aria-disabled="true">{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}</span></span>
       {{end}}
-    {{else if and (not $.Configured) (not $.ProfileID) (lt $i 4)}}
+    {{else if and (not $.Configured) (not $.ProfileID) (lt $i 5)}}
     <span role="tab" aria-disabled="true" aria-selected="false" class="phase-disabled" title="Save the release configuration to unlock this phase.">{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}</span></span>
     {{else}}
     {{template "workflow-tab-link" (tabLink $ $tab $label)}}

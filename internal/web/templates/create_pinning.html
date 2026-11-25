@@ -1,0 +1,41 @@
+{{define "create-pinning-pr"}}
+  {{$preview := .Snapshot.PinningPreview}}
+  <div class="workflow-heading">
+    <h2 class="page-title">Create pinning PR</h2>
+  </div>
+  <section class="panel" aria-label="Proposed pin changes">
+    <p>Target <code>{{$preview.Request.Repo}}</code> · <code>{{$preview.Request.Branch}}</code></p>
+    <div class="component-image-table-scroll" role="region" aria-label="Component pins" tabindex="0">
+      <table>
+        <thead><tr><th scope="col">Component</th><th scope="col">Current pin</th><th scope="col">Selected tag</th><th scope="col">Images</th></tr></thead>
+        <tbody>{{range $preview.Rows}}
+          <tr>
+            <th scope="row">{{.Name}}</th>
+            <td>{{if .Current}}<code>{{.Current}}</code>{{else}}Unavailable{{end}}</td>
+            <td>{{if .Tag}}<code>{{.Tag}}</code>{{else}}Select in <a href="{{profilePage $.ProfileID "component-releases"}}" data-open-section>Component releases</a>{{end}}</td>
+            <td>{{.Images}}</td>
+          </tr>
+        {{end}}</tbody>
+      </table>
+    </div>
+    <form method="post" action="{{profileAction .ProfileID}}">
+      <input type="hidden" name="kind" value="create-pinning-pr">
+      <input type="hidden" name="tab" value="create-pinning-pr">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
+      <input type="hidden" name="id" value="{{$preview.ID}}">
+      <button type="submit" class="button-primary" aria-describedby="pinning-submit-help{{if or $preview.Reasons $preview.Duplicate}} pinning-blockers{{end}}"{{if or (not $preview.ID) $preview.Reasons $preview.Duplicate}} disabled{{end}}>Create pinning PR</button>
+      <p class="muted" id="pinning-submit-help">Release Assistant uses your local <code>gh</code> CLI to open a PR ready for review under your signed-in GitHub account.{{if $preview.Request.Changes}} Files to change: {{range $i, $change := $preview.Request.Changes}}{{if $i}}, {{end}}<code>{{$change.Path}}</code>{{end}}.{{end}}</p>
+    </form>
+    {{if or $preview.Reasons $preview.Duplicate}}
+      <div id="pinning-blockers">
+        <h3>Why creation is disabled</h3>
+        <ol>{{range $preview.Reasons}}<li>{{.}}</li>{{end}}
+        {{with $preview.Duplicate}}<li>An open PR already proposes the same changes. <a href="https://github.com/stackrox/stackrox/pull/{{.}}" target="_blank" rel="noreferrer">View PR #{{.}}</a>.</li>{{end}}</ol>
+      </div>
+    {{end}}
+    {{with .Snapshot.CreatedPinningPR}}{{if .Number}}
+      <p class="notice" role="status">Created <a href="{{url .URL}}" target="_blank" rel="noreferrer">PR #{{.Number}}</a> against <code>{{.Branch}}</code> · {{when .At}}</p>
+    {{end}}{{end}}
+  </section>
+{{end}}
