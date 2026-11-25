@@ -208,9 +208,9 @@ legend { padding: 0 .35rem; font-weight: var(--emphasis-weight); }
 [data-copy-status] { font-size: .86rem; }
 .retest-filter { @apply mb-4 flex flex-wrap items-end gap-2; }
 .retest-search-field { @apply max-w-md min-w-0 flex-1 basis-56; }
-.retest-group + .retest-group { margin-top: 1.25rem; }
-.retest-group h4 { overflow-wrap: anywhere; }
 .retest-items :is(th, td) { vertical-align: top; }
+.retest-items thead th:first-child { width: 3rem; white-space: nowrap; }
+.retest-items .retest-target { padding-block-start: .85rem; }
 .retest-items code, .retest-log code { overflow-wrap: anywhere; }
 .retest-id, .retest-log time { font-family: var(--mono-font); }
 .retest-job { display: block; font-size: .86rem; }
@@ -219,7 +219,7 @@ legend { padding: 0 .35rem; font-weight: var(--emphasis-weight); }
 .retest-log { overflow-x: auto; }
 @media (max-width: 640px) {
   .retest-items :is(th, td) { padding-inline: .4rem; }
-  .retest-items thead th:first-child { width: 2rem; white-space: nowrap; }
+  .retest-items thead th:first-child { width: 2rem; }
   .retest-items thead th:last-child { width: 5rem; }
 }
 .retest-log time { white-space: nowrap; }

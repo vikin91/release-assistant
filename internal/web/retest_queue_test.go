@@ -49,8 +49,13 @@ func TestRetestQueueRendersOnlySupportedActions(t *testing.T) {
 			t.Errorf("queue is missing %q", needle)
 		}
 	}
-	if strings.Index(panel, "ACS tags") > strings.Index(panel, "ACS PRs against the release branch") {
-		t.Fatal("the candidate should be ahead of ACS PRs")
+	acs := between(t, panel, `id="retest-table-acs"`, "</table>")
+	tagRow, prRow := strings.Index(acs, "Tag 5.0.1-rc.1"), strings.Index(acs, "PR #17")
+	if tagRow < 0 || prRow < 0 || tagRow >= prRow || strings.Count(acs, "<thead>") != 1 {
+		t.Fatal("the ACS table should show its tag before its PR under one column header")
+	}
+	if strings.Contains(panel, `id="retest-table-scanner"`) {
+		t.Fatal("ACS 5 should not show a Scanner table")
 	}
 	if strings.Count(panel, `name="kind" value="queue-send"`) != 2 || strings.Count(panel, `name="kind" value="queue-skip"`) != 4 {
 		t.Fatal("only Konflux comments should have Send, and every item should have Skip")
@@ -63,5 +68,46 @@ func TestRetestQueueRendersOnlySupportedActions(t *testing.T) {
 	sent, skipped := strings.Index(log, "<td>Sent</td>"), strings.Index(log, "<td>Skipped</td>")
 	if sent < 0 || skipped < 0 || sent >= skipped {
 		t.Fatal("the queue log should list the latest decision first")
+	}
+}
+
+func TestRetestQueueHasOneTablePerConfiguredRepository(t *testing.T) {
+	config := prefilledConfig("4.10.12")
+	config.Branch = "release-4.10"
+	items := []app.RetestItem{
+		{ID: 1, Target: release.Target{Repo: "stackrox/scanner", PR: 42}},
+		{ID: 2, Target: release.Target{Repo: "stackrox/fact", Tag: "0.2.5"}},
+		{ID: 3, Target: release.Target{Repo: "stackrox/fact", PR: 42}},
+		{ID: 4, Target: release.Target{Repo: "stackrox/stackrox", PR: 42}},
+	}
+	for i := range items {
+		items[i].Kind = "actions"
+	}
+	browser := newBrowser(t, &fakeApplication{snapshot: app.Snapshot{Config: config, RetestQueue: items}})
+	panel := activityPanel(t, browser.getBody(t), "retest-queue")
+	if strings.Count(panel, `class="retest-items"`) != 4 {
+		t.Fatal("expected four repository tables")
+	}
+	previous := -1
+	for _, name := range []string{"acs", "collector", "fact", "scanner"} {
+		start := `id="retest-table-` + name + `"`
+		if index := strings.Index(panel, start); index <= previous {
+			t.Fatalf("repository table %s is missing or out of order", name)
+		} else {
+			previous = index
+		}
+	}
+	for repo, want := range map[string][]string{
+		"acs":       {`name="queue_id" value="4"`},
+		"collector": {"No retries are queued."},
+		"fact":      {`name="queue_id" value="2"`, `name="queue_id" value="3"`},
+		"scanner":   {`name="queue_id" value="1"`},
+	} {
+		table := between(t, panel, `id="retest-table-`+repo+`"`, "</table>")
+		for _, marker := range want {
+			if !strings.Contains(table, marker) {
+				t.Errorf("%s table is missing %q", repo, marker)
+			}
+		}
 	}
 }

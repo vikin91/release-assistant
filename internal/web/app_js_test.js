@@ -466,8 +466,14 @@ test("keeps the queue search and row identities across a live refresh", async ()
       domNode("DIV", { id: "retest-filter" }, [search]),
       domNode("P", { id: "retest-no-matches", hidden: "" }),
       domNode("SECTION", { "data-retest-bucket": "", "data-live-key": "bucket" }, [
-        domNode("SECTION", { "data-retest-group": "PR #42 backport", "data-live-key": "target" },
-          reverse ? [upgrade, integration] : [integration, upgrade]),
+        domNode("TABLE", {}, [
+          domNode("TBODY", { "data-retest-group": "PR #42 backport", "data-live-key": "target" },
+            reverse ? [upgrade, integration] : [integration, upgrade]),
+          domNode("TBODY", { "data-retest-empty": "", hidden: "" }),
+        ]),
+      ]),
+      domNode("SECTION", { "data-retest-bucket": "", "data-live-key": "empty-bucket" }, [
+        domNode("TABLE", {}, [domNode("TBODY", { "data-retest-empty": "" })]),
       ]),
     ] });
   };
@@ -481,6 +487,7 @@ test("keeps the queue search and row identities across a live refresh", async ()
   assert.equal(search.value, "uPgRaDe");
   assert.equal(integration.hidden, true);
   assert.equal(upgrade.hidden, false);
+  assert.equal(page.document.querySelectorAll("[data-retest-bucket]")[1].hidden, true);
   assert.equal(page.timeouts[0].delay, 5_000);
 
   page.updateTo(queue(true));
@@ -500,6 +507,14 @@ test("keeps the queue search and row identities across a live refresh", async ()
   assert.equal(page.document.getElementById("retest-no-matches").hidden, false);
   assert.equal(page.document.querySelectorAll("[data-retest-bucket]")[0].hidden, true);
   assert.equal(storage.get("release-assistant:retest-search:session:1"), "missing");
+
+  search.value = "";
+  search.emit("input");
+  const [queued, empty] = page.document.querySelectorAll("[data-retest-bucket]");
+  assert.equal(queued.querySelector("[data-retest-empty]").hidden, true);
+  assert.equal(empty.hidden, false);
+  assert.equal(empty.querySelector("[data-retest-empty]").hidden, false);
+  assert.equal(page.document.getElementById("retest-no-matches").hidden, true);
 });
 
 test("Send all captures visible eligible rows and leaves independent sends running", async () => {

@@ -8,22 +8,19 @@
     <button id="retest-send-all" type="button" class="button-primary" hidden>Send all</button>
   {{end}}
 </div>
-{{if .Snapshot.RetestQueue}}
-  <p id="retest-no-matches" class="muted" role="status" hidden>No queue items match your search.</p>
-{{else}}
-  <p class="muted">No retries are queued.</p>
-{{end}}
-{{range .RetestBuckets}}{{if .Groups}}
-  <section class="panel retest-bucket" data-retest-bucket data-live-key="retest-bucket:{{.Label}}">
-    <h3>{{.Label}}</h3>
-    {{range .Groups}}{{$group := .}}
-      <section class="retest-group" data-retest-group="{{.Target.Repo}} {{.Label}} {{.Title}} {{.Branch}}" data-live-key="retest-target:{{.Target}}">
-        <h4 id="retests-{{.Target}}"><a href="{{url .URL}}" target="_blank" rel="noreferrer" aria-describedby="new-tab-description">{{.Label}}</a>
-          <span class="muted">· {{.Target.Repo}}{{with .Title}} · {{.}}{{end}}{{with .Branch}} · {{.}}{{end}}</span>
-        </h4>
-        <table class="retest-items" aria-labelledby="retests-{{.Target}}">
-          <thead><tr><th scope="col">ID</th><th scope="col">Request</th><th scope="col">Actions</th></tr></thead>
-          <tbody>{{range .Items}}
+<p id="retest-no-matches" class="muted" role="status" hidden>No queue items match your search.</p>
+{{range .RetestBuckets}}
+  <section class="panel retest-bucket" data-retest-bucket data-live-key="retest-bucket:{{.Source.Name}}">
+    <h3 id="retest-table-{{.Source.Name | urlquery}}">{{title .Source.Name}}</h3>
+    <table class="retest-items" aria-labelledby="retest-table-{{.Source.Name | urlquery}}">
+      <thead><tr><th scope="col">ID</th><th scope="col">Request</th><th scope="col">Actions</th></tr></thead>
+      {{range .Groups}}{{$group := .}}
+        <tbody aria-labelledby="retests-{{.Target}}" data-retest-group="{{.Target.Repo}} {{.Label}} {{.Title}} {{.Branch}}" data-live-key="retest-target:{{.Target}}">
+          <tr><th id="retests-{{.Target}}" class="retest-target" scope="rowgroup" colspan="3">
+            <a href="{{url .URL}}" target="_blank" rel="noreferrer" aria-describedby="new-tab-description">{{.Label}}</a>
+            <span class="muted">· {{.Target.Repo}}{{with .Title}} · {{.}}{{end}}{{with .Branch}} · {{.}}{{end}}</span>
+          </th></tr>
+          {{range .Items}}
             <tr data-live-key="retest:{{.ID}}" data-retest-row="{{.ID}} {{.Job}} {{.Payload}}" class="copyable-text">
               <th scope="row" class="retest-id">{{.ID}}</th>
               <td>
@@ -61,12 +58,15 @@
                 </div>
               </td>
             </tr>
-          {{end}}</tbody>
-        </table>
-      </section>
-    {{end}}
+          {{end}}
+        </tbody>
+      {{end}}
+      <tbody data-retest-empty{{if .Groups}} hidden{{end}}>
+        <tr><td colspan="3" class="muted">No retries are queued.</td></tr>
+      </tbody>
+    </table>
   </section>
-{{end}}{{end}}
+{{end}}
 <section class="panel" aria-labelledby="retest-log-heading">
   <h3 id="retest-log-heading">Queue log</h3>
   {{if .Snapshot.RetestLog}}

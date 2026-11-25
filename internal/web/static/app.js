@@ -185,11 +185,13 @@ document.addEventListener("DOMContentLoaded", () => {
         group.hidden = !visibleGroup;
         visibleBucket ||= visibleGroup;
       }
-      bucket.hidden = !visibleBucket;
+      const emptyBucket = bucket.querySelector("[data-retest-empty]");
+      if (emptyBucket) emptyBucket.hidden = visibleBucket;
+      bucket.hidden = !visibleBucket && query !== "";
       visible ||= visibleBucket;
     }
     const emptySearch = document.getElementById("retest-no-matches");
-    if (emptySearch) emptySearch.hidden = visible;
+    if (emptySearch) emptySearch.hidden = visible || query === "";
     updateRetestSendAll?.();
   };
   if (retestSearch) {

@@ -12,7 +12,7 @@ import (
 
 type (
 	retestBucket struct {
-		Label  string
+		Source release.Source
 		Groups []retestGroup
 	}
 	retestGroup struct {
@@ -27,22 +27,28 @@ func (p pageModel) RetestLogNewestFirst() iter.Seq2[int, app.RetestDecision] {
 	return slices.Backward(p.Snapshot.RetestLog)
 }
 
-// RetestBuckets groups consecutive queue items while preserving their session order.
+// RetestBuckets groups retries by repository while preserving the queue order within each table.
 func (p pageModel) RetestBuckets() []retestBucket {
-	acs := p.Snapshot.Config.ACS().Repo
-	buckets := []retestBucket{
-		{Label: "ACS tags"}, {Label: "ACS PRs against the release branch"},
-		{Label: "Component tags"}, {Label: "Component PRs against their release branches"},
+	buckets := []retestBucket{{Source: p.Snapshot.Config.ACS()}}
+	for _, tab := range p.ComponentPRTabs() {
+		buckets = append(buckets, retestBucket{Source: p.ConfiguredSources[prComponent(tab)]})
 	}
+	other := retestBucket{Source: release.Source{Name: "other repositories"}}
 	for _, item := range p.Snapshot.RetestQueue {
-		index := 0
-		if item.Target.Repo != acs {
-			index += 2
+		bucket := &other
+		for i := range buckets {
+			source := buckets[i].Source
+			if source.Repo != item.Target.Repo {
+				continue
+			}
+			if bucket == &other {
+				bucket = &buckets[i]
+			}
+			if i == 0 || source.Branch == item.Branch {
+				bucket = &buckets[i]
+				break
+			}
 		}
-		if item.Target.PR > 0 {
-			index++
-		}
-		bucket := &buckets[index]
 		n := len(bucket.Groups)
 		if n == 0 || bucket.Groups[n-1].Target != item.Target {
 			repoURL := "https://github.com/" + item.Target.Repo
@@ -57,6 +63,9 @@ func (p pageModel) RetestBuckets() []retestBucket {
 		}
 		group := &bucket.Groups[n-1]
 		group.Items = append(group.Items, item)
+	}
+	if len(other.Groups) > 0 {
+		buckets = append(buckets, other)
 	}
 	return buckets
 }
