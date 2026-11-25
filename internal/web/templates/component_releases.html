@@ -187,7 +187,8 @@
           {{if eq .Check.Image.Present "yes"}}
             {{if .Check.Image.CreatedAt.IsZero}}<p class="muted">Image creation time unavailable</p>
             {{else}}<p>Created {{when .Check.Image.CreatedAt}}{{with .Check.Image.CreatedPlatform}} ({{.}}){{end}}</p>{{end}}
-            {{with .Check.Image.DigestChangedAt}}<p>Digest change detected <time datetime="{{.Format "2006-01-02T15:04:05Z07:00"}}" title="{{when .}}">{{imageAge .}} ago</time></p>{{end}}
+            {{$changedAt := .Check.Image.DigestChangedAt}}
+            {{if not $changedAt.IsZero}}<p>Digest change detected <time datetime="{{$changedAt.Format "2006-01-02T15:04:05Z07:00"}}" title="{{when $changedAt}}">{{imageAge $changedAt}} ago</time></p>{{end}}
             {{with .Check.Image.ManifestDigest}}<p>Digest <code>{{.}}</code></p>{{end}}
           {{end}}
           <p>Checked {{when .Check.Image.Evidence.At}}</p>

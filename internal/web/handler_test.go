@@ -998,8 +998,8 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 	factRow := between(t, components, `<th scope="row"><code>fact</code></th>`, `</tr>`)
 	created := strings.Index(factRow, "<p>Created "+formatTime(rows[0].Image.CreatedAt)+" (linux/amd64)</p>")
 	if created < 0 || created >= strings.Index(factRow, "Checked "+formatTime(observed.At)) ||
-		!strings.Contains(factRow, "Digest change detected") {
-		t.Fatal("image build and digest detection times should appear in each image's details")
+		strings.Count(factRow, "Digest change detected") != 1 || !strings.Contains(factRow, ">5 min ago</time>") {
+		t.Fatal("only the image with an observed digest change should show a detection age")
 	}
 	summary := between(t, factRow, "<summary>", "</summary>")
 	if !strings.Contains(summary, ">Available</span>") || !strings.Contains(summary, ">Age 1h</time>") ||
