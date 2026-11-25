@@ -66,7 +66,9 @@ at startup. Restart it after changing a token or login.
 
    If both are unset or empty, the assistant uses
    `QUAY_RHACS_ENG_RO_USERNAME` and `QUAY_RHACS_ENG_RO_PASSWORD`.
-   Public images can be checked anonymously.
+   Set `QUAY_API_TOKEN` to a Quay OAuth token with `repo:read` access to
+   show when private component tags were last updated. Public Quay images and
+   their tags can be checked anonymously.
 
 4. **Log in to Konflux.** In the OpenShift console for the cluster that runs
    your builds, choose **Copy login command** and run the provided `oc login`
@@ -227,7 +229,9 @@ The server listens on loopback. At the bottom of **Settings**, use **Refresh int
 | Tags | 10 min | 10 min | 10 min |
 | Tag checks | — | 10 min | 5 min |
 
-The **ACS** section also controls Konflux build reads for all tracked targets (5 minutes) and Quay release image reads (10 minutes). These intervals apply to the current session. At startup, `-discover` can override the initial PR and tag discovery intervals. `-poll` can override the initial check, build, and image intervals. Failed reads can leave the last results visible with their age while current evidence remains unverified.
+The **ACS** section also controls Konflux build reads for all tracked targets (5 minutes) and Quay release image reads (10 minutes). These intervals apply to the current session. At startup, `-discover` can override the initial PR and tag discovery intervals. `-poll` can override the initial check, build, and image intervals. Failed reads can leave the last results visible while current evidence remains unverified.
+
+The **Component images** table shows CI, Konflux, and public Quay images. Each image poll checks the current tag mapping when the Quay API is accessible. Public image checks are informational.
 
 In **Settings** under **Concurrent GitHub reads**, **First 5 minutes** accepts 1–5 and defaults to 3. The five-minute window starts when the first configured release begins monitoring. **After 5 minutes** accepts 1–3 and defaults to 1 for the rest of the session. Select **Save read limits** to update how the assistant admits queued reads. The hourly read budget and GitHub rate-limit backoff apply throughout.
 

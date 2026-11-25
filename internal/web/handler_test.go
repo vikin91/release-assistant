@@ -932,8 +932,8 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 		}
 	}
 	rows := []release.ImageStatus{image("fact", "fact", "ci", "quay.io/fixture/fact:3.25.1", release.Yes), image("collector", "collector", "konflux", "quay.io/fixture/collector:3.25.4-fast", release.No), image("main", "acs", "ci", "quay.io/rhacs-eng/main:5.0.1-rc.0", release.No), image("scanner-v4", "acs", "konflux", "quay.io/fixture/release-scanner-v4:5.0.1-rc.0", "")}
-	rows[0].Image.CreatedAt = observed.At.Add(-time.Hour - 30*time.Minute)
-	rows[0].Image.CreatedPlatform = "linux/amd64"
+	rows[0].Image.TagUpdatedAt = observed.At.Add(-time.Hour - 30*time.Minute)
+	rows[0].Image.TagDigest = "sha256:" + strings.Repeat("a", 64)
 	rows[3].Image.Evidence.Known = false
 	rows[3].Image.Evidence.Error = "Registry access denied"
 	rows[3].Reason = "The registry request could not complete."
@@ -944,7 +944,11 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 	collectorCI.Status = ""
 	collectorCI.Image.Evidence.Known = false
 	collectorCI.Image.Evidence.Error = "Registry timed out"
-	rows = append(rows, factKonflux, collectorCI)
+	factPublic := image("fact", "fact", release.ImagePublic, "quay.io/stackrox-io/fact:3.25.1", release.Yes)
+	factPublic.Required = false
+	factPublic.Image.TagUpdatedAt = observed.At.Add(-20 * time.Minute)
+	factPublic.Image.TagDigest = "sha256:" + strings.Repeat("b", 64)
+	rows = append(rows, factKonflux, collectorCI, factPublic)
 	rows = append(rows, image("main", "acs", "konflux", "quay.io/fixture/release-main:5.0.1-rc.0", release.Yes))
 	application := &fakeApplication{snapshot: app.Snapshot{Config: validACS5Config(), Choices: release.Choices{Tags: map[string]string{"fact": "3.25.1", "collector": "3.25.4"}}, Assessment: release.Assessment{Images: rows, Pins: release.PinSummary{BranchStatus: release.Yes, PRNumber: 99, PRURL: "https://github.com/stackrox/stackrox/pull/99"}, Conditions: []release.Condition{{Name: "configuration", Status: release.Yes, Reason: "Release configuration is valid"}}}, Repositories: []release.Repository{{Source: release.Source{Name: "acs"}, PinningPR: &release.PR{Target: release.Target{Repo: "stackrox/stackrox", PR: 99}, State: "open", Evidence: observed}}}}}
 	body := newBrowser(t, application).getBody(t)
@@ -985,22 +989,22 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 		t.Error("both RC image families must appear in the same row")
 	}
 	heading := between(t, components, `id="component-images-heading"`, `</summary>`)
-	if !strings.Contains(heading, "2 of 4 available · 1 not found · 1 unable to check") {
+	if !strings.Contains(heading, "3 of 5 available · 1 not found · 1 unable to check") {
 		t.Error("collapsed component image heading must report all current statuses")
 	}
 	factRow := between(t, components, `<th scope="row"><code>fact</code></th>`, `</tr>`)
-	created := strings.Index(factRow, "<p>Created "+formatTime(rows[0].Image.CreatedAt)+" (linux/amd64)</p>")
-	if created < 0 || created >= strings.Index(factRow, "Checked "+formatTime(observed.At)) ||
-		!strings.Contains(factRow, "Image creation time unavailable") {
-		t.Fatal("each image's creation time or unavailable status should appear above its check time")
+	updated := strings.Index(factRow, "<p>Tag updated "+formatTime(rows[0].Image.TagUpdatedAt)+"</p>")
+	if updated < 0 || updated >= strings.Index(factRow, "Checked "+formatTime(observed.At)) ||
+		!strings.Contains(factRow, "Tag update time unavailable") {
+		t.Fatal("each tag's update time or unavailable status should appear above its check time")
 	}
 	summary := between(t, factRow, "<summary>", "</summary>")
-	if !strings.Contains(summary, ">Available</span>") || !strings.Contains(summary, ">Age 1h</time>") ||
-		strings.Count(factRow, `class="pill component-image-age"`) != 1 {
-		t.Fatal("the image age should appear beside Available only when its creation time is known")
+	if !strings.Contains(summary, ">Available</span>") || !strings.Contains(summary, ">Tag age 1h</time>") ||
+		strings.Count(factRow, `class="pill component-image-age"`) != 2 {
+		t.Fatal("the image age should appear beside Available only when the tag update time is known")
 	}
-	if !strings.Contains(factRow, "component-image:fact:ci:fact") || !strings.Contains(factRow, "component-image:fact:konflux:fact") {
-		t.Error("both Fact image families must appear in the same row")
+	if !strings.Contains(components, ">Public Quay</th>") || !strings.Contains(factRow, "component-image:fact:public:fact") || !strings.Contains(factRow, ">Tag age 20 min</time>") || !strings.Contains(factRow, "component-image:fact:ci:fact") || !strings.Contains(factRow, "component-image:fact:konflux:fact") {
+		t.Error("all three Fact image families must appear in the same row")
 	}
 	for _, want := range []string{"Last result unverified", "Registry timed out", "Last confirmed available", "Current availability is unverified"} {
 		if !strings.Contains(components, want) {

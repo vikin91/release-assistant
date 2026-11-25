@@ -274,6 +274,14 @@ func (t browserRegistryTransport) RoundTrip(request *http.Request) (*http.Respon
 	if err := request.Context().Err(); err != nil {
 		return nil, err
 	}
+	if strings.HasPrefix(request.URL.Path, "/api/v1/repository/stackrox-io/") {
+		body := `{"tags":[]}`
+		if t.componentsPresent {
+			body = fmt.Sprintf(`{"tags":[{"name":%q,"manifest_digest":"sha256:%s","start_ts":%d}]}`,
+				request.URL.Query().Get("specificTag"), strings.Repeat("a", 64), time.Now().Add(-5*time.Minute).Unix())
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: request}, nil
+	}
 	status := http.StatusNotFound
 	body := `{"errors":[{"code":"MANIFEST_UNKNOWN"}]}`
 	if t.componentsPresent && !strings.Contains(request.URL.Path, "-rc.0") {

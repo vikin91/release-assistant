@@ -33,6 +33,12 @@ func New(httpClient *http.Client, username, password string) *Inspector {
 	return &Inspector{registry: newRegistryClient("https://quay.io", httpClient, username, password)}
 }
 
+// WithQuayAPIToken configures the read-only Quay API token before the inspector starts polling.
+func (i *Inspector) WithQuayAPIToken(token string) *Inspector {
+	i.registry.apiToken = strings.TrimSpace(token)
+	return i
+}
+
 type imagePattern struct {
 	component string
 	name      string
@@ -147,7 +153,7 @@ func (i *Inspector) inspectImages(ctx context.Context, config release.Config, co
 				continue
 			}
 			row := &rows[index]
-			if !force && i != nil && i.registry != nil {
+			if !force && image.Component == "acs" && i != nil && i.registry != nil {
 				if observation, ok := i.registry.confirmed(imageProbe(image)); ok {
 					observation.apply(row)
 					row.Evidence.Known = true
@@ -165,7 +171,7 @@ func (i *Inspector) inspectImages(ctx context.Context, config release.Config, co
 	for range pending {
 		result := <-results
 		*result.row = result.image
-		if image := result.image; result.err != nil && image.Component != "acs" {
+		if image := result.image; result.err != nil && image.Component != "acs" && image.Family != release.ImagePublic {
 			issues = append(issues, fmt.Errorf("inspect %s %s image: %w", image.Component, image.Family, result.err))
 		}
 		publish()
@@ -192,12 +198,12 @@ func (i *Inspector) observeImage(ctx context.Context, image release.Image, force
 }
 
 func imageProbe(image release.Image) registryProbe {
-	return registryProbe{reference: image.Reference, includeCreation: image.Component != "acs"}
+	return registryProbe{reference: image.Reference, tagMapping: image.Component != "acs", public: image.Family == release.ImagePublic}
 }
 
 func (observation registryObservation) apply(image *release.Image) {
 	image.Present, image.Evidence.At = observation.present, observation.at
-	image.CreatedAt, image.CreatedPlatform = observation.created, observation.platform
+	image.TagUpdatedAt, image.TagDigest, image.TagError = observation.tagUpdatedAt, observation.tagDigest, observation.tagError
 }
 
 func componentPatterns(config release.Config) []imagePattern {

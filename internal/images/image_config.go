@@ -3,6 +3,8 @@
 // or tag suffixes. Rebuild the assistant to apply the changes.
 package images
 
+import "release-assistant/internal/release"
+
 const (
 	ciFamily                = "ci"
 	konfluxFamily           = "konflux"
@@ -16,6 +18,7 @@ var (
 	}{
 		{family: ciFamily, repositoryPrefix: ciRepositoryPrefix},
 		{family: konfluxFamily, repositoryPrefix: konfluxRepositoryPrefix, tagSuffix: "-fast"},
+		{family: release.ImagePublic, repositoryPrefix: "quay.io/stackrox-io/"},
 	}
 
 	componentImageNames = map[string][]string{

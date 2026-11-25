@@ -116,7 +116,7 @@ func run() error {
 	plannerConfig.CommentFooter = "<sub>posted from release-assistant " + buildVersion() + "</sub>"
 	planner := konflux.New(plannerConfig)
 	options.KonfluxProbe = planner.ProbeHealth
-	inspector := images.New(client, plannerConfig.QuayUsername, plannerConfig.QuayPassword)
+	inspector := images.New(client, plannerConfig.QuayUsername, plannerConfig.QuayPassword).WithQuayAPIToken(os.Getenv("QUAY_API_TOKEN"))
 	dispatcher := dispatch.New(gh, planner, github.NewWriter(gh, log), limits)
 	session := app.New(gh, planner, inspector, dispatcher, log, options)
 

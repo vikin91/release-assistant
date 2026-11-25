@@ -80,8 +80,8 @@ func TestLiveReadAdapters(t *testing.T) {
 	if !inventory.Evidence.Fresh() {
 		t.Fatalf("live image pattern set is unresolved: %v", inspectErr)
 	}
-	if len(inventory.Images) != 12 {
-		t.Fatalf("expected 12 real image references, got %d", len(inventory.Images))
+	if len(inventory.Images) != 18 {
+		t.Fatalf("expected 18 real image references, got %d", len(inventory.Images))
 	}
 	present, missing, unknown := 0, 0, 0
 	for _, image := range inventory.Images {
@@ -122,7 +122,7 @@ func TestLiveImagePatterns(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 	inventory, err := images.New(&http.Client{Timeout: 15 * time.Second}, user, password).Inspect(ctx, config, map[string]string{"fact": "0.4.7", "collector": "3.26.5"})
-	if inventory.ReleaseVersion != "5.0.1" || len(inventory.Images) != 4 || len(inventory.ReleaseImages) != 6 {
+	if inventory.ReleaseVersion != "5.0.1" || len(inventory.Images) != 6 || len(inventory.ReleaseImages) != 6 {
 		t.Fatalf("saved patterns incomplete: %+v", inventory)
 	}
 	unknown := 0

@@ -2,6 +2,7 @@ package images
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -30,6 +31,7 @@ type (
 		http     *http.Client
 		username string
 		password string
+		apiToken string
 
 		confirmedPresence sync.Map // registryProbe to confirmed registryObservation
 		probes            chan struct{}
@@ -37,15 +39,16 @@ type (
 	}
 
 	registryProbe struct {
-		reference       string
-		includeCreation bool
+		reference  string
+		tagMapping bool
+		public     bool
 	}
 
 	registryObservation struct {
-		present  release.Truth
-		at       time.Time
-		created  time.Time
-		platform string
+		present             release.Truth
+		at                  time.Time
+		tagUpdatedAt        time.Time
+		tagDigest, tagError string
 	}
 
 	manifestDescriptor struct {
@@ -93,7 +96,7 @@ func (c *registryClient) confirmed(probe registryProbe) (registryObservation, bo
 }
 
 func (c *registryClient) observe(ctx context.Context, probe registryProbe, force bool) (registryObservation, error) {
-	if !force {
+	if !force && !probe.tagMapping {
 		if observation, ok := c.confirmed(probe); ok {
 			return observation, nil
 		}
@@ -104,9 +107,22 @@ func (c *registryClient) observe(ctx context.Context, probe registryProbe, force
 	case <-ctx.Done():
 		return registryObservation{at: time.Now()}, ctx.Err()
 	}
-	observation, err := c.checkManifest(ctx, probe)
+	var observation registryObservation
+	var err error
+	if probe.public {
+		repository, tag, ok := splitReference(probe.reference)
+		if !ok {
+			return observation, errors.New("expected image reference is invalid")
+		}
+		observation, err = c.activeTag(ctx, repository, tag, "")
+	} else {
+		observation, err = c.checkManifest(ctx, probe)
+	}
 	if observation.at.IsZero() {
 		observation.at = time.Now()
+	}
+	if probe.tagMapping {
+		return observation, err
 	}
 	if force {
 		if err == nil && observation.present == release.Yes {
@@ -160,10 +176,10 @@ func (c *registryClient) checkManifest(ctx context.Context, probe registryProbe)
 		}
 		observation.present = release.Yes
 		observation.at = time.Now()
-		if probe.includeCreation {
+		if probe.tagMapping {
 			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
-			observation.created, observation.platform = c.imageCreation(ctx, repository, authorization, data, manifest)
+			observation = c.withTagMapping(ctx, observation, repository, tag, fmt.Sprintf("sha256:%x", sha256.Sum256(data)))
 		}
 		return observation, nil
 	case http.StatusNotFound:

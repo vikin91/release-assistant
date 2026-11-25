@@ -378,6 +378,16 @@ func assessImages(a *Assessment, in Input, versions map[string]string) (Truth, [
 			a.Images = append(a.Images, status)
 			continue
 		}
+		if image.Family == ImagePublic && configuredImage(in.Config.Components, image.Component, imageCI) {
+			problem := bindingProblem
+			selectedTag := in.Choices.Tags[image.Component]
+			if problem == "" && (selectedTag == "" || versions[image.Component] == "" ||
+				in.Inventory.Versions[image.Component] != versions[image.Component]) {
+				problem = "Public image results do not match the selected version."
+			}
+			a.Images = append(a.Images, assessObservedImage(image, selectedTag, problem))
+			continue
+		}
 		if !configuredImage(in.Config.Components, image.Component, image.Family) {
 			a.Images = append(a.Images, ImageStatus{Image: image, Required: true, Reason: "This image does not match a configured component family, so its availability is unknown."})
 			if a.ImageProblem == "" {

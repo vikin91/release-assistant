@@ -907,6 +907,18 @@ func TestAssessPinSummaryDiagnostics(t *testing.T) {
 	}
 }
 
+func TestPublicImageStatusDoesNotGateComponentReadiness(t *testing.T) {
+	in := readyInput()
+	const ref = "quay.io/stackrox-io/fact:0.3.79"
+	image := Image{Component: "fact", Family: ImagePublic, Reference: ref, Present: No, Evidence: freshEvidence()}
+	in.Inventory.Images = append(in.Inventory.Images, image)
+	a := Assess(in)
+	got := imageStatusByRef(t, a, ref)
+	if got.Required || got.Status != No || a.ImageProblem != "" || !a.Ready {
+		t.Fatalf("missing public image should be visible without blocking the release: %+v, image problem %q, ready %t", got, a.ImageProblem, a.Ready)
+	}
+}
+
 func imageStatusByRef(t *testing.T, assessment Assessment, ref string) ImageStatus {
 	t.Helper()
 	for _, image := range assessment.Images {

@@ -12,6 +12,9 @@ import (
 // PRCommentLabel is the GitHub label that permits a PR to pass the label gate.
 const PRCommentLabel = "allow-release-assistant"
 
+// ImagePublic identifies the public Quay publication for a component.
+const ImagePublic = "public"
+
 type (
 	// Truth distinguishes absent evidence from a positive or negative observation.
 	Truth string
@@ -136,9 +139,10 @@ type (
 		BuildJob string
 		Present  Truth
 		Evidence Evidence
-		// CreatedAt is the creation time reported by the image, with CreatedPlatform set for a platform-specific result.
-		CreatedAt       time.Time
-		CreatedPlatform string
+		// TagUpdatedAt is when Quay started serving TagDigest for this tag.
+		TagUpdatedAt time.Time
+		TagDigest    string
+		TagError     string
 		// PublishingSince starts when publication is underway and this image is still missing.
 		PublishingSince time.Time
 	}

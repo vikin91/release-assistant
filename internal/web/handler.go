@@ -693,9 +693,9 @@ func formatTime(t time.Time) string {
 	return t.Local().Format("2006-01-02 15:04:05 MST")
 }
 
-func formatImageAge(created time.Time) string {
+func formatImageAge(updated time.Time) string {
 	const day = 24 * time.Hour
-	age := time.Since(created)
+	age := time.Since(updated)
 	switch {
 	case age < time.Minute:
 		return "<1 min"

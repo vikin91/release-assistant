@@ -117,6 +117,7 @@ type (
 		Name    string
 		CI      []imageModel
 		Konflux *imageModel
+		Public  *imageModel
 	}
 	pinningImageModel struct {
 		Job, URL string
@@ -550,7 +551,7 @@ func (m *componentImagesModel) add(image imageModel, selectedTag string) {
 	component := image.Check.Image.Component
 	family := image.Check.Image.Family
 	otherRCNamespace := component == "acs" && family == "ci" && image.Namespace != "rhacs-eng" && image.Namespace != "stackrox-io"
-	if otherRCNamespace || (family != "ci" && family != "konflux") {
+	if otherRCNamespace || (family != "ci" && family != "konflux" && family != release.ImagePublic) {
 		m.Other = append(m.Other, image)
 		return
 	}
@@ -568,17 +569,20 @@ func (m *componentImagesModel) add(image imageModel, selectedTag string) {
 	}
 	rowIndex := slices.IndexFunc(group.Rows, func(row componentImageRow) bool {
 		return row.Name == name && ((family == "ci" && (component == "acs" || len(row.CI) == 0)) ||
-			(family == "konflux" && row.Konflux == nil))
+			(family == "konflux" && row.Konflux == nil) || (family == release.ImagePublic && row.Public == nil))
 	})
 	if rowIndex < 0 {
 		rowIndex = len(group.Rows)
 		group.Rows = append(group.Rows, componentImageRow{Name: name})
 	}
 	row := &group.Rows[rowIndex]
-	if family == "ci" {
+	switch family {
+	case "ci":
 		row.CI = append(row.CI, image)
-	} else {
+	case "konflux":
 		row.Konflux = &image
+	case release.ImagePublic:
+		row.Public = &image
 	}
 }
 

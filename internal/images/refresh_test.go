@@ -24,7 +24,7 @@ func TestImageChecksPublishBeforeTheSlowestProbe(t *testing.T) {
 			case <-req.Context().Done():
 				return nil, req.Context().Err()
 			}
-			return response(http.StatusOK, validImageManifest, nil), nil
+			return availableComponentResponse(req), nil
 		})}
 		inspector := New(client, "", "")
 		tags := map[string]string{"fact": "0.3.77", "collector": "0.4.20", "acs": "5.0.1-rc.0"}
@@ -61,15 +61,15 @@ func TestImageChecksPublishBeforeTheSlowestProbe(t *testing.T) {
 	})
 }
 
-func TestImageRefreshBypassesConfirmedPresence(t *testing.T) {
+func TestComponentImagePollsRecheckTheCurrentTag(t *testing.T) {
 	var calls atomic.Int32
 	var missing atomic.Bool
-	inspector := New(testHTTPClient(func(*http.Request) *http.Response {
+	inspector := New(testHTTPClient(func(req *http.Request) *http.Response {
 		calls.Add(1)
 		if missing.Load() {
 			return response(http.StatusNotFound, `{"errors":[{"code":"MANIFEST_UNKNOWN"}]}`, nil)
 		}
-		return response(http.StatusOK, validImageManifest, nil)
+		return availableComponentResponse(req)
 	}), "", "")
 	config := configFor("5.0.1")
 	tags := map[string]string{"fact": "0.3.77", "collector": "0.4.20"}
@@ -78,10 +78,10 @@ func TestImageRefreshBypassesConfirmedPresence(t *testing.T) {
 		calls          int32
 		presence       release.Truth
 	}{
-		{calls: 4, presence: release.Yes},
-		{calls: 0, presence: release.Yes},
-		{force: true, missing: true, calls: 4, presence: release.No},
-		{missing: true, calls: 4, presence: release.No},
+		{calls: 6, presence: release.Yes},
+		{calls: 6, presence: release.Yes},
+		{force: true, missing: true, calls: 6, presence: release.No},
+		{missing: true, calls: 6, presence: release.No},
 	} {
 		missing.Store(step.missing)
 		before := calls.Load()

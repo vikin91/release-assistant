@@ -22,18 +22,20 @@ func TestInspectUsesSavedComponentPatternsForSupportedStreams(t *testing.T) {
 		name, version, scannerTag string
 		wantCount                 int
 	}{
-		{name: "4.10", version: "4.10.0", scannerTag: "4.10.1", wantCount: 12},
-		{name: "4.11", version: "4.11.2", scannerTag: "4.11.3", wantCount: 12},
-		{name: "5.0", version: "5.0.1", wantCount: 4},
+		{name: "4.10", version: "4.10.0", scannerTag: "4.10.1", wantCount: 18},
+		{name: "4.11", version: "4.11.2", scannerTag: "4.11.3", wantCount: 18},
+		{name: "5.0", version: "5.0.1", wantCount: 6},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			requests := 0
 			inspector := New(testHTTPClient(func(request *http.Request) *http.Response {
 				requests++
-				if request.URL.Host != "quay.io" || !strings.HasPrefix(request.URL.Path, "/v2/rhacs-eng/") {
+				manifest := strings.HasPrefix(request.URL.Path, "/v2/rhacs-eng/")
+				publicTag := strings.HasPrefix(request.URL.Path, "/api/v1/repository/stackrox-io/")
+				if request.URL.Host != "quay.io" || !manifest && !publicTag {
 					t.Errorf("unexpected non-Quay registry request: %s", request.URL)
 				}
-				return response(http.StatusOK, validImageManifest, nil)
+				return availableComponentResponse(request)
 			}), "", "")
 			config := configFor(tt.version)
 			tags := map[string]string{"fact": "0.3.77", "collector": "v0.4.20"}
@@ -84,12 +86,12 @@ func TestInspectValidatesTagsBeforeRegistryAccess(t *testing.T) {
 			}), "", "")
 			inventory, err := inspector.Inspect(t.Context(), configFor(tt.version), map[string]string{"fact": tt.tag, "collector": "0.4.20", "scanner": "4.10.1"})
 			wantError := tt.tag != ""
-			wantRequests := 10 + len(inventory.ReleaseImages)
+			wantRequests := 15 + len(inventory.ReleaseImages)
 			if (err != nil) != wantError || requests != wantRequests {
 				t.Fatalf("Inspect() error=%v requests=%d, want error=%t and %d requests", err, requests, wantError, wantRequests)
 			}
-			if len(inventory.Images) != 12 {
-				t.Fatalf("got %d rows, want all 12 expected image rows", len(inventory.Images))
+			if len(inventory.Images) != 18 {
+				t.Fatalf("got %d rows, want all 18 expected image rows", len(inventory.Images))
 			}
 			if inventory.Evidence.Known || (inventory.Evidence.Error != "") != wantError {
 				t.Fatalf("incomplete expected references were reported complete: %#v", inventory.Evidence)
@@ -113,8 +115,8 @@ func TestInspectRejectsUnverifiedStreamWithoutNetwork(t *testing.T) {
 	if err == nil || requests != 0 {
 		t.Fatalf("Inspect() err=%v requests=%d, want rejected unsupported stream before network", err, requests)
 	}
-	if len(inventory.Images) != 4 {
-		t.Fatalf("got %d unknown rows, want four named rows", len(inventory.Images))
+	if len(inventory.Images) != 6 {
+		t.Fatalf("got %d unknown rows, want six named rows", len(inventory.Images))
 	}
 }
 
@@ -140,9 +142,7 @@ func TestInspectAcceptsConfiguredComponentStreamsIndependentOfACS(t *testing.T) 
 			for index := range config.Components {
 				config.Components[index].Stream = tt.streams[config.Components[index].Name]
 			}
-			inspector := New(testHTTPClient(func(*http.Request) *http.Response {
-				return response(http.StatusOK, validImageManifest, nil)
-			}), "", "")
+			inspector := New(testHTTPClient(availableComponentResponse), "", "")
 			inventory, err := inspector.Inspect(t.Context(), config, tt.tags)
 			if err != nil {
 				t.Fatalf("Inspect() error = %v", err)
@@ -167,7 +167,7 @@ func TestInspectKeepsIndependentRegistryResults(t *testing.T) {
 		return response(http.StatusOK, validImageManifest, nil)
 	}), "", "")
 	inventory, err := inspector.Inspect(t.Context(), configFor("5.0.0"), map[string]string{"fact": "0.3.77", "collector": "0.4.20"})
-	if err == nil || !inventory.Evidence.Fresh() || len(inventory.Images) != 4 {
+	if err == nil || !inventory.Evidence.Fresh() || len(inventory.Images) != 6 {
 		t.Fatalf("partial inventory=%#v err=%v", inventory, err)
 	}
 	var factUnknown, collectorKnown bool
@@ -215,7 +215,7 @@ func TestInspectKeepsRegistryAbsenceDistinctFromUnknown(t *testing.T) {
 				t.Fatalf("Inspect() error = %v, wantErr=%t", err, tt.wantErr)
 			}
 			for _, image := range inventory.Images {
-				if image.Present != tt.want {
+				if image.Family != release.ImagePublic && image.Present != tt.want {
 					t.Errorf("image availability = %q, want %q: %#v", image.Present, tt.want, image)
 				}
 			}
@@ -316,6 +316,7 @@ func componentReferences(tags map[string]string) map[string]bool {
 		}
 		for _, name := range nameSet {
 			want["quay.io/rhacs-eng/"+name+":"+version] = true
+			want["quay.io/stackrox-io/"+name+":"+version] = true
 			want["quay.io/rhacs-eng/release-"+name+":"+version+"-fast"] = true
 		}
 	}
@@ -332,10 +333,10 @@ func TestInspectComponentsDefersEveryRCRequest(t *testing.T) {
 		return response(http.StatusOK, validImageManifest, nil)
 	}), "", "")
 	inventory, err := inspector.InspectComponents(t.Context(), configFor("4.10.12"), map[string]string{"fact": "0.3.77", "collector": "0.4.20", "scanner": "4.10.1"})
-	if err != nil || requests != 12 || rcRequests != 0 || len(inventory.ReleaseImages) != 0 {
+	if err != nil || requests != 18 || rcRequests != 0 || len(inventory.ReleaseImages) != 0 {
 		t.Fatalf("requests=%d rc=%d error=%v", requests, rcRequests, err)
 	}
-	t.Log("12 component requests; 0 release candidate requests")
+	t.Log("18 component requests; 0 release candidate requests")
 }
 
 func BenchmarkImagePhaseRequests(b *testing.B) {
