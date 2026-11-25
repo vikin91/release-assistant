@@ -18,10 +18,13 @@ func TestPinningWriterReportsBranchErrorBeforeLookingUpExistingRef(t *testing.T)
 	t.Setenv("GH_TOKEN", "fixture-credential")
 	path := filepath.Join(t.TempDir(), "fake-gh")
 	script := "#!/bin/sh\n" +
+		"test \"$7\" = --include || exit 2\n" +
 		"if [ \"$5\" = POST ]; then\n" +
+		"  printf 'HTTP/2.0 403 Forbidden\\nX-Github-Request-Id: A012:BC34\\r\\nSet-Cookie: private-header\\r\\n\\r\\n'\n" +
 		"  printf '%s\\n' 'gh: Forbidden (HTTP 403)' >&2\n" +
 		"  printf '{\"errors\":[{\"message\":\"Branch creation restricted for %s\"}]}' \"$GH_TOKEN\"\n" +
 		"else\n" +
+		"  printf 'HTTP/2.0 404 Not Found\\nX-Github-Request-Id: DE56:F789\\r\\n\\r\\n'\n" +
 		"  printf '%s\\n' 'gh: Not Found (HTTP 404)' >&2\n" +
 		"fi\n" +
 		"exit 1\n"
@@ -35,8 +38,29 @@ func TestPinningWriterReportsBranchErrorBeforeLookingUpExistingRef(t *testing.T)
 	_, err := writer.OpenPinningPR(t.Context(), req)
 	if err == nil || !strings.Contains(err.Error(), "Forbidden (HTTP 403)") ||
 		!strings.Contains(err.Error(), "Branch creation restricted for [redacted]") ||
-		strings.Contains(err.Error(), "fixture-credential") || strings.Contains(err.Error(), "HTTP 404") {
+		!strings.Contains(err.Error(), "GitHub request ID A012:BC34") ||
+		strings.Contains(err.Error(), "fixture-credential") || strings.Contains(err.Error(), "private-header") ||
+		strings.Contains(err.Error(), "HTTP 404") || strings.Contains(err.Error(), "DE56:F789") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPinningResponsePreservesBodyWithOrWithoutHeaders(t *testing.T) {
+	body := []byte(factPinDiff)
+	framed := append([]byte("HTTP/2.0 200 OK\nx-github-request-id: ab12:cd34\r\n\r\n"), body...)
+	for name, tc := range map[string]struct {
+		data []byte
+		id   string
+	}{
+		"HTTP response": {framed, "ab12:cd34"},
+		"plain output":  {body, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, requestID := pinningResponse(tc.data)
+			if string(got) != string(body) || requestID != tc.id {
+				t.Fatalf("body = %q, ID = %q", got, requestID)
+			}
+		})
 	}
 }
 

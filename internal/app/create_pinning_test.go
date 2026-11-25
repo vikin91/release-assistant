@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,6 +18,7 @@ type createPinningFixture struct {
 	*fixture
 	live   release.PinDiscovery
 	writes []release.PinningRequest
+	err    error
 }
 
 func (f *createPinningFixture) ReadPinningDiffs(context.Context, release.PinningRequest, map[int]release.PinFileMatch) (release.PinDiscovery, error) {
@@ -25,6 +27,9 @@ func (f *createPinningFixture) ReadPinningDiffs(context.Context, release.Pinning
 
 func (f *createPinningFixture) OpenPinningPR(_ context.Context, req release.PinningRequest) (int, error) {
 	f.writes = append(f.writes, req)
+	if f.err != nil {
+		return 0, f.err
+	}
 	return 42, nil
 }
 
@@ -32,6 +37,7 @@ func TestCreatePinningPR(t *testing.T) {
 	for name, tc := range map[string]struct {
 		readOnly, scanner, noChange, pending, stale, duplicateAtClick bool
 		wantBlock                                                     string
+		writerFails                                                   bool
 	}{
 		"opens a 5.0 PR and restores the receipt":   {},
 		"opens a 4.11 PR with a scanner change":     {scanner: true},
@@ -40,11 +46,17 @@ func TestCreatePinningPR(t *testing.T) {
 		"blocks unverified images":                  {pending: true, wantBlock: "Waiting for Fact"},
 		"rejects a stale preview":                   {stale: true, wantBlock: "proposed pins changed"},
 		"rejects a duplicate found during dispatch": {duplicateAtClick: true, wantBlock: "already proposes"},
+		"logs GitHub request ID at error level":     {writerFails: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := configuration()
 			_, fixture := newFixture()
 			f := &createPinningFixture{fixture: fixture, live: release.PinDiscovery{Evidence: observed()}}
+			const requestID = "GitHub request ID A012:BC34"
+			var logOutput strings.Builder
+			if tc.writerFails {
+				f.err = errors.New("gh: Not Found (HTTP 404) (" + requestID + ")")
+			}
 			if tc.scanner {
 				cfg.Version, cfg.Branch = "4.11.1", "release-4.11"
 				cfg.Components = append(cfg.Components, release.Source{Name: "scanner", Repo: "stackrox/scanner", Branch: "release-2.40", Stream: "2.40"})
@@ -64,7 +76,7 @@ func TestCreatePinningPR(t *testing.T) {
 			}
 			makeSession := func(state *ReleaseState) *Session {
 				dispatcher := dispatch.New(f, f, f, dispatch.Options{EnableWrites: !tc.readOnly, PinningWriter: f})
-				return New(f, f, f, dispatcher, nil, Options{Profiles: true, ReleaseState: state})
+				return New(f, f, f, dispatcher, NewLog(&logOutput, false), Options{Profiles: true, ReleaseState: state})
 			}
 			readChoices := func() []byte {
 				t.Helper()
@@ -128,6 +140,17 @@ func TestCreatePinningPR(t *testing.T) {
 					if _, _, err := s.dispatcher.CreatePinningPR(ctx, p.Request, nil, func() bool { return true }); err == nil || len(f.writes) != 0 {
 						t.Fatal("read-only dispatch admitted the writer")
 					}
+				}
+				return
+			}
+			if tc.writerFails {
+				if !errors.Is(err, f.err) || len(f.writes) != 1 {
+					t.Fatalf("err=%v writes=%v", err, f.writes)
+				}
+				if !slices.ContainsFunc(s.Snapshot().LogEntries, func(r Record) bool {
+					return r.Level() == "Error" && strings.Contains(r.Message(), requestID)
+				}) || !strings.Contains(logOutput.String(), "Error: [5.0.1] "+f.err.Error()) {
+					t.Fatalf("request ID missing from the error log: %s", logOutput.String())
 				}
 				return
 			}

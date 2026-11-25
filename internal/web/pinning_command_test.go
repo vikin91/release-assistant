@@ -18,7 +18,7 @@ func TestPinningFailurePageShowsManualCommandAndPermissions(t *testing.T) {
 		Changes: []release.PinChange{{Path: "FACT_VERSION", Before: "0.3.76\r\n", After: "0.3.77\r\n"}}}
 	fake := &fakeApplication{
 		snapshot: app.Snapshot{Config: cfg, PinningPreview: app.PinningPreview{Request: req, ID: "reviewed"}},
-		err:      errors.New("could not create GitHub branch: gh: Forbidden (HTTP 403)"),
+		err:      errors.New("could not create GitHub branch: gh: Not Found (HTTP 404) (GitHub request ID A012:BC34)"),
 	}
 	b := newBrowser(t, fake)
 	w := b.post(url.Values{"kind": {"create-pinning-pr"}, "tab": {"create-pinning-pr"}, "id": {"reviewed"}, "generation": {"0"}})

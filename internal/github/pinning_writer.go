@@ -1,6 +1,7 @@
 package github
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -8,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/textproto"
 	"os"
 	"os/exec"
 	"regexp"
@@ -23,7 +25,10 @@ const commitPins = `mutation($input: CreateCommitOnBranchInput!) {
   createCommitOnBranch(input: $input) { commit { oid } }
 }`
 
-var cliToken = regexp.MustCompile(`(?:gh[porsu]_|github_pat_)[A-Za-z0-9_]+`)
+var (
+	cliToken        = regexp.MustCompile(`(?:gh[porsu]_|github_pat_)[A-Za-z0-9_]+`)
+	githubRequestID = regexp.MustCompile(`^[a-fA-F0-9:]{1,128}$`)
+)
 
 type pinningCLI struct {
 	path string
@@ -115,7 +120,7 @@ func (w *pinningCLI) OpenPinningPR(ctx context.Context, req release.PinningReque
 }
 
 func (w *pinningCLI) api(ctx context.Context, method, endpoint string, payload, result any) error {
-	args := []string{"api", "--hostname", "github.com", "--method", method, endpoint}
+	args := []string{"api", "--hostname", "github.com", "--method", method, endpoint, "--include"}
 	var input []byte
 	if payload != nil {
 		var err error
@@ -141,20 +146,50 @@ func (w *pinningCLI) api(ctx context.Context, method, endpoint string, payload, 
 	cmd.Env = append(cmd.Env, "GH_PROMPT_DISABLED=1")
 	cmd.Stdin = bytes.NewReader(input)
 	data, err := cmd.Output()
+	body, requestID := pinningResponse(data)
 	if err != nil {
 		if ctx.Err() != nil {
-			return fmt.Errorf("gh request interrupted: %w", ctx.Err())
+			return pinningRequestError(fmt.Errorf("gh request interrupted: %w", ctx.Err()), requestID)
 		}
-		return pinningCLIError(err, data)
+		return pinningRequestError(pinningCLIError(err, body), requestID)
 	}
 	if result == nil {
 		return nil
 	}
 	if rawDiff {
-		*diff = pinPRDiff(data)
+		*diff = pinPRDiff(body)
 		return nil
 	}
-	return json.Unmarshal(data, result)
+	return pinningRequestError(json.Unmarshal(body, result), requestID)
+}
+
+// pinningResponse strips the CLI's HTTP envelope before decoding JSON or comparing a diff.
+func pinningResponse(data []byte) (body []byte, requestID string) {
+	if !bytes.HasPrefix(data, []byte("HTTP/")) {
+		return data, ""
+	}
+	source := bytes.NewReader(data)
+	buffer := bufio.NewReader(source)
+	reader := textproto.NewReader(buffer)
+	if _, err := reader.ReadLine(); err != nil {
+		return data, ""
+	}
+	headers, err := reader.ReadMIMEHeader()
+	if err != nil {
+		return data, ""
+	}
+	requestID = headers.Get("X-GitHub-Request-Id")
+	if !githubRequestID.MatchString(requestID) {
+		requestID = ""
+	}
+	return data[len(data)-source.Len()-buffer.Buffered():], requestID
+}
+
+func pinningRequestError(err error, requestID string) error {
+	if err == nil || requestID == "" {
+		return err
+	}
+	return fmt.Errorf("%w (GitHub request ID %s)", err, requestID)
 }
 
 func pinningCLIError(err error, response []byte) error {
