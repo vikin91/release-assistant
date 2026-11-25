@@ -13,15 +13,15 @@ import (
 
 // manualRetryHeads selects current target identities independently of Konflux or write permission.
 // The caller holds the session lock.
-func (s *releaseWork) manualRetryHeads(repo release.Repository) map[release.Target]string {
+func (s *releaseWork) manualRetryHeads(repo release.Repository, requireFresh bool) map[release.Target]string {
 	heads := make(map[release.Target]string)
 	includePR := func(pr release.PR) {
 		if s.choices.PRs[pr.Target] != release.Included || pr.State != "open" || pr.Merged ||
-			pr.Base != repo.Source.Branch || !pr.Evidence.Fresh() || pr.SHA == "" {
+			pr.Base != repo.Source.Branch || pr.SHA == "" || (requireFresh && !pr.Evidence.Fresh()) {
 			return
 		}
 		// A complete set of passing or pending results needs no further GitHub reads.
-		if checksWithoutFailures(pr) {
+		if pr.Evidence.Fresh() && checksWithoutFailures(pr) {
 			return
 		}
 		heads[pr.Target] = pr.SHA
@@ -48,10 +48,14 @@ func checksWithoutFailures(pr release.PR) bool {
 // currentManualRetries copies only reports still backed by the current selection and revision.
 func (s *releaseWork) currentManualRetries(repo release.Repository, hasReader bool) []release.ManualRetryReport {
 	var reports []release.ManualRetryReport
-	for t, sha := range s.manualRetryHeads(repo) {
+	var pending map[release.Target]string
+	if hasReader {
+		pending = s.manualRetryHeads(repo, true)
+	}
+	for t, sha := range s.manualRetryHeads(repo, false) {
 		r, ok := s.manualRetries[t]
 		if !ok || r.SHA != sha {
-			if repo.Source.Name == "acs" && t.PR > 0 && hasReader {
+			if t.PR > 0 && pending[t] == sha {
 				reports = append(reports, release.ManualRetryReport{Target: t, SHA: sha, Pending: true})
 			}
 			continue
@@ -120,7 +124,7 @@ func (s *Session) readManualRetries(ctx context.Context, generation, revision ui
 		return nil
 	}
 	repo := s.repos[source.Name]
-	heads := s.manualRetryHeads(repo)
+	heads := s.manualRetryHeads(repo, true)
 	targets := make([]release.Target, 0, len(heads))
 	for target := range heads {
 		if inScope(target) {
@@ -137,7 +141,7 @@ func (s *Session) readManualRetries(ctx context.Context, generation, revision ui
 		if err != nil {
 			errs = append(errs, err)
 		}
-		if target == repo.Candidate.Target || (source.Name == "acs" && target.PR > 0) || len(report.Jobs)+len(report.Prow)+len(report.Warnings)+len(report.OtherChecks) > 0 {
+		if target == repo.Candidate.Target || target.PR > 0 || len(report.Jobs)+len(report.Prow)+len(report.Warnings)+len(report.OtherChecks) > 0 {
 			reports[target] = report
 		}
 	}
@@ -146,8 +150,10 @@ func (s *Session) readManualRetries(ctx context.Context, generation, revision ui
 	if generation != s.generation || revision != s.workRevision {
 		return nil
 	}
-	for target := range s.manualRetries {
-		if target.Repo == source.Repo && inScope(target) {
+	currentHeads := s.manualRetryHeads(s.repos[source.Name], false)
+	for target, previous := range s.manualRetries {
+		_, refreshed := reports[target]
+		if target.Repo == source.Repo && inScope(target) && (refreshed || currentHeads[target] != previous.SHA) {
 			delete(s.manualRetries, target)
 		}
 	}

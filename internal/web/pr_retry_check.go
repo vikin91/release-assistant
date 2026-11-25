@@ -9,23 +9,23 @@ import (
 )
 
 type prRetryStatus struct {
-	Page            pageModel
-	PR              release.PR
-	Konflux         release.Plan
-	CI              release.ManualRetryReport
-	Anchor          string
-	Commands        string
-	KonfluxCommands []string
+	Page               pageModel
+	PR                 release.PR
+	Konflux            release.Plan
+	CI                 release.ManualRetryReport
+	Anchor             string
+	Comments, Commands string
+	Queueable          bool
 }
 
 func prRetryAnchor(target release.Target) string {
 	return fmt.Sprintf("pr-retry-%s-%d", strings.ReplaceAll(target.Repo, "/", ":"), target.PR)
 }
 
-// PRRetryStatus exposes only commands for an included PR's current verified head.
+// PRRetryStatus shows queued commands and the latest provider observations for an included PR.
 func (p pageModel) PRRetryStatus(pr release.PR, branch string) *prRetryStatus {
 	if p.Snapshot.Choices.PRs[pr.Target] != release.Included || pr.State != "open" ||
-		pr.Merged || pr.Base != branch || pr.SHA == "" || !pr.Evidence.Fresh() {
+		pr.Merged || pr.Base != branch || pr.SHA == "" {
 		return nil
 	}
 	status := prRetryStatus{Page: p, PR: pr, Anchor: prRetryAnchor(pr.Target)}
@@ -39,7 +39,7 @@ func (p pageModel) PRRetryStatus(pr release.PR, branch string) *prRetryStatus {
 		}
 	}
 	for _, report := range p.ManualRetries {
-		if report.Target == pr.Target && report.SHA == pr.SHA && !report.Pending &&
+		if report.Target == pr.Target && report.SHA == pr.SHA &&
 			(status.CI.At.IsZero() || report.At.After(status.CI.At)) {
 			status.CI = report
 		}
@@ -49,21 +49,22 @@ func (p pageModel) PRRetryStatus(pr release.PR, branch string) *prRetryStatus {
 		status.CI = release.ManualRetryReport{Target: pr.Target, SHA: pr.SHA, At: pr.CheckResultsEvidence.At}
 	}
 
-	for _, proposal := range status.Konflux.Proposals {
-		if proposal.Target == pr.Target && proposal.SHA == pr.SHA && proposal.Payload != "" {
-			status.KonfluxCommands = append(status.KonfluxCommands, proposal.Payload)
+	var comments, commands []string
+	for _, item := range p.Snapshot.RetestQueue {
+		if item.Target != pr.Target || item.Payload == "" {
+			continue
+		}
+		status.Queueable = true
+		switch item.Kind {
+		case "konflux", "prow":
+			comments = append(comments, item.Payload)
+		case "actions":
+			commands = append(commands, item.Payload)
 		}
 	}
-	var commands []string
-	if p.Tab != "acs-prs" {
-		commands = append(commands, status.KonfluxCommands...)
-	}
-	for _, job := range status.CI.Jobs {
-		commands = append(commands, job.RerunCommand(pr.Target.Repo))
-	}
-	if prow := status.CI.ProwComment(); prow != "" {
-		commands = append(commands, prow)
-	}
-	status.Commands = strings.Join(commands, "\n")
+	slices.Sort(comments)
+	slices.Sort(commands)
+	status.Comments = strings.Join(slices.Compact(comments), "\n")
+	status.Commands = strings.Join(slices.Compact(commands), "\n")
 	return &status
 }

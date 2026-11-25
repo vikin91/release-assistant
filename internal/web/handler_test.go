@@ -380,8 +380,9 @@ func TestPageEscapesExternalTextAndShowsUnknownEvidenceAndExactOffer(t *testing.
 			Conditions:            []release.Condition{{Name: "included PR " + target.String(), Status: "", Reason: "Coverage cannot be established", Evidence: []release.Evidence{{Error: "compare API unavailable"}}}},
 			PinningRecommendation: "Create an ACS pinning PR against release-5.0 to set COLLECTOR_VERSION to 3.25.7.",
 		},
-		Plans:     []release.Plan{{Target: target, SHA: "head-sha", Evidence: release.Evidence{Known: false, Error: "partial plan"}, Proposals: []release.Proposal{proposal}}},
-		Authority: []dispatch.View{{Target: target, SHA: "head-sha", Granted: true, Warnings: []string{"slow retry threshold reached"}, Offers: []dispatch.Offer{{ID: "offer-1", Proposal: proposal, Allowed: true, CanApprove: true, Queueable: true}}}},
+		Plans:       []release.Plan{{Target: target, SHA: "head-sha", Evidence: release.Evidence{Known: false, Error: "partial plan"}, Proposals: []release.Proposal{proposal}}},
+		RetestQueue: []app.RetestItem{{ID: 1, Target: target, Kind: "konflux", Payload: proposal.Payload}},
+		Authority:   []dispatch.View{{Target: target, SHA: "head-sha", Granted: true, Warnings: []string{"slow retry threshold reached"}, Offers: []dispatch.Offer{{ID: "offer-1", Proposal: proposal, Allowed: true, CanApprove: true, Queueable: true}}}},
 	}}
 	b := newBrowser(t, appFake)
 	body := httptest.NewRecorder()
@@ -392,7 +393,7 @@ func TestPageEscapesExternalTextAndShowsUnknownEvidenceAndExactOffer(t *testing.
 	if strings.Contains(text, `<script>alert("x")</script>`) {
 		t.Fatal("external PR title was rendered as markup")
 	}
-	for _, needle := range []string{"&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", "unknown", "compare API unavailable", "/konflux-retest unit", "run-77", "Open Retest Queue", "<p>Create an ACS pinning PR against release-5.0 to set COLLECTOR_VERSION to 3.25.7.</p>"} {
+	for _, needle := range []string{"&lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;", "unknown", "compare API unavailable", "/konflux-retest unit", "Open Retest Queue", "<p>Create an ACS pinning PR against release-5.0 to set COLLECTOR_VERSION to 3.25.7.</p>"} {
 		if !strings.Contains(text, needle) {
 			t.Errorf("rendered page missing %q", needle)
 		}
@@ -993,7 +994,7 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 			t.Errorf("missing stale component evidence %q", want)
 		}
 	}
-	if strings.Contains(body, `<details id="pr-selection"`) || !strings.Contains(body, `id="pr-selection"`) {
+	if !strings.Contains(body, `<details id="pr-selection" class="pr-list" open>`) {
 		t.Error("PR selection must stay visible and directly linkable")
 	}
 	for _, control := range []string{`<details id="component-images" open>`, `<details id="acs-prs-retry-details" open>`, `<details id="component-releases-retry-details" open>`} {

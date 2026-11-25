@@ -12,9 +12,21 @@ import (
 	"release-assistant/internal/release"
 )
 
-func TestIncludedPRLinksToItsSingleKonfluxComment(t *testing.T) {
+func TestIncludedPRShowsInlineRetryCommands(t *testing.T) {
+	for _, tab := range []string{"component-prs", "acs-prs"} {
+		t.Run(tab, func(t *testing.T) {
+			checkIncludedPRRetryCommands(t, tab)
+		})
+	}
+}
+
+func checkIncludedPRRetryCommands(t *testing.T, tab string) {
+	t.Helper()
 	snapshot := workflowStatusSnapshot()
 	repository := &snapshot.Repositories[len(snapshot.Repositories)-1]
+	if tab == "component-prs" {
+		repository = &snapshot.Repositories[0]
+	}
 	observed := release.Evidence{Known: true, At: time.Now()}
 	included := release.Target{Repo: repository.Source.Repo, PR: 41}
 	undecided := release.Target{Repo: repository.Source.Repo, PR: 42}
@@ -44,14 +56,21 @@ func TestIncludedPRLinksToItsSingleKonfluxComment(t *testing.T) {
 	check.Konflux.Evidence.Error = contract
 	check.Konflux.Warnings = []string{milestone, "retag-scanner: cannot resolve input requirements: " + contract + "."}
 	snapshot.PRRetryChecks[included] = check
+	jobCommand := "gh api --method POST repos/" + included.Repo + "/actions/jobs/201/rerun"
+	snapshot.RetestQueue = []app.RetestItem{
+		{ID: 1, Target: included, Kind: "konflux", Payload: "/konflux-retest main"},
+		{ID: 2, Target: included, Kind: "konflux", Payload: "/konflux-retest checks"},
+		{ID: 3, Target: included, Kind: "prow", Payload: "/test unit"},
+		{ID: 4, Target: included, Kind: "actions", Payload: jobCommand},
+	}
 	application := &fakeApplication{snapshot: snapshot}
 	browser := newBrowser(t, application)
-	panel := activityPanel(t, browser.getBody(t), "acs-prs")
+	panel := activityPanel(t, browser.getBody(t), tab)
 	field := between(t, panel, `id="`+prRetryAnchor(included)+`"`, "</article>")
-	want := "gh api --method POST repos/" + included.Repo + "/actions/jobs/201/rerun\n/test unit"
-	if !strings.Contains(field, "<pre><code>"+want+"</code></pre>") ||
-		!strings.Contains(field, `href="/?tab=acs-prs#acs-pr-retries-41"`) || strings.Contains(field, "/konflux-retest") {
-		t.Fatalf("retry checker did not link to the Konflux comment: %s", field)
+	wantComment := "<pre><code>/konflux-retest checks\n/konflux-retest main\n/test unit</code></pre>"
+	if !strings.Contains(field, wantComment) || !strings.Contains(field, "<pre><code>"+jobCommand+"</code></pre>") ||
+		!strings.Contains(field, "Open Retest Queue") || strings.Contains(panel, "Review retry") {
+		t.Fatalf("retry checker did not show its inline fields: %s", field)
 	}
 	if !strings.Contains(field, `class="error-text"><strong>CI Retest · Error =</strong> Rate limited by GitHub`) ||
 		strings.Contains(field, "Retry diagnostics") {
@@ -62,20 +81,16 @@ func TestIncludedPRLinksToItsSingleKonfluxComment(t *testing.T) {
 		!strings.Contains(field, "Konflux Retest · Planner · Warning =</strong> "+milestone) {
 		t.Fatalf("expected one sourced contract error and a separate planner warning: %s", field)
 	}
-	comment := between(t, panel, `id="acs-pr-retries-41"`, "</article>")
-	if !strings.Contains(comment, "<pre><code>/konflux-retest checks\n/konflux-retest main</code></pre>") ||
-		strings.Count(panel, "/konflux-retest checks") != 1 || strings.Contains(panel, "stale command") {
-		t.Fatalf("Konflux comment did not contain the unique current commands: %s", comment)
-	}
-	if strings.Count(panel, "Check retries now") != 1 || strings.Count(panel, "Copy retry commands") != 1 ||
+	if strings.Count(panel, "/konflux-retest checks") != 1 || strings.Contains(panel, "stale command") ||
+		strings.Count(panel, "Retry checks now") != 1 || strings.Count(panel, "Copy comments") != 1 ||
 		strings.Contains(panel, `id="`+prRetryAnchor(undecided)+`"`) {
-		t.Fatal("expected a single action and copy field on the included PR only")
+		t.Fatal("expected one inline action and comment field on the included PR only")
 	}
 	response := browser.post(url.Values{
-		"kind": {"check-pr-retries"}, "tab": {"acs-prs"}, "repo": {included.Repo}, "sha": {"head"},
+		"kind": {"check-pr-retries"}, "tab": {tab}, "repo": {included.Repo}, "sha": {"head"},
 		"pr": {strconv.Itoa(included.PR)}, "generation": {strconv.FormatUint(snapshot.Generation, 10)},
 	})
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/?tab=acs-prs#"+prRetryAnchor(included) ||
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/?tab="+tab+"#"+prRetryAnchor(included) ||
 		len(application.actions) != 1 || application.actions[0].Kind != "check-pr-retries" || application.actions[0].Target != included {
 		t.Fatalf("unexpected retry action response %d and actions %v", response.Code, application.actions)
 	}

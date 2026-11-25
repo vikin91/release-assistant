@@ -49,13 +49,14 @@ func TestRetryAndCommentSectionsUseExplicitCurrentScope(t *testing.T) {
 			},
 		},
 		Repositories: []release.Repository{{Source: release.Source{Name: "fact", Repo: "acme/fact", Branch: "release-3.25"}, PRs: []release.PR{
-			{Target: included, SHA: "included-sha", Title: "Included open PR", State: "open", Evidence: release.Evidence{Error: "identity evidence partial"}},
+			{Target: included, SHA: "included-sha", Title: "Included open PR", State: "open", Base: "release-3.25", Evidence: release.Evidence{Error: "identity evidence partial"}},
 			{Target: excluded, SHA: "excluded-sha", Title: "Excluded open PR", State: "open"},
 			{Target: undecided, SHA: "undecided-sha", Title: "Undecided open PR", State: "open"},
 			{Target: ignored, SHA: "ignored-sha", Title: "Ignored open PR", State: "open"},
 			{Target: merged, SHA: "merged-sha", Title: "Merged PR", State: "merged", Merged: true},
 			{Target: closed, SHA: "closed-sha", Title: "Closed PR", State: "closed"},
 		}}},
+		RetestQueue: []app.RetestItem{{ID: 1, Target: included, Kind: "konflux", Payload: "included-open-marker"}},
 		Plans: []release.Plan{
 			proposal(included, "included-sha", "included-open-marker"),
 			proposal(excluded, "excluded-sha", "excluded-marker"),
@@ -83,10 +84,14 @@ func TestRetryAndCommentSectionsUseExplicitCurrentScope(t *testing.T) {
 	}}
 	b := newBrowser(t, application)
 	body := b.getBody(t)
-	inline := between(t, body, `data-fold-key="pr-retry:acme/fact#21"`, `</details>`)
-	prCommentLink := `href="https://github.com/acme/fact/pull/21#new_comment_field" target="_blank"`
-	if count := strings.Count(inline, prCommentLink); count != 2 {
-		t.Errorf("included PR has %d manual comment links, want one for the proposal and one for the offer", count)
+	inline := prCardContaining(activityPanel(t, body, "component-prs"), "Included open PR")
+	for _, want := range []string{"Retry checks now", "<pre><code>included-open-marker</code></pre>", "Open Retest Queue"} {
+		if strings.Count(inline, want) != 1 {
+			t.Errorf("included PR should show %q once", want)
+		}
+	}
+	if strings.Contains(inline, "Review retry") || strings.Contains(inline, "#new_comment_field") {
+		t.Fatal("partial identity should show queue access and inline commands")
 	}
 	builds := between(t, body, `<section class="panel" id="component-releases-retry">`, `</section>`)
 	for _, includedMarker := range []string{"accepted-fact-tag-marker", "accepted-collector-tag-marker"} {
@@ -154,19 +159,21 @@ func TestRetryProposalsDoNotRequireSelectionConfirmation(t *testing.T) {
 }
 
 func TestAdvisoryReviewAndUndoFormsSubmitBoundActions(t *testing.T) {
-	target := release.Target{Repo: "acme/fact", PR: 31}
+	config := validACS5Config()
+	source := config.ACS()
+	target := release.Target{Repo: source.Repo, PR: 31}
 	application := &fakeApplication{snapshot: app.Snapshot{
 		Config: validACS5Config(), Generation: 57,
 		Choices:      release.Choices{PRs: map[release.Target]release.Choice{target: release.Included}, Acknowledged: map[string]bool{"advisory-31": true}},
-		Repositories: []release.Repository{{Source: release.Source{Name: "fact", Repo: "acme/fact", Branch: "release-3.25"}, PRs: []release.PR{{Target: target, SHA: "review-sha", State: "open"}}}},
+		Repositories: []release.Repository{{Source: source, PRs: []release.PR{{Target: target, SHA: "review-sha", Base: source.Branch, State: "open"}}}},
 		Plans: []release.Plan{{
-			Target: target, SHA: "review-sha", Message: "build failed", Evidence: release.Evidence{Known: false, Error: "retry evidence unavailable"},
-			Advisories: []release.Advisory{{ID: "advisory-31", Message: "Conforma review finding", URL: "https://evidence.example/advisory-31"}},
+			Target: target, SHA: "review-sha", Evidence: release.Evidence{Known: false, Error: "retry evidence unavailable"},
+			Advisories: []release.Advisory{{ID: "advisory-31", Name: "Red Hat Konflux / acs-conforma-dev-5-0 / main", Message: "Conforma review finding", URL: "https://evidence.example/advisory-31"}},
 		}},
 	}}
 	b := newBrowser(t, application)
 	body := b.getBody(t)
-	if !strings.Contains(body, "Reviewed for this session") || !strings.Contains(body, "build failed") ||
+	if !strings.Contains(body, "Reviewed for this session") ||
 		!strings.Contains(body, "retry evidence unavailable") || !strings.Contains(body, "Conforma review finding") ||
 		!strings.Contains(body, "https://evidence.example/advisory-31") {
 		t.Fatal("reviewed advisory must retain its failure message and evidence")

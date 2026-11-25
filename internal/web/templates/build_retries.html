@@ -1,15 +1,15 @@
 {{define "build-retries"}}
-  {{$acs := eq .Tab "acs-prs"}}
+  {{$prs := or (eq .Tab "acs-prs") (eq .Tab "component-prs")}}
   <section class="panel" id="{{.RetrySection}}">
-    {{if $acs}}<h3 id="acs-prs-retry-heading">Checks of Included PRs</h3>{{end}}
+    {{if $prs}}<h3 id="{{.Tab}}-retry-heading">Checks of Included PRs</h3>{{end}}
     <details id="{{.RetryDetails}}" open>
-      {{if $acs}}
-      <summary class="build-retry-toggle" aria-describedby="acs-prs-retry-heading">
+      {{if $prs}}
+      <summary class="build-retry-toggle" aria-describedby="{{.Tab}}-retry-heading">
         <span class="build-retry-show">Show</span><span class="build-retry-hide">Hide</span>
       </summary>
       {{else}}<summary class="section-summary">Konflux check retries</summary>{{end}}
       {{range .BuildRetries}}
-        <article class="build-retry-target" {{if .Target.PR}}id="acs-pr-retries-{{.Target.PR}}" {{end}}data-live-key="build-retries:{{.Target}}">
+        <article class="build-retry-target" {{if .Target.PR}}id="{{if eq $.Tab "acs-prs"}}acs-pr-retries-{{.Target.PR}}{{else}}component-pr-retries-{{.Target}}{{end}}" {{end}}data-live-key="build-retries:{{.Target}}">
           {{if .Target.PR}}
             <header class="build-retry-pr-heading">
               {{template "pr-title-and-link" .}}
@@ -20,6 +20,7 @@
           {{else}}<h3>{{.Target}}</h3>{{end}}
           {{if not .ClosedState}}
           {{with .Authority}}{{if .Message}}<p class="build-retry-note">{{.Message}}</p>{{end}}{{end}}
+          {{if .Target.PR}}{{with .Authority}}{{range .Warnings}}<p class="build-retry-note unknown">{{.}}</p>{{end}}{{end}}{{end}}
           {{if and (or .Candidates .Comment) .RequiredStartFailureSummary}}<p class="build-retry-note"><strong>Konflux:</strong> {{.RequiredStartFailureSummary}}</p>{{end}}
           {{if .NextAction}}<p class="build-retry-note">{{if and .Target.PR .WaitingForCheck}}<span aria-hidden="true">⏳</span> {{end}}<strong>Konflux:</strong> {{.NextAction}}</p>{{end}}
           {{if .KonfluxWarning}}<p class="build-retry-note unknown" role="status"><span aria-hidden="true">⚠</span> {{.KonfluxWarning}}</p>{{end}}
@@ -47,17 +48,17 @@
             </details>
           {{end}}
           {{end}}
-          {{with .Manual}}
+          {{if not .Inline}}{{with .Manual}}
             {{if not (or .Pending .Incomplete .Warnings .Jobs .Prow)}}<p class="build-retry-note">No verified GitHub Actions or Prow retries for this commit.</p>{{end}}
             {{template "manual-ci-instructions" .}}
-          {{end}}
+          {{end}}{{end}}
           {{if .Target.PR}}
-          {{with .Plan}}{{with $.ConformaDevChecks .}}{{if .Plan.Plan.Advisories}}
+          {{if eq $.Tab "acs-prs"}}{{with .Plan}}{{with $.ConformaDevChecks .}}{{if .Plan.Plan.Advisories}}
           <details class="build-retry-evidence" data-fold-key="conforma-dev-checks:{{.Plan.Plan.Target}}">
             <summary>Conforma dev checks</summary>
             {{template "conforma-advisories" .}}
           </details>
-          {{end}}{{end}}{{end}}
+          {{end}}{{end}}{{end}}{{end}}
           {{else}}
           <details class="build-retry-evidence" data-fold-key="build-retry-evidence:{{.Target}}">
             <summary>Check details</summary>

@@ -58,7 +58,6 @@ func tabPage(page pageModel, tab string) pageModel {
 	page.PRSection = "pr-selection"
 	page.RetrySection = "retry-proposals"
 	page.RetryDetails = "retry-details"
-	page.OfferSection = "comment-offers"
 	if tab != "component-prs" {
 		page.PRSection = tab + "-pr-selection"
 		page.RetrySection = tab + "-retry"

@@ -32,7 +32,7 @@ func (s *Session) retryCheckSource(a Action) (release.Source, bool) {
 			continue
 		}
 		matches := func(pr release.PR) bool {
-			return pr.Target == a.Target && pr.SHA == a.SHA && pr.Evidence.Fresh() &&
+			return pr.Target == a.Target && pr.SHA == a.SHA &&
 				pr.State == "open" && !pr.Merged && pr.Base == repo.Source.Branch
 		}
 		if pr := repo.PinningPR; pr != nil && pr.Target == a.Target {
@@ -60,13 +60,21 @@ func (s *Session) checkPRRetries(ctx context.Context, a Action) error {
 		if canceled(ctx) {
 			return ctx.Err()
 		}
-		if err == nil && pr.Target == a.Target && pr.Evidence.Fresh() && (pr.Merged || pr.State == "closed") {
+		if err == nil && pr.Target == a.Target && pr.Evidence.Fresh() {
 			s.mu.Lock()
-			defer s.mu.Unlock()
-			if _, allowed := s.retryCheckSource(a); allowed {
-				s.observePRHead(source, pr)
+			_, allowed := s.retryCheckSource(a)
+			if allowed {
+				if repo := s.repos[source.Name]; !slices.ContainsFunc(repo.PRs, func(current release.PR) bool {
+					return current.Target == pr.Target && current.Evidence.At.After(pr.Evidence.At)
+				}) {
+					s.observePRHead(source, pr)
+				}
 			}
-			return nil
+			_, stillCurrent := s.retryCheckSource(a)
+			s.mu.Unlock()
+			if !stillCurrent {
+				return nil
+			}
 		}
 	}
 	ctx = githubread.WithPriority(ctx, githubread.Builds, a.Target.Repo)
@@ -113,6 +121,9 @@ func (s *Session) checkPRRetries(ctx context.Context, a Action) error {
 	}
 	if current := s.prRetryChecks[a.Target]; !current.Started.After(check.Started) {
 		s.prRetryChecks[a.Target] = check
+		if plan := s.plans[a.Target]; !plan.Evidence.At.After(check.Started) && check.Konflux.Target == a.Target {
+			s.dispatcher.ObservePlan(check.Konflux)
+		}
 	}
 	return nil
 }

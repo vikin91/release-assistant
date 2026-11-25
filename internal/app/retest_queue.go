@@ -40,6 +40,7 @@ type (
 	retestTarget struct {
 		sha, title, branch string
 		noCIFailuresAt     time.Time
+		identityFresh      bool
 	}
 )
 
@@ -51,7 +52,7 @@ func (d RetestDecision) TargetLabel() string {
 	return d.Target.String()
 }
 
-// retestTargets limits the queue to verified release targets. The caller holds s.mu.
+// retestTargets limits the queue to monitored release targets. The caller holds s.mu.
 func (s *Session) retestTargets() map[release.Target]retestTarget {
 	targets := make(map[release.Target]retestTarget)
 	for _, repo := range s.repos {
@@ -60,9 +61,9 @@ func (s *Session) retestTargets() map[release.Target]retestTarget {
 		}
 		addPR := func(pr release.PR) {
 			if s.choices.PRs[pr.Target] == release.Included && pr.State == "open" && !pr.Merged &&
-				pr.Base == repo.Source.Branch && pr.Evidence.Fresh() && pr.SHA != "" {
-				target := retestTarget{sha: pr.SHA, title: pr.Title, branch: pr.Base}
-				if checksWithoutFailures(pr) {
+				pr.Base == repo.Source.Branch && pr.SHA != "" {
+				target := retestTarget{sha: pr.SHA, title: pr.Title, branch: pr.Base, identityFresh: pr.Evidence.Fresh()}
+				if pr.Evidence.Fresh() && checksWithoutFailures(pr) {
 					target.noCIFailuresAt = pr.CheckResultsEvidence.At
 				}
 				targets[pr.Target] = target
@@ -138,6 +139,8 @@ func (s *Session) syncRetestQueue(views []dispatch.View, reports []release.Manua
 			}
 			blocked := offer.Reason
 			switch {
+			case target.PR > 0 && !meta.identityFresh && blocked == "":
+				blocked = "Current PR identity could not be verified."
 			case !writes && blocked == "":
 				blocked = "Writes are disabled."
 			case target == rc && !rcReady:

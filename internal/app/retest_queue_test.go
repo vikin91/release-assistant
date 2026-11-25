@@ -3,6 +3,7 @@ package app
 import (
 	"slices"
 	"testing"
+	"time"
 
 	"release-assistant/internal/dispatch"
 	"release-assistant/internal/release"
@@ -146,5 +147,56 @@ func TestRetestQueuePriorityAndTargetScope(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("queue order and scope = %v, want %v", got, want)
+	}
+}
+
+func TestRetestQueueKeepsIncludedComponentRetriesWhenPRReadFails(t *testing.T) {
+	for _, mode := range []string{"read-only", "interactive", "automatic"} {
+		t.Run(mode, func(t *testing.T) {
+			s, f := newFixture()
+			writer := &writeCounter{}
+			s.dispatcher = dispatch.New(f, f, writer, dispatch.Options{EnableWrites: mode != "read-only"})
+			s.dispatcher.Interactive(mode != "automatic")
+			source := configuration().Components[1]
+			repo := release.Repository{Source: source}
+			for _, n := range []int{21, 22} {
+				target := release.Target{Repo: source.Repo, PR: n}
+				evidence := observed()
+				evidence.Known = false
+				evidence.Error = "GitHub unavailable"
+				pr := release.PR{Target: target, SHA: "head", Base: source.Branch, State: "open", Evidence: evidence}
+				repo.PRs = append(repo.PRs, pr)
+				s.choices.PRs[target] = release.Included
+				proposal := release.Proposal{Target: target, SHA: pr.SHA, Job: "build", RunID: "5", Payload: "/konflux-retest build"}
+				plan := release.Plan{Target: target, SHA: pr.SHA, Evidence: observed(), Proposals: []release.Proposal{proposal}}
+				s.plans[target] = plan
+				s.dispatcher.ObserveIdentity(dispatch.Identity{Target: target, SHA: pr.SHA, Base: pr.Base, Open: true, Evidence: evidence})
+				s.dispatcher.ObservePlan(plan)
+				s.manualRetries[target] = release.ManualRetryReport{
+					Target: target, SHA: pr.SHA, At: time.Now(), Prow: []release.ProwRetry{{Context: "ci/prow/unit", Command: "/test unit"}},
+				}
+			}
+			s.repos[source.Name] = repo
+			snapshot := s.Snapshot()
+			if len(snapshot.RetestQueue) != 4 {
+				t.Fatalf("want both retries for both PRs, got %+v", snapshot.RetestQueue)
+			}
+			for _, item := range snapshot.RetestQueue {
+				if item.Kind == "konflux" {
+					if item.Blocked == "" {
+						t.Fatalf("PR #%d must have a reason that posting is blocked", item.Target.PR)
+					}
+					if err := s.Apply(t.Context(), Action{Kind: "queue-send", QueueID: item.ID, Generation: snapshot.Generation}); err == nil || writer.calls != 0 {
+						t.Fatalf("PR #%d reached the writer without verified identity", item.Target.PR)
+					}
+				}
+			}
+			repo.PRs[0].SHA = "new-head"
+			s.repos[source.Name] = repo
+			queue := s.Snapshot().RetestQueue
+			if len(queue) != 2 || queue[0].Target.PR != 22 || queue[1].Target.PR != 22 {
+				t.Fatalf("head change should only remove retries belonging to the old revision: %+v", queue)
+			}
+		})
 	}
 }

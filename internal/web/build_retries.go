@@ -20,6 +20,7 @@ type (
 		Candidates                  []*buildRetryCandidate
 		Comment                     string
 		Queueable                   bool
+		Inline                      bool
 		NextAction                  string
 		WaitingForCheck             bool
 		KonfluxWarning              string
@@ -40,7 +41,7 @@ type (
 	}
 )
 
-// BuildRetries groups retry instructions by target, including ACS PRs awaiting their first observation.
+// BuildRetries groups retry instructions by target, including PRs awaiting their first observation.
 func (p pageModel) BuildRetries() []*buildRetryTarget {
 	var targets []*buildRetryTarget
 	byTarget := make(map[release.Target]*buildRetryTarget)
@@ -80,9 +81,9 @@ func (p pageModel) BuildRetries() []*buildRetryTarget {
 			row.Status = p.retryStatus(&offer)
 		}
 	}
-	if p.Tab == "acs-prs" {
+	if p.Tab == "acs-prs" || p.Tab == "component-prs" {
 		for target, choice := range p.Snapshot.Choices.PRs {
-			if choice == release.Included && target.Repo == p.Snapshot.Config.ACS().Repo && target.PR > 0 {
+			if choice == release.Included && ((p.Tab == "acs-prs") == (target.Repo == p.Snapshot.Config.ACS().Repo)) && target.PR > 0 {
 				targetGroup(target)
 			}
 		}
@@ -91,23 +92,26 @@ func (p pageModel) BuildRetries() []*buildRetryTarget {
 				group.Manual = &report
 			}
 		}
-		if p.ACS != nil {
-			for _, pr := range p.ACS.PRs {
+		for _, repo := range p.Repos {
+			for _, row := range repo.PRs {
+				if group := byTarget[row.PR.Target]; group != nil {
+					group.setPRDetails(row.PR)
+					group.Inline = p.PRRetryStatus(row.PR, repo.Repository.Source.Branch) != nil
+				}
+			}
+			for _, pr := range repo.MergedPRs {
 				if group := byTarget[pr.Target]; group != nil {
 					group.setPRDetails(pr)
 				}
 			}
-			if pr := p.ACS.PinningPR; pr != nil && byTarget[pr.Target] != nil {
-				byTarget[pr.Target].setPRDetails(*pr)
-			}
 		}
 		slices.SortFunc(targets, func(a, b *buildRetryTarget) int {
-			return cmp.Compare(a.Target.PR, b.Target.PR)
+			return cmp.Or(cmp.Compare(a.Target.Repo, b.Target.Repo), cmp.Compare(a.Target.PR, b.Target.PR))
 		})
 	}
 	for _, group := range targets {
-		if group.Target.PR > 0 {
-			group.Comment = group.prComment(p.PRRetryStatus(group.PR, p.Snapshot.Config.Branch))
+		if group.Target.PR > 0 && !group.Inline {
+			group.Comment = group.prComment()
 			group.Queueable = slices.ContainsFunc(group.Candidates, func(candidate *buildRetryCandidate) bool {
 				return candidate.Offer != nil && candidate.Offer.Queueable
 			})
@@ -121,17 +125,12 @@ func (p pageModel) BuildRetries() []*buildRetryTarget {
 	return targets
 }
 
-func (g buildRetryTarget) prComment(latest *prRetryStatus) string {
+func (g buildRetryTarget) prComment() string {
 	var payloads []string
-	if latest != nil && !latest.Konflux.Evidence.At.IsZero() &&
-		(g.Plan == nil || latest.Konflux.Evidence.At.After(g.Plan.Plan.Evidence.At)) {
-		payloads = slices.Clone(latest.KonfluxCommands)
-	} else {
-		for _, candidate := range g.Candidates {
-			proposal := candidate.Proposal
-			if proposal.Target == g.Target && (g.PR.SHA == "" || proposal.SHA == g.PR.SHA) && proposal.Payload != "" {
-				payloads = append(payloads, proposal.Payload)
-			}
+	for _, candidate := range g.Candidates {
+		proposal := candidate.Proposal
+		if proposal.Target == g.Target && (g.PR.SHA == "" || proposal.SHA == g.PR.SHA) && proposal.Payload != "" {
+			payloads = append(payloads, proposal.Payload)
 		}
 	}
 	slices.Sort(payloads)

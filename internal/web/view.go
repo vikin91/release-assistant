@@ -16,49 +16,49 @@ import (
 
 type (
 	pageModel struct {
-		Title, CSRF, Error                                       string
-		Profiles, Home, Paused, ViewingInactive                  bool
-		SettingsGeneration                                       uint64
-		ProfileID, ActiveProfile                                 string
-		ReleaseProfiles                                          []app.ReleaseProfile
-		ProfileWarnings                                          []string
-		Tab, PRSection, RetrySection, RetryDetails, OfferSection string
-		ComponentPRNotice                                        string
-		TabStatuses                                              map[string]tabStatus
-		Configured                                               bool
-		Snapshot                                                 app.Snapshot
-		Repos                                                    []repoModel
-		TagRepos                                                 []repoModel
-		TagCounts                                                tagSelectionCounts
-		Problems                                                 []release.Condition
-		Plans                                                    []planModel
-		ManualRetries                                            []release.ManualRetryReport
-		KonfluxStatus                                            []konfluxClusterStatus
-		Authority                                                []authorityModel
-		ComponentImages                                          componentImagesModel
-		ReleaseImages                                            componentImagesModel
-		RC                                                       rcModel
-		ACS                                                      *release.Repository
-		acsPRTitles                                              map[release.Target]string
-		PinPRState                                               string
-		PinningPR                                                *prModel
-		PinningCanGrant                                          bool
-		PinningHealth                                            release.Truth
-		PinningReportedPassed                                    bool
-		PinningFailures                                          []release.Check
-		PinningRetests                                           []release.Proposal
-		PinningPending                                           int
-		PinningImages                                            []pinningImageModel
-		PinningImageSummary                                      string
-		PinningBuildProblems                                     []string
-		History                                                  []historyModel
-		ConfigForm                                               url.Values
-		SavedConfigForm                                          string
-		ConfigRejected, ConfigSaved                              bool
-		CacheCleared                                             bool
-		SettingsSaved                                            string
-		ConfiguredSources                                        map[string]release.Source
-		ACS4                                                     bool
+		Title, CSRF, Error                         string
+		Profiles, Home, Paused, ViewingInactive    bool
+		SettingsGeneration                         uint64
+		ProfileID, ActiveProfile                   string
+		ReleaseProfiles                            []app.ReleaseProfile
+		ProfileWarnings                            []string
+		Tab, PRSection, RetrySection, RetryDetails string
+		ComponentPRNotice                          string
+		TabStatuses                                map[string]tabStatus
+		Configured                                 bool
+		Snapshot                                   app.Snapshot
+		Repos                                      []repoModel
+		TagRepos                                   []repoModel
+		TagCounts                                  tagSelectionCounts
+		Problems                                   []release.Condition
+		Plans                                      []planModel
+		ManualRetries                              []release.ManualRetryReport
+		KonfluxStatus                              []konfluxClusterStatus
+		Authority                                  []authorityModel
+		ComponentImages                            componentImagesModel
+		ReleaseImages                              componentImagesModel
+		RC                                         rcModel
+		ACS                                        *release.Repository
+		acsPRTitles                                map[release.Target]string
+		PinPRState                                 string
+		PinningPR                                  *prModel
+		PinningCanGrant                            bool
+		PinningHealth                              release.Truth
+		PinningReportedPassed                      bool
+		PinningFailures                            []release.Check
+		PinningRetests                             []release.Proposal
+		PinningPending                             int
+		PinningImages                              []pinningImageModel
+		PinningImageSummary                        string
+		PinningBuildProblems                       []string
+		History                                    []historyModel
+		ConfigForm                                 url.Values
+		SavedConfigForm                            string
+		ConfigRejected, ConfigSaved                bool
+		CacheCleared                               bool
+		SettingsSaved                              string
+		ConfiguredSources                          map[string]release.Source
+		ACS4                                       bool
 	}
 	repoModel struct {
 		Repository  release.Repository

@@ -7,17 +7,19 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"release-assistant/internal/dispatch"
 	"release-assistant/internal/release"
 )
 
 func TestCheckPRRetriesUsesBothReadersForIncludedHead(t *testing.T) {
 	for name, scenario := range map[string]struct {
 		choice      release.Choice
+		stale       bool
 		ciSHA       string
 		githubState string
 		githubErr   error
 	}{
-		"should refresh an included PR":              {choice: release.Included, ciSHA: "head", githubState: "open"},
+		"should refresh an included PR":              {choice: release.Included, ciSHA: "head", githubState: "open", stale: true},
 		"should reject an undecided PR":              {githubState: "open"},
 		"should reject an excluded PR":               {choice: release.Excluded, githubState: "open"},
 		"should hide commands when the head changes": {choice: release.Included, ciSHA: "new-head", githubState: "open"},
@@ -29,10 +31,16 @@ func TestCheckPRRetriesUsesBothReadersForIncludedHead(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			session, fixture := newFixture()
+			writer := &writeCounter{}
+			session.dispatcher = dispatch.New(fixture, fixture, writer, dispatch.Options{EnableWrites: true})
 			source := configuration().ACS()
 			target := release.Target{Repo: source.Repo, PR: 42}
 			pr := release.PR{Target: target, SHA: "head", Base: source.Branch, State: "open", Evidence: observed()}
-			session.repos[source.Name] = release.Repository{Source: source, PRs: []release.PR{pr}}
+			stored := pr
+			if scenario.stale {
+				stored.Evidence.Known = false
+			}
+			session.repos[source.Name] = release.Repository{Source: source, PRs: []release.PR{stored}}
 			session.choices.PRs[target] = scenario.choice
 
 			var prReads, konfluxCalls, ciCalls int
@@ -46,13 +54,13 @@ func TestCheckPRRetriesUsesBothReadersForIncludedHead(t *testing.T) {
 			session.planner = buildPollPlanner(func(_ context.Context, got release.Target) (release.Plan, error) {
 				konfluxCalls++
 				return release.Plan{Target: got, SHA: pr.SHA, Evidence: observed(),
-					Proposals: []release.Proposal{{Target: got, SHA: pr.SHA, Payload: "/konflux-retest checks"}}}, nil
+					Proposals: []release.Proposal{{Target: got, SHA: pr.SHA, Job: "checks", RunID: "1", Payload: "/konflux-retest checks"}}}, nil
 			})
 			session.options.CIPlanner = manualReaderFunc(func(_ context.Context, got release.Target) (release.ManualRetryReport, error) {
 				ciCalls++
 				return release.ManualRetryReport{Target: got, SHA: scenario.ciSHA, Jobs: []release.ManualJob{{ID: 123}}}, nil
 			})
-			session.dispatcher.Interactive(false)
+			session.dispatcher.Interactive(true)
 
 			action := Action{Kind: "check-pr-retries", Generation: session.generation, Target: target, SHA: pr.SHA}
 			err := session.Apply(t.Context(), action)
@@ -85,7 +93,11 @@ func TestCheckPRRetriesUsesBothReadersForIncludedHead(t *testing.T) {
 				if queue := snapshot.RetestQueue; len(queue) != 2 ||
 					!slices.ContainsFunc(queue, func(item RetestItem) bool { return item.Kind == "actions" }) ||
 					!slices.ContainsFunc(queue, func(item RetestItem) bool {
-						return item.Kind == "konflux" && item.Blocked == "Waiting for the posting eligibility check."
+						expected := ""
+						if scenario.githubErr != nil {
+							expected = "Waiting for the posting eligibility check."
+						}
+						return item.Kind == "konflux" && item.Blocked == expected
 					}) {
 					t.Fatalf("expected both on-demand retries in the queue, got %+v", queue)
 				}
@@ -93,8 +105,8 @@ func TestCheckPRRetriesUsesBothReadersForIncludedHead(t *testing.T) {
 				result.Konflux.Evidence.Error == "" || !result.CI.Incomplete {
 				t.Fatalf("expected the changed head to suppress both sets of commands, got %+v", result)
 			}
-			if len(session.dispatcher.Views()) != 0 {
-				t.Fatal("read-only check updated dispatch state")
+			if writer.calls != 0 {
+				t.Fatal("checking retries reached the writer")
 			}
 		})
 	}

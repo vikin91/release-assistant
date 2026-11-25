@@ -21,11 +21,9 @@ type (
 		Checks             prCheckSummary
 		MergeStatus        release.Truth
 		Attention          bool
-		Retry              *pageModel
-		HasProposal        bool
 	}
 	prCheckSummary struct {
-		URL, RetryURL, Problem                           string
+		URL, Problem                                     string
 		Available, Partial, RequiredKnown                bool
 		Failed, RequiredFailed, Running, RequiredRunning int
 	}
@@ -39,48 +37,6 @@ func (p pageModel) PRList() prListModel {
 	triage := prListModel{
 		Repos: slices.Clone(p.Repos),
 		Rows:  make(map[release.Target]prListRow),
-	}
-	var (
-		retries      map[release.Target]*pageModel
-		acsProposals map[release.Target]bool
-	)
-	if p.Tab == "acs-prs" {
-		acsProposals = make(map[release.Target]bool)
-		for _, report := range p.ManualRetries {
-			if len(report.Jobs)+len(report.Prow) > 0 {
-				acsProposals[report.Target] = true
-			}
-		}
-		for _, plan := range p.Plans {
-			if len(plan.Plan.Proposals) > 0 {
-				acsProposals[plan.Plan.Target] = true
-			}
-		}
-		for _, authority := range p.Authority {
-			if len(authority.View.Offers) > 0 {
-				acsProposals[authority.View.Target] = true
-			}
-		}
-	}
-	if p.Tab == "component-prs" {
-		retries = make(map[release.Target]*pageModel)
-		retryPage := func(target release.Target) *pageModel {
-			if retries[target] == nil {
-				page := p
-				page.Repos, page.Plans, page.Authority = nil, nil, nil
-				page.RetrySection = p.PRSection
-				retries[target] = &page
-			}
-			return retries[target]
-		}
-		for _, plan := range p.Plans {
-			page := retryPage(plan.Plan.Target)
-			page.Plans = append(page.Plans, plan)
-		}
-		for _, authority := range p.Authority {
-			page := retryPage(authority.View.Target)
-			page.Authority = append(page.Authority, authority)
-		}
 	}
 	for i, repo := range triage.Repos {
 		triage.Merged += len(repo.MergedPRs)
@@ -105,7 +61,7 @@ func (p pageModel) PRList() prListModel {
 			if row.PR.State == "open" && row.PR.Evidence.Fresh() {
 				triage.Open++
 			}
-			view := prListRow{Retry: retries[row.PR.Target], HasProposal: acsProposals[row.PR.Target]}
+			view := prListRow{}
 			if row.PR.Target == p.Snapshot.Config.PinningTarget() {
 				view.PinRole = "Confirmed pinning PR"
 			} else if match := discovery.Files[row.PR.Target.PR]; detecting && match.Reason != "" && match.Head == row.PR.SHA && row.PR.Evidence.Fresh() && row.PR.State == "open" {
@@ -133,21 +89,9 @@ func (p pageModel) PRList() prListModel {
 			case row.Choice == "" && undecidedCandidate(row.PR, repo.Repository.Source.Branch):
 				triage.Undecided++
 			}
-			retry := retries[row.PR.Target]
-
 			if row.Choice == release.Included {
 				view.Checks = summarizePRChecks(row.PR)
-				if view.HasProposal {
-					view.Checks.RetryURL = fmt.Sprintf("/?tab=acs-prs#acs-pr-retries-%d", row.PR.Target.PR)
-				}
-				view.Attention = closed || view.Checks.Failed > 0
-			}
-			if retry != nil {
-				view.HasProposal = slices.ContainsFunc(retry.Plans, func(plan planModel) bool {
-					return len(plan.Plan.Proposals) > 0
-				}) || slices.ContainsFunc(retry.Authority, func(view authorityModel) bool {
-					return len(view.View.Offers) > 0
-				})
+				view.Attention = closed || view.Checks.Failed > 0 || view.MergeStatus == release.No
 			}
 			triage.Rows[row.PR.Target] = view
 		}
@@ -237,24 +181,4 @@ func countRequiredChecks(pr release.PR) requiredCheckCounts {
 		}
 	}
 	return counts
-}
-
-// DetachedPRRetries keeps observations visible when the corresponding PR row is unavailable.
-func (p pageModel) DetachedPRRetries() pageModel {
-	if p.Tab != "component-prs" {
-		return p
-	}
-	visible := make(map[release.Target]bool)
-	for _, repo := range p.Repos {
-		for _, row := range repo.PRs {
-			visible[row.PR.Target] = true
-		}
-	}
-	p.Plans = slices.DeleteFunc(slices.Clone(p.Plans), func(plan planModel) bool {
-		return visible[plan.Plan.Target]
-	})
-	p.Authority = slices.DeleteFunc(slices.Clone(p.Authority), func(view authorityModel) bool {
-		return visible[view.View.Target]
-	})
-	return p
 }

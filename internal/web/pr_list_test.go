@@ -104,8 +104,8 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 		t.Fatal("expected one confirmed pinning PR row")
 	}
 	hasIgnoredFilter := strings.Contains(body, `-filter" value="ignored"`)
-	if hasIgnoredFilter != (tab == "component-prs") {
-		t.Fatal("only Component PRs should show the ignored filter before there are hidden PRs")
+	if hasIgnoredFilter {
+		t.Fatal("the ignored filter should appear once there are hidden PRs")
 	}
 	undecided := 2
 	if tab == "acs-prs" {
@@ -287,14 +287,14 @@ func TestACSPRRowShowsObservedFailuresWithoutRequiredSettings(t *testing.T) {
 	card := prCardContaining(body, pr.Title)
 	for _, want := range []string{
 		"❌", "2 checks failed", "· couldn’t verify which checks are required", "View checks", "/pull/24102/checks",
-		"data-pr-attention", "Review retry", "#acs-pr-retries-24102",
+		"data-pr-attention", "Retry checks now", prRetryAnchor(target),
 	} {
 		if !strings.Contains(card, want) {
 			t.Errorf("missing %q in PR card", want)
 		}
 	}
 	if !strings.Contains(body, `id="acs-pr-retries-24102"`) {
-		t.Fatal("retry link must point to the matching PR")
+		t.Fatal("check details should include the matching PR")
 	}
 }
 

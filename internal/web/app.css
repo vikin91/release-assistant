@@ -231,6 +231,7 @@ button[aria-pressed=true], .settings-footer button:not([form]):enabled, .button-
 }
 .pr-repo { margin-top: 1rem; padding-top: .75rem; border-top: 1px solid var(--border); }
 .pr-repo h3 { font-size: 1rem; }
+.pr-repo-heading { background: var(--accent); border-radius: var(--radius-md); padding: .55rem .75rem; }
 .pr-repo h3 .muted { font-size: .88rem; font-weight: 400; }
 .pr-card { margin: .5rem 0; padding: .55rem .7rem; }
 .pr-title { min-width: 0; overflow-wrap: anywhere; }
@@ -256,7 +257,7 @@ button[aria-pressed=true], .settings-footer button:not([form]):enabled, .button-
 .pr-list-disclosures { grid-column: 1 / -1; display: flex; align-items: start; flex-wrap: wrap; gap: .25rem .8rem; font-size: .86rem; }
 .pr-list-disclosures details { min-width: 0; margin: 0; }
 .pr-list-disclosures details[open] { flex-basis: 100%; }
-.pr-list-retry > summary { font-weight: var(--emphasis-weight); }
+.pr-retry-check { flex-basis: 100%; min-width: 0; }
 .pr-list-filter-empty, .pr-list-filter-help, .pr-list-all-hidden { display: none; margin: .5rem 0 0; }
 .pr-list-bulk { font-size: .86rem; }
 .pr-list:has(.pr-list-filters input[value="all"]:checked) .pr-list-all-hidden { display: block; }

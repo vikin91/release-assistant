@@ -295,7 +295,8 @@ func (d *Dispatcher) Stop() {
 func (d *Dispatcher) ObservePlan(p release.Plan) { d.mu.Lock(); defer d.mu.Unlock(); d.plan(p) }
 func (d *Dispatcher) plan(p release.Plan) {
 	s := d.state(p.Target)
-	if s.ignored || s.identity.SHA == "" || s.identity.SHA != p.SHA {
+	if s.ignored || s.identity.SHA == "" || s.identity.SHA != p.SHA ||
+		(!p.Evidence.At.IsZero() && p.Evidence.At.Before(s.planAt)) {
 		return
 	}
 	s.proposals = slices.Clone(p.Proposals)
