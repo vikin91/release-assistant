@@ -169,7 +169,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 				tags = append(tags, tag)
 			}
 		} else if req.Scope == app.ReadTags && result.Head != "" {
-			tags, result.TagsPending, tagErr = c.tagBatch(ctx, source, result.Head, publish)
+			tags, result.TagsPending, tagErr = c.tagBatch(ctx, source, result.Head, req.TagRefresh, publish)
 		} else {
 			tags, tagErr = c.listTags(ctx, source, result.Head, publish)
 		}

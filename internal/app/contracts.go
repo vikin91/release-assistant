@@ -26,6 +26,8 @@ type (
 		PreviousPinFiles  map[int]release.PinFileMatch
 		Version           string
 		Scope             DiscoveryScope
+		// TagRefresh identifies a manual inventory restart across its bounded batches.
+		TagRefresh string
 		// Progress publishes verified tags while the remaining inventory is still loading.
 		Progress func(release.Repository)
 		// CandidateProgress publishes verified ancestry before post-RC PR and pin reads finish.

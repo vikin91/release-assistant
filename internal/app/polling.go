@@ -27,6 +27,7 @@ type (
 	pollRecord struct {
 		finished, retryAfter time.Time
 		identity             string
+		tagRefresh           string
 		failures             int
 		continuing           bool
 		imageRefresh         uint64
@@ -72,23 +73,40 @@ func (r pollRecord) due(identity string, now, next time.Time) bool {
 	return r.finished.IsZero() || r.identity != identity || !now.Before(next)
 }
 
+func (s *Session) tagPollJob(source release.Source) pollJob {
+	job := pollJob{kind: pollTags, setting: BeforeTags}
+	if source.Name == "acs" {
+		job.setting = ACSTags
+		return job
+	}
+	if s.choices.Tags[source.Name] != "" {
+		job.setting = AfterTags
+	}
+	record := s.polls[job.id(source)]
+	job.identity = record.tagRefresh
+	if job.identity == "" {
+		job.identity = record.identity
+	}
+	return job
+}
+
 // pollJobs selects intervals independently for each repository. A new tag or
 // commit needs its own first observation, even when the old tag was just read.
 func (s *Session) pollJobs(source release.Source) []pollJob {
 	tag := s.choices.Tags[source.Name]
 	sha := s.confirmedSHAs[source.Name]
-	prs, checks, tags, tagChecks := BeforePRs, BeforePRChecks, BeforeTags, ComponentTagChecks
+	prs, checks, tagChecks := BeforePRs, BeforePRChecks, ComponentTagChecks
 	acs := source.Name == "acs"
 	if acs {
-		prs, checks, tags, tagChecks = ACSPRs, ACSPRChecks, ACSTags, ACSTagChecks
+		prs, checks, tagChecks = ACSPRs, ACSPRChecks, ACSTagChecks
 		rc := s.repos[source.Name].Candidate
 		if s.rcReady() {
 			tag, sha = rc.Target.Tag, rc.SHA
 		}
 	} else if tag != "" {
-		prs, checks, tags = AfterPRs, AfterPRChecks, AfterTags
+		prs, checks = AfterPRs, AfterPRChecks
 	}
-	jobs := []pollJob{{kind: pollTags, setting: tags}, {kind: pollPRs, setting: prs}}
+	jobs := []pollJob{s.tagPollJob(source), {kind: pollPRs, setting: prs}}
 	tracked := false
 	for t, choice := range s.choices.PRs {
 		if t.Repo == source.Repo && choice == release.Included {
@@ -236,8 +254,9 @@ func (s *Session) fetchPoll(ctx context.Context, generation, revision uint64, so
 		}
 		work.scope = ReadTags
 		s.mu.Lock()
-		hasSavedTag := s.pendingTags[source.Name].Tag != ""
-		continuing := s.polls[job.id(source)].continuing
+		record := s.polls[job.id(source)]
+		hasSavedTag := s.pendingTags[source.Name].Tag != "" && record.tagRefresh == ""
+		continuing := record.continuing && record.identity == job.identity
 		s.mu.Unlock()
 		if continuing {
 			ctx = githubread.WithPriority(ctx, githubread.Background, source.Repo)
@@ -253,6 +272,9 @@ func (s *Session) fetchPoll(ctx context.Context, generation, revision uint64, so
 			}
 		}
 		work.tagInventory = true
+		if record.tagRefresh == job.identity {
+			work.tagRefresh = record.tagRefresh
+		}
 		return errors.Join(savedTagErr, s.refresh(ctx, generation, source, true, work))
 	case pollTagChecks:
 		return s.refreshTagChecks(ctx, generation, revision, source)
@@ -318,6 +340,10 @@ func (s *Session) runPoll(ctx context.Context, generation, revision uint64, sour
 		record.continuing = s.repos[source.Name].TagsPending
 	} else if job.kind == pollTags && s.repos[source.Name].TagsPending && now.Before(s.startupUntil) {
 		record.retryAfter = now.Add(min(time.Minute, s.options.Poll))
+	}
+	requested := s.polls[id].tagRefresh
+	if requested != job.identity || record.continuing {
+		record.tagRefresh = requested
 	}
 	s.polls[id] = record
 }

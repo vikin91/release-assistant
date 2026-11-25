@@ -107,3 +107,47 @@ func TestComponentTagBatchDoesNotOverwriteConcurrentBranchObservation(t *testing
 		t.Fatalf("a late tag batch overwrote concurrent discovery: %+v", got)
 	}
 }
+
+func TestManualComponentTagRefreshWakesOnlyThatInventory(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, f := newFixture()
+		apply(t, s, Action{Kind: "configure", Config: configuration()})
+		fact, collector := s.config.Components[0], s.config.Components[1]
+		s.choices.Tags[collector.Name] = f.repos[collector.Name].Tags[0].Name
+		s.confirmedSHAs[collector.Name] = f.repos[collector.Name].Tags[0].SHA
+		for _, source := range s.config.Components {
+			s.polls[pollID{source.Name, pollTags}] = pollRecord{finished: time.Now()}
+		}
+		requests := make(chan DiscoveryRequest, 3)
+		next := release.Tag{Name: "3.25.9", SHA: "new-tag", Belongs: release.Yes, Evidence: observed()}
+		s.discovery = tagDiscoverFunc(func(_ context.Context, request DiscoveryRequest) (release.Repository, error) {
+			requests <- request
+			repo := f.repos[request.Source.Name]
+			repo.Tags = append(slices.Clone(repo.Tags), next)
+			return repo, nil
+		})
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() { defer close(done); s.monitorComponentTags(ctx, s.generation, s.config.Components) }()
+		defer func() { cancel(); <-done }()
+		synctest.Wait()
+
+		apply(t, s, Action{Kind: "refresh-tags", Component: collector.Name})
+		synctest.Wait()
+		if len(requests) != 1 {
+			t.Fatalf("expected one immediate request, got %d", len(requests))
+		}
+		request := <-requests
+		if request.Source != collector || request.Scope != ReadTags || request.ConfirmedTag != "" || request.TagRefresh == "" {
+			t.Fatalf("unexpected tag refresh: %+v", request)
+		}
+		snapshot := s.Snapshot()
+		if snapshot.RefreshingTags[collector.Name] || snapshot.RefreshingTags[fact.Name] ||
+			snapshot.Choices.Tags[collector.Name] != f.repos[collector.Name].Tags[0].Name ||
+			!slices.ContainsFunc(snapshot.Repositories, func(repo release.Repository) bool {
+				return repo.Source == collector && slices.ContainsFunc(repo.Tags, func(tag release.Tag) bool { return tag.Name == next.Name })
+			}) {
+			t.Fatalf("requested tag refresh did not complete while preserving the selection: %+v", snapshot.Repositories)
+		}
+	})
+}

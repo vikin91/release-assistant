@@ -53,12 +53,33 @@ func TestReleaseSwitchReusesRecentRepositoryTagPage(t *testing.T) {
 	a := apilog.WithRelease(t.Context(), "5.0.1")
 	b := apilog.WithRelease(t.Context(), "4.11.1")
 	for _, ctx := range []context.Context{a, b} {
-		page, err := client.tagListPage(ctx, request.Source.Repo, 1)
+		page, err := client.tagListPage(ctx, request.Source.Repo, 1, false)
 		if err != nil || len(page) != 1 {
 			t.Fatalf("tag page = %v, %v", page, err)
 		}
 	}
 	if counts["tags"] != 1 {
 		t.Fatalf("expected one GitHub request, got %v", counts)
+	}
+}
+
+func TestManualTagRefreshRestartsAnIncompleteInventoryAndBypassesPageReuse(t *testing.T) {
+	client, request, counts := discoveryFixture(t, 100, 0, 0)
+	request.Scope = app.ReadTags
+	firstRelease := apilog.WithRelease(t.Context(), "5.0.1")
+	secondRelease := apilog.WithRelease(t.Context(), "4.11.1")
+	first, err := client.Discover(firstRelease, request)
+	if err != nil || !first.TagsPending || counts["tags"] != 1 || counts["tag_ref"] == 0 {
+		t.Fatalf("expected a partial first inventory, got %d tags, reads %v, err %v", len(first.Tags), counts, err)
+	}
+	firstRefs := counts["tag_ref"]
+	request.TagRefresh = "manual"
+	restarted, err := client.Discover(secondRelease, request)
+	if err != nil || !restarted.TagsPending || counts["tags"] != 2 || counts["tag_ref"] != 2*firstRefs {
+		t.Fatalf("manual refresh did not restart from an uncached page: reads %v, err %v", counts, err)
+	}
+	resumed, err := client.Discover(secondRelease, request)
+	if err != nil || len(resumed.Tags) <= len(restarted.Tags) || counts["tags"] != 2 {
+		t.Fatalf("same manual refresh did not resume its cursor: reads %v, err %v", counts, err)
 	}
 }

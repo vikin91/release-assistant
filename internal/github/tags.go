@@ -25,6 +25,8 @@ type (
 	tagInventory struct {
 		mu          sync.Mutex
 		head        string
+		refresh     string
+		freshPages  bool
 		page, index int
 		items       []tagResponse
 		tags        []resolvedTag
@@ -35,7 +37,7 @@ type (
 
 // tagBatch resumes a bounded inventory without revalidating earlier tags in the series.
 // A branch change starts a new series because ancestry is bound to its head.
-func (c *Client) tagBatch(ctx context.Context, src release.Source, head string, publish func([]resolvedTag)) ([]resolvedTag, bool, error) {
+func (c *Client) tagBatch(ctx context.Context, src release.Source, head, refresh string, publish func([]resolvedTag)) ([]resolvedTag, bool, error) {
 	key := src.Repo + "/" + src.Branch + "/" + src.Stream
 	value, _ := c.inventories.LoadOrStore(key, &tagInventory{})
 	inventory := value.(*tagInventory)
@@ -44,7 +46,12 @@ func (c *Client) tagBatch(ctx context.Context, src release.Source, head string, 
 	if err := ctx.Err(); err != nil {
 		return nil, true, err
 	}
-	if inventory.head != head || inventory.complete {
+	restart := refresh != "" && refresh != inventory.refresh
+	if inventory.head != head || inventory.complete || restart {
+		inventory.freshPages = restart || (!inventory.complete && inventory.freshPages)
+		if restart {
+			inventory.refresh = refresh
+		}
 		inventory.head, inventory.page, inventory.index = head, 1, 0
 		inventory.items, inventory.tags, inventory.issues = nil, nil, nil
 		inventory.complete = false
@@ -53,7 +60,7 @@ func (c *Client) tagBatch(ctx context.Context, src release.Source, head string, 
 	stopAt := cycle.remaining - app.TagBatchRequests
 	for cycle.remaining-max(stopAt, 0) >= 8 {
 		if inventory.items == nil {
-			items, err := c.tagListPage(ctx, src.Repo, inventory.page)
+			items, err := c.tagListPage(ctx, src.Repo, inventory.page, inventory.freshPages)
 			if err != nil {
 				return inventory.tags, true, errors.Join(append(inventory.issues, err)...)
 			}
@@ -100,10 +107,10 @@ func (c *Client) tagBatch(ctx context.Context, src release.Source, head string, 
 
 // tagListPage can reuse the repo-wide inventory from another release's recent read.
 // The branch-specific tag resolution still verifies the ref and ancestry.
-func (c *Client) tagListPage(ctx context.Context, repo string, page int) ([]tagResponse, error) {
+func (c *Client) tagListPage(ctx context.Context, repo string, page int, fresh bool) ([]tagResponse, error) {
 	endpoint := fmt.Sprintf("%s/tags?per_page=100&page=%d", repoPath(repo), page)
 	version := apilog.Release(ctx)
-	if version != "" {
+	if version != "" && !fresh {
 		c.tagPagesMu.Lock()
 		cached := c.tagPages[endpoint]
 		c.tagPagesMu.Unlock()

@@ -6,8 +6,15 @@
       </h2>
       {{range .TagRepos}}
         {{$source := .Repository.Source}}
-        <article class="component-tag-row" data-live-key="tag-repo:{{$source.Name}}:{{$source.Repo}}">
-          <h3>{{title $source.Name}} · <code>{{$source.Branch}}</code></h3>
+        <article class="component-tag-row" id="component-tags-{{$source.Name}}" data-live-key="tag-repo:{{$source.Name}}:{{$source.Repo}}">
+          <div class="component-tag-heading">
+            <h3>{{title $source.Name}} · <code>{{$source.Branch}}</code></h3>
+            {{$refreshing := index $.Snapshot.RefreshingTags $source.Name}}
+            <form method="post" action="/action" class="inline-form">
+              <input type="hidden" name="tab" value="component-releases"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="refresh-tags"><input type="hidden" name="component" value="{{$source.Name}}">
+              <button type="submit"{{if $refreshing}} disabled{{end}}>{{if $refreshing}}Refreshing tags…{{else}}Refresh tags{{end}}</button>
+            </form>
+          </div>
           {{if .CurrentTag}}
           <table class="tag-options" aria-label="{{title $source.Name}} release tags">
             <thead><tr><th scope="col">Tag</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>

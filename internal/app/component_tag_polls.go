@@ -44,17 +44,17 @@ func (s *Session) nextComponentTagPoll(generation uint64, sources []release.Sour
 		return selected, job, s.workRevision, next, s.pollChanged
 	}
 	now := time.Now()
+	var selectedManual bool
 	for _, source := range sources {
-		setting := BeforeTags
-		if s.choices.Tags[source.Name] != "" {
-			setting = AfterTags
-		}
-		candidate := pollJob{kind: pollTags, setting: setting}
+		candidate := s.tagPollJob(source)
 		record := s.polls[candidate.id(source)]
-		at := record.next(s.options.RefreshIntervals[setting], s.startupUntil)
-		if record.due("", now, at) {
-			if selected.Repo == "" || turnBefore(source.Name, selected.Name, lastSource) {
+		at := record.next(s.options.RefreshIntervals[candidate.setting], s.startupUntil)
+		if record.due(candidate.identity, now, at) {
+			manual := record.tagRefresh != "" && record.identity != candidate.identity
+			if selected.Repo == "" || (manual && !selectedManual) ||
+				(manual == selectedManual && turnBefore(source.Name, selected.Name, lastSource)) {
 				selected, job = source, candidate
+				selectedManual = manual
 			}
 		} else if next.IsZero() || at.Before(next) {
 			next = at

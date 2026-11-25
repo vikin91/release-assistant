@@ -3,6 +3,7 @@ package app
 import (
 	"cmp"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"maps"
@@ -76,6 +77,8 @@ type (
 		KonfluxHealth *konflux.Health
 		// PendingTags holds saved selections awaiting current GitHub evidence.
 		PendingTags map[string]string
+		// RefreshingTags names components with an outstanding manual inventory refresh.
+		RefreshingTags map[string]bool
 		// PendingPinningPR holds the saved PR number until discovery verifies its branch.
 		PendingPinningPR int
 		// Loading keeps the dashboard refreshing during startup and while included ACS PRs await CI results.
@@ -305,6 +308,18 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 	defer s.mu.Unlock()
 	var err error
 	switch a.Kind {
+	case "refresh-tags":
+		if !slices.ContainsFunc(s.config.Components, func(source release.Source) bool {
+			return source.Name == a.Component
+		}) {
+			return fmt.Errorf("unknown component")
+		}
+		id := pollID{a.Component, pollTags}
+		record := s.polls[id]
+		record.tagRefresh = rand.Text()
+		s.polls[id] = record
+		s.wakePolls()
+		return nil
 	case "refresh-images":
 		if err := s.config.Validate(); err != nil {
 			return err
@@ -664,6 +679,15 @@ func (s *Session) profileSnapshot(work *releaseWork, active bool, profileID stri
 		x.WritesEnabled, x.Authority = s.dispatcher.WritesEnabled(), s.dispatcher.Views()
 		x.RefreshingResumed = s.hasOverdueObservations()
 		x.ImagesRefreshing = work.imageReads > 0 || work.imageRefresh > work.polls[pollID{c.ACS().Repo, pollImages}].imageRefresh
+		for _, source := range c.Components {
+			if work.polls[pollID{source.Name, pollTags}].tagRefresh != "" {
+				if x.RefreshingTags == nil {
+					x.RefreshingTags = make(map[string]bool)
+				}
+				x.RefreshingTags[source.Name] = true
+				x.Loading = true
+			}
+		}
 	}
 	if len(work.pendingTags) > 0 {
 		x.PendingTags = make(map[string]string, len(work.pendingTags))
@@ -901,6 +925,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	tagStartHead := s.repos[source.Name].Head
 	if work.tagInventory {
 		request.ConfirmedTag = ""
+		request.TagRefresh = work.tagRefresh
 		if s.duringStartup() && s.choices.Tags[source.Name] == "" {
 			request.Progress = func(partial release.Repository) {
 				s.mu.Lock()

@@ -329,6 +329,37 @@ func TestActivityDestinationIsValidated(t *testing.T) {
 	}
 }
 
+func TestComponentTagRefreshPostsToTheSelectedComponent(t *testing.T) {
+	application := &fakeApplication{snapshot: app.Snapshot{
+		Config: validACS5Config(), Generation: 12, RefreshingTags: map[string]bool{"fact": true},
+	}}
+	browser := newBrowser(t, application)
+	panel := activityPanel(t, browser.getBody(t), "component-releases")
+	fact := between(t, panel, `id="component-tags-fact"`, "</article>")
+	if !strings.Contains(fact, `<button type="submit" disabled>Refreshing tags…</button>`) {
+		t.Fatal("expected pending refresh on Fact")
+	}
+	collector := between(t, panel, `id="component-tags-collector"`, "</article>")
+	form := formContaining(t, collector, `value="refresh-tags"`)
+	if !strings.Contains(form, `<button type="submit">Refresh tags</button>`) {
+		t.Fatal("Collector should have its own refresh action")
+	}
+	values := url.Values{}
+	for _, field := range []string{"kind", "generation", "component", "tab"} {
+		values.Set(field, formInputValue(t, form, field))
+	}
+	response := browser.post(values)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/?tab=component-releases#component-tags-collector" ||
+		len(application.actions) != 1 || application.actions[0].Component != "collector" ||
+		application.actions[0].Kind != "refresh-tags" || application.actions[0].Generation != 12 {
+		t.Fatalf("unexpected refresh response %d and actions %+v", response.Code, application.actions)
+	}
+	values.Set("component", "scanner")
+	if response := browser.post(values); response.Code != http.StatusBadRequest {
+		t.Fatal("refresh accepted a component outside the configured release")
+	}
+}
+
 func activityPanel(t *testing.T, body, tab string) string {
 	t.Helper()
 	start := strings.Index(body, `<section id="panel-`+tab+`"`)

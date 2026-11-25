@@ -14,6 +14,7 @@ type sourceWork struct {
 	scope         DiscoveryScope
 	plans, images bool
 	tagInventory  bool
+	tagRefresh    string
 	scheduled     bool
 }
 
