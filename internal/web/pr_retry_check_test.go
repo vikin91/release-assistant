@@ -54,6 +54,8 @@ func checkIncludedPRRetryCommands(t *testing.T, tab string) {
 	}
 	check := snapshot.PRRetryChecks[included]
 	check.Konflux.Evidence.Error = contract
+	check.Konflux.Evidence.At = observed.At.Add(-2 * time.Minute)
+	check.CI.At = observed.At.Add(-3 * time.Minute)
 	check.Konflux.Warnings = []string{milestone, "retag-scanner: cannot resolve input requirements: " + contract + "."}
 	snapshot.PRRetryChecks[included] = check
 	jobCommand := "gh api --method POST repos/" + included.Repo + "/actions/jobs/201/rerun"
@@ -67,6 +69,13 @@ func checkIncludedPRRetryCommands(t *testing.T, tab string) {
 	browser := newBrowser(t, application)
 	panel := activityPanel(t, browser.getBody(t), tab)
 	field := between(t, panel, `id="`+prRetryAnchor(included)+`"`, "</article>")
+	statusForm := formContaining(t, field, `class="pr-check-status muted"`)
+	if !strings.Contains(statusForm, "Konflux checked <time") || !strings.Contains(statusForm, "CI checked <time") ||
+		strings.Count(statusForm, "minutes ago</time> (incomplete)") != 2 ||
+		!strings.Contains(statusForm, `title="`+formatTime(check.Konflux.Evidence.At)+`"`) ||
+		!strings.Contains(statusForm, `<button type="submit">Refresh checks</button>`) {
+		t.Fatalf("expected check ages, timestamp and refresh action in one status line: %s", statusForm)
+	}
 	wantComment := "<pre><code>/konflux-retest checks\n/konflux-retest main\n/test unit</code></pre>"
 	if !strings.Contains(field, wantComment) || !strings.Contains(field, "<pre><code>"+jobCommand+"</code></pre>") ||
 		!strings.Contains(field, "Open Retest Queue") || strings.Contains(panel, "Review retry") {

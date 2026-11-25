@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"release-assistant/internal/release"
 )
@@ -20,6 +21,18 @@ type prRetryStatus struct {
 
 func prRetryAnchor(target release.Target) string {
 	return fmt.Sprintf("pr-retry-%s-%d", strings.ReplaceAll(target.Repo, "/", ":"), target.PR)
+}
+
+func formatCheckAge(at time.Time) string {
+	minutes := int(time.Since(at) / time.Minute)
+	switch {
+	case minutes < 1:
+		return "just now"
+	case minutes == 1:
+		return "1 minute ago"
+	default:
+		return fmt.Sprintf("%d minutes ago", minutes)
+	}
 }
 
 // PRRetryStatus shows queued commands and the latest provider observations for an included PR.

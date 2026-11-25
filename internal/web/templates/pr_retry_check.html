@@ -1,15 +1,13 @@
 {{define "pr-retry-check"}}
   <div class="pr-retry-check" id="{{.Anchor}}" data-live-key="{{.Anchor}}">
-    <form method="post" action="/action#{{.Anchor}}" class="inline-form">
+    <form method="post" action="/action#{{.Anchor}}" class="pr-check-status muted">
       <input type="hidden" name="kind" value="check-pr-retries"><input type="hidden" name="tab" value="{{.Page.Tab}}">
       <input type="hidden" name="csrf" value="{{.Page.CSRF}}"><input type="hidden" name="generation" value="{{.Page.Snapshot.Generation}}">
       <input type="hidden" name="repo" value="{{.PR.Target.Repo}}"><input type="hidden" name="pr" value="{{.PR.Target.PR}}"><input type="hidden" name="sha" value="{{.PR.SHA}}">
-      <button type="submit">Refresh checks</button>
+      Konflux {{if .Konflux.Evidence.At.IsZero}}awaiting check{{else}}checked {{template "pr-check-time" .Konflux.Evidence.At}}{{if not .Konflux.Evidence.Fresh}} (incomplete){{end}}{{end}}
+      · CI {{if .CI.At.IsZero}}awaiting check{{else}}checked {{template "pr-check-time" .CI.At}}{{if .CI.Incomplete}} (incomplete){{end}}{{end}}
+      · <button type="submit">Refresh checks</button>
     </form>
-    <p class="muted">
-      {{with .Konflux}}Konflux {{if .Evidence.At.IsZero}}awaiting check{{else}}checked {{when .Evidence.At}}{{if not .Evidence.Fresh}} · incomplete{{end}}{{end}}{{end}}
-      · {{with .CI}}CI {{if .At.IsZero}}awaiting check{{else}}checked {{when .At}}{{if .Incomplete}} · incomplete{{end}}{{end}}{{end}}
-    </p>
     {{if .Comments}}
       <div class="copyable-text">
         <strong>Retest comments</strong>
@@ -38,3 +36,5 @@
     {{if .CI.OtherChecks}}<ol>{{range .CI.OtherChecks}}<li>{{.}}</li>{{end}}</ol>{{end}}
   </div>
 {{end}}
+
+{{define "pr-check-time"}}<time datetime="{{.Format "2006-01-02T15:04:05Z07:00"}}" title="{{when .}}">{{checkAge .}}</time>{{end}}

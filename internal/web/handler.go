@@ -74,6 +74,7 @@ func New(application Application) (http.Handler, error) {
 			}{page, tab, label}
 		},
 		"truth": truthLabel, "when": formatTime, "quotaReset": quotaReset, "url": safeURL,
+		"checkAge": formatCheckAge,
 		"readWait": formatReadWait,
 		"activity": activityText, "commentURL": commentURL, "profilePage": profilePageURL,
 		"profileAction": func(id string) string {
