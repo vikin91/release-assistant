@@ -1006,7 +1006,7 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 		strings.Count(factRow, `class="pill component-image-age"`) != 3 {
 		t.Fatal("the image age should appear beside Available only when the image creation time is known")
 	}
-	if !strings.Contains(components, ">Starkrox.io</th>") || !strings.Contains(components, ">rhscsn</th>") || !strings.Contains(factRow, "component-image:fact:public:fact") || !strings.Contains(factRow, ">Age 20 min</time>") || !strings.Contains(factRow, "component-image:fact:ci:fact") || !strings.Contains(factRow, "component-image:fact:konflux:fact") || !strings.Contains(factRow, ">Age 10 min</time>") {
+	if !strings.Contains(components, ">stackrox-io</th>") || !strings.Contains(components, ">rhacs-eng</th>") || !strings.Contains(factRow, "component-image:fact:public:fact") || !strings.Contains(factRow, ">Age 20 min</time>") || !strings.Contains(factRow, "component-image:fact:ci:fact") || !strings.Contains(factRow, "component-image:fact:konflux:fact") || !strings.Contains(factRow, ">Age 10 min</time>") {
 		t.Error("all three Fact image families must appear in the same row")
 	}
 	for _, want := range []string{"Last result unverified", "Registry timed out", "Last confirmed available", "Current availability is unverified"} {
