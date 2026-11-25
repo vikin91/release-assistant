@@ -134,6 +134,9 @@ type (
 		BuildJob string
 		Present  Truth
 		Evidence Evidence
+		// CreatedAt is the creation time reported by the image, with CreatedPlatform set for a platform-specific result.
+		CreatedAt       time.Time
+		CreatedPlatform string
 		// PublishingSince starts when publication is underway and this image is still missing.
 		PublishingSince time.Time
 	}

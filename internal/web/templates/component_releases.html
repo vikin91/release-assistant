@@ -173,6 +173,10 @@
         {{if not .Check.Status}}{{if .Check.Reason}}<p>{{.Check.Reason}}</p>{{end}}{{end}}
         {{if .Check.Image.Evidence.Error}}<p class="error-text">{{.Check.Image.Evidence.Error}}</p>{{end}}
         {{if .Check.Image.Evidence.Fresh}}
+          {{if eq .Check.Image.Present "yes"}}
+            {{if .Check.Image.CreatedAt.IsZero}}<p class="muted">Image creation time unavailable</p>
+            {{else}}<p>Created {{when .Check.Image.CreatedAt}}{{with .Check.Image.CreatedPlatform}} ({{.}}){{end}}</p>{{end}}
+          {{end}}
           <p>Checked {{when .Check.Image.Evidence.At}}</p>
         {{else if .Check.Image.Present}}
           <p>Last confirmed {{if eq .Check.Image.Present "yes"}}available{{else}}not found{{end}} at {{when .Check.Image.Evidence.At}}. Current availability is unverified.</p>

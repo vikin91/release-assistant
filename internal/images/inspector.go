@@ -148,8 +148,9 @@ func (i *Inspector) inspectImages(ctx context.Context, config release.Config, co
 			}
 			row := &rows[index]
 			if !force && i != nil && i.registry != nil {
-				if at, ok := i.registry.confirmedAt(image.Reference); ok {
-					row.Present, row.Evidence.At, row.Evidence.Known = release.Yes, at, true
+				if observation, ok := i.registry.confirmed(imageProbe(image)); ok {
+					observation.apply(row)
+					row.Evidence.Known = true
 					continue
 				}
 			}
@@ -179,13 +180,24 @@ func (i *Inspector) observeImage(ctx context.Context, image release.Image, force
 		image.Evidence.At = time.Now()
 		err = errors.New("registry client is unavailable")
 	} else {
-		image.Present, image.Evidence.At, err = i.registry.observe(ctx, image.Reference, force)
+		var observation registryObservation
+		observation, err = i.registry.observe(ctx, imageProbe(image), force)
+		observation.apply(&image)
 	}
 	image.Evidence.Known = err == nil
 	if err != nil {
 		image.Evidence.Error = "registry availability is unknown: " + err.Error()
 	}
 	return image, err
+}
+
+func imageProbe(image release.Image) registryProbe {
+	return registryProbe{reference: image.Reference, includeCreation: image.Component != "acs"}
+}
+
+func (observation registryObservation) apply(image *release.Image) {
+	image.Present, image.Evidence.At = observation.present, observation.at
+	image.CreatedAt, image.CreatedPlatform = observation.created, observation.platform
 }
 
 func componentPatterns(config release.Config) []imagePattern {

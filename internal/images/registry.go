@@ -31,15 +31,28 @@ type (
 		username string
 		password string
 
-		confirmedPresence sync.Map // exact reference to first successful observation time
+		confirmedPresence sync.Map // registryProbe to confirmed registryObservation
 		probes            chan struct{}
 		retryAfter        atomic.Int64
 	}
 
+	registryProbe struct {
+		reference       string
+		includeCreation bool
+	}
+
+	registryObservation struct {
+		present  release.Truth
+		at       time.Time
+		created  time.Time
+		platform string
+	}
+
 	manifestDescriptor struct {
-		MediaType string `json:"mediaType"`
-		Digest    string `json:"digest"`
-		Size      *int64 `json:"size"`
+		MediaType string          `json:"mediaType"`
+		Digest    string          `json:"digest"`
+		Size      *int64          `json:"size"`
+		Platform  json.RawMessage `json:"platform"`
 	}
 
 	imageManifest struct {
@@ -68,88 +81,101 @@ func newRegistryClient(baseURL string, client *http.Client, username, password s
 
 // present reuses confirmed presence for the life of the client because release images rarely disappear.
 func (c *registryClient) present(ctx context.Context, reference string) (release.Truth, time.Time, error) {
-	return c.observe(ctx, reference, false)
+	observation, err := c.observe(ctx, registryProbe{reference: reference}, false)
+	return observation.present, observation.at, err
 }
 
-// confirmedAt returns the time of a successful probe in the current process.
-func (c *registryClient) confirmedAt(reference string) (time.Time, bool) {
-	if observedAt, ok := c.confirmedPresence.Load(reference); ok {
-		return observedAt.(time.Time), true
+func (c *registryClient) confirmed(probe registryProbe) (registryObservation, bool) {
+	if observation, ok := c.confirmedPresence.Load(probe); ok {
+		return observation.(registryObservation), true
 	}
-	return time.Time{}, false
+	return registryObservation{}, false
 }
 
-func (c *registryClient) observe(ctx context.Context, reference string, force bool) (release.Truth, time.Time, error) {
+func (c *registryClient) observe(ctx context.Context, probe registryProbe, force bool) (registryObservation, error) {
 	if !force {
-		if observedAt, ok := c.confirmedAt(reference); ok {
-			return release.Yes, observedAt, nil
+		if observation, ok := c.confirmed(probe); ok {
+			return observation, nil
 		}
 	}
 	select {
 	case c.probes <- struct{}{}:
 		defer func() { <-c.probes }()
 	case <-ctx.Done():
-		return "", time.Now(), ctx.Err()
+		return registryObservation{at: time.Now()}, ctx.Err()
 	}
-	present, err := c.checkManifest(ctx, reference)
-	observedAt := time.Now()
+	observation, err := c.checkManifest(ctx, probe)
+	if observation.at.IsZero() {
+		observation.at = time.Now()
+	}
 	if force {
-		if err == nil && present == release.Yes {
-			c.confirmedPresence.Store(reference, observedAt)
+		if err == nil && observation.present == release.Yes {
+			c.confirmedPresence.Store(probe, observation)
 		} else {
-			c.confirmedPresence.Delete(reference)
+			c.confirmedPresence.Delete(probe)
 		}
-	} else if err == nil && present == release.Yes {
-		confirmedAt, _ := c.confirmedPresence.LoadOrStore(reference, observedAt)
-		observedAt = confirmedAt.(time.Time)
+	} else if err == nil && observation.present == release.Yes {
+		confirmed, _ := c.confirmedPresence.LoadOrStore(probe, observation)
+		observation = confirmed.(registryObservation)
 	}
-	return present, observedAt, err
+	return observation, err
 }
 
-func (c *registryClient) checkManifest(ctx context.Context, reference string) (release.Truth, error) {
-	repository, tag, ok := splitReference(reference)
+func (c *registryClient) checkManifest(ctx context.Context, probe registryProbe) (registryObservation, error) {
+	var observation registryObservation
+	repository, tag, ok := splitReference(probe.reference)
 	if !ok {
-		return "", errors.New("expected image reference is invalid")
+		return observation, errors.New("expected image reference is invalid")
 	}
 	address := c.baseURL + "/v2/" + repository + "/manifests/" + url.PathEscape(tag)
 	response, err := c.request(ctx, address, "", manifestAccept)
 	if err != nil {
-		return "", err
+		return observation, err
 	}
+	authorization := ""
 	if response.StatusCode == http.StatusUnauthorized {
 		challenge := response.Header.Get("WWW-Authenticate")
 		_ = response.Body.Close()
 		token, err := c.registryToken(ctx, challenge, repository)
 		if err != nil {
-			return "", err
+			return observation, err
 		}
-		response, err = c.request(ctx, address, "Bearer "+token, manifestAccept)
+		authorization = "Bearer " + token
+		response, err = c.request(ctx, address, authorization, manifestAccept)
 		if err != nil {
-			return "", err
+			return observation, err
 		}
 	}
 	defer func() { _ = response.Body.Close() }()
 
 	data, err := readBody(response.Body)
 	if err != nil {
-		return "", err
+		return observation, err
 	}
 	switch response.StatusCode {
 	case http.StatusOK:
 		var manifest imageManifest
 		if err := json.Unmarshal(data, &manifest); err != nil || !validManifest(manifest) {
-			return "", errors.New("registry returned a malformed or unsupported image manifest")
+			return observation, errors.New("registry returned a malformed or unsupported image manifest")
 		}
-		return release.Yes, nil
+		observation.present = release.Yes
+		observation.at = time.Now()
+		if probe.includeCreation {
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			observation.created, observation.platform = c.imageCreation(ctx, repository, authorization, data, manifest)
+		}
+		return observation, nil
 	case http.StatusNotFound:
 		if hasMissingCode(data) {
-			return release.No, nil
+			observation.present = release.No
+			return observation, nil
 		}
-		return "", errors.New("registry returned an unclassified not-found response; image availability is unknown")
+		return observation, errors.New("registry returned an unclassified not-found response; image availability is unknown")
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return "", fmt.Errorf("registry denied access (HTTP %d); image availability is unknown", response.StatusCode)
+		return observation, fmt.Errorf("registry denied access (HTTP %d); image availability is unknown", response.StatusCode)
 	default:
-		return "", fmt.Errorf("registry returned HTTP %d; image availability is unknown", response.StatusCode)
+		return observation, fmt.Errorf("registry returned HTTP %d; image availability is unknown", response.StatusCode)
 	}
 }
 
