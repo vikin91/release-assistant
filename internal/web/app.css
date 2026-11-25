@@ -140,6 +140,7 @@ legend { padding: 0 .35rem; font-weight: var(--emphasis-weight); }
 .component-image-check summary { overflow-wrap: anywhere; }
 .component-image-check summary:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 .component-image-status { color: var(--foreground); }
+.component-image-age { margin-inline-start: .25rem; white-space: nowrap; }
 .component-image-status.yes { border-color: var(--green); }
 .component-image-status.no, .component-image-status.unknown { font-weight: var(--emphasis-weight); }
 .component-image-status.no { border-color: var(--red); background: color-mix(in srgb, var(--red) 16%, var(--background)); }

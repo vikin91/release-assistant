@@ -154,6 +154,9 @@
     <details class="component-image-check" data-fold-key="component-image:{{.Check.Image.Component}}:{{.Check.Image.Family}}:{{.Name}}">
       <summary>
         <span class="pill component-image-status {{truth .Check.Status}}">{{template "image-status-label" .}}</span>
+        {{if and (eq (truth .Check.Status) "yes") .Check.Image.Evidence.Fresh (not .Check.Image.CreatedAt.IsZero)}}
+          <time class="pill component-image-age" datetime="{{.Check.Image.CreatedAt.Format "2006-01-02T15:04:05Z07:00"}}" title="Created {{when .Check.Image.CreatedAt}}{{with .Check.Image.CreatedPlatform}} ({{.}}){{end}}">Age {{imageAge .Check.Image.CreatedAt}}</time>
+        {{end}}
         {{if not .Check.Status}}
           <span class="component-image-note">{{if .Check.Image.Evidence.Historical}}{{template "historical-evidence" .Check.Image.Evidence}}{{else if and .Check.Required (not .Check.SelectedTag)}}No tag selected{{else if and (not .Check.Image.Evidence.Fresh) .Check.Image.Present}}Last result unverified{{else if and .Check.Image.Reference .Check.Image.Evidence.Error}}Registry check failed{{else if and .Check.Image.Reference .Check.Image.Evidence.At.IsZero}}Waiting for Quay{{else}}{{.Check.Reason}}{{end}}</span>
         {{end}}

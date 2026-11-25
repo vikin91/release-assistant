@@ -75,6 +75,7 @@ func New(application Application) (http.Handler, error) {
 		},
 		"truth": truthLabel, "when": formatTime, "quotaReset": quotaReset, "url": safeURL,
 		"checkAge": formatCheckAge,
+		"imageAge": formatImageAge,
 		"readWait": formatReadWait,
 		"activity": activityText, "commentURL": commentURL, "profilePage": profilePageURL,
 		"profileAction": func(id string) string {
@@ -681,6 +682,21 @@ func formatTime(t time.Time) string {
 		return "time unavailable"
 	}
 	return t.Local().Format("2006-01-02 15:04:05 MST")
+}
+
+func formatImageAge(created time.Time) string {
+	const day = 24 * time.Hour
+	age := time.Since(created)
+	switch {
+	case age < time.Minute:
+		return "<1 min"
+	case age < time.Hour:
+		return fmt.Sprintf("%d min", age/time.Minute)
+	case age < day:
+		return fmt.Sprintf("%dh", age/time.Hour)
+	default:
+		return fmt.Sprintf("%d d", age/day)
+	}
 }
 
 func quotaReset(at time.Time) string {

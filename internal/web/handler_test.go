@@ -933,7 +933,7 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 		}
 	}
 	rows := []release.ImageStatus{image("fact", "fact", "ci", "quay.io/fixture/fact:3.25.1", release.Yes), image("collector", "collector", "konflux", "quay.io/fixture/collector:3.25.4-fast", release.No), image("main", "acs", "ci", "quay.io/rhacs-eng/main:5.0.1-rc.0", release.No), image("scanner-v4", "acs", "konflux", "quay.io/fixture/release-scanner-v4:5.0.1-rc.0", "")}
-	rows[0].Image.CreatedAt = observed.At.Add(-time.Hour)
+	rows[0].Image.CreatedAt = observed.At.Add(-time.Hour - 30*time.Minute)
 	rows[0].Image.CreatedPlatform = "linux/amd64"
 	rows[3].Image.Evidence.Known = false
 	rows[3].Image.Evidence.Error = "Registry access denied"
@@ -990,10 +990,15 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 		t.Error("collapsed component image heading must report all current statuses")
 	}
 	factRow := between(t, components, `<th scope="row"><code>fact</code></th>`, `</tr>`)
-	created := strings.Index(factRow, "Created "+formatTime(rows[0].Image.CreatedAt)+" (linux/amd64)")
+	created := strings.Index(factRow, "<p>Created "+formatTime(rows[0].Image.CreatedAt)+" (linux/amd64)</p>")
 	if created < 0 || created >= strings.Index(factRow, "Checked "+formatTime(observed.At)) ||
 		!strings.Contains(factRow, "Image creation time unavailable") {
 		t.Fatal("each image's creation time or unavailable status should appear above its check time")
+	}
+	summary := between(t, factRow, "<summary>", "</summary>")
+	if !strings.Contains(summary, ">Available</span>") || !strings.Contains(summary, ">Age 1h</time>") ||
+		strings.Count(factRow, `class="pill component-image-age"`) != 1 {
+		t.Fatal("the image age should appear beside Available only when its creation time is known")
 	}
 	if !strings.Contains(factRow, "component-image:fact:ci:fact") || !strings.Contains(factRow, "component-image:fact:konflux:fact") {
 		t.Error("both Fact image families must appear in the same row")
@@ -1013,6 +1018,20 @@ func TestCompactReleaseSummaryAndIndividualImageResults(t *testing.T) {
 	}
 	if !strings.Contains(body, `href="https://quay.io/repository/fixture/fact?tag=3.25.1"`) {
 		t.Fatal("image evidence must link to the exact tag")
+	}
+}
+
+func TestFormatImageAge(t *testing.T) {
+	now := time.Now()
+	for want, age := range map[string]time.Duration{
+		"<1 min": 10 * time.Second,
+		"5 min":  5*time.Minute + 10*time.Second,
+		"10h":    10*time.Hour + 30*time.Minute,
+		"3 d":    3*24*time.Hour + 12*time.Hour,
+	} {
+		if got := formatImageAge(now.Add(-age)); got != want {
+			t.Errorf("age %s displayed as %q, want %q", age, got, want)
+		}
 	}
 }
 
