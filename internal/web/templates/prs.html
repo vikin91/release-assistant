@@ -59,6 +59,7 @@
         <tbody>
         {{range .PRs}}
           {{$row := index $triage.Rows .PR.Target}}
+          {{$confirmedPinning := eq $row.PinRole "Confirmed pinning PR"}}
           <tr data-live-key="pr:{{.PR.Target}}"><td>
           <article class="pr-card" data-release-choice="{{.ChoiceLabel}}"{{if $row.Attention}} data-pr-attention{{end}}>
             <div class="pr-summary">
@@ -67,19 +68,20 @@
                 {{if $.Snapshot.RequirePRLabel}}{{template "pr-label-badge" .PR}}{{end}}
                 <div class="pr-meta">
                   {{template "pr-identity-summary" .PR}}
+                  {{if $confirmedPinning}} · <a class="muted" href="{{profilePage $.ProfileID "acs-prs"}}#pinning-details" data-open-section>Pinning PR</a>{{end}}
                   {{if eq (truth $row.MergeStatus) "yes"}}<span class="pill yes">Ready to merge</span>
                   {{else if eq (truth $row.MergeStatus) "no"}}<span class="pill no">Merge blocked</span>{{end}}
                 </div>
               </div>
               <div class="pr-list-choice">
-                {{if eq $row.PinRole "Confirmed pinning PR"}}<a class="pill yes" href="/?tab=acs-prs#pinning-details" data-open-section>{{$row.PinRole}}</a>{{else if $row.PinRole}}<span class="pill">{{$row.PinRole}}</span> {{$row.PinReason}}{{end}}
+                {{if and $row.PinRole (not $confirmedPinning)}}<span class="pill">{{$row.PinRole}}</span> {{$row.PinReason}}{{end}}
                 <span class="pill">{{title .ChoiceLabel}}</span>
                 {{if .PR.Merged}}<span class="pr-list-note">Merged</span>{{else if eq .PR.State "closed"}}<span class="pr-list-note">{{if .PR.Evidence.Fresh}}Closed without merging{{else}}Last observed closed without merging{{end}}</span>
                 {{else if and (eq .Choice "included") (not $row.MergeStatus)}}<span class="pr-list-note">Awaiting merge</span>{{end}}
               </div>
               {{if eq .Choice "included"}}{{template "pr-list-checks" $row.Checks}}{{template "historical-evidence" .PR.CheckResultsEvidence}}{{if not .PR.CheckResultsEvidence.Historical}}{{template "historical-evidence" .PR.ChecksEvidence}}{{end}}{{end}}
             </div>
-            {{if and (ne $row.PinRole "Confirmed pinning PR") (not .PR.Evidence.Historical)}}<div class="control-row">
+            {{if and (not $confirmedPinning) (not .PR.Evidence.Historical)}}<div class="control-row">
               {{if and (not $component) .PR.Evidence.Fresh .PR.SHA (eq .PR.State "open") (eq .PR.Base $.Snapshot.Config.Branch)}}
               <form method="post" action="/action#{{$.PRSection}}" class="inline-form">
                 <input type="hidden" name="kind" value="use-pinning-pr"><input type="hidden" name="tab" value="{{$.Tab}}">

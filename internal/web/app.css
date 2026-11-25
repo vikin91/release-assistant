@@ -239,6 +239,7 @@ button[aria-pressed=true], .settings-footer button:not([form]):enabled, .button-
 .pr-title { min-width: 0; overflow-wrap: anywhere; }
 .pr-meta, .other-tags { font-size: .86rem; }
 .pr-meta { color: var(--muted-foreground); }
+.pr-meta a.muted { text-decoration: underline; }
 .pr-card .control-row { gap: .3rem .6rem; margin-top: .25rem; }
 .pr-card .inline-form { gap: .35rem; margin: 0; }
 .pr-card button { min-height: 1.9rem; padding: .15rem .5rem; font-size: .85rem; }

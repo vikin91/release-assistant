@@ -181,7 +181,7 @@ func checkPRList(t *testing.T, config release.Config, source release.Source, tab
 	if !strings.Contains(body, `name="`+section+`-filter" value="attention"`) {
 		t.Fatal("the PR list needs its own filter group")
 	}
-	if tab == "acs-prs" && (strings.Count(tabBody, "Open pinning PR #8</a>") != 1 || strings.Count(body, "change-8") != 1 || !strings.Contains(body, "Confirmed pinning PR")) {
+	if tab == "acs-prs" && (strings.Count(tabBody, "Open pinning PR #8</a>") != 1 || strings.Count(body, "change-8") != 1 || !strings.Contains(body, "data-open-section>Pinning PR</a>")) {
 		t.Fatal("expected one confirmed pinning PR row")
 	}
 	hasIgnoredFilter := strings.Contains(body, `-filter" value="ignored"`)
@@ -485,8 +485,18 @@ func TestIncludedPinningPRHasNoChoiceControls(t *testing.T) {
 			if merged {
 				count = "1 included and merged"
 			}
-			if !strings.Contains(list, count) || strings.Count(list, "Confirmed pinning PR") != 1 || strings.Contains(list, `name="kind" value="choice"`) {
+			if !strings.Contains(list, count) || strings.Contains(list, `name="kind" value="choice"`) {
 				t.Fatal("incorrect pinning PR controls or count", list)
+			}
+			if !merged {
+				metadata := between(t, list, `class="pr-meta"`, "</div>")
+				choice := between(t, list, `class="pr-list-choice"`, "</div>")
+				if !strings.Contains(metadata, `href="/?tab=acs-prs#pinning-details" data-open-section>Pinning PR</a>`) ||
+					!strings.Contains(choice, `<span class="pill">Included</span>`) || strings.Contains(choice, "pinning") {
+					t.Fatalf("incorrect pinning row layout: metadata=%s choice=%s", metadata, choice)
+				}
+			} else if strings.Count(list, "Confirmed pinning PR") != 1 {
+				t.Fatal("merged pinning PR is missing its details link")
 			}
 			form := formContaining(t, list, `class="control-row pr-list-bulk"`)
 			for _, label := range []string{"Include all", "Exclude all", "Ignore &amp; hide all"} {
