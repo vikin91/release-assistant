@@ -98,8 +98,8 @@ func fetchSourcePolls(t *testing.T, s *Session, source release.Source, kinds ...
 	for _, kind := range kinds {
 		for _, job := range s.pollJobs(source) {
 			if job.kind == kind {
-				ctx, usage := githubread.Track(t.Context(), 80)
-				errs = append(errs, s.fetchPoll(ctx, s.generation, s.workRevision, source, job, false, usage))
+				ctx, _ := githubread.Track(t.Context(), 80)
+				errs = append(errs, s.fetchPoll(ctx, s.generation, s.workRevision, source, job))
 				if kind == pollChecks {
 					drainReadyPRRetries(t, s)
 				}

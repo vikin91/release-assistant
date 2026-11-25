@@ -894,8 +894,18 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			}
 		}
 	}
+	tagStartHead := s.repos[source.Name].Head
 	if work.tagInventory {
 		request.ConfirmedTag = ""
+		if s.duringStartup() && s.choices.Tags[source.Name] == "" {
+			request.Progress = func(partial release.Repository) {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				if generation == s.generation && work.revision == s.workRevision && ctx.Err() == nil {
+					s.mergeTagProgress(source, partial)
+				}
+			}
+		}
 	} else if work.scope == ReadTags {
 		if saved := s.pendingTags[source.Name]; saved.Tag != "" {
 			request.ConfirmedTag = saved.Tag
@@ -976,6 +986,12 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			s.record(release.Target{Repo: source.Repo}, r.Head, "github-complete", "", message, "system", message)
 		}
 		old := s.repos[source.Name]
+		if work.tagInventory && r.Head != "" && old.Head != tagStartHead && old.Head != r.Head {
+			old.TagsPending = true
+			s.repos[source.Name] = old
+			s.mu.Unlock()
+			return errors.Join(errs...)
+		}
 		if err != nil && r.Head == "" {
 			if !scoped {
 				r = retainDiscoveryFailure(old, r, err)

@@ -168,8 +168,8 @@ func TestBuildPollBackoffDistinguishesUnsupportedRetagContracts(t *testing.T) {
 					t.Fatal("missing build poll for included PRs")
 				}
 				poll := func() {
-					ctx, usage := githubread.Track(t.Context(), 80)
-					s.runPoll(ctx, s.generation, s.workRevision, source, jobs[i], false, usage)
+					ctx, _ := githubread.Track(t.Context(), 80)
+					s.runPoll(ctx, s.generation, s.workRevision, source, jobs[i])
 				}
 				poll()
 				time.Sleep(time.Minute)

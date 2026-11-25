@@ -483,7 +483,7 @@ func (s *Session) applyDashboard(x *Snapshot, work *releaseWork, profileID strin
 	if x.Monitoring && !x.Loading {
 		x.Loading = slices.ContainsFunc(sources, func(source release.Source) bool {
 			return slices.ContainsFunc(s.pollJobs(source), func(job pollJob) bool {
-				return s.polls[pollID{source.Repo, job.kind}].finished.IsZero()
+				return s.polls[job.id(source)].finished.IsZero()
 			})
 		})
 	}

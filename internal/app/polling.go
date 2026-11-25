@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"release-assistant/internal/githubread"
@@ -29,6 +28,7 @@ type (
 		finished, retryAfter time.Time
 		identity             string
 		failures             int
+		continuing           bool
 		imageRefresh         uint64
 	}
 )
@@ -42,9 +42,21 @@ const (
 	pollImages
 )
 
-// next allows an early retry during startup. Later retries honor both the
-// configured interval and the earliest time permitted by backoff or quota.
+func (job pollJob) id(source release.Source) pollID {
+	if job.kind == pollTags && source.Name != "acs" {
+		return pollID{source.Name, pollTags}
+	}
+	return pollID{source.Repo, job.kind}
+}
+
+// next resumes incomplete tag batches and applies the regular interval to completed polls.
 func (r pollRecord) next(interval time.Duration, startupUntil time.Time) time.Time {
+	if r.continuing {
+		if r.retryAfter.IsZero() {
+			return r.finished
+		}
+		return r.retryAfter
+	}
 	normal := r.finished.Add(interval)
 	if r.retryAfter.IsZero() {
 		return normal
@@ -113,7 +125,7 @@ func (s *Session) hasOverdueObservations() bool {
 	}
 	for _, source := range append([]release.Source{s.config.ACS()}, s.config.Components...) {
 		for _, job := range s.pollJobs(source) {
-			record := s.polls[pollID{source.Repo, job.kind}]
+			record := s.polls[job.id(source)]
 			if !record.finished.IsZero() && record.finished.Before(s.resumedAt) &&
 				!record.finished.Add(s.options.RefreshIntervals[job.setting]).After(s.resumedAt) {
 				return true
@@ -144,10 +156,10 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 		var due []pollJob
 		var next time.Time
 		for _, job := range s.pollJobs(source) {
-			if (job.kind == pollImages) != imagesOnly {
+			if (job.kind == pollImages) != imagesOnly || (job.kind == pollTags && source.Name != "acs") {
 				continue
 			}
-			record := s.polls[pollID{source.Repo, job.kind}]
+			record := s.polls[job.id(source)]
 			at := record.next(s.options.RefreshIntervals[job.setting], s.startupUntil)
 			if record.due(job.identity, now, at) {
 				due = append(due, job)
@@ -160,7 +172,7 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 		if s.initiallyLoaded[source.Name] {
 			priority := func(job pollJob) int {
 				if (job.kind == pollChecks || job.kind == pollBuilds) &&
-					s.polls[pollID{source.Repo, job.kind}].finished.IsZero() {
+					s.polls[job.id(source)].finished.IsZero() {
 					return 0
 				}
 				return 1
@@ -169,7 +181,6 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 		}
 		changed := s.pollChanged
 		revision := s.workRevision
-		startupTags := s.duringStartup() && source.Name != "acs" && s.choices.Tags[source.Name] == ""
 		s.mu.Unlock()
 		if len(due) == 0 {
 			timer := time.NewTimer(time.Until(next))
@@ -181,19 +192,13 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 			timer.Stop()
 			continue
 		}
-		cycle, usage := githubread.Track(ctx, 80)
-		var tags sync.WaitGroup
+		cycle, _ := githubread.Track(ctx, 80)
 		for _, job := range due {
 			if ctx.Err() != nil {
 				break
 			}
-			if startupTags && job.kind == pollTags {
-				tags.Go(func() { s.runPoll(cycle, generation, revision, source, job, true, usage) })
-			} else {
-				s.runPoll(cycle, generation, revision, source, job, false, usage)
-			}
+			s.runPoll(cycle, generation, revision, source, job)
 		}
-		tags.Wait()
 	}
 }
 
@@ -203,7 +208,7 @@ var pollReadNames = [...]string{
 	pollBuilds: "Konflux and build checks", pollImages: "Release images",
 }
 
-func (s *Session) fetchPoll(ctx context.Context, generation, revision uint64, source release.Source, job pollJob, startupTags bool, usage *githubread.Usage) error {
+func (s *Session) fetchPoll(ctx context.Context, generation, revision uint64, source release.Source, job pollJob) error {
 	work := sourceWork{revision: revision, scheduled: true}
 	ctx = githubread.WithPriority(ctx, githubread.Builds, source.Repo)
 	ctx = githubread.WithWork(ctx, source.Repo, pollReadNames[job.kind])
@@ -232,7 +237,11 @@ func (s *Session) fetchPoll(ctx context.Context, generation, revision uint64, so
 		work.scope = ReadTags
 		s.mu.Lock()
 		hasSavedTag := s.pendingTags[source.Name].Tag != ""
+		continuing := s.polls[job.id(source)].continuing
 		s.mu.Unlock()
+		if continuing {
+			ctx = githubread.WithPriority(ctx, githubread.Background, source.Repo)
+		}
 		var savedTagErr error
 		if hasSavedTag {
 			savedTagErr = s.refresh(ctx, generation, source, true, work)
@@ -242,9 +251,6 @@ func (s *Session) fetchPoll(ctx context.Context, generation, revision uint64, so
 			if !current {
 				return savedTagErr
 			}
-		}
-		if startupTags {
-			return errors.Join(savedTagErr, s.readStartupTags(ctx, generation, revision, source, usage))
 		}
 		work.tagInventory = true
 		return errors.Join(savedTagErr, s.refresh(ctx, generation, source, true, work))
@@ -263,10 +269,10 @@ func (s *Session) fetchPoll(ctx context.Context, generation, revision uint64, so
 	return s.refresh(ctx, generation, source, true, work)
 }
 
-func (s *Session) runPoll(ctx context.Context, generation, revision uint64, source release.Source, job pollJob, startupTags bool, usage *githubread.Usage) {
+func (s *Session) runPoll(ctx context.Context, generation, revision uint64, source release.Source, job pollJob) {
 	s.mu.Lock()
 	// Earlier work in the same cycle can discover a different RC or select a tag.
-	id := pollID{source.Repo, job.kind}
+	id := job.id(source)
 	previous := s.polls[id]
 	next := previous.next(s.options.RefreshIntervals[job.setting], s.startupUntil)
 	current := generation == s.generation && revision == s.workRevision && previous.due(job.identity, time.Now(), next) && slices.Contains(s.pollJobs(source), job)
@@ -277,7 +283,7 @@ func (s *Session) runPoll(ctx context.Context, generation, revision uint64, sour
 
 	ctx, cancel := context.WithTimeout(ctx, s.options.Timeout)
 	defer cancel()
-	err := s.fetchPoll(ctx, generation, revision, source, job, startupTags, usage)
+	err := s.fetchPoll(ctx, generation, revision, source, job)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if generation != s.generation || revision != s.workRevision || errors.Is(ctx.Err(), context.Canceled) {
@@ -285,6 +291,7 @@ func (s *Session) runPoll(ctx context.Context, generation, revision uint64, sour
 	}
 	now := time.Now()
 	record := pollRecord{identity: job.identity, finished: now, imageRefresh: job.imageRefresh}
+	componentTags := job.kind == pollTags && source.Name != "acs"
 	if err != nil {
 		record.failures = 1
 		if previous.identity == job.identity {
@@ -295,8 +302,11 @@ func (s *Session) runPoll(ctx context.Context, generation, revision uint64, sour
 			delay += min(delay, s.options.BackoffCap-delay)
 		}
 		record.retryAfter = now.Add(delay)
-		if deferred, ok := errors.AsType[*githubread.DeferredError](err); ok && deferred.Until.After(record.retryAfter) {
-			record.retryAfter = deferred.Until
+		if deferred, ok := errors.AsType[*githubread.DeferredError](err); ok {
+			if deferred.Until.After(record.retryAfter) {
+				record.retryAfter = deferred.Until
+			}
+			record.continuing = componentTags
 		}
 		interval := s.options.RefreshIntervals[job.setting]
 		delay = record.next(interval, s.startupUntil).Sub(now)
@@ -304,8 +314,9 @@ func (s *Session) runPoll(ctx context.Context, generation, revision uint64, sour
 			message := fmt.Sprintf("The last monitoring attempt failed while %s. The next monitoring attempt for %s is in %s.", err, consoleBranch(source), retryDelay(delay))
 			s.record(release.Target{Repo: source.Repo}, "", "retry-wait", "", message, "system", message)
 		}
+	} else if componentTags {
+		record.continuing = s.repos[source.Name].TagsPending
 	} else if job.kind == pollTags && s.repos[source.Name].TagsPending && now.Before(s.startupUntil) {
-		// A bounded page is useful immediately, but does not complete the inventory.
 		record.retryAfter = now.Add(min(time.Minute, s.options.Poll))
 	}
 	s.polls[id] = record

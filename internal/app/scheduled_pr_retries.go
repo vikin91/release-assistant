@@ -173,11 +173,7 @@ func (s *Session) currentPRRetry(job scheduledPRRetry) bool {
 
 func (job scheduledPRRetry) precedes(other scheduledPRRetry, lastRepo string) bool {
 	if job.target.Repo != other.target.Repo {
-		after, otherAfter := job.target.Repo > lastRepo, other.target.Repo > lastRepo
-		if after != otherAfter {
-			return after
-		}
-		return job.target.Repo < other.target.Repo
+		return turnBefore(job.target.Repo, other.target.Repo, lastRepo)
 	}
 	if job.urgent != other.urgent {
 		return job.urgent

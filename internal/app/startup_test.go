@@ -44,8 +44,10 @@ func TestStartupPRDiscoveryDoesNotWaitForTags(t *testing.T) {
 		go func() { defer close(done); s.Run(ctx) }()
 		synctest.Wait()
 		defer func() { cancel(); <-done }()
-		for range config.Components {
-			<-services.tagStarted
+		select {
+		case <-services.tagStarted:
+		default:
+			t.Fatal("no tag batch started")
 		}
 		x := s.Snapshot()
 		for _, repo := range x.Repositories {
@@ -105,7 +107,7 @@ func TestStartupChoicesAvailableWhilePRsAndTagsAreLoading(t *testing.T) {
 		if !snapshot.Loading || snapshot.Candidate().Target != acs.Candidate.Target || !snapshot.Candidate().Evidence.Fresh() {
 			t.Fatal("verified RC was unavailable before PR discovery completed")
 		}
-		source := config.Components[0]
+		source := config.Components[1]
 		tag := base.repos[source.Name].Tags[0]
 		apply(t, s, Action{Kind: "tag", Component: source.Name, Tag: tag.Name, SHA: tag.SHA})
 		close(services.finishPRs)
@@ -124,9 +126,9 @@ func TestStartupTagsDiscardedAfterBranchHeadChanges(t *testing.T) {
 	earlier := release.Repository{Source: current.Source, Head: "earlier", Tags: []release.Tag{
 		{Name: "0.3.1", SHA: "old-tag", Belongs: release.Yes, Evidence: observed()},
 	}}
-	s.mergeStartupTags(current.Source, earlier)
+	s.mergeTagProgress(current.Source, earlier)
 	got := s.repos["fact"]
-	if got.Head != current.Head || !got.TagsPending || len(got.Tags) != 1 || got.Tags[0].SHA != current.Tags[0].SHA {
+	if got.Head != current.Head || got.TagsPending || len(got.Tags) != 1 || got.Tags[0].SHA != current.Tags[0].SHA {
 		t.Fatalf("tag batch crossed branch heads: %+v", got)
 	}
 }

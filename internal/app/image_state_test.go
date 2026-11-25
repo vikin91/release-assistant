@@ -87,7 +87,7 @@ func TestImageRefreshShowsSavedRowsUntilEachRegistryResult(t *testing.T) {
 	for range 2 {
 		for _, job := range s.pollJobs(source) {
 			if job.kind == pollImages {
-				s.runPoll(t.Context(), s.generation, s.workRevision, source, job, false, nil)
+				s.runPoll(t.Context(), s.generation, s.workRevision, source, job)
 			}
 		}
 		needsForce = false

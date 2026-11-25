@@ -67,8 +67,8 @@ func TestScheduledPRRetriesRotateAndResumeDeferredWork(t *testing.T) {
 		f.repos[collector.Name] = s.repos[collector.Name]
 		f.repos[fact.Name] = s.repos[fact.Name]
 		for _, source := range []release.Source{collector, fact} {
-			ctx, usage := githubread.Track(t.Context(), 80)
-			if err := s.fetchPoll(ctx, s.generation, s.workRevision, source, pollJob{kind: pollChecks}, false, usage); err != nil {
+			ctx, _ := githubread.Track(t.Context(), 80)
+			if err := s.fetchPoll(ctx, s.generation, s.workRevision, source, pollJob{kind: pollChecks}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -194,7 +194,7 @@ func TestScheduledPRRetriesUseSharedLimiterOutsideSourceCycle(t *testing.T) {
 		if err := read(cycle, "discovery"); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.fetchPoll(cycle, s.generation, s.workRevision, source, pollJob{kind: pollChecks}, false, usage); err != nil {
+		if err := s.fetchPoll(cycle, s.generation, s.workRevision, source, pollJob{kind: pollChecks}); err != nil {
 			t.Fatal(err)
 		}
 		ctx, cancel := context.WithCancel(t.Context())
