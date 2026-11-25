@@ -68,6 +68,7 @@ type (
 		OtherTags   []tagModel
 		CurrentTag  string
 		SelectedTag *tagModel
+		Rebuild     *tagRebuildModel
 		NewerTag    string
 		Baseline    string
 		Coverage    release.Condition
@@ -349,6 +350,7 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 					continue
 				}
 				r.SelectedTag = &t
+				r.Rebuild = tagRebuild(t, snapshot.Plans)
 				continue
 			}
 			if t.Proposed && newerTag(t.Tag.Name, r.CurrentTag) {

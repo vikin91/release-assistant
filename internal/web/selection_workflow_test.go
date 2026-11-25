@@ -30,10 +30,19 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 		Plans: []release.Plan{
 			{Target: release.Target{Repo: "acme/fact", Tag: "3.25.1"}, SHA: "fact-current-sha",
 				Validation: release.Validation{SHA: "fact-current-sha", Evidence: observed,
-					Checks: []release.ValidationCheck{{Check: release.Check{Name: "Fact tag smoke test", Conclusion: "success"}}}}},
+					Checks: []release.ValidationCheck{
+						{App: "github-actions", Event: "push", Ref: "3.25.1", WorkflowName: "Build image", WorkflowURL: "https://github.com/acme/fact/actions/runs/101", Check: release.Check{Name: "Fact tag smoke test", Conclusion: "success"}},
+						{App: "github-actions", Event: "push", Ref: "3.25.1", WorkflowName: "Build image", WorkflowURL: "https://github.com/acme/fact/actions/runs/101"},
+						{App: "github-actions", Event: "push", Ref: "3.25.1", WorkflowName: "Test Konflux builds", WorkflowURL: "https://github.com/acme/fact/actions/runs/102"},
+						{App: "github-actions", Event: "push", Ref: "3.25.1", WorkflowPath: ".github/workflows/konflux-tests.yml@refs/tags/3.25.1", WorkflowURL: "https://github.com/acme/fact/actions/runs/103"},
+						{App: "github-actions", Event: "push", Ref: "3.25.1", WorkflowPath: ".github/workflows/build.yml@refs/heads/3.25.1", WorkflowURL: "https://github.com/acme/fact/actions/runs/104"},
+						{App: "github-actions", Event: "push", Ref: "release-3.25", WorkflowURL: "https://github.com/acme/fact/actions/runs/105"},
+						{App: "github-actions", Event: "pull_request", Ref: "3.25.1", WorkflowURL: "https://github.com/acme/fact/actions/runs/106"},
+						{App: "github-actions", Event: "push", Ref: "3.25.1", WorkflowURL: "https://github.com/acme/collector/actions/runs/107"},
+					}}},
 			{Target: release.Target{Repo: "acme/collector", Tag: "3.25.4"}, SHA: "another-sha",
 				Validation: release.Validation{SHA: "another-sha", Evidence: observed,
-					Checks: []release.ValidationCheck{{Check: release.Check{Name: "Collector test for another commit"}}}}},
+					Checks: []release.ValidationCheck{{App: "github-actions", Event: "push", Ref: "3.25.4", WorkflowURL: "https://github.com/acme/collector/actions/runs/108", Check: release.Check{Name: "Collector test for another commit"}}}}},
 		},
 		Repositories: []release.Repository{
 			{Source: release.Source{Name: "fact", Repo: "acme/fact", Branch: "release-3.25", Stream: "3.25"}, Tags: []release.Tag{
@@ -61,6 +70,35 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 	}
 	if !strings.Contains(body, `<div id="tag-selection">`) {
 		t.Fatal("selected tag status must not automatically fold the section")
+	}
+	factRebuild := between(t, tagDetails, `data-fold-key="tag-rebuild:fact:acme/fact@3.25.1">`, "</details>")
+	factRow := tagRowContaining(tagDetails, "fact-current-sha")
+	between(t, between(t, factRow, "<summary>Change tag</summary>", "<summary>Details</summary>"), "How to rebuild existing tag", "</details>")
+	for _, want := range []string{
+		"<summary>How to rebuild existing tag</summary>",
+		`href="https://github.com/acme/fact/commit/fact-current-sha"`,
+		"<code>/test tag:3.25.1</code>",
+		`href="https://github.com/acme/fact/actions/runs/101"`,
+		"<code>gh api --method POST repos/acme/fact/actions/runs/101/rerun</code>",
+		`type="button" data-copy-text`,
+	} {
+		if !strings.Contains(factRebuild, want) {
+			t.Errorf("manual Fact rebuild missing %q", want)
+		}
+	}
+	if strings.Count(factRebuild, "/101/rerun") != 1 || strings.Contains(factRebuild, "<form") || len(application.actions) != 0 {
+		t.Fatal("manual rebuild should render one command per workflow and perform no actions")
+	}
+	collectorRebuild := between(t, tagDetails, `data-fold-key="tag-rebuild:collector:acme/collector@3.25.4">`, "</details>")
+	for _, want := range []string{"/test tag:3.25.4", "/actions?query=event%3Apush+branch%3A3.25.4", "repos/acme/collector/actions/runs/RUN_ID/rerun"} {
+		if !strings.Contains(html.UnescapeString(collectorRebuild), want) {
+			t.Errorf("manual Collector rebuild fallback missing %q", want)
+		}
+	}
+	for _, id := range []string{"102", "103", "104", "105", "106", "107", "108"} {
+		if strings.Contains(tagDetails, "/actions/runs/"+id) {
+			t.Errorf("manual rebuild exposed unrelated workflow run %s", id)
+		}
 	}
 	for _, forbidden := range []string{"GitHub checks for the selected tag", "Fact tag smoke test", "Collector test for another commit", "Confirm fact 3.25.1", "Confirm collector 3.25.4"} {
 		if strings.Contains(tagDetails, forbidden) {

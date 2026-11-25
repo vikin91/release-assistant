@@ -39,7 +39,7 @@ func TestReadTagChecksJoinsWorkflowTriggersAndKeepsLatestAttempts(t *testing.T) 
 			writeCheckFixture(t, w, `{"total_count":4,"workflow_runs":[
 				{"id":301,"check_suite_id":101,"workflow_id":200,"head_sha":"candidate-sha","event":"push","head_branch":"5.0.1-rc.0"},
 				{"id":302,"check_suite_id":102,"workflow_id":200,"head_sha":"candidate-sha","event":"push","head_branch":"5.0.1-rc.0"},
-				{"id":303,"name":"ACS upgrade","check_suite_id":103,"workflow_id":200,"head_sha":"candidate-sha","event":"push","head_branch":"release-5.0"},
+				{"id":303,"name":"ACS upgrade","path":".github/workflows/upgrade.yml","check_suite_id":103,"workflow_id":200,"head_sha":"candidate-sha","event":"push","head_branch":"release-5.0"},
 				{"id":404,"check_suite_id":103,"workflow_id":200,"head_sha":"other-sha","event":"pull_request","head_branch":"wrong"}
 			]}`)
 		default:
@@ -60,7 +60,7 @@ func TestReadTagChecksJoinsWorkflowTriggersAndKeepsLatestAttempts(t *testing.T) 
 		t.Fatal("missing branch run on candidate SHA")
 	}
 	branch := result.Checks[index]
-	if branch.Event != "push" || branch.Ref != "release-5.0" || branch.WorkflowName != "ACS upgrade" ||
+	if branch.Event != "push" || branch.Ref != "release-5.0" || branch.WorkflowName != "ACS upgrade" || branch.WorkflowPath != ".github/workflows/upgrade.yml" ||
 		branch.WorkflowURL != "https://github.com/stackrox/stackrox/actions/runs/303" ||
 		!strings.HasSuffix(branch.URL, "/actions/runs/303/job/3") {
 		t.Fatalf("incorrect workflow provenance %+v", branch)

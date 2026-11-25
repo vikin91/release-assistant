@@ -43,6 +43,7 @@ type (
 	workflowRun struct {
 		ID         int64  `json:"id"`
 		Name       string `json:"name"`
+		Path       string `json:"path"`
 		WorkflowID int64  `json:"workflow_id"`
 		SuiteID    int64  `json:"check_suite_id"`
 		SHA        string `json:"head_sha"`
@@ -171,6 +172,7 @@ func validationChecks(runs []commitCheckRun, statuses []commitStatus, workflows 
 		if workflow := workflows[run.Suite.ID]; check.App == "github-actions" && workflow.ID > 0 {
 			check.Event, check.Ref = workflow.Event, workflow.Ref
 			check.WorkflowName = workflow.Name
+			check.WorkflowPath = workflow.Path
 			check.WorkflowURL = base + "/actions/runs/" + strconv.FormatInt(workflow.ID, 10)
 			key.event, key.ref = workflow.Event, workflow.Ref
 			key.scope = cmp.Or(workflow.WorkflowID, run.Suite.ID)
