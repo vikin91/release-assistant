@@ -66,6 +66,13 @@ func New(application Application) (http.Handler, error) {
 		"retryCommentPermissionLabel": func() string { return retryCommentPermissionLabel },
 		"pinVersion":                  pinVersion, "pinDiffers": pinDiffers,
 		"tabPage": tabPage, "tabTitle": tabTitle, "tabHelp": tabHelp, "tabStep": tabStep,
+		"prComponent": prComponent,
+		"tabLink": func(page pageModel, tab, label string) any {
+			return struct {
+				Page       pageModel
+				Tab, Label string
+			}{page, tab, label}
+		},
 		"truth": truthLabel, "when": formatTime, "quotaReset": quotaReset, "url": safeURL,
 		"readWait": formatReadWait,
 		"activity": activityText, "commentURL": commentURL, "profilePage": profilePageURL,
@@ -440,14 +447,14 @@ func (s *server) makePage(token, message, profileID, tab string, configuring boo
 		page.SettingsGeneration = settingsGeneration
 		page.ProfileID, page.ActiveProfile = profileID, active
 		page.ReleaseProfiles, page.ProfileWarnings = saved, warnings
-		page.Tab = validTab(tab)
+		page.Tab = page.availableTab(tab)
 		if tab == "" && !page.Configured {
 			page.Tab = "settings"
 		}
 		return page
 	}
 	page := makePage(s.app.Snapshot(), token, message)
-	page.Tab = validTab(tab)
+	page.Tab = page.availableTab(tab)
 	if !page.Configured && page.Tab != "activity" && page.Tab != "retest-queue" {
 		page.Tab = "settings"
 	}
@@ -538,7 +545,7 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 		a.Component = form.Get("component")
 		tab := form.Get("tab")
 		if a.Target != (release.Target{}) ||
-			(a.Kind == "component-pr-choices" && (tab != "component-prs" || a.Component == "")) ||
+			(a.Kind == "component-pr-choices" && (a.Component == "" || (tab != "component-prs" && prComponent(tab) != a.Component))) ||
 			(a.Kind == "acs-pr-choices" && (tab != "acs-prs" || a.Component != "")) {
 			return a, fmt.Errorf("bulk selection requires the matching PR list")
 		}

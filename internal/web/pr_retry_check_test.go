@@ -13,7 +13,7 @@ import (
 )
 
 func TestIncludedPRShowsInlineRetryCommands(t *testing.T) {
-	for _, tab := range []string{"component-prs", "acs-prs"} {
+	for _, tab := range []string{"fact-prs", "acs-prs"} {
 		t.Run(tab, func(t *testing.T) {
 			checkIncludedPRRetryCommands(t, tab)
 		})
@@ -24,7 +24,7 @@ func checkIncludedPRRetryCommands(t *testing.T, tab string) {
 	t.Helper()
 	snapshot := workflowStatusSnapshot()
 	repository := &snapshot.Repositories[len(snapshot.Repositories)-1]
-	if tab == "component-prs" {
+	if tab == "fact-prs" {
 		repository = &snapshot.Repositories[0]
 	}
 	observed := release.Evidence{Known: true, At: time.Now()}

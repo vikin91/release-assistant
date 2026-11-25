@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -15,8 +16,8 @@ import (
 func TestPRListsShowSelectionAndObservedChecks(t *testing.T) {
 	config := validACS5Config()
 	for tab, source := range map[string]release.Source{
-		"component-prs": config.Components[0],
-		"acs-prs":       config.ACS(),
+		"fact-prs": config.Components[0],
+		"acs-prs":  config.ACS(),
 	} {
 		t.Run(tab, func(t *testing.T) {
 			checkPRList(t, config, source, tab)
@@ -24,46 +25,89 @@ func TestPRListsShowSelectionAndObservedChecks(t *testing.T) {
 	}
 }
 
-func TestComponentPRTablesHaveIndependentControls(t *testing.T) {
+func TestComponentPRViewsHaveIndependentStatusesAndControls(t *testing.T) {
 	config := prefilledConfig("4.10.12")
 	config.Branch = "release-4.10"
-	snapshot := app.Snapshot{Config: config}
+	snapshot := app.Snapshot{Config: config, Choices: release.Choices{PRs: make(map[release.Target]release.Choice)}}
+	fresh := release.Evidence{Known: true, At: time.Now()}
 	for _, source := range config.Components {
 		target := release.Target{Repo: source.Repo, PR: 42}
+		pr := release.PR{
+			Target: target, Title: "Change " + source.Name, State: "open", Base: source.Branch, Evidence: fresh,
+		}
+		switch source.Name {
+		case "collector":
+			snapshot.Choices.PRs[target] = release.Included
+			pr.ChecksEvidence = fresh
+			pr.Checks = []release.Check{{Required: release.Yes, Conclusion: "failure"}}
+		case "scanner":
+			snapshot.Choices.PRs[target] = release.Excluded
+		}
 		snapshot.Repositories = append(snapshot.Repositories, release.Repository{
-			Source: source,
-			PRs:    []release.PR{{Target: target, Title: "Change " + source.Name, State: "open"}},
+			Source: source, PRs: []release.PR{pr}, Evidence: fresh,
 		})
 	}
 	browser := newBrowser(t, &fakeApplication{snapshot: snapshot})
-	panel := activityPanel(t, browser.getBody(t), "component-prs")
-	if strings.Count(panel, `<table class="pr-list-table"`) != 3 || strings.Contains(panel, "Checks of Included PRs") {
-		t.Fatal("expected three component tables and no separate check summary")
+	body := browser.getBody(t)
+	parent := activityPanel(t, body, "component-prs")
+	sidebar := between(t, body, `class="component-pr-tabs"`, "</div>")
+	if strings.Contains(parent, `class="pr-list-table"`) || strings.Count(parent, `data-open-section`) != 3 {
+		t.Fatal("the parent should show an overview linking to each component")
 	}
-	for component, heading := range map[string]string{"collector": "Collector PRs", "fact": "Fact PRs", "scanner": "Scanner PRs"} {
+	for component, want := range map[string]struct{ heading, status string }{
+		"collector": {"Collector PRs", "Needs attention"},
+		"fact":      {"Fact PRs", "Action needed"},
+		"scanner":   {"Scanner PRs", "Complete"},
+	} {
 		t.Run(component, func(t *testing.T) {
-			section := componentPRSection(component)
-			table := between(t, panel, `id="`+section+`-panel"`, "</section>")
-			for _, want := range []string{
-				heading,
-				`name="` + section + `-filter"`,
+			tab := component + "-prs"
+			if !strings.Contains(sidebar, `aria-label="`+want.heading+" · "+want.status) {
+				t.Fatal("sidebar link is missing the component's status")
+			}
+			response := httptest.NewRecorder()
+			browser.handler.ServeHTTP(response, httptest.NewRequestWithContext(
+				t.Context(), http.MethodGet, "http://127.0.0.1:8080/?tab="+tab, nil,
+			))
+			view := response.Body.String()
+			if response.Code != http.StatusOK || !strings.Contains(view, `data-active-tab="`+tab+`"`) {
+				t.Fatal("direct link did not select the component")
+			}
+			panel := activityPanel(t, view, tab)
+			for _, marker := range []string{
+				"<strong>" + want.status + "</strong>",
+				`name="` + componentPRSection(component) + `-filter"`,
+				`name="tab" value="` + tab + `"`,
 				`name="component" value="` + component + `"`,
 				"Change " + component,
 			} {
-				if !strings.Contains(table, want) {
-					t.Errorf("missing %q in %s", want, section)
+				if !strings.Contains(panel, marker) {
+					t.Errorf("missing %q in %s", marker, tab)
 				}
 			}
-			if strings.Count(table, "Change ") != 1 || strings.Count(table, `name="kind" value="component-pr-choices"`) != 1 {
-				t.Fatal("the table contains rows or controls from another component")
+			if strings.Count(panel, "Change ") != 1 || strings.Count(panel, `class="pr-list-table"`) != 1 ||
+				strings.Count(panel, `name="kind" value="component-pr-choices"`) != 1 || strings.Contains(panel, "Checks of Included PRs") {
+				t.Fatal("the component view contains an extra table, rows or controls")
 			}
 		})
 	}
 }
 
+func TestScannerPRViewRequiresAConfiguredScanner(t *testing.T) {
+	browser := newBrowser(t, &fakeApplication{snapshot: app.Snapshot{Config: validACS5Config()}})
+	response := httptest.NewRecorder()
+	browser.handler.ServeHTTP(response, httptest.NewRequestWithContext(
+		t.Context(), http.MethodGet, "http://127.0.0.1:8080/?tab=scanner-prs", nil,
+	))
+	body := response.Body.String()
+	if response.Code != http.StatusOK || !strings.Contains(body, `data-active-tab="component-prs"`) ||
+		strings.Contains(body, `data-workflow-tab="scanner-prs"`) || strings.Contains(body, `id="panel-scanner-prs"`) {
+		t.Fatal("the Scanner PR view should be unavailable for ACS 5")
+	}
+}
+
 func TestPRListsShowSavedHiddenPRsWithoutAnObservation(t *testing.T) {
 	config := validACS5Config()
-	for tab, source := range map[string]release.Source{"component-prs": config.Components[0], "acs-prs": config.ACS()} {
+	for tab, source := range map[string]release.Source{"fact-prs": config.Components[0], "acs-prs": config.ACS()} {
 		t.Run(tab, func(t *testing.T) {
 			target := release.Target{Repo: source.Repo, PR: 123}
 			browser := newBrowser(t, &fakeApplication{snapshot: app.Snapshot{
@@ -260,8 +304,8 @@ func TestBulkPRChoicesSubmitTheCurrentGeneration(t *testing.T) {
 		source         release.Source
 		kind, otherTab string
 	}{
-		"component-prs": {config.Components[0], "component-pr-choices", "acs-prs"},
-		"acs-prs":       {config.ACS(), "acs-pr-choices", "component-prs"},
+		"fact-prs": {config.Components[0], "component-pr-choices", "collector-prs"},
+		"acs-prs":  {config.ACS(), "acs-pr-choices", "component-prs"},
 	} {
 		t.Run(tab, func(t *testing.T) {
 			application := &fakeApplication{snapshot: app.Snapshot{
@@ -272,16 +316,13 @@ func TestBulkPRChoicesSubmitTheCurrentGeneration(t *testing.T) {
 			}}
 			browser := newBrowser(t, application)
 			panel := activityPanel(t, browser.getBody(t), tab)
-			if tab == "component-prs" {
-				panel = between(t, panel, `id="`+componentPRSection(tc.source.Name)+`-panel"`, "</section>")
-			}
 			form := formContaining(t, panel, `class="control-row pr-list-bulk"`)
 			values := url.Values{}
 			for _, field := range []string{"tab", "kind", "generation"} {
 				values.Set(field, formInputValue(t, form, field))
 			}
 			var component, fragment string
-			if tab == "component-prs" {
+			if tab == "fact-prs" {
 				component = tc.source.Name
 				fragment = "#" + componentPRSection(component)
 				values.Set("component", formInputValue(t, form, "component"))

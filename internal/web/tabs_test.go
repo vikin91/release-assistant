@@ -63,7 +63,7 @@ func TestActivityTabsWorkWithoutComponentTags(t *testing.T) {
 				t.Fatal("action has no presentation destination")
 			}
 		}
-		componentView := activityPanel(t, body, "component-prs")
+		componentView := activityPanel(t, body, "fact-prs")
 		acsView := activityPanel(t, body, "acs-prs")
 		for _, marker := range []string{"Component change", "component-build-observation", "component-write-offer"} {
 			if !strings.Contains(componentView, marker) || strings.Contains(acsView, marker) {
@@ -375,7 +375,7 @@ func TestIncludedClosedPRCanBeExcludedFromItsActivity(t *testing.T) {
 				Authority: []dispatch.View{{Target: target, Granted: true, Message: "closed-pr-offer", Offers: []dispatch.Offer{{CanApprove: true}}}},
 			}}
 			browser := newBrowser(t, application)
-			tab := "component-prs"
+			tab := source.Name + "-prs"
 			if source.Name == "acs" {
 				tab = "acs-prs"
 			}

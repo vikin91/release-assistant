@@ -93,32 +93,38 @@ func (s *tabStatus) add(state tabState, reason string) {
 }
 
 func (p pageModel) workflowStatuses() map[string]tabStatus {
-	componentPRs := p.prStatus(false)
-	acsPRs := p.prStatus(true)
+	componentPRs := p.prStatus("")
+	acsPRs := p.prStatus("acs")
 	pins := p.pinStatus()
 	acsPRs.add(pins.State, pins.Reason)
 	if acsPRs.State == tabComplete {
 		acsPRs.Reason = "All PR decisions are made, included PRs are merged, and the ACS branch pins match."
 	}
-	return map[string]tabStatus{
+	statuses := map[string]tabStatus{
 		"component-prs":      componentPRs,
 		"component-releases": p.componentReleaseStatus(componentPRs.State == tabComplete),
 		"acs-prs":            acsPRs,
 		"acs-rcs":            p.rcStatus(),
 	}
+	for _, tab := range p.ComponentPRTabs() {
+		statuses[tab] = p.prStatus(prComponent(tab))
+	}
+	return statuses
 }
 
-func (p pageModel) prStatus(acs bool) tabStatus {
+func (p pageModel) prStatus(scope string) tabStatus {
 	status := tabStatus{State: tabComplete, Reason: "All PR decisions are made and included PRs are merged."}
 	pin := p.Snapshot.Config.PinningTarget()
 	undecided := 0
 	seen := make(map[release.Target]bool)
 	var checks, inventory tabStatus
+	var componentRepo string
 	for _, repo := range p.Repos {
 		source := repo.Repository.Source
-		if (source.Name == "acs") != acs {
+		if (scope == "" && source.Name == "acs") || (scope != "" && source.Name != scope) {
 			continue
 		}
+		componentRepo = source.Repo
 		evidence := repo.Repository.Evidence
 		switch {
 		case evidence.Error != "":
@@ -139,9 +145,15 @@ func (p pageModel) prStatus(acs bool) tabStatus {
 		}
 	}
 	for target, choice := range p.Snapshot.Choices.PRs {
-		if choice == release.Included && target.PR > 0 && !seen[target] &&
-			(target.Repo == p.Snapshot.Config.ACS().Repo) == acs {
-			if target == pin && p.PinningPR != nil {
+		if choice != release.Included || target.PR <= 0 || seen[target] {
+			continue
+		}
+		inScope := target.Repo == componentRepo
+		if scope == "" || scope == "acs" {
+			inScope = (target.Repo == p.Snapshot.Config.ACS().Repo) == (scope == "acs")
+		}
+		if inScope {
+			if scope == "acs" && target == pin && p.PinningPR != nil {
 				item := pullRequestStatus(p.PinningPR.PR, p.Snapshot.Config.Branch)
 				checks.add(item.State, item.Reason)
 			} else {

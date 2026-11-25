@@ -73,8 +73,12 @@
     {{else if and (not $.Configured) (not $.ProfileID) (lt $i 4)}}
     <span role="tab" aria-disabled="true" aria-selected="false" class="phase-disabled" title="Save the release configuration to unlock this phase.">{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}</span></span>
     {{else}}
-    {{$status := index $.TabStatuses $tab}}
-    <a id="tab-{{$tab}}" role="tab" href="{{profilePage $.ProfileID $tab}}" data-workflow-tab="{{$tab}}" aria-controls="panel-{{$tab}}" aria-selected="{{if eq $.Tab $tab}}true{{else}}false{{end}}" tabindex="{{if eq $.Tab $tab}}0{{else}}-1{{end}}"{{if $status.Label}} aria-label="{{$label}} · {{$status.Label}} · {{$status.Reason}}" title="{{$status.Label}} · {{$status.Reason}}"{{end}}>{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}{{if eq $tab "retest-queue"}} ({{len $.Snapshot.RetestQueue}}){{end}}</span> {{if eq $tab "settings"}}<span id="setup-state" class="setup-state" data-live-preserve{{if and $.Configured (not $.ConfigRejected)}} hidden{{end}}>{{if $.Configured}}Unsaved changes{{else}}Setup required{{end}}</span>{{else}}<span class="tab-status{{with $status.Class}} {{.}}{{end}}" aria-hidden="true">{{$status.Icon}}</span>{{end}}</a>
+    {{template "workflow-tab-link" (tabLink $ $tab $label)}}
+    {{if eq $tab "component-prs"}}{{with $.ComponentPRTabs}}
+    <div class="component-pr-tabs" role="group" aria-label="Component PR views">
+      {{range .}}{{template "workflow-tab-link" (tabLink $ . (tabTitle .))}}{{end}}
+    </div>
+    {{end}}{{end}}
     {{end}}{{end}}
   </nav>
   {{if not $home}}
@@ -99,7 +103,7 @@
   <p class="notice" id="resumed-release" role="status">Showing saved observations while overdue checks refresh.</p>
   {{end}}
   {{if or .Configured .ProfileID}}
-  {{range $tab := (slice "component-prs" "component-releases" "acs-prs" "acs-rcs")}}
+  {{range $tab := .ReleasePhaseTabs}}
   <section id="panel-{{$tab}}" class="workflow-panel" role="tabpanel" aria-labelledby="tab-{{$tab}}" data-workflow-panel="{{$tab}}" tabindex="0"{{if ne $.Tab $tab}} hidden{{end}}>
     {{if $.Configured}}
     {{if $.ViewingInactive}}<fieldset class="paused-controls" disabled>{{end}}

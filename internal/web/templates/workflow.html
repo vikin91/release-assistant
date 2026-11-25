@@ -1,33 +1,50 @@
 {{define "workflow-tab"}}
+  {{$component := prComponent .Tab}}
   <div class="workflow-heading">
     <p class="eyebrow">{{tabStep .Tab}}</p><h2 class="page-title">{{tabTitle .Tab}}</h2>
-    {{if eq .Tab "component-prs"}}
-      <p><strong>Components</strong> · {{range $i, $source := .Snapshot.Config.Components}}{{if $i}}, {{end}}{{title $source.Name}} (<code>{{$source.Branch}}</code>){{end}}</p>
-    {{end}}
     {{if ne .Tab "acs-rcs"}}<details class="workflow-help" data-fold-key="{{.Tab}}-guide">
       <summary>Help</summary>
-      {{if eq .Tab "component-prs"}}
+      {{if or $component (eq .Tab "component-prs")}}
         <p><strong>Include</strong> tracks the PR’s checks and verifies that the selected component tag contains the merge. <strong>Exclude</strong> stops detailed monitoring and retries. <strong>Ignore &amp; hide</strong> also moves the PR to the <strong>Ignored &amp; hidden</strong> filter. You can release a component without including any new PRs.</p>
       {{else if eq .Tab "component-releases"}}
         <p>The selected tag must contain the included PRs’ merge commits. If no existing tag covers them, use the component’s release guide to cut a covering tag and start its release.</p>
       {{else}}<p>{{tabHelp .Tab}}</p>{{end}}
     </details>{{end}}
   </div>
-  {{with index .TabStatuses .Tab}}{{if .Label}}<p class="workflow-status"><strong>{{.Label}}</strong> · {{.Reason}}</p>{{end}}{{end}}
+  {{with index .TabStatuses .Tab}}{{if .Label}}<p class="workflow-status"><strong>{{.Label}}</strong> · {{.Reason}}</p>{{else if $component}}<p class="workflow-status">Waiting for PR evidence.</p>{{end}}{{end}}
   {{if and (eq .Tab "acs-prs") .Snapshot.Assessment.PatchMayBeUnnecessary}}
     <p class="notice">The previous patch was published, no open ACS PRs were observed, and the component branches still match the previous pins. A new patch may be unnecessary.</p>
   {{end}}
   {{if eq .Tab "acs-prs"}}{{template "acs-pinning" .}}{{end}}
-  {{if or (eq .Tab "component-prs") (eq .Tab "acs-prs")}}
-    {{if .ComponentPRNotice}}<p class="muted">{{.ComponentPRNotice}}</p>{{end}}
+  {{if .ComponentPRNotice}}<p class="muted">{{.ComponentPRNotice}}</p>{{end}}
+  {{if eq .Tab "component-prs"}}
+    <div class="component-pr-overview">
+      {{range $tab := .ComponentPRTabs}}
+        <a class="panel" href="{{profilePage $.ProfileID $tab}}#panel-{{$tab}}" data-open-section>
+          <strong>{{tabTitle $tab}}</strong>
+          {{with index $.TabStatuses $tab}}
+            <span class="muted">{{if .Label}}<span class="tab-status {{.Class}}" aria-hidden="true">{{.Icon}}</span> {{.Label}} · {{.Reason}}{{else}}Waiting for PR evidence.{{end}}</span>
+          {{end}}
+        </a>
+      {{end}}
+    </div>
+  {{end}}
+  {{if or $component (eq .Tab "acs-prs")}}
     {{if .Problems}}
     <details class="panel" id="{{.Tab}}-pr-evidence"><summary>Unverified included PRs</summary>
       <ol>{{range .Problems}}<li>{{.Name}} · {{.Reason}}{{range .Evidence}}{{if .Error}} · {{.Error}}{{end}}{{end}}</li>{{end}}</ol>
     </details>
     {{end}}
-    {{range .PRLists}}{{template "pr-list" .}}{{end}}
+    {{template "pr-list" .}}
   {{end}}
   {{if eq .Tab "component-releases"}}{{template "component-releases" .}}{{end}}
-  {{if eq .Tab "acs-rcs"}}{{template "acs-rcs" .}}{{else if ne .Tab "component-prs"}}{{template "build-retries" .}}{{end}}
+  {{if eq .Tab "acs-rcs"}}{{template "acs-rcs" .}}{{else if or (eq .Tab "component-releases") (eq .Tab "acs-prs")}}{{template "build-retries" .}}{{end}}
   {{if or (eq .Tab "acs-rcs") (and (eq .Tab "component-releases") .ManualRetries)}}{{template "manual-ci-retries" .}}{{end}}
+{{end}}
+
+{{define "workflow-tab-link"}}
+  {{$tab := .Tab}}
+  {{$component := prComponent $tab}}
+  {{$status := index .Page.TabStatuses $tab}}
+  <a id="tab-{{$tab}}" role="tab" href="{{profilePage .Page.ProfileID $tab}}" data-workflow-tab="{{$tab}}"{{if $component}} data-component-pr-tab{{end}} aria-controls="panel-{{$tab}}" aria-selected="{{if eq .Page.Tab $tab}}true{{else}}false{{end}}" tabindex="{{if eq .Page.Tab $tab}}0{{else}}-1{{end}}"{{if $status.Label}} aria-label="{{.Label}} · {{$status.Label}} · {{$status.Reason}}" title="{{$status.Label}} · {{$status.Reason}}"{{else if $component}} title="Waiting for PR evidence"{{end}}>{{if not $component}}{{template "nav-icon" $tab}}{{end}}<span>{{tabTitle $tab}}{{if eq $tab "retest-queue"}} ({{len .Page.Snapshot.RetestQueue}}){{end}}</span> {{if eq $tab "settings"}}<span id="setup-state" class="setup-state" data-live-preserve{{if and .Page.Configured (not .Page.ConfigRejected)}} hidden{{end}}>{{if .Page.Configured}}Unsaved changes{{else}}Setup required{{end}}</span>{{else}}<span class="tab-status{{with $status.Class}} {{.}}{{end}}" aria-hidden="true">{{$status.Icon}}</span>{{end}}</a>
 {{end}}

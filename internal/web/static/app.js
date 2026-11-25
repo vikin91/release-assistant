@@ -35,7 +35,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const tabLinks = () => Array.from(document.querySelectorAll("[data-workflow-tab]"));
   const activateTab = (tab, historyMode = "") => {
     const links = tabLinks();
-    if (!links.some((link) => link.dataset.workflowTab === tab)) return;
+    const current = links.find((link) => link.dataset.workflowTab === tab);
+    if (!current) return;
+    const openingComponent = current.dataset.componentPrTab !== undefined && activeTab !== tab;
     const openingLog = tab === "activity" && activeTab !== tab;
     const openingQueue = tab === "retest-queue" && activeTab !== tab;
     activeTab = tab;
@@ -56,6 +58,9 @@ document.addEventListener("DOMContentLoaded", () => {
       } catch {}
     }
     if (historyMode) window.history[historyMode](null, "", tabURL(tab));
+    if (openingComponent && historyMode === "pushState") {
+      document.getElementById(current.getAttribute("aria-controls"))?.scrollIntoView?.({ block: "start" });
+    }
   };
   const revealTab = (element) => {
     const panel = element?.closest?.("[data-workflow-panel]");

@@ -84,7 +84,7 @@ func TestRetryAndCommentSectionsUseExplicitCurrentScope(t *testing.T) {
 	}}
 	b := newBrowser(t, application)
 	body := b.getBody(t)
-	inline := prCardContaining(activityPanel(t, body, "component-prs"), "Included open PR")
+	inline := prCardContaining(activityPanel(t, body, "fact-prs"), "Included open PR")
 	for _, want := range []string{"Retry checks now", "<pre><code>included-open-marker</code></pre>", "Open Retest Queue"} {
 		if strings.Count(inline, want) != 1 {
 			t.Errorf("included PR should show %q once", want)
@@ -149,7 +149,7 @@ func TestRetryAndCommentSectionsUseExplicitCurrentScope(t *testing.T) {
 func TestRetryProposalsDoNotRequireSelectionConfirmation(t *testing.T) {
 	application := &fakeApplication{snapshot: app.Snapshot{Config: validACS5Config(), Generation: 12}}
 	body := newBrowser(t, application).getBody(t)
-	prs := activityPanel(t, body, "component-prs")
+	prs := activityPanel(t, body, "fact-prs")
 	if strings.Contains(body, "Finish PR selection") || strings.Contains(body, "finish-selection") {
 		t.Fatal("activity tabs retained the global selection gate")
 	}

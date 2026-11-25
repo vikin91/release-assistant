@@ -1,7 +1,7 @@
 {{define "pr-list"}}
   <section class="panel" aria-labelledby="{{.PRSection}}-heading" id="{{.PRSection}}-panel">
     {{$triage := .PRList}}
-    {{$component := eq .Tab "component-prs"}}
+    {{$component := prComponent .Tab}}
     {{$repository := (index $triage.Repos 0).Repository}}
     {{$source := $repository.Source}}
     {{$name := "ACS release"}}
