@@ -85,7 +85,7 @@ func TestRetryAndCommentSectionsUseExplicitCurrentScope(t *testing.T) {
 	b := newBrowser(t, application)
 	body := b.getBody(t)
 	inline := prCardContaining(activityPanel(t, body, "fact-prs"), "Included open PR")
-	for _, want := range []string{"Retry checks now", "<pre><code>included-open-marker</code></pre>", "Open Retest Queue"} {
+	for _, want := range []string{"Refresh checks", "<pre><code>included-open-marker</code></pre>", "Open Retest Queue"} {
 		if strings.Count(inline, want) != 1 {
 			t.Errorf("included PR should show %q once", want)
 		}

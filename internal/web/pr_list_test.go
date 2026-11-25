@@ -374,7 +374,7 @@ func TestACSPRRowShowsObservedFailuresWithoutRequiredSettings(t *testing.T) {
 	card := prCardContaining(body, pr.Title)
 	for _, want := range []string{
 		"❌", "2 checks failed", "· couldn’t verify which checks are required", "View checks", "/pull/24102/checks",
-		"data-pr-attention", "Retry checks now", prRetryAnchor(target),
+		"data-pr-attention", "Refresh checks", prRetryAnchor(target),
 	} {
 		if !strings.Contains(card, want) {
 			t.Errorf("missing %q in PR card", want)

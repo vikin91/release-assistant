@@ -4,7 +4,7 @@
       <input type="hidden" name="kind" value="check-pr-retries"><input type="hidden" name="tab" value="{{.Page.Tab}}">
       <input type="hidden" name="csrf" value="{{.Page.CSRF}}"><input type="hidden" name="generation" value="{{.Page.Snapshot.Generation}}">
       <input type="hidden" name="repo" value="{{.PR.Target.Repo}}"><input type="hidden" name="pr" value="{{.PR.Target.PR}}"><input type="hidden" name="sha" value="{{.PR.SHA}}">
-      <button type="submit">Retry checks now</button>
+      <button type="submit">Refresh checks</button>
     </form>
     <p class="muted">
       {{with .Konflux}}Konflux {{if .Evidence.At.IsZero}}awaiting check{{else}}checked {{when .Evidence.At}}{{if not .Evidence.Fresh}} · incomplete{{end}}{{end}}{{end}}

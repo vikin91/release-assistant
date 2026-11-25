@@ -82,7 +82,7 @@ func checkIncludedPRRetryCommands(t *testing.T, tab string) {
 		t.Fatalf("expected one sourced contract error and a separate planner warning: %s", field)
 	}
 	if strings.Count(panel, "/konflux-retest checks") != 1 || strings.Contains(panel, "stale command") ||
-		strings.Count(panel, "Retry checks now") != 1 || strings.Count(panel, "Copy comments") != 1 ||
+		strings.Count(panel, "Refresh checks") != 1 || strings.Count(panel, "Copy comments") != 1 ||
 		strings.Contains(panel, `id="`+prRetryAnchor(undecided)+`"`) {
 		t.Fatal("expected one inline action and comment field on the included PR only")
 	}
