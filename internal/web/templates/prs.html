@@ -37,7 +37,19 @@
     {{range $triage.Repos}}
       {{$branch := .Repository.Source.Branch}}
       <article class="pr-repo" data-live-key="pr-repo:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}">
-        {{with .Repository.Source}}<h3 class="pr-repo-heading">{{title .Name}} <span class="muted">{{.Repo}} · {{if and .Repo .Branch}}<a aria-describedby="new-tab-description" href="https://github.com/{{.Repo}}/commits/{{.Branch | urlquery}}" target="_blank" rel="noreferrer">{{.Branch}}</a>{{else}}{{.Branch}}{{end}}</span></h3>{{end}}
+        <header class="pr-repo-heading">
+          {{with .Repository.Source}}<h3>{{title .Name}} <span class="muted">{{.Repo}} · {{if and .Repo .Branch}}<a aria-describedby="new-tab-description" href="https://github.com/{{.Repo}}/commits/{{.Branch | urlquery}}" target="_blank" rel="noreferrer">{{.Branch}}</a>{{else}}{{.Branch}}{{end}}</span></h3>{{end}}
+          {{with .Repository.Evidence}}
+            {{$sourceURL := url .URL}}
+            {{if or (not .At.IsZero) .Error $sourceURL}}
+              <div class="evidence">
+                {{if not .At.IsZero}}<span>{{if .Fresh}}Head observed{{else if .Known}}Head last observed{{else}}Head unknown as of{{end}} {{when .At}}</span>{{end}}
+                {{if .Error}}<span class="error-text">{{.Error}}</span>{{end}}
+                {{if $sourceURL}}<a aria-describedby="new-tab-description" href="{{$sourceURL}}" target="_blank" rel="noreferrer">Branch source</a>{{end}}
+              </div>
+            {{end}}
+          {{end}}
+        </header>
         {{range .PRs}}
           {{$row := index $triage.Rows .PR.Target}}
           <article class="pr-card" data-live-key="pr:{{.PR.Target}}" data-release-choice="{{.ChoiceLabel}}"{{if $row.Attention}} data-pr-attention{{end}}>
@@ -83,10 +95,6 @@
           </article>
         {{else}}<p class="muted">No open PR observations. New PRs continue to appear as discovery refreshes.</p>{{end}}
         {{if .MergedPRs}}<details class="merged-prs" data-fold-key="merged-prs:{{.Repository.Source.Repo}}"><summary>Included PRs merged ({{len .MergedPRs}})</summary><ol>{{range .MergedPRs}}<li><a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">#{{.Target.PR}} {{.Title}}</a>{{if eq .Target $.Snapshot.Config.PinningTarget}} · <a class="pill yes" href="/?tab=acs-prs#pinning-details" data-open-section>Confirmed pinning PR</a>{{end}}{{if not .Evidence.Fresh}} · <span class="unknown">last observed merged</span>{{end}}</li>{{end}}</ol></details>{{end}}
-        <details class="repo-evidence" data-fold-key="repo-evidence:{{.Repository.Source.Name}}:{{.Repository.Source.Repo}}"><summary>Repository evidence</summary>
-          <p>Head <code>{{.Repository.Head}}</code></p>
-          <div class="evidence"><span>{{if .Repository.Evidence.Known}}Head observed{{else}}Head unknown{{end}} at {{when .Repository.Evidence.At}}</span>{{if .Repository.Evidence.Error}}<span class="error-text">{{.Repository.Evidence.Error}}</span>{{end}}{{if url .Repository.Evidence.URL}}<a aria-describedby="new-tab-description" href="{{url .Repository.Evidence.URL}}" target="_blank" rel="noreferrer">Branch source</a>{{end}}</div>
-        </details>
       </article>
     {{else}}<p class="muted">No repository observations yet.</p>{{end}}
     </details>
