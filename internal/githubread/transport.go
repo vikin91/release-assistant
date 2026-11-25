@@ -232,7 +232,11 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	usage, _ := req.Context().Value(usageKey{}).(*Usage)
 	for {
 		if err := req.Context().Err(); err != nil {
-			stats.Canceled++
+			if err == context.DeadlineExceeded {
+				stats.TimedOut++
+			} else {
+				stats.Canceled++
+			}
 			remove()
 			t.mu.Unlock()
 			return nil, err

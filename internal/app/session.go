@@ -63,6 +63,7 @@ type (
 		OngoingReadLimit             int
 		GitHubReadBudget             githubread.Budget
 		GitHubReadStats              []githubread.ReadStats
+		ScheduledCIStats             []ScheduledCIStats
 		// WritesEnabled reports startup permission; target grants remain independent.
 		WritesEnabled   bool
 		Error, LogError string
@@ -115,6 +116,7 @@ type (
 		workRevision  uint64
 		pollChanged   chan struct{}
 		ciRetryJobs   map[release.Target]scheduledPRRetry
+		ciRunning     scheduledPRRetry
 		startupUntil  time.Time
 		konfluxHealth *konflux.Health
 		discovery     Discoverer
@@ -732,6 +734,7 @@ func (s *Session) fillSharedSnapshot(x *Snapshot) {
 		x.StartupReadLimit, x.OngoingReadLimit = s.options.GitHubReads.ReadLimits()
 		x.GitHubReadBudget = s.options.GitHubReads.Budget()
 		x.GitHubReadStats = s.options.GitHubReads.Stats()
+		x.ScheduledCIStats = s.scheduledCIStats(x.GitHubReadStats)
 	}
 	if planner, ok := s.planner.(interface{ ReadIssues() []konflux.ReadIssue }); ok {
 		x.KonfluxReadIssues = planner.ReadIssues()

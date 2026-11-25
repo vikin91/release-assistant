@@ -183,6 +183,7 @@ func TestScheduledPRRetriesUseSharedLimiterOutsideSourceCycle(t *testing.T) {
 		}
 		s.options.CIPlanner = manualReaderFunc(func(ctx context.Context, target release.Target) (release.ManualRetryReport, error) {
 			report := release.ManualRetryReport{Target: target, SHA: "head"}
+			time.Sleep(25 * time.Millisecond)
 			if err := read(ctx, "pr"); err != nil {
 				return report, err
 			}
@@ -200,6 +201,11 @@ func TestScheduledPRRetriesUseSharedLimiterOutsideSourceCycle(t *testing.T) {
 		defer cancel()
 		go s.monitorPRRetries(ctx, s.generation)
 		synctest.Wait()
+		if got := s.Snapshot().ScheduledCIStats; len(got) != 1 || got[0].Waiting != 0 || got[0].CIStarts != 1 || got[0].CICompleted != 0 {
+			t.Fatalf("running job counted as waiting: %+v", got)
+		}
+		time.Sleep(25 * time.Millisecond)
+		synctest.Wait()
 		if got, want := githubCalls(), []string{"/discovery", "/pr"}; !slices.Equal(got, want) {
 			t.Fatalf("reads = %v, want %v", got, want)
 		}
@@ -208,7 +214,11 @@ func TestScheduledPRRetriesUseSharedLimiterOutsideSourceCycle(t *testing.T) {
 		if got := githubCalls(); len(got) != 2 {
 			t.Fatalf("worker ignored the shared GitHub pause: %v", got)
 		}
-		time.Sleep(time.Second)
+		if got := s.Snapshot().ScheduledCIStats; len(got) != 1 || got[0].Waiting != 1 ||
+			got[0].OldestWait != 59*time.Second+25*time.Millisecond || got[0].CICompleted != 1 {
+			t.Fatalf("deferred queue statistics = %+v", got)
+		}
+		time.Sleep(time.Second + 25*time.Millisecond)
 		synctest.Wait()
 		if got, want := githubCalls(), []string{"/discovery", "/pr", "/pr", "/checks"}; !slices.Equal(got, want) || usage.Calls() != 1 {
 			t.Fatalf("resumed reads = %v with %d source reads, want %v with one source read", got, usage.Calls(), want)
@@ -219,7 +229,8 @@ func TestScheduledPRRetriesUseSharedLimiterOutsideSourceCycle(t *testing.T) {
 		}
 		if got := snapshot.GitHubReadStats; !slices.ContainsFunc(got, func(row githubread.ReadStats) bool {
 			return row.Repository == source.Repo && row.Work == "CI Retest scheduled" && row.CIStarts == 2 &&
-				row.Reads == 3 && row.RateLimited == 1 && row.CIWait == 0
+				row.Reads == 3 && row.RateLimited == 1 && row.CIWait == 0 &&
+				row.CICompleted == 2 && row.CIElapsed == 50*time.Millisecond && row.MaxCIElapsed == 25*time.Millisecond
 		}) {
 			t.Fatalf("CI queue measurements = %+v", got)
 		}

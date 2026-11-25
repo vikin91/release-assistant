@@ -1,8 +1,11 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -10,13 +13,23 @@ import (
 	"release-assistant/internal/release"
 )
 
-type scheduledPRRetry struct {
-	target           release.Target
-	source, sha      string
-	generation       uint64
-	queuedAt, nextAt time.Time
-	urgent           bool
-}
+type (
+	scheduledPRRetry struct {
+		target           release.Target
+		source, sha      string
+		generation       uint64
+		queuedAt, nextAt time.Time
+		urgent           bool
+	}
+	// ScheduledCIStats joins worker measurements with the active release's queue.
+	ScheduledCIStats struct {
+		githubread.ReadStats
+		Waiting    int
+		OldestWait time.Duration
+	}
+)
+
+const scheduledCIWork = "CI Retest scheduled"
 
 func (s *Session) enqueuePRRetries(generation, revision uint64, source release.Source) {
 	s.mu.Lock()
@@ -91,12 +104,7 @@ func (s *Session) nextPRRetry(generation uint64, lastRepo string) (scheduledPRRe
 	now := time.Now()
 	heads := make(map[string]map[release.Target]string)
 	for target, job := range s.ciRetryJobs {
-		if _, ok := heads[job.source]; !ok {
-			heads[job.source] = s.manualRetryHeads(s.repos[job.source], false)
-		}
-		check := s.prRetryChecks[target].CI
-		if job.generation != generation || heads[job.source][target] != job.sha ||
-			(check.SHA == job.sha && !check.Incomplete && !check.At.Before(job.queuedAt)) {
+		if s.obsoletePRRetry(job, heads) {
 			delete(s.ciRetryJobs, target)
 			continue
 		}
@@ -116,6 +124,45 @@ func (s *Session) nextPRRetry(generation uint64, lastRepo string) (scheduledPRRe
 		}
 	}
 	return selected, next, s.pollChanged
+}
+
+// obsoletePRRetry filters stale jobs using one head lookup per repository.
+// The caller holds the session lock.
+func (s *Session) obsoletePRRetry(job scheduledPRRetry, heads map[string]map[release.Target]string) bool {
+	if job.generation != s.generation {
+		return true
+	}
+	if _, ok := heads[job.source]; !ok {
+		heads[job.source] = s.manualRetryHeads(s.repos[job.source], false)
+	}
+	check := s.prRetryChecks[job.target].CI
+	return heads[job.source][job.target] != job.sha ||
+		(check.SHA == job.sha && !check.Incomplete && !check.At.Before(job.queuedAt))
+}
+
+// scheduledCIStats combines process totals with eligible waiting jobs under the session lock.
+func (s *Session) scheduledCIStats(readStats []githubread.ReadStats) []ScheduledCIStats {
+	byRepo := make(map[string]ScheduledCIStats)
+	for _, row := range readStats {
+		if row.Work == scheduledCIWork {
+			byRepo[row.Repository] = ScheduledCIStats{ReadStats: row}
+		}
+	}
+	now := time.Now()
+	heads := make(map[string]map[release.Target]string)
+	for _, job := range s.ciRetryJobs {
+		if job == s.ciRunning || s.obsoletePRRetry(job, heads) {
+			continue
+		}
+		row := byRepo[job.target.Repo]
+		row.Repository = job.target.Repo
+		row.Waiting++
+		row.OldestWait = max(row.OldestWait, now.Sub(job.queuedAt))
+		byRepo[job.target.Repo] = row
+	}
+	return slices.SortedFunc(maps.Values(byRepo), func(a, b ScheduledCIStats) int {
+		return cmp.Compare(a.Repository, b.Repository)
+	})
 }
 
 // currentPRRetry checks the queued revision against current release evidence.
@@ -148,18 +195,23 @@ func (s *Session) runPRRetry(ctx context.Context, job scheduledPRRetry) {
 	readCtx, cancel := context.WithTimeout(ctx, s.options.Timeout)
 	defer cancel()
 	readCtx = githubread.WithPriority(readCtx, githubread.Background, job.target.Repo)
-	readCtx = githubread.WithWork(readCtx, job.target.Repo, "CI Retest scheduled")
+	readCtx = githubread.WithWork(readCtx, job.target.Repo, scheduledCIWork)
+	var finish func()
+	s.mu.Lock()
+	s.ciRunning = job
 	if reads := s.options.GitHubReads; reads != nil {
-		due := job.queuedAt
-		if job.nextAt.After(due) {
-			due = job.nextAt
-		}
-		reads.RecordCIStart(readCtx, due)
+		finish = reads.RecordCIStart(readCtx, cmp.Or(job.nextAt, job.queuedAt))
 	}
+	s.mu.Unlock()
+
 	report, changedHead, err := readManualRetry(readCtx, s.options.CIPlanner, job.target, job.sha)
+	if finish != nil {
+		finish()
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.ciRunning = scheduledPRRetry{}
 	if ctx.Err() != nil || s.ciRetryJobs[job.target] != job {
 		return
 	}

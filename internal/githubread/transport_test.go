@@ -331,3 +331,24 @@ func TestHigherOngoingLimitWakesQueuedReadsAtCutoff(t *testing.T) {
 		}
 	})
 }
+
+func TestDeadlineBeforeReadIsCountedSeparately(t *testing.T) {
+	limiter := New(roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("a canceled request reached GitHub")
+		return nil, nil
+	}))
+	ctx := WithWork(t.Context(), "example/fact", "PR discovery")
+	expired, cancel := context.WithDeadline(ctx, time.Now().Add(-time.Second))
+	defer cancel()
+	if err := read(t, limiter, expired, "expired"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("deadline error = %v", err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := read(t, limiter, canceled, "canceled"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel error = %v", err)
+	}
+	if rows := limiter.Stats(); len(rows) != 1 || rows[0].TimedOut != 1 || rows[0].Canceled != 1 || rows[0].Reads != 0 {
+		t.Fatalf("cancellation statistics = %+v", rows)
+	}
+}

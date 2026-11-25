@@ -17,8 +17,10 @@ type (
 	ReadStats struct {
 		Repository, Work                               string
 		Reads, CycleDeferred, HourlyDeferred           uint64
-		PauseDeferred, RateLimited, Canceled, CIStarts uint64
+		PauseDeferred, RateLimited, Canceled, TimedOut uint64
+		CIStarts, CICompleted                          uint64
 		HTTPWait, MaxHTTPWait, CIWait                  time.Duration
+		CIElapsed, MaxCIElapsed                        time.Duration
 	}
 )
 
@@ -41,13 +43,22 @@ func (t *Transport) Stats() []ReadStats {
 	return rows
 }
 
-// RecordCIStart measures how long a scheduled CI Retest attempt waited after it was due.
-func (t *Transport) RecordCIStart(ctx context.Context, due time.Time) {
+// RecordCIStart records the queue wait and returns a function that measures worker occupancy.
+func (t *Transport) RecordCIStart(ctx context.Context, due time.Time) func() {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	row := t.statsFor(ctx)
+	started := t.now()
 	row.CIStarts++
-	row.CIWait += max(0, t.now().Sub(due))
+	row.CIWait += max(0, started.Sub(due))
+	t.mu.Unlock()
+	return func() {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		elapsed := max(0, t.now().Sub(started))
+		row.CICompleted++
+		row.CIElapsed += elapsed
+		row.MaxCIElapsed = max(row.MaxCIElapsed, elapsed)
+	}
 }
 
 // statsFor returns the counters under the transport lock.

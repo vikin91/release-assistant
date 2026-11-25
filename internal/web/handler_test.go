@@ -1161,19 +1161,24 @@ func TestSidebarReadBudget(t *testing.T) {
 }
 
 func TestLogShowsGitHubReadStatistics(t *testing.T) {
+	row := githubread.ReadStats{
+		Repository: "stackrox/fact", Work: "CI Retest scheduled", Reads: 2,
+		HTTPWait: 500 * time.Millisecond, MaxHTTPWait: 350 * time.Millisecond,
+		CIStarts: 3, CICompleted: 2, CIWait: 6 * time.Second,
+		CIElapsed: 4 * time.Second, MaxCIElapsed: 3 * time.Second,
+		TimedOut: 7, Canceled: 8, CycleDeferred: 4,
+	}
 	snapshot := app.Snapshot{
 		GitHubReadBudget: githubread.Budget{Limit: 3000},
-		GitHubReadStats: []githubread.ReadStats{{
-			Repository: "stackrox/fact", Work: "CI Retest scheduled", Reads: 2,
-			HTTPWait: 500 * time.Millisecond, MaxHTTPWait: 350 * time.Millisecond,
-			CIStarts: 1, CIWait: 2 * time.Second, CycleDeferred: 4,
-		}},
+		GitHubReadStats:  []githubread.ReadStats{row},
+		ScheduledCIStats: []app.ScheduledCIStats{{ReadStats: row, Waiting: 5, OldestWait: 42 * time.Second}},
 	}
 	panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t), "activity")
 	stats := between(t, panel, `id="github-read-stats"`, "</details>")
 	for _, want := range []string{
 		"GitHub read statistics", "stackrox/fact", "CI Retest scheduled", "250ms / 350ms", "<td>2s</td>",
-		"Cycle deferrals", "<td>4</td>",
+		"Cycle deferrals", "<td>4</td>", "Deadline before read", "<td>7</td><td>8</td>",
+		"Scheduled CI Retest", "<td>3</td><td>2</td>", "2s / 3s", "Waiting now", "<td>5</td>", "<td>42s</td>",
 	} {
 		if !strings.Contains(stats, want) {
 			t.Errorf("statistics missing %q", want)
