@@ -32,14 +32,14 @@ func TestActivityTabsWorkWithoutComponentTags(t *testing.T) {
 		Authority: []dispatch.View{{Target: component, SHA: "head", Message: "component-write-offer"}, {Target: acs, Message: "acs-write-offer"}},
 	}}
 	browser := newBrowser(t, application)
-	for _, tab := range []string{"component-prs", "component-releases", "acs-prs", "acs-rcs", "activity", "settings"} {
+	for _, tab := range []string{"component-prs", "component-releases", "acs-prs", "acs-rcs", "activity", "settings", "app-settings"} {
 		response := httptest.NewRecorder()
 		browser.handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080/?tab="+tab, nil))
 		body := response.Body.String()
 		if response.Code != http.StatusOK || !strings.Contains(body, `data-active-tab="`+tab+`"`) {
 			t.Fatalf("tab %s is inaccessible without tags: %d", tab, response.Code)
 		}
-		for _, other := range []string{"component-prs", "component-releases", "acs-prs", "acs-rcs", "activity", "settings"} {
+		for _, other := range []string{"component-prs", "component-releases", "acs-prs", "acs-rcs", "activity", "settings", "app-settings"} {
 			if !strings.Contains(body, `href="/?tab=`+other+`"`) {
 				t.Fatalf("tab %s is missing a link to %s", tab, other)
 			}

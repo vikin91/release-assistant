@@ -40,10 +40,15 @@
 </section>
 {{end}}
 
-{{define "settings-navigation"}}
+{{define "release-settings-navigation"}}
 <nav class="settings-navigation" aria-label="Settings sections">
   <a href="#configuration-panel">{{if .Configured}}Release configuration{{else}}Configure release{{end}}</a>
-  {{if and .Configured (not .ViewingInactive)}}<a href="#retry-settings">GitHub writes</a>{{end}}
+  {{if .Configured}}<a href="#retry-settings">GitHub writes</a>{{end}}
+</nav>
+{{end}}
+
+{{define "app-settings-navigation"}}
+<nav class="settings-navigation" aria-label="Settings sections">
   {{if .Snapshot.StartupReadLimit}}<a href="#github-read-settings">Concurrent GitHub reads</a>{{end}}
   {{if .Snapshot.CacheAvailable}}<a href="#cache-settings">Discovery cache</a>{{end}}
   <a href="#tag-choice-settings">Component tag choices</a>
@@ -52,21 +57,26 @@
 {{end}}
 
 {{define "settings-fields"}}
-  <input type="hidden" name="tab" value="settings">
   <input type="hidden" name="csrf" value="{{.CSRF}}">
   <input type="hidden" name="generation" value="{{.SettingsGeneration}}">
 {{end}}
 
-{{define "application-settings"}}
-{{if and .Configured (not .ViewingInactive)}}
+{{define "release-write-settings"}}
+{{if and .Configured .ViewingInactive}}
+<section class="panel" id="retry-settings" aria-labelledby="retry-settings-heading">
+  <h3 id="retry-settings-heading">GitHub writes</h3>
+  <p>Activate this release to edit its GitHub write settings.</p>
+</section>
+{{else if .Configured}}
 <section class="panel settings-panel" id="retry-settings" aria-labelledby="retry-settings-heading">
   <form method="post" action="{{profileAction .ProfileID}}">
     {{template "settings-fields" .}}
+    <input type="hidden" name="tab" value="settings">
     <input type="hidden" name="settings_section" value="retry-settings">
     <table class="settings-table" aria-labelledby="retry-settings-heading">
       <colgroup><col><col class="settings-control-column"></colgroup>
       <thead><tr><th colspan="2"><h3 id="retry-settings-heading">GitHub writes</h3>
-        <p>Control when the assistant can post retry comments.</p>
+        <p>Control when the assistant can post retry comments for this release. Write settings reset when the app restarts.</p>
         <p id="retry-settings-status" role="status" data-live-preserve{{if not (eq .SettingsSaved "retry-settings")}} hidden{{end}}>{{if eq .SettingsSaved "retry-settings"}}Settings saved.{{end}}</p>
       </th></tr></thead>
       <tbody>
@@ -87,10 +97,14 @@
 </section>
 {{end}}
 
+{{end}}
+
+{{define "application-settings"}}
 {{if .Snapshot.StartupReadLimit}}
 <section class="panel settings-panel" id="github-read-settings" aria-labelledby="github-read-settings-heading">
   <form method="post" action="{{profileAction .ProfileID}}">
     {{template "settings-fields" .}}
+    <input type="hidden" name="tab" value="app-settings">
     <input type="hidden" name="settings_section" value="github-read-settings">
     <table class="settings-table" aria-labelledby="github-read-settings-heading">
       <colgroup><col><col class="settings-control-column"></colgroup>
@@ -118,6 +132,7 @@
 <section class="panel settings-panel" id="cache-settings" aria-labelledby="cache-settings-heading">
   <form method="post" action="{{profileAction .ProfileID}}">
     {{template "settings-fields" .}}
+    <input type="hidden" name="tab" value="app-settings">
     <input type="hidden" name="settings_section" value="cache-settings">
     <table class="settings-table" aria-labelledby="cache-settings-heading">
       <colgroup><col><col class="settings-control-column"></colgroup>
@@ -139,6 +154,7 @@
   </form>
   <form id="clear-cache-form" method="post" action="{{profileAction .ProfileID}}">
     {{template "settings-fields" .}}
+    <input type="hidden" name="tab" value="app-settings">
     <input type="hidden" name="kind" value="clear-cache">
   </form>
 </section>
@@ -147,6 +163,7 @@
 <section class="panel settings-panel" id="tag-choice-settings" aria-labelledby="tag-choice-settings-heading">
   <form method="post" action="{{profileAction .ProfileID}}">
     {{template "settings-fields" .}}
+    <input type="hidden" name="tab" value="app-settings">
     <table class="settings-table" aria-labelledby="tag-choice-settings-heading">
       <colgroup><col><col class="settings-control-column"></colgroup>
       <thead><tr><th colspan="2"><h3 id="tag-choice-settings-heading">Component tag choices</h3>
@@ -169,6 +186,7 @@
 <section class="panel settings-panel" id="refresh-settings" aria-labelledby="refresh-settings-heading">
   <form method="post" action="{{profileAction .ProfileID}}">
     {{template "settings-fields" .}}
+    <input type="hidden" name="tab" value="app-settings">
     <input type="hidden" name="settings_section" value="refresh-settings">
     <table class="settings-table" aria-labelledby="refresh-settings-heading">
       <colgroup><col><col class="settings-control-column"></colgroup>

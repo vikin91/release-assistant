@@ -60,12 +60,12 @@
   {{if .Profiles}}<a class="sidebar-home" href="/"{{if .Home}} aria-current="page"{{end}}>{{template "nav-icon" "home"}}Home</a>{{end}}
   <h2 class="phases-title">Release phases</h2>
   <nav class="workflow-tabs flex flex-col gap-0.5" {{if not $home}}role="tablist" aria-orientation="vertical" {{end}}aria-label="Release work">
-    {{range $i, $tab := (slice "component-prs" "component-releases" "create-pinning-pr" "acs-prs" "acs-rcs" "activity" "retest-queue" "settings")}}
+    {{range $i, $tab := (slice "component-prs" "component-releases" "create-pinning-pr" "acs-prs" "acs-rcs" "activity" "retest-queue" "settings" "app-settings")}}
     {{if eq $tab "activity"}}<span class="nav-separator" aria-hidden="true"></span>{{end}}
     {{$label := tabTitle $tab}}
     {{if and (lt $i 5) (ne $tab "create-pinning-pr")}}{{$label = printf "%s. %s" (index (slice "1" "2" "" "3" "4") $i) $label}}{{end}}
     {{if $home}}
-      {{if or $.ActiveProfile (eq $tab "activity")}}
+      {{if or $.ActiveProfile (eq $tab "activity") (eq $tab "app-settings")}}
       <a class="phase-link" href="{{profilePage $.ActiveProfile $tab}}">{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}{{if eq $tab "retest-queue"}} ({{len $.Snapshot.RetestQueue}}){{end}}</span></a>
       {{else}}
       <span class="phase-link" aria-disabled="true">{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}</span></span>
@@ -134,11 +134,16 @@
     {{if .ViewingInactive}}</fieldset>{{end}}
   </section>
   <section id="panel-settings" class="workflow-panel" role="tabpanel" aria-labelledby="tab-settings" data-workflow-panel="settings" tabindex="0"{{if ne .Tab "settings"}} hidden{{end}}>
-  <h2 class="page-title">Settings</h2>
-  {{template "settings-navigation" .}}
-  <p id="settings-save-status" class="notice" role="status" data-live-preserve{{if ne .SettingsSaved "application"}} hidden{{end}}>{{if eq .SettingsSaved "application"}}Settings saved.{{end}}</p>
-  {{template "release-configuration" .}}
-  {{template "application-settings" .}}
+    <h2 class="page-title">Release Settings</h2>
+    {{template "release-settings-navigation" .}}
+    {{template "release-configuration" .}}
+    {{template "release-write-settings" .}}
+  </section>
+  <section id="panel-app-settings" class="workflow-panel" role="tabpanel" aria-labelledby="tab-app-settings" data-workflow-panel="app-settings" tabindex="0"{{if ne .Tab "app-settings"}} hidden{{end}}>
+    <h2 class="page-title">App Settings</h2>
+    {{template "app-settings-navigation" .}}
+    <p id="settings-save-status" class="notice" role="status" data-live-preserve{{if ne .SettingsSaved "application"}} hidden{{end}}>{{if eq .SettingsSaved "application"}}Settings saved.{{end}}</p>
+    {{template "application-settings" .}}
   </section>
 </main>
 {{end}}

@@ -364,3 +364,44 @@ func TestReleaseSwitchInvalidatesApprovalAndPreservesQueueEvidence(t *testing.T)
 		t.Fatalf("stale scope returned %v, writer called %d times", err, f.writes.Load())
 	}
 }
+
+func TestWriteModeIsScopedToReleaseForAppSession(t *testing.T) {
+	d, f, _ := setup(t)
+	proposal := f.plan.Proposals[0]
+	d.SelectRelease("first", "5.0.1")
+	d.SetWriteMode(new(false), new(true))
+	d.ObserveIdentity(f.identity)
+	d.ObservePlan(f.plan)
+	if err := d.Grant(proposal.Target, proposal.SHA, true); err != nil {
+		t.Fatal(err)
+	}
+
+	d.SelectRelease("second", "4.11.1")
+	d.ObserveIdentity(f.identity)
+	d.ObservePlan(f.plan)
+	if !d.IsInteractive() || d.RequiresPRLabel() || d.Views()[0].Granted {
+		t.Fatal("second release inherited the first release's write settings or grant")
+	}
+	if _, err := d.Send(t.Context(), proposal.Target, ID(proposal), false); err == nil || f.writes.Load() != 0 {
+		t.Fatalf("automatic send on second release returned %v, writer called %d times", err, f.writes.Load())
+	}
+	d.SetWriteMode(new(false), new(false))
+
+	d.SelectRelease("first", "5.0.1")
+	if d.IsInteractive() || !d.RequiresPRLabel() || d.Views()[0].Granted {
+		t.Fatal("first release lost its mode or restored a revoked grant")
+	}
+	if _, err := d.Send(t.Context(), proposal.Target, ID(proposal), false); err == nil || f.writes.Load() != 0 {
+		t.Fatalf("automatic send without a fresh grant returned %v, writer called %d times", err, f.writes.Load())
+	}
+
+	d.SelectRelease("second", "4.11.1")
+	if d.IsInteractive() || d.RequiresPRLabel() {
+		t.Fatal("second release did not restore its own mode")
+	}
+	restarted := New(f, f, f, Options{EnableWrites: true})
+	restarted.SelectRelease("first", "5.0.1")
+	if !restarted.IsInteractive() || restarted.RequiresPRLabel() || len(restarted.Views()) != 0 {
+		t.Fatal("new dispatcher inherited write settings or grants")
+	}
+}

@@ -36,7 +36,7 @@ func TestTagChoiceLimitSettingsPersist(t *testing.T) {
 	}
 	form := url.Values{"kind": {"tag-choice-settings"}, "tab": {"settings"}, "generation": {fmt.Sprint(session.Snapshot().Generation)}, "tag_choice_limit": {"2"}}
 	response := b.post(form)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/?tab=settings&saved=tag-choice-settings#tag-choice-settings" {
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/?tab=app-settings&saved=tag-choice-settings#tag-choice-settings" {
 		t.Fatalf("save status=%d redirect=%q", response.Code, response.Header().Get("Location"))
 	}
 	for name, invalid := range map[string]struct {

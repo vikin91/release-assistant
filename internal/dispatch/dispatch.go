@@ -67,9 +67,13 @@ type (
 		attempts                             map[commentKey]commentAttempt
 		interactive, requirePRLabel, stopped bool
 		events                               []Event
-		suspended                            map[string]map[release.Target]*targetState
+		suspended                            map[string]suspendedRelease
 		releaseID, version                   string
 		scope                                uint64
+	}
+	suspendedRelease struct {
+		targets                     map[release.Target]*targetState
+		interactive, requirePRLabel bool
 	}
 	scopeKey    struct{}
 	targetState struct {
@@ -238,18 +242,21 @@ func (d *Dispatcher) WithScope(ctx context.Context) context.Context {
 	return context.WithValue(ctx, scopeKey{}, d.scope)
 }
 
-// SelectRelease suspends the previous release's evidence and clears its posting authority.
+// SelectRelease restores session-only write settings and evidence for the selected release.
+// Switching releases revokes automatic grants and single-use approvals.
 func (d *Dispatcher) SelectRelease(id, version string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.suspended == nil {
-		d.suspended = make(map[string]map[release.Target]*targetState)
+		d.suspended = make(map[string]suspendedRelease)
 	}
 	d.revokeRelease()
 	if d.releaseID != "" {
-		d.suspended[d.releaseID] = d.targets
+		d.suspended[d.releaseID] = suspendedRelease{targets: d.targets, interactive: d.interactive, requirePRLabel: d.requirePRLabel}
 	}
-	d.targets = d.suspended[id]
+	saved, found := d.suspended[id]
+	d.targets = saved.targets
+	d.interactive, d.requirePRLabel = !found || saved.interactive, saved.requirePRLabel
 	delete(d.suspended, id)
 	if d.targets == nil {
 		d.targets = make(map[release.Target]*targetState)
@@ -271,7 +278,6 @@ func (d *Dispatcher) revokeRelease() {
 		state.epoch++
 	}
 	d.scope++
-	d.interactive = true
 }
 
 // Reset clears authority for a new configuration context.
@@ -279,6 +285,7 @@ func (d *Dispatcher) Reset() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.revokeRelease()
+	d.interactive, d.requirePRLabel = true, false
 	d.targets = map[release.Target]*targetState{}
 }
 

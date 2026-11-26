@@ -54,7 +54,7 @@ func TestReleaseProfilesResumeOnlyDuePolls(t *testing.T) {
 			}
 		}
 		before := s.Snapshot()
-		d.Interactive(false)
+		apply(t, s, Action{Kind: "application-settings", ProfileID: profiles[0].ID, Interactive: new(false), RequirePRLabel: new(true)})
 		view, found := s.ProfileSnapshot(profiles[1].ID)
 		synctest.Wait()
 		if !found || view.Config.Version != b.Version || view.Monitoring || view.WritesEnabled || len(requests()) != initial {
@@ -63,6 +63,9 @@ func TestReleaseProfilesResumeOnlyDuePolls(t *testing.T) {
 		}
 		apply(t, s, Action{Kind: "activate-release", ProfileID: profiles[1].ID})
 		synctest.Wait()
+		if second := s.Snapshot(); !second.Interactive || second.RequirePRLabel {
+			t.Fatalf("new release inherited write settings: Interactive=%v label=%v", second.Interactive, second.RequirePRLabel)
+		}
 		if len(requests()) <= initial {
 			t.Fatal("explicit activation skipped initialization")
 		}
@@ -74,7 +77,7 @@ func TestReleaseProfilesResumeOnlyDuePolls(t *testing.T) {
 		if !found || paused.Monitoring || paused.WritesEnabled || len(paused.Repositories) == 0 {
 			t.Fatalf("paused release lost its prior observations")
 		}
-		if len(requests()) != total || len(before.Repositories) != len(after.Repositories) || !after.Interactive || after.ResumedAt.IsZero() {
+		if len(requests()) != total || len(before.Repositories) != len(after.Repositories) || after.Interactive || !after.RequirePRLabel || after.ResumedAt.IsZero() {
 			t.Fatalf("switch back got %d new reads, %d repositories, Interactive=%v, resumed=%v",
 				len(requests())-total, len(after.Repositories), after.Interactive, after.ResumedAt)
 		}

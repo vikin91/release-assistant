@@ -199,7 +199,7 @@ func (s *server) get(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{Name: csrfName(r.Host), Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 3600})
 	page := s.makePage(token, "", r.URL.Query().Get("release"), r.URL.Query().Get("tab"), false)
 	page.ConfigSaved = page.Configured && page.Tab == "settings" && r.URL.Query().Get("saved") == "configuration"
-	if page.Tab == "settings" {
+	if page.Tab == "settings" || page.Tab == "app-settings" {
 		saved := r.URL.Query().Get("saved")
 		if saved == "application" {
 			page.SettingsSaved = saved
@@ -207,7 +207,7 @@ func (s *server) get(w http.ResponseWriter, r *http.Request) {
 			page.SettingsSaved = settingsSection(saved)
 		}
 	}
-	page.CacheCleared = page.Snapshot.CacheAvailable && page.Tab == "settings" && r.URL.Query().Get("saved") == "cache-clear"
+	page.CacheCleared = page.Snapshot.CacheAvailable && page.Tab == "app-settings" && r.URL.Query().Get("saved") == "cache-clear"
 	if err := s.template.Execute(w, page); err != nil {
 		http.Error(w, "page rendering failed", http.StatusInternalServerError)
 	}
@@ -307,12 +307,18 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	case "tag-choice-settings":
-		destination = "/?tab=settings&saved=tag-choice-settings#tag-choice-settings"
+		destination = "/?tab=app-settings&saved=tag-choice-settings#tag-choice-settings"
 	case "application-settings":
 		if section := settingsSection(r.PostForm.Get("settings_section")); section != "" {
-			destination = "/?tab=settings&saved=" + section + "#" + section
+			tab := "app-settings"
+			if section == "retry-settings" {
+				tab = "settings"
+			}
+			destination = "/?tab=" + tab + "&saved=" + section + "#" + section
+		} else if action.Interactive != nil || action.RequirePRLabel != nil {
+			destination = "/?tab=settings&saved=retry-settings#retry-settings"
 		} else {
-			destination = "/?tab=settings&saved=application#retry-settings"
+			destination = "/?tab=app-settings&saved=application"
 		}
 	case "refresh-images":
 		if r.PostForm.Get("tab") == "acs-rcs" {
@@ -323,7 +329,7 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 	case "refresh-tags":
 		destination += "#component-tags-" + action.Component
 	case "clear-cache":
-		destination = "/?tab=settings&saved=cache-clear#cache-settings"
+		destination = "/?tab=app-settings&saved=cache-clear#cache-settings"
 	case "check-pr-retries":
 		destination += "#" + prRetryAnchor(action.Target)
 	case "component-pr-choices":
@@ -463,7 +469,7 @@ func (s *server) makePage(token, message, profileID, tab string, configuring boo
 	}
 	page := makePage(s.app.Snapshot(), token, message)
 	page.Tab = page.availableTab(tab)
-	if !page.Configured && page.Tab != "activity" && page.Tab != "retest-queue" {
+	if !page.Configured && page.Tab != "activity" && page.Tab != "retest-queue" && page.Tab != "app-settings" {
 		page.Tab = "settings"
 	}
 	return page

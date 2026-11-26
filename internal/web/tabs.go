@@ -12,7 +12,7 @@ func validTab(tab string) string {
 		return tab
 	}
 	switch tab {
-	case "component-releases", "create-pinning-pr", "acs-prs", "acs-rcs", "activity", "retest-queue", "settings":
+	case "component-releases", "create-pinning-pr", "acs-prs", "acs-rcs", "activity", "retest-queue", "settings", "app-settings":
 		return tab
 	default:
 		return "component-prs"
@@ -59,7 +59,9 @@ func (p pageModel) availableTab(tab string) string {
 func tabTitle(tab string) string {
 	switch tab {
 	case "settings":
-		return "Settings"
+		return "Release Settings"
+	case "app-settings":
+		return "App Settings"
 	case "activity":
 		return "Log"
 	case "retest-queue":

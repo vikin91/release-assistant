@@ -45,7 +45,7 @@ func TestRefreshIntervalsSettings(t *testing.T) {
 	}
 	if response := b.post(values); response.Code != http.StatusSeeOther {
 		t.Fatalf("save settings: HTTP %d", response.Code)
-	} else if got := response.Header().Get("Location"); got != "/?tab=settings&saved=refresh-settings#refresh-settings" {
+	} else if got := response.Header().Get("Location"); got != "/?tab=app-settings&saved=refresh-settings#refresh-settings" {
 		t.Errorf("refresh save redirected to %q", got)
 	}
 	if got := session.Snapshot().RefreshIntervals; !maps.Equal(got, expected) {
@@ -81,32 +81,43 @@ func TestSettingsSectionsFollowNavigationAndSubmitIndependently(t *testing.T) {
 		Config: validACS5Config(), WritesEnabled: true, StartupReadLimit: 3, OngoingReadLimit: 1,
 		CacheAvailable: true, RefreshIntervals: app.DefaultRefreshIntervals(0, 0),
 	}
-	panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t), "settings")
-	nav := between(t, panel, `aria-label="Settings sections"`, "</nav>")
-	sections := []struct{ id, field string }{
-		{"configuration-panel", "version"},
-		{"retry-settings", "interactive"},
-		{"github-read-settings", "startup_read_limit"},
-		{"cache-settings", "cache"},
-		{"refresh-settings", "refresh_acs_tags"},
+	body := newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t)
+	type section struct{ id, field string }
+	pages := []struct {
+		tab, title string
+		sections   []section
+	}{
+		{"settings", "Release Settings", []section{{"configuration-panel", "version"}, {"retry-settings", "interactive"}}},
+		{"app-settings", "App Settings", []section{{"github-read-settings", "startup_read_limit"}, {"cache-settings", "cache"}, {"tag-choice-settings", "tag_choice_limit"}, {"refresh-settings", "refresh_acs_tags"}}},
 	}
-	lastSection, lastLink := -1, -1
-	for _, section := range sections {
-		marker := `id="` + section.id + `"`
-		position := strings.Index(panel, marker)
-		link := strings.Index(nav, `href="#`+section.id+`"`)
-		if position <= lastSection || link <= lastLink {
-			t.Fatalf("%s is missing or out of order", section.id)
+	for _, page := range pages {
+		panel := activityPanel(t, body, page.tab)
+		if !strings.Contains(panel, `<h2 class="page-title">`+page.title+`</h2>`) {
+			t.Fatalf("missing %s heading", page.title)
 		}
-		lastSection, lastLink = position, link
-		content := between(t, panel, marker, "</section>")
-		if strings.Count(content, "<table ") != 1 {
-			t.Errorf("%s must have its own table", section.id)
-		}
-		for _, other := range sections {
-			hasField := strings.Contains(content, `name="`+other.field+`"`)
-			if hasField != (other.id == section.id) {
-				t.Errorf("field %s present in %s = %t", other.field, section.id, hasField)
+		nav := between(t, panel, `aria-label="Settings sections"`, "</nav>")
+		lastSection, lastLink := -1, -1
+		for _, section := range page.sections {
+			marker := `id="` + section.id + `"`
+			position := strings.Index(panel, marker)
+			link := strings.Index(nav, `href="#`+section.id+`"`)
+			if position <= lastSection || link <= lastLink {
+				t.Fatalf("%s is missing or out of order in %s", section.id, page.title)
+			}
+			lastSection, lastLink = position, link
+			content := between(t, panel, marker, "</section>")
+			if strings.Count(content, "<table ") != 1 {
+				t.Errorf("%s must have its own table", section.id)
+			}
+			for _, otherPage := range pages {
+				for _, other := range otherPage.sections {
+					if hasField := strings.Contains(content, `name="`+other.field+`"`); hasField != (other.id == section.id) {
+						t.Errorf("field %s present in %s = %t", other.field, section.id, hasField)
+					}
+					if otherPage.tab != page.tab && strings.Contains(panel, `id="`+other.id+`"`) {
+						t.Errorf("%s appears in %s", other.id, page.title)
+					}
+				}
 			}
 		}
 	}
