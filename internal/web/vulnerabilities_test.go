@@ -89,3 +89,52 @@ func TestACSRCAndVulnerabilityViewsAreSeparate(t *testing.T) {
 		t.Fatal("the vulnerability URL did not select its own panel")
 	}
 }
+
+func TestVulnerabilitySidebarWarnsForDistinctHoldCVEsInNewestCandidate(t *testing.T) {
+	snapshot := workflowStatusSnapshot()
+	rc := snapshot.Candidate()
+	repeated := release.Vulnerability{ID: "CVE-repeated", Severity: "Critical", Fixed: "2"}
+	snapshot.RCVulnerabilities = []release.RCVulnerabilities{
+		{Target: rc.Target, SHA: rc.SHA, Images: []release.ImageVulnerabilities{
+			{Image: "release-main", Status: "Available", Findings: []release.Vulnerability{repeated}},
+			{Image: "release-roxctl", Status: "Available", Findings: []release.Vulnerability{
+				repeated,
+				{ID: "CVE-second", Severity: "Important", CVSS: new(7.8), Fixed: "2"},
+				{ID: "CVE-at-threshold", Severity: "Important", CVSS: new(7.0), Fixed: "2"},
+			}},
+			{Image: "release-operator", Status: "Pending"},
+		}},
+		{Target: release.Target{Repo: rc.Target.Repo, Tag: "5.0.0-rc.0"}, SHA: "old", Images: []release.ImageVulnerabilities{
+			{Image: "release-main", Status: "Available", Findings: []release.Vulnerability{
+				{ID: "CVE-previous-only", Severity: "Critical", Fixed: "2"},
+			}},
+		}},
+	}
+
+	for _, test := range []struct {
+		name   string
+		images int
+		marker string
+		reason string
+	}{
+		{"partial scans with distinct qualifying CVEs", 3, "⚠︎ 2", "2 distinct CVEs meet"},
+		{"one qualifying CVE", 1, "⚠︎ 1", "1 CVE meets"},
+		{"only previous RC qualifies", 0, "", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			snapshot.RCVulnerabilities[0].Images = snapshot.RCVulnerabilities[0].Images[:test.images]
+			body := newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t)
+			tab := between(t, body, `id="tab-rc-vulnerabilities"`, "</a>")
+			if test.marker == "" {
+				if strings.Contains(tab, "needs-attention") {
+					t.Fatal("previous RC caused a current sidebar warning")
+				}
+				return
+			}
+			if !strings.Contains(tab, `class="tab-status needs-attention" aria-hidden="true">`+test.marker+"</span>") ||
+				!strings.Contains(tab, `aria-label="Vulnerability review · Needs attention · `+test.reason) {
+				t.Fatalf("sidebar warning or accessible count missing: %s", tab)
+			}
+		})
+	}
+}

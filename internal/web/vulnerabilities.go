@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"slices"
 
 	"release-assistant/internal/release"
@@ -23,6 +24,30 @@ type (
 // HasVulnerabilityReview reports whether a configured release has an RC to review.
 func (p pageModel) HasVulnerabilityReview() bool {
 	return p.Configured && len(p.Snapshot.RCVulnerabilities) > 0
+}
+
+func (p pageModel) vulnerabilityStatus() tabStatus {
+	if !p.HasVulnerabilityReview() {
+		return tabStatus{}
+	}
+	current := p.Snapshot.RCVulnerabilities[0]
+	ids := make(map[string]struct{})
+	for _, image := range current.Images {
+		for _, finding := range image.ReviewFindings() {
+			if finding.SuggestsHold() {
+				ids[finding.ID] = struct{}{}
+			}
+		}
+	}
+	count := len(ids)
+	if count == 0 {
+		return tabStatus{}
+	}
+	reason := fmt.Sprintf("%d distinct CVEs meet the internal hold criteria for %s.", count, current.Target.Tag)
+	if count == 1 {
+		reason = "1 CVE meets the internal hold criteria for " + current.Target.Tag + "."
+	}
+	return tabStatus{State: tabNeedsAttention, Reason: reason, Count: count}
 }
 
 // VulnerabilityReviews prepares current and previous results for a shared UI.

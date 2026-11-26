@@ -14,6 +14,7 @@ type (
 	tabStatus struct {
 		State  tabState
 		Reason string
+		Count  int
 	}
 )
 
@@ -78,10 +79,10 @@ func (s tabStatus) Class() string {
 // PhaseLegend pairs the sidebar symbols with guidance for the release engineer.
 func (pageModel) PhaseLegend() []tabStatus {
 	return []tabStatus{
-		{tabActionNeeded, "Take the next step."},
-		{tabNeedsAttention, "Investigate a problem."},
-		{tabInProgress, "Work is underway."},
-		{tabComplete, "Phase requirements are met."},
+		{State: tabActionNeeded, Reason: "Take the next step."},
+		{State: tabNeedsAttention, Reason: "Investigate a problem."},
+		{State: tabInProgress, Reason: "Work is underway."},
+		{State: tabComplete, Reason: "Phase requirements are met."},
 	}
 }
 
@@ -105,6 +106,7 @@ func (p pageModel) workflowStatuses() map[string]tabStatus {
 		"component-releases": p.componentReleaseStatus(componentPRs.State == tabComplete),
 		"acs-prs":            acsPRs,
 		"acs-rcs":            p.rcStatus(),
+		"rc-vulnerabilities": p.vulnerabilityStatus(),
 	}
 	for _, tab := range p.ComponentPRTabs() {
 		statuses[tab] = p.prStatus(prComponent(tab))
