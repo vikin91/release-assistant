@@ -20,9 +20,6 @@ type (
 		Tracked, Ignored []release.Target
 		// PreviouslyOpen identifies PRs whose transition out of the open list needs verification.
 		PreviouslyOpen []int
-		// CoverageTag belongs to CoverageHead and supplies the selected commit for ancestry reads.
-		CoverageTag  release.Tag
-		CoverageHead string
 		// PreviousCandidate supplies the verified tag and commit range for post-RC PR discovery.
 		PreviousCandidate release.Candidate
 		PinningPR         int
@@ -50,12 +47,6 @@ type (
 	// PRReader verifies one PR's metadata with a single GitHub read.
 	PRReader interface {
 		ReadPR(context.Context, release.Target) (release.PR, error)
-	}
-	// DiscoveryCache exposes controls for optional reusable discovery data.
-	DiscoveryCache interface {
-		Enabled() bool
-		SetEnabled(bool)
-		Clear()
 	}
 	// RetryPlanner reads eligibility for one target and may return verified offers with a partial-read error.
 	RetryPlanner interface {
@@ -94,8 +85,6 @@ const (
 	ReadChecks
 	// ReadPins observes ACS branch and pinning-PR versions.
 	ReadPins
-	// ReadCoverage verifies selected merges against the requested tags.
-	ReadCoverage
 	// ReadPreviousPins observes the component baseline at the previous ACS patch tag.
 	ReadPreviousPins
 	// ReadRC lists patch and RC tags and verifies the current RC against the branch head.

@@ -137,31 +137,26 @@ func TestACSPatchNoticeRequiresNoOpenPRs(t *testing.T) {
 	}
 }
 
-func TestTagOptionShowsCoverageBeforeConfirmation(t *testing.T) {
+func TestTagOptionShowsBranchMembershipBeforeConfirmation(t *testing.T) {
 	for name, tt := range map[string]struct {
-		coverage release.Truth
-		want     string
+		belongs release.Truth
+		want    string
 	}{
-		"missing merge":       {coverage: release.No, want: "Missing included merge"},
-		"incomplete coverage": {want: "Coverage unverified for"},
+		"verified": {belongs: release.Yes, want: "On release branch"},
+		"outside":  {belongs: release.No, want: "Outside configured branch"},
+		"unknown":  {want: "Branch membership unverified"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := workflowStatusSnapshot()
 			repo := &s.Repositories[0]
 			delete(s.Choices.Tags, repo.Source.Name)
-			target := release.Target{Repo: repo.Source.Repo, PR: 17}
-			repo.PRs = []release.PR{{
-				Target: target, Base: repo.Source.Branch,
-				Merged: true, MergeSHA: "included-merge", Evidence: repo.Evidence,
-			}}
-			s.Choices.PRs[target] = release.Included
-			repo.Tags[0].Contains = map[string]release.Truth{"included-merge": tt.coverage}
+			repo.Tags[0].Belongs = tt.belongs
 			assessWorkflow(&s)
 			body := newBrowser(t, &fakeApplication{snapshot: s}).getBody(t)
 			panel := activityPanel(t, body, "component-releases")
 			row := between(t, panel, `data-live-key="tag:`+repo.Source.Name+":"+repo.Source.Repo+"@", "</tr>")
-			if !strings.Contains(row, tt.want+" <code>included-merge</code>") || !strings.Contains(row, "Confirm "+repo.Source.Name) {
-				t.Errorf("expected coverage evidence beside the confirmation action: %s", row)
+			if !strings.Contains(row, tt.want) || strings.Contains(row, "Confirm "+repo.Source.Name) != (tt.belongs == release.Yes) {
+				t.Errorf("unexpected tag choice: %s", row)
 			}
 		})
 	}

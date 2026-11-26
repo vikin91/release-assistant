@@ -35,7 +35,6 @@ type (
 		rangePRCache sync.Map
 		tagReadsMu   sync.Mutex
 		tagReads     map[string]tagRead
-		windowCache  *CommitWindowCache
 	}
 	// requestError separates safe UI causes from endpoint diagnostics.
 	requestError struct {
@@ -82,21 +81,11 @@ func New(baseURL, token string, httpClient *http.Client) *Client {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, http: &clientCopy}
 }
 
-// WithCommitWindowCache attaches an optional discovery cache before the client serves requests.
-func (c *Client) WithCommitWindowCache(cache *CommitWindowCache) *Client {
-	c.windowCache = cache
-	return c
-}
-
 func (c *Client) get(ctx context.Context, endpoint string, dst any) error {
-	return c.getObservation(ctx, endpoint, dst, nil)
+	return c.readObservation(ctx, http.MethodGet, endpoint, nil, dst, 0)
 }
 
-func (c *Client) getObservation(ctx context.Context, endpoint string, dst any, storable *bool) error {
-	return c.readObservation(ctx, http.MethodGet, endpoint, nil, dst, storable, 0)
-}
-
-func (c *Client) readObservation(ctx context.Context, method, endpoint string, payload io.Reader, dst any, storable *bool, reuse tagReadMode) (err error) {
+func (c *Client) readObservation(ctx context.Context, method, endpoint string, payload io.Reader, dst any, reuse tagReadMode) (err error) {
 	cycle, _ := ctx.Value(discoveryCycleKey{}).(*discoveryCycle)
 	diff, rawDiff := dst.(*pinPRDiff)
 	cacheable := cycle != nil && method == http.MethodGet && !rawDiff && cacheableObservation(endpoint)
@@ -194,12 +183,7 @@ func (c *Client) readObservation(ctx context.Context, method, endpoint string, p
 	if err := c.decodeResponse(ctx, method, endpoint, decoder, dst); err != nil {
 		return err
 	}
-	if storable != nil && windowAllowsStorage(resp) && maxResponseBytes-limited.N <= maxCacheableWindowBytes {
-		// Require actual EOF so a truncated or multi-value body cannot seed the cache.
-		_, trailing := decoder.Token()
-		*storable = trailing == io.EOF && maxResponseBytes-limited.N <= maxCacheableWindowBytes && ctx.Err() == nil
-	}
-	if reuse != 0 && windowAllowsStorage(resp) && limited.N > 0 && ctx.Err() == nil {
+	if reuse != 0 && resp.StatusCode == http.StatusOK && cacheControlAllowsStorage(resp.Header) && limited.N > 0 && ctx.Err() == nil {
 		_, trailing := decoder.Token()
 		if trailing == io.EOF && limited.N > 0 {
 			c.rememberTagRead(endpoint, dst, resp.Header, reuse)

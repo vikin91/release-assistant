@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
@@ -60,16 +59,6 @@ func (s *Session) rcRetriesReady() bool {
 }
 
 func mergeTags(old release.Repository, latest *release.Repository, request DiscoveryRequest) {
-	if !request.Reads(ReadCoverage) {
-		for i := range latest.Tags {
-			for _, tag := range old.Tags {
-				if tag.Name == latest.Tags[i].Name && tag.SHA == latest.Tags[i].SHA {
-					latest.Tags[i].Contains = maps.Clone(tag.Contains)
-					break
-				}
-			}
-		}
-	}
 	readsTagInventory := request.Reads(ReadTags) && (request.Scope == ReadAll || request.ConfirmedTag == "") ||
 		request.Source.Name == "acs" && request.Reads(ReadRC)
 	if latest.TagsPending || !readsTagInventory {
@@ -96,9 +85,6 @@ func mergeTags(old release.Repository, latest *release.Repository, request Disco
 
 func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) release.Repository {
 	mergeTags(old, &latest, request)
-	if !request.Reads(ReadCoverage) {
-		latest.CommitGraphLimit = old.CommitGraphLimit
-	}
 	if !request.Reads(ReadChecks) {
 		byTarget := make(map[release.Target]release.PR, len(old.PRs))
 		for _, p := range old.PRs {

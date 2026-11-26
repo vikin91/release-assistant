@@ -246,8 +246,6 @@ func (s *Session) fetchPoll(ctx context.Context, generation, revision uint64, so
 		work.scope = ReadPRs | ReadTargets
 		if source.Name == "acs" {
 			work.scope |= ReadPins
-		} else if job.setting == AfterPRs {
-			work.scope |= ReadCoverage
 		}
 		ctx = githubread.WithPriority(ctx, githubread.PRs, source.Repo)
 	case pollChecks:

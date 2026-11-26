@@ -24,7 +24,6 @@ type (
 		RefreshIntervals                     RefreshIntervals
 		Poll, Discovery, BackoffCap, Timeout time.Duration
 		Initial                              release.Config
-		Cache                                DiscoveryCache
 		GitHubReads                          *githubread.Transport
 		CIPlanner                            RetryPlanner
 		// KonfluxProbe reads service health independently of tracked release builds.
@@ -43,35 +42,28 @@ type (
 		Images              []release.Image
 		Plan                release.Plan
 	}
-	// GitHubGraphLimit describes a coverage check that hit the assistant's page cap.
-	GitHubGraphLimit struct {
-		Release, Repository string
-		Pages               int
-	}
 	// Snapshot is a copied display state; service credentials are never included.
 	Snapshot struct {
-		RefreshIntervals             RefreshIntervals
-		TagChoiceLimit               int
-		Config                       release.Config
-		Choices                      release.Choices
-		Repositories                 []release.Repository
-		Inventory                    release.Inventory
-		Plans                        []release.Plan
-		ManualRetries                []release.ManualRetryReport
-		RCVulnerabilities            []release.RCVulnerabilities
-		PRRetryChecks                map[release.Target]PRRetryCheck
-		RetestQueue                  []RetestItem
-		RetestLog                    []RetestDecision
-		Assessment                   release.Assessment
-		Authority                    []dispatch.View
-		Interactive, RequirePRLabel  bool
-		CacheAvailable, CacheEnabled bool
-		StartupReadLimit             int
-		OngoingReadLimit             int
-		GitHubReadBudget             githubread.Budget
-		GitHubReadStats              []githubread.ReadStats
-		GitHubGraphLimits            []GitHubGraphLimit
-		ScheduledCIStats             []ScheduledCIStats
+		RefreshIntervals            RefreshIntervals
+		TagChoiceLimit              int
+		Config                      release.Config
+		Choices                     release.Choices
+		Repositories                []release.Repository
+		Inventory                   release.Inventory
+		Plans                       []release.Plan
+		ManualRetries               []release.ManualRetryReport
+		RCVulnerabilities           []release.RCVulnerabilities
+		PRRetryChecks               map[release.Target]PRRetryCheck
+		RetestQueue                 []RetestItem
+		RetestLog                   []RetestDecision
+		Assessment                  release.Assessment
+		Authority                   []dispatch.View
+		Interactive, RequirePRLabel bool
+		StartupReadLimit            int
+		OngoingReadLimit            int
+		GitHubReadBudget            githubread.Budget
+		GitHubReadStats             []githubread.ReadStats
+		ScheduledCIStats            []ScheduledCIStats
 		// WritesEnabled reports startup permission; target grants remain independent.
 		WritesEnabled   bool
 		Error, LogError string
@@ -118,12 +110,12 @@ type (
 		Choice                  release.Choice
 		Enabled                 bool
 		// Nil settings are omitted from the submitted form.
-		Interactive, RequirePRLabel, CacheEnabled *bool
-		StartupReadLimit                          *int
-		OngoingReadLimit                          *int
-		Generation                                uint64
-		QueueID                                   uint64
-		ProfileID                                 string
+		Interactive, RequirePRLabel *bool
+		StartupReadLimit            *int
+		OngoingReadLimit            *int
+		Generation                  uint64
+		QueueID                     uint64
+		ProfileID                   string
 	}
 	// Session owns release observations. Dispatcher alone owns write grants.
 	Session struct {
@@ -330,7 +322,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		s.mu.Unlock()
 		return fmt.Errorf("page belongs to an earlier configuration; reload")
 	}
-	shared := a.Kind == "clear-cache" || a.Kind == "tag-choice-settings" ||
+	shared := a.Kind == "tag-choice-settings" ||
 		(a.Kind == "application-settings" && a.Interactive == nil && a.RequirePRLabel == nil)
 	if !s.targetsActiveProfile(a.ProfileID) && !shared {
 		s.mu.Unlock()
@@ -460,9 +452,6 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		if err := a.RefreshIntervals.Validate(); err != nil {
 			return err
 		}
-		if a.CacheEnabled != nil && s.options.Cache == nil {
-			return fmt.Errorf("discovery cache is unavailable")
-		}
 		if (a.Interactive != nil || a.RequirePRLabel != nil) && (!s.dispatcher.WritesEnabled() || s.config.Validate() != nil) {
 			return fmt.Errorf("GitHub write settings are unavailable")
 		}
@@ -478,11 +467,6 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			recordSettingChange(s, "Concurrent GitHub reads (after 5 minutes)", ongoing, a.OngoingReadLimit)
 		}
 		s.dispatcher.SetWriteMode(a.Interactive, a.RequirePRLabel)
-		if a.CacheEnabled != nil {
-			previous := s.options.Cache.Enabled()
-			s.options.Cache.SetEnabled(*a.CacheEnabled)
-			recordSettingChange(s, "Reuse GitHub commit history in memory", previous, a.CacheEnabled)
-		}
 		changed := false
 		for key, interval := range a.RefreshIntervals {
 			if previous := s.options.RefreshIntervals[key]; previous != interval {
@@ -498,16 +482,6 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		return nil
 	case "interactive":
 		s.dispatcher.Interactive(a.Enabled)
-	case "cache-enabled", "clear-cache":
-		if s.options.Cache == nil {
-			return fmt.Errorf("discovery cache is unavailable")
-		}
-		if a.Kind == "clear-cache" {
-			s.options.Cache.Clear()
-		} else {
-			s.options.Cache.SetEnabled(a.Enabled)
-		}
-		return nil
 	case "tag":
 		r, ok := s.repos[a.Component]
 		configuredSource, configured := release.Source{}, false
@@ -619,10 +593,10 @@ func (s *Session) archiveTag(component, repo string) {
 	delete(s.componentTagHistory, component)
 }
 
-// selectComponentTag schedules initial coverage, checks, and builds for the selected commit.
+// selectComponentTag schedules checks and builds for the selected commit.
 func (s *Session) selectComponentTag(source release.Source, tag, sha string) {
 	if s.choices.Tags[source.Name] != tag || s.confirmedSHAs[source.Name] != sha {
-		for _, kind := range []pollKind{pollPRs, pollTagChecks, pollBuilds} {
+		for _, kind := range []pollKind{pollTagChecks, pollBuilds} {
 			delete(s.polls, pollID{source.Repo, kind})
 		}
 	}
@@ -809,24 +783,12 @@ func (s *Session) fillSharedSnapshot(x *Snapshot) {
 		x.GitHubReadStats = s.options.GitHubReads.Stats()
 		x.ScheduledCIStats = s.scheduledCIStats(x.GitHubReadStats)
 	}
-	// The active release owns the current reads, even when the browser displays another release.
-	for _, source := range s.config.Components {
-		if repo := s.repos[source.Name]; repo.CommitGraphLimit > 0 {
-			x.GitHubGraphLimits = append(x.GitHubGraphLimits, GitHubGraphLimit{
-				Release: s.config.Version, Repository: source.Repo, Pages: repo.CommitGraphLimit,
-			})
-		}
-	}
 	if planner, ok := s.planner.(interface{ ReadIssues() []konflux.ReadIssue }); ok {
 		x.KonfluxReadIssues = planner.ReadIssues()
 	}
 	if s.konfluxHealth != nil {
 		health := *s.konfluxHealth
 		x.KonfluxHealth = &health
-	}
-	if s.options.Cache != nil {
-		x.CacheAvailable = true
-		x.CacheEnabled = s.options.Cache.Enabled()
 	}
 	if s.log != nil {
 		x.LogError = s.log.Error()
@@ -841,9 +803,6 @@ func cloneRepository(r release.Repository) release.Repository {
 		r.PRs[i].Checks = slices.Clone(r.PRs[i].Checks)
 	}
 	r.Tags = slices.Clone(r.Tags)
-	for i := range r.Tags {
-		r.Tags[i].Contains = maps.Clone(r.Tags[i].Contains)
-	}
 	r.Pins.Versions = maps.Clone(r.Pins.Versions)
 	r.Pins.Contents = maps.Clone(r.Pins.Contents)
 	r.Pins.Paths = maps.Clone(r.Pins.Paths)
@@ -934,15 +893,6 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 	earlyComponentImages := work.images && !s.rcReady()
 	request := DiscoveryRequest{Source: source, ConfirmedTag: s.choices.Tags[source.Name], Version: c.Version, Scope: work.scope}
 	initial := discover && request.Reads(ReadPRs) && !s.initiallyLoaded[source.Name]
-	if request.Reads(ReadCoverage) && !request.Reads(ReadTags) {
-		old := s.repos[source.Name]
-		for _, tag := range old.Tags {
-			if tag.Name == request.ConfirmedTag && tag.SHA == s.confirmedSHAs[source.Name] && tag.Evidence.Fresh() {
-				request.CoverageTag, request.CoverageHead = tag, old.Head
-				break
-			}
-		}
-	}
 	if request.Reads(ReadPRs) {
 		for _, p := range s.repos[source.Name].PRs {
 			if p.State == "open" && p.Base == source.Branch {

@@ -127,7 +127,7 @@ func newFixture() (*Session, *fixture) {
 		if source.Name == "collector" {
 			version = "3.25.8"
 		}
-		f.repos[source.Name] = release.Repository{Source: source, Head: source.Name + "-head", Evidence: observed(), Tags: []release.Tag{{Name: version, SHA: source.Name + "-head", Belongs: release.Yes, Contains: map[string]release.Truth{}, Evidence: observed()}}}
+		f.repos[source.Name] = release.Repository{Source: source, Head: source.Name + "-head", Evidence: observed(), Tags: []release.Tag{{Name: version, SHA: source.Name + "-head", Belongs: release.Yes, Evidence: observed()}}}
 	}
 	d := dispatch.New(f, f, f, dispatch.Options{EnableWrites: true})
 	s := New(f, f, f, d, NewLog(io.Discard, false), Options{})
@@ -171,13 +171,12 @@ func TestFixtureReleaseWorkflow(t *testing.T) {
 		apply(t, s, Action{Kind: "tag", Component: source.Name, Tag: tag.Name, SHA: tag.SHA})
 	}
 	refreshAll(t, s)
-	if s.Snapshot().Assessment.Ready || s.Snapshot().Assessment.PinningRecommendation != "" {
-		t.Fatal("open selected PR must prevent pinning")
+	if assessment := s.Snapshot().Assessment; assessment.Ready || assessment.PinningRecommendation == "" {
+		t.Fatal("an open PR should affect its own readiness condition while allowing pinning")
 	}
 	fact.PRs[0].State = "merged"
 	fact.PRs[0].Merged = true
 	fact.PRs[0].MergeSHA = "merged"
-	fact.Tags[0].Contains["merged"] = release.Yes
 	f.repos["fact"] = fact
 	refreshAll(t, s)
 	x := s.Snapshot()
@@ -192,12 +191,11 @@ func TestFixtureReleaseWorkflow(t *testing.T) {
 		t.Fatal(s.Snapshot().Assessment)
 	}
 	fact.PRs = append(fact.PRs, release.PR{Target: release.Target{Repo: "stackrox/fact", PR: 2}, SHA: "second", Base: "release-0.3", State: "merged", Merged: true, MergeSHA: "later", Evidence: observed()})
-	fact.Tags[0].Contains["later"] = release.No
 	f.repos["fact"] = fact
 	refreshAll(t, s)
 	apply(t, s, Action{Kind: "choice", Target: fact.PRs[1].Target, Choice: release.Included})
-	if s.Snapshot().Assessment.Ready {
-		t.Fatal("inclusion must immediately invalidate readiness")
+	if !s.Snapshot().Assessment.Ready {
+		t.Fatal("including a merged PR should preserve readiness with a verified tag")
 	}
 	if s.Snapshot().Choices.PRs[target] != release.Included {
 		t.Fatal("existing included PR was lost")

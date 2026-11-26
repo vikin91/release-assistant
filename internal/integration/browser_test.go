@@ -152,7 +152,7 @@ func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (
 	if r.Source.Name == "fact" {
 		version = "0.4.7"
 	}
-	repository.Tags = []release.Tag{{Name: version, SHA: repository.Head, Belongs: release.Yes, Contains: map[string]release.Truth{}, Evidence: observation()}}
+	repository.Tags = []release.Tag{{Name: version, SHA: repository.Head, Belongs: release.Yes, Evidence: observation()}}
 	if r.Source.Name == "fact" {
 		pr := release.PR{Target: release.Target{Repo: r.Source.Repo, PR: 101}, Title: "Fixture: release fix <script>alert(1)</script>", Author: "fixture-author", URL: "https://example.com/pr101", SHA: "pr-head", State: "open", Base: r.Source.Branch, Evidence: observation(), ChecksEvidence: observation(), Checks: []release.Check{{Name: "CI build", Status: "completed", Conclusion: "failure", Required: release.Yes}}}
 		pr.MergeState = "blocked"
@@ -161,8 +161,7 @@ func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (
 			pr.Merged = true
 			pr.MergeSHA = "fact-next"
 			repository.Head = "fact-next"
-			repository.Tags[0].Contains["fact-next"] = release.No
-			repository.Tags = append(repository.Tags, release.Tag{Name: "0.4.8", SHA: "fact-next", Belongs: release.Yes, Contains: map[string]release.Truth{"fact-next": release.Yes, "later": release.No}, Evidence: observation()})
+			repository.Tags = append(repository.Tags, release.Tag{Name: "0.4.8", SHA: "fact-next", Belongs: release.Yes, Evidence: observation()})
 		}
 		repository.PRs = []release.PR{pr}
 		if f.step >= 4 {
@@ -172,7 +171,7 @@ func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (
 	switch {
 	case f.noTags && f.step == 0:
 		repository.Tags = nil
-	case !r.Reads(app.ReadTags) && !r.Reads(app.ReadCoverage):
+	case !r.Reads(app.ReadTags):
 		repository.Tags = nil
 	case r.TagCandidates != nil:
 		repository.Tags = slices.DeleteFunc(repository.Tags, func(tag release.Tag) bool { return !slices.Contains(r.TagCandidates, tag.Name) })

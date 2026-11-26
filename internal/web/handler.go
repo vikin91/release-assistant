@@ -208,7 +208,6 @@ func (s *server) get(w http.ResponseWriter, r *http.Request) {
 			page.SettingsSaved = settingsSection(saved)
 		}
 	}
-	page.CacheCleared = page.Snapshot.CacheAvailable && page.Tab == "app-settings" && r.URL.Query().Get("saved") == "cache-clear"
 	if err := s.template.Execute(w, page); err != nil {
 		http.Error(w, "page rendering failed", http.StatusInternalServerError)
 	}
@@ -329,8 +328,6 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 		}
 	case "fetch-tag-names", "verify-recent-tags":
 		destination += "#component-tags-" + action.Component
-	case "clear-cache":
-		destination = "/?tab=app-settings&saved=cache-clear#cache-settings"
 	case "check-pr-retries":
 		destination += "#" + prRetryAnchor(action.Target)
 	case "component-pr-choices":
@@ -606,13 +603,9 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 		if err != nil {
 			return a, err
 		}
-		a.CacheEnabled, err = checkboxSetting(r.PostForm, "cache")
-		if err != nil {
-			return a, err
-		}
-	case "interactive", "cache-enabled":
+	case "interactive":
 		a.Enabled = formHasValue(form, "enabled", "true")
-	case "clear-cache", "refresh-images":
+	case "refresh-images":
 	case "fetch-tag-names", "verify-recent-tags":
 		a.Component = form.Get("component")
 		if form.Get("tab") != "component-releases" || !slices.ContainsFunc(current.Components, func(source release.Source) bool {

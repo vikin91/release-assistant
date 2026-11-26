@@ -79,7 +79,7 @@ func TestRefreshIntervalsSettings(t *testing.T) {
 func TestSettingsSectionsFollowNavigationAndSubmitIndependently(t *testing.T) {
 	snapshot := app.Snapshot{
 		Config: validACS5Config(), WritesEnabled: true, StartupReadLimit: 3, OngoingReadLimit: 1,
-		CacheAvailable: true, RefreshIntervals: app.DefaultRefreshIntervals(0, 0),
+		RefreshIntervals: app.DefaultRefreshIntervals(0, 0),
 	}
 	body := newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t)
 	type section struct{ id, field string }
@@ -88,7 +88,7 @@ func TestSettingsSectionsFollowNavigationAndSubmitIndependently(t *testing.T) {
 		sections   []section
 	}{
 		{"settings", "Release Settings", []section{{"configuration-panel", "version"}, {"retry-settings", "interactive"}}},
-		{"app-settings", "App Settings", []section{{"github-read-settings", "startup_read_limit"}, {"cache-settings", "cache"}, {"tag-choice-settings", "tag_choice_limit"}, {"refresh-settings", "refresh_acs_tags"}}},
+		{"app-settings", "App Settings", []section{{"github-read-settings", "startup_read_limit"}, {"tag-choice-settings", "tag_choice_limit"}, {"refresh-settings", "refresh_acs_tags"}}},
 	}
 	for _, page := range pages {
 		panel := activityPanel(t, body, page.tab)

@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -27,7 +28,7 @@ const (
 )
 
 func (c *Client) getTagRef(ctx context.Context, endpoint string, dst any) error {
-	return c.readObservation(ctx, http.MethodGet, endpoint, nil, dst, nil, tagConditional)
+	return c.readObservation(ctx, http.MethodGet, endpoint, nil, dst, tagConditional)
 }
 
 func (c *Client) getTagSHA(ctx context.Context, endpoint string, dst any, shas ...string) error {
@@ -39,7 +40,7 @@ func (c *Client) getTagSHA(ctx context.Context, endpoint string, dst any, shas .
 			return c.get(ctx, endpoint, dst)
 		}
 	}
-	return c.readObservation(ctx, http.MethodGet, endpoint, nil, dst, nil, tagImmutable)
+	return c.readObservation(ctx, http.MethodGet, endpoint, nil, dst, tagImmutable)
 }
 
 func (c *Client) rememberTagRead(endpoint string, dst any, header http.Header, mode tagReadMode) {
@@ -133,4 +134,25 @@ func (c *Client) ReadComponentTagNames(ctx context.Context, source release.Sourc
 		return strings.Compare(b, a)
 	})
 	return slices.Compact(names), nil
+}
+
+// fullCommitSHA excludes branch names, tags and abbreviated object IDs.
+func fullCommitSHA(value string) bool {
+	if len(value) != 40 {
+		return false
+	}
+	var digest [20]byte
+	_, err := hex.Decode(digest[:], []byte(value))
+	return err == nil
+}
+
+func cacheControlAllowsStorage(header http.Header) bool {
+	for _, value := range header.Values("Cache-Control") {
+		for directive := range strings.SplitSeq(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(directive), "no-store") {
+				return false
+			}
+		}
+	}
+	return true
 }

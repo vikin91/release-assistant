@@ -11,10 +11,6 @@
     {{else if ne (truth .Tag.Belongs) "yes"}}<span class="unknown">Branch membership unverified</span>
     {{else}}
       <span class="good-text">On release branch</span>
-      {{range .MergeCoverage}}
-        {{if eq (truth .Status) "no"}}<div class="no">Missing included merge <code>{{.SHA}}</code></div>
-        {{else if ne (truth .Status) "yes"}}<div class="unknown">Coverage unverified for <code>{{.SHA}}</code></div>{{end}}
-      {{end}}
     {{end}}
     {{if .Tag.Evidence.Fresh}}<div class="muted">Verified {{when .Tag.Evidence.At}}</div>{{end}}
   </td>

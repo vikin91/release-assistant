@@ -65,7 +65,7 @@
           <details class="tag-evidence component-tag-details" data-fold-key="{{if .CurrentTag}}tag-evidence:{{$source.Name}}:{{$source.Repo}}@{{.CurrentTag}}{{else}}tag-repo-details:{{$source.Name}}:{{$source.Repo}}{{end}}">
             <summary>Details</summary>
             {{if .CurrentTag}}
-              <h4>Included new PRs in {{.CurrentTag}}</h4>
+              <h4>PRs merged since the previous tag</h4>
               {{if $details.PRsKnown}}
                 {{if $details.PRs}}
                   <ol class="tag-release-prs">

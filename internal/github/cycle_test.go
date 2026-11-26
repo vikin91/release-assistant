@@ -76,7 +76,7 @@ func TestDiscoverRequestBudgetPreservesPartialResults(t *testing.T) {
 		tags, merged, open, limit int
 	}{
 		"should bound a large inventory":                         {100, 500, 20, maxDiscoveryRequests},
-		"should leave unobserved merge coverage unknown":         {1, 2, 0, 9},
+		"should bound reads of merged PR metadata":               {1, 2, 0, 8},
 		"should join budget failures encountered only in checks": {1, 0, 1, 9},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -92,13 +92,6 @@ func TestDiscoverRequestBudgetPreservesPartialResults(t *testing.T) {
 			}
 			if repo.Head != "branch-sha" || repo.Evidence.Fresh() || len(repo.Tags) == 0 {
 				t.Fatalf("lost partial results or confirmed incomplete inventory: %+v", repo)
-			}
-			for _, tag := range repo.Tags {
-				for _, truth := range tag.Contains {
-					if truth != "" {
-						t.Fatalf("confirmed unread coverage: %+v", tag)
-					}
-				}
 			}
 			t.Logf("requests=%d tags=%d PRs=%d incomplete=true", total, len(repo.Tags), len(repo.PRs))
 		})

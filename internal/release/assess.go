@@ -49,11 +49,9 @@ func Assess(in Input) Assessment {
 	prSources = append(prSources, in.Config.ACS())
 
 	included := includedTargets(in.Choices.PRs)
-	prStates := make(map[Target]Truth, len(included))
 	for _, target := range included {
 		pr, repo, found := findPR(repos, prSources, target)
 		status, reason := assessIncludedPR(in.Config, target, pr, found)
-		prStates[target] = status
 		var evidence []Evidence
 		if found {
 			evidence = []Evidence{pr.Evidence}
@@ -64,13 +62,13 @@ func Assess(in Input) Assessment {
 	}
 
 	chosenVersions := make(map[string]string, len(in.Config.Components))
-	tagCoverage := make(map[string]Condition, len(in.Config.Components))
+	tagConditions := make(map[string]Condition, len(in.Config.Components))
 	for _, source := range in.Config.Components {
 		a.ReleaseGuides[source.Name] = componentReleaseGuide(source.Name)
 		repo, found := repos[source.Name]
 		confirmed := in.Choices.Tags[source.Name]
-		coverage, tag, tagFound := assessComponentTag(source, repo, found, included, prStates, confirmed)
-		tagCoverage[source.Name] = coverage
+		condition, tag, tagFound := assessComponentTag(source, repo, found, confirmed)
+		tagConditions[source.Name] = condition
 		if tagFound {
 			if version, ok := tagVersion(source, tag.Name); ok {
 				chosenVersions[source.Name] = version
@@ -89,9 +87,9 @@ func Assess(in Input) Assessment {
 		if tagFound {
 			evidence = append(evidence, tag.Evidence)
 		}
-		coverage.Name = "tag " + source.Name
-		coverage.Evidence = evidence
-		addCondition(coverage)
+		condition.Name = "tag " + source.Name
+		condition.Evidence = evidence
+		addCondition(condition)
 	}
 
 	imageVersions := make(map[string]string, len(in.Config.Components))
@@ -117,7 +115,7 @@ func Assess(in Input) Assessment {
 		pinEvidence = []Evidence{{Known: acs.Evidence.Known, Historical: acs.Evidence.Historical, At: acs.Evidence.At}, acs.Pins.Evidence}
 	}
 	add("ACS release branch pins", a.Pins.BranchStatus, a.Pins.BranchReason, pinEvidence...)
-	assessPinningPR(&a, in, chosenVersions, tagCoverage, imageStatus)
+	assessPinningPR(&a, in, chosenVersions, tagConditions, imageStatus)
 	acs := repos["acs"]
 	a.PatchMayBeUnnecessary = acs.PreviousPublished == Yes && noOutstandingACSPR(acs) && a.componentsAtBaseline()
 
@@ -206,7 +204,7 @@ func assessIncludedPR(config Config, target Target, pr PR, found bool) (Truth, s
 	return "", "Included PR merge state is unknown"
 }
 
-func assessComponentTag(source Source, repo Repository, found bool, included []Target, prStates map[Target]Truth, confirmed string) (Condition, Tag, bool) {
+func assessComponentTag(source Source, repo Repository, found bool, confirmed string) (Condition, Tag, bool) {
 	if confirmed == "" {
 		return Condition{Reason: "No component tag selected"}, Tag{}, false
 	}
@@ -217,12 +215,12 @@ func assessComponentTag(source Source, repo Repository, found bool, included []T
 	if !ok {
 		return Condition{Reason: "Confirmed tag was not found in current discovery"}, Tag{}, false
 	}
-	coverage := tagSuitability(source, repo, tag, included, prStates)
-	coverage.Reason = "Confirmed tag " + confirmed + ": " + coverage.Reason
-	return coverage, tag, true
+	condition := tagSuitability(source, repo, tag)
+	condition.Reason = "Confirmed tag " + confirmed + ": " + condition.Reason
+	return condition, tag, true
 }
 
-func tagSuitability(source Source, repo Repository, tag Tag, included []Target, prStates map[Target]Truth) Condition {
+func tagSuitability(source Source, repo Repository, tag Tag) Condition {
 	if _, ok := tagVersion(source, tag.Name); !ok {
 		return Condition{Status: No, Reason: "tag is not a final semantic version in the configured stream"}
 	}
@@ -235,32 +233,7 @@ func tagSuitability(source Source, repo Repository, tag Tag, included []Target, 
 	if tag.Belongs != Yes {
 		return Condition{Reason: "branch ancestry for this tag is unknown"}
 	}
-	for _, target := range included {
-		if target.Repo != source.Repo || target.PR == 0 {
-			continue
-		}
-		switch prStates[target] {
-		case No:
-			return Condition{Status: No, Reason: "an included PR is still open or otherwise not merged", TagIssue: TagPRUnmerged}
-		case "":
-			return Condition{Reason: "included PR merge state is unknown"}
-		}
-		pr, _, found := findPR(map[string]Repository{source.Name: repo}, []Source{source}, target)
-		if !found || pr.MergeSHA == "" {
-			return Condition{Reason: "included PR merge commit is unknown"}
-		}
-		if tag.Contains == nil {
-			return Condition{Reason: "tag containment observations are missing"}
-		}
-		switch tag.Contains[pr.MergeSHA] {
-		case Yes:
-		case No:
-			return Condition{Status: No, Reason: "tag does not contain included PR merge " + pr.MergeSHA, TagIssue: TagMissingMerge}
-		default:
-			return Condition{Reason: "tag containment for included PR merge is unknown"}
-		}
-	}
-	return Condition{Status: Yes, Reason: "tag belongs to the configured branch and covers every included merged PR"}
+	return Condition{Status: Yes, Reason: "tag belongs to the configured branch"}
 }
 
 func highestEligibleTag(source Source, repo Repository, found bool) (Tag, bool) {
@@ -826,7 +799,7 @@ func comparePins(actual, selected map[string]string, sources []Source) Truth {
 	return Yes
 }
 
-func assessPinningPR(a *Assessment, in Input, versions map[string]string, tagCoverage map[string]Condition, imageStatus Truth) {
+func assessPinningPR(a *Assessment, in Input, versions map[string]string, tagConditions map[string]Condition, imageStatus Truth) {
 	acs, found := findRepository(in.Repositories, "acs")
 	if !found || !acs.Evidence.Fresh() {
 		return
@@ -834,7 +807,7 @@ func assessPinningPR(a *Assessment, in Input, versions map[string]string, tagCov
 	if in.Config.PinningPR > 0 && (acs.PinningPR == nil || acs.PinningPR.Target.PR != in.Config.PinningPR) {
 		return
 	}
-	if imageStatus != Yes || !pinningReady(in, versions, tagCoverage) {
+	if imageStatus != Yes || !pinningReady(in, versions, tagConditions) {
 		return
 	}
 	if acs.PinningPR == nil {
@@ -858,9 +831,9 @@ func assessPinningPR(a *Assessment, in Input, versions map[string]string, tagCov
 	}
 }
 
-func pinningReady(in Input, versions map[string]string, tagCoverage map[string]Condition) bool {
+func pinningReady(in Input, versions map[string]string, tagConditions map[string]Condition) bool {
 	for _, source := range in.Config.Components {
-		if in.Choices.Tags[source.Name] == "" || versions[source.Name] == "" || tagCoverage[source.Name].Status != Yes {
+		if in.Choices.Tags[source.Name] == "" || versions[source.Name] == "" || tagConditions[source.Name].Status != Yes {
 			return false
 		}
 	}

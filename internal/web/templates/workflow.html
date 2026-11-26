@@ -6,9 +6,9 @@
     {{if ne .Tab "acs-rcs"}}<details class="workflow-help" data-fold-key="{{.Tab}}-guide">
       <summary>Help</summary>
       {{if or $component (eq .Tab "component-prs")}}
-        <p><strong>Include</strong> tracks the PR’s checks and verifies that the selected component tag contains the merge. <strong>Exclude</strong> stops detailed monitoring and retries. <strong>Ignore &amp; hide</strong> also moves the PR to the <strong>Ignored &amp; hidden</strong> filter. You can release a component without including any new PRs.</p>
+        <p><strong>Include</strong> enables detailed CI monitoring and retests for the PR. <strong>Exclude</strong> stops detailed monitoring and retries. <strong>Ignore &amp; hide</strong> also moves the PR to the <strong>Ignored &amp; hidden</strong> filter. You can release a component without including any new PRs.</p>
       {{else if eq .Tab "component-releases"}}
-        <p>The selected tag must contain the included PRs’ merge commits. If no existing tag covers them, use the component’s release guide to cut a covering tag and start its release.</p>
+        <p>Select a final version from the configured component release branch. Use the component’s release guide if you need to cut a new tag.</p>
       {{else}}<p>{{tabHelp .Tab}}</p>{{end}}
     </details>{{end}}
   </div>

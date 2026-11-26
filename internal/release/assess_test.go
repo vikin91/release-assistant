@@ -13,7 +13,6 @@ func TestAssessTagScenarios(t *testing.T) {
 		mutate       func(*Input)
 		wantStatus   Truth
 		wantReason   string
-		wantIssue    TagCoverageIssue
 		wantProposed string
 	}{
 		"tag at branch tip is suitable without selected PRs": {
@@ -27,26 +26,21 @@ func TestAssessTagScenarios(t *testing.T) {
 				in.Repositories[1].Tags[0].Belongs = Yes
 			},
 			wantStatus: Yes,
-			wantReason: "covers every included merged PR",
+			wantReason: "belongs to the configured branch",
 		},
-		"selected merged PR after confirmed tag proposes higher eligible tag without switching": {
+		"later included merge leaves the selected tag eligible and proposes the newest version": {
 			mutate: func(in *Input) {
 				pr := mergedPR("fact", 11, "merge-11")
 				in.Repositories[1].PRs = append(in.Repositories[1].PRs, pr)
 				in.Choices.PRs[pr.Target] = Included
-				in.Repositories[1].Tags[0].Contains = map[string]Truth{"merge-11": No}
 				newer := freshTag("v0.3.80", "component-head-2", Yes)
-				newer.Contains = map[string]Truth{"merge-11": Yes}
 				highest := freshTag("v0.3.100", "component-head-3", Yes)
-				highest.Contains = map[string]Truth{"merge-11": Yes}
 				wrongStream := freshTag("v0.4.99", "component-head-4", Yes)
-				wrongStream.Contains = map[string]Truth{"merge-11": Yes}
 				in.Repositories[1].Tags = append(in.Repositories[1].Tags, newer, highest, wrongStream)
 				in.Repositories[1].Head = "component-head-2"
 			},
-			wantStatus:   No,
-			wantReason:   "does not contain included PR merge",
-			wantIssue:    TagMissingMerge,
+			wantStatus:   Yes,
+			wantReason:   "belongs to the configured branch",
 			wantProposed: "v0.3.100",
 		},
 		"ACS PRs are selected against the configured ACS branch": {
@@ -67,15 +61,14 @@ func TestAssessTagScenarios(t *testing.T) {
 			wantStatus: Yes,
 			wantReason: "merged into its configured ACS release branch",
 		},
-		"selected open PR requires merge": {
+		"included open PR does not affect tag eligibility": {
 			mutate: func(in *Input) {
 				pr := PR{Target: Target{Repo: "stackrox/fact", PR: 12}, Base: "release-0.3", State: "open", Evidence: freshEvidence()}
 				in.Repositories[1].PRs = append(in.Repositories[1].PRs, pr)
 				in.Choices.PRs[pr.Target] = Included
 			},
-			wantStatus: No,
-			wantReason: "still open",
-			wantIssue:  TagPRUnmerged,
+			wantStatus: Yes,
+			wantReason: "belongs to the configured branch",
 		},
 		"same stream tag outside branch is ineligible": {
 			mutate:     func(in *Input) { in.Repositories[1].Tags[0].Belongs = No },
@@ -114,17 +107,11 @@ func TestAssessTagScenarios(t *testing.T) {
 			if !strings.Contains(condition.Reason, tt.wantReason) {
 				t.Fatalf("tag reason %q does not contain %q", condition.Reason, tt.wantReason)
 			}
-			if condition.TagIssue != tt.wantIssue {
-				t.Errorf("tag coverage issue = %q, want %q", condition.TagIssue, tt.wantIssue)
-			}
 			if tt.wantProposed != "" && a.ProposedTags["fact"] != tt.wantProposed {
 				t.Fatalf("proposed tag = %q, want %q", a.ProposedTags["fact"], tt.wantProposed)
 			}
 			if tt.wantProposed != "" && in.Choices.Tags["fact"] != "v0.3.79" {
 				t.Fatalf("confirmed tag changed to %q", in.Choices.Tags["fact"])
-			}
-			if strings.Contains(name, "selected merged PR after") && a.PinningRecommendation != "" {
-				t.Fatalf("pinning was recommended despite unsuitable confirmed tag: %s", a.PinningRecommendation)
 			}
 		})
 	}
@@ -138,12 +125,11 @@ func TestAssessPinsImagesAndSelection(t *testing.T) {
 		wantReason  string
 		wantPinning string
 	}{
-		"covered inclusion preserves matching pins": {
+		"included merge preserves matching pins": {
 			mutate: func(in *Input) {
 				pr := mergedPR("fact", 21, "merge-21")
 				in.Repositories[1].PRs = append(in.Repositories[1].PRs, pr)
 				in.Choices.PRs[pr.Target] = Included
-				in.Repositories[1].Tags[0].Contains = map[string]Truth{"merge-21": Yes}
 			},
 			condition: "ACS release branch pins", wantStatus: Yes,
 			wantReason: "Actual branch pins match selected versions",
@@ -322,7 +308,7 @@ func TestAssessReportsIndependentReleaseEvidence(t *testing.T) {
 				repo := &in.Repositories[2]
 				pr := mergedPR("collector", 4339, "merge")
 				repo.PRs = append(repo.PRs, pr)
-				repo.Evidence.Error = "tag coverage read failed"
+				repo.Evidence.Error = "tag verification failed"
 				in.Choices.PRs[pr.Target] = Included
 			},
 			check: func(t *testing.T, a Assessment) {
@@ -1000,7 +986,7 @@ func freshEvidence() Evidence {
 }
 
 func freshTag(name, sha string, belongs Truth) Tag {
-	return Tag{Name: name, SHA: sha, Belongs: belongs, Contains: map[string]Truth{}, Evidence: freshEvidence()}
+	return Tag{Name: name, SHA: sha, Belongs: belongs, Evidence: freshEvidence()}
 }
 
 func freshImage(component, family, reference string) Image {
@@ -1026,12 +1012,11 @@ func conditionByName(t *testing.T, assessment Assessment, name string) Condition
 	return Condition{}
 }
 
-func TestReleaseGuideForSelectedChangesWithoutCoveringTag(t *testing.T) {
+func TestReleaseGuideWithAnIncludedPR(t *testing.T) {
 	in := readyInput()
 	pr := mergedPR("fact", 71, "later-merge")
 	in.Choices.PRs[pr.Target] = Included
 	in.Repositories[1].PRs = append(in.Repositories[1].PRs, pr)
-	in.Repositories[1].Tags[0].Contains[pr.MergeSHA] = No
 	a := Assess(in)
 	if !strings.Contains(a.ReleaseGuides["fact"], "/docs/release.md") {
 		t.Fatal("component release instructions missing")

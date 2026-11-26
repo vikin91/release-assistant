@@ -230,24 +230,24 @@ func TestComponentRefreshIntervals(t *testing.T) {
 		s.mu.Unlock()
 		apply(t, s, Action{Kind: "tag", Component: "fact", Tag: tag.Name, SHA: tag.SHA})
 		synctest.Wait()
-		check("fact", 2, 1) // Read PR coverage for the selected SHA.
+		check("fact", 1, 1) // Selecting a tag leaves the existing PR poll on its schedule.
 		time.Sleep(4 * time.Minute)
 		synctest.Wait()
-		check("fact", 2, 1)
+		check("fact", 1, 1)
 		check("collector", 2, 0)
 		time.Sleep(5 * time.Minute)
 		synctest.Wait()
-		check("fact", 2, 1)
+		check("fact", 1, 1)
 		check("collector", 3, 0)
 
 		// Shortening an overdue interval wakes the monitor. Lengthening it
 		// moves the next read without issuing an extra request.
 		apply(t, s, Action{Kind: "application-settings", RefreshIntervals: RefreshIntervals{AfterPRs: 3 * time.Minute, BeforeTags: time.Hour}})
 		synctest.Wait()
-		check("fact", 3, 1)
+		check("fact", 2, 1)
 		time.Sleep(10 * time.Minute)
 		synctest.Wait()
-		check("fact", 6, 2)
+		check("fact", 5, 2)
 		check("collector", 5, 0)
 	})
 }

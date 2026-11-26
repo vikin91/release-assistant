@@ -21,7 +21,6 @@ import (
 	"release-assistant/internal/apilog"
 	"release-assistant/internal/app"
 	"release-assistant/internal/dispatch"
-	"release-assistant/internal/github"
 	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
 )
@@ -100,83 +99,16 @@ func (b browser) post(values url.Values) *httptest.ResponseRecorder {
 	return w
 }
 
-func TestSettingsControlsCommitWindowCache(t *testing.T) {
-	cache := github.NewCommitWindowCache(nil)
-	session := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{}), nil, app.Options{Cache: cache})
-	b := newBrowser(t, session)
-	getSettings := func(address string) string {
-		t.Helper()
-		response := httptest.NewRecorder()
-		path, _, _ := strings.Cut(address, "#")
-		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:8080"+path, nil)
-		b.handler.ServeHTTP(response, req)
-		if response.Code != http.StatusOK {
-			t.Fatalf("GET status = %d", response.Code)
-		}
-		return response.Body.String()
-	}
-	const checked = `aria-describedby="discovery-cache-help" checked`
-	if body := getSettings("/?tab=settings"); !strings.Contains(body, checked) || !strings.Contains(body, ">Clear cache</button>") {
-		t.Fatal("cache controls should be available before configuring a release")
-	}
-	action := url.Values{"tab": {"settings"}, "generation": {fmt.Sprint(session.Snapshot().Generation)},
-		"kind": {"application-settings"}, "settings_section": {"cache-settings"}, "cache": {"false"}}
-	if response := b.post(action); response.Code != http.StatusSeeOther || cache.Enabled() {
-		t.Fatalf("disable status=%d enabled=%t", response.Code, cache.Enabled())
-	} else if location := response.Header().Get("Location"); !strings.HasSuffix(location, "#cache-settings") || !strings.Contains(getSettings(location), "Settings saved.") {
-		t.Fatal("saving settings should return to the panel with a confirmation")
-	}
-	if body := getSettings("/?tab=settings"); strings.Contains(body, checked) {
-		t.Fatal("disabled cache rendered as enabled")
-	}
-	action.Set("kind", "clear-cache")
-	response := b.post(action)
-	if response.Code != http.StatusSeeOther || cache.Enabled() {
-		t.Fatalf("clear status=%d enabled=%t", response.Code, cache.Enabled())
-	}
-	if body := getSettings(response.Header().Get("Location")); !strings.Contains(body, "Cache cleared.") {
-		t.Fatal("clear confirmation missing")
-	}
-	action.Set("kind", "application-settings")
-	action.Set("cache", "true")
-	if response := b.post(action); response.Code != http.StatusSeeOther || !cache.Enabled() {
-		t.Fatalf("enable status=%d enabled=%t", response.Code, cache.Enabled())
-	}
-}
-
-func TestSaveApplicationSettingsTogether(t *testing.T) {
-	cache := github.NewCommitWindowCache(nil)
-	session := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{EnableWrites: true}), nil, app.Options{Cache: cache})
-	if err := session.Apply(t.Context(), app.Action{Kind: "configure", Config: validACS5Config()}); err != nil {
-		t.Fatal(err)
-	}
-	b := newBrowser(t, session)
-	fields := url.Values{"kind": {"application-settings"}, "generation": {fmt.Sprint(session.Snapshot().Generation)}, "interactive": {"false"}, "cache": {"false"}}
-	if resp := b.post(fields); resp.Code != http.StatusSeeOther || session.Snapshot().Interactive || cache.Enabled() {
-		t.Fatal("save did not apply both unchecked settings")
-	}
-	fields.Add("interactive", "true")
-	fields.Add("cache", "true")
-	fields.Set("kind", "clear-cache")
-	if resp := b.post(fields); resp.Code != http.StatusSeeOther || session.Snapshot().Interactive || cache.Enabled() {
-		t.Fatal("clear cache applied pending checkbox changes")
-	}
-	fields.Set("kind", "application-settings")
-	if resp := b.post(fields); resp.Code != http.StatusSeeOther || !session.Snapshot().Interactive || !cache.Enabled() {
-		t.Fatal("save did not apply both checked settings")
-	}
-}
-
 func TestSettingsSaveLogsOnlyCommittedChanges(t *testing.T) {
 	var output bytes.Buffer
 	log := app.NewLog(&output, false)
 	session := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{EnableWrites: true}), log, app.Options{
-		Initial: validACS5Config(), GitHubReads: githubread.New(nil), Cache: github.NewCommitWindowCache(nil),
+		Initial: validACS5Config(), GitHubReads: githubread.New(nil),
 	})
 	b := newBrowser(t, session)
 	values := url.Values{
 		"kind": {"application-settings"}, "generation": {fmt.Sprint(session.Snapshot().Generation)},
-		"startup_read_limit": {"5"}, "ongoing_read_limit": {"2"}, "interactive": {"false"}, "cache": {"false"},
+		"startup_read_limit": {"5"}, "ongoing_read_limit": {"2"}, "interactive": {"false"},
 	}
 	checkSave := func(status int, want ...string) {
 		t.Helper()
@@ -202,7 +134,6 @@ func TestSettingsSaveLogsOnlyCommittedChanges(t *testing.T) {
 		`Setting changed: "Concurrent GitHub reads (first 5 minutes)" from '3' to '5'.`,
 		`Setting changed: "Concurrent GitHub reads (after 5 minutes)" from '1' to '2'.`,
 		`Setting changed: "Confirm each retry comment" from 'true' to 'false'.`,
-		`Setting changed: "Reuse GitHub commit history in memory" from 'true' to 'false'.`,
 	)
 	checkSave(http.StatusSeeOther)
 	values.Del("startup_read_limit")
@@ -596,7 +527,7 @@ func TestComponentPRSelectionShowsAuthorsAndSummarizesUnverifiedChecks(t *testin
 	}
 }
 
-func TestPRViewHidesMergedAndClosedPRsWithoutDiscardingCoverageEvidence(t *testing.T) {
+func TestPRViewHidesMergedAndClosedPRsWithoutDiscardingMergeEvidence(t *testing.T) {
 	for name, source := range map[string]release.Source{
 		"ACS":       {Name: "acs", Repo: "acme/rox", Branch: "release-5.0"},
 		"component": {Name: "fact", Repo: "acme/fact", Branch: "release-3.25", Stream: "3.25"},
@@ -612,7 +543,7 @@ func TestPRViewHidesMergedAndClosedPRsWithoutDiscardingCoverageEvidence(t *testi
 					{Target: release.Target{Repo: source.Repo, PR: 3}, State: "closed", Merged: true, Title: "Closed merged change"},
 					{Target: release.Target{Repo: source.Repo, PR: 4}, State: "open", Merged: true, Title: "Merged flag takes precedence"},
 					{Target: release.Target{Repo: source.Repo, PR: 5}, State: "closed", Title: "Closed unmerged change"},
-				}, Tags: []release.Tag{{Name: "3.25.9", Contains: map[string]release.Truth{"merge-sha": release.Yes}}}}},
+				}}},
 				Plans:     []release.Plan{{Target: merged, Message: "Old merged PR retry observations"}},
 				Authority: []dispatch.View{{Target: merged, Message: "Old merged PR permission panel"}},
 			}}
@@ -633,9 +564,8 @@ func TestPRViewHidesMergedAndClosedPRsWithoutDiscardingCoverageEvidence(t *testi
 			}
 			repo := application.snapshot.Repositories[0]
 			if len(repo.PRs) != 5 || repo.PRs[1].MergeSHA != "merge-sha" ||
-				application.snapshot.Choices.PRs[merged] != release.Included ||
-				repo.Tags[0].Contains["merge-sha"] != release.Yes {
-				t.Fatal("view filtering discarded merge identity, inclusion intent, or tag coverage")
+				application.snapshot.Choices.PRs[merged] != release.Included {
+				t.Fatal("view filtering discarded merge identity or inclusion intent")
 			}
 			application.snapshot.Repositories[0].PRs[0].State = "merged"
 			application.snapshot.Repositories[0].PRs[0].Merged = true
@@ -1171,7 +1101,6 @@ func TestHeaderGitHubReadBudget(t *testing.T) {
 	for name, tc := range map[string]struct {
 		remaining      int
 		next, paused   time.Time
-		limitReached   bool
 		quotaExhausted bool
 		want           string
 	}{
@@ -1179,7 +1108,6 @@ func TestHeaderGitHubReadBudget(t *testing.T) {
 		"assistant allowance": {next: nextSlot, want: "Read limit reached"},
 		"github paused":       {remaining: 2520, paused: nextSlot, want: "Reads paused"},
 		"github quota":        {remaining: 2520, quotaExhausted: true, want: "API quota exhausted"},
-		"graph limit":         {remaining: 2520, limitReached: true, want: "Commit graph limit reached"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			quota := 1812
@@ -1192,17 +1120,11 @@ func TestHeaderGitHubReadBudget(t *testing.T) {
 					GitHub: githubread.Quota{Remaining: quota, Limit: 5000, ObservedAt: now, ResetAt: reset},
 				},
 			}}
-			if tc.limitReached {
-				application.snapshot.GitHubGraphLimits = []app.GitHubGraphLimit{{Release: "4.10.12", Repository: "acme/collector", Pages: 40}}
-			}
 			menu := between(t, newBrowser(t, application).getBody(t), `data-fold-key="github-budget"`, "</details>")
 			for _, want := range []string{"GitHub · " + tc.want, fmt.Sprintf("%d of 5000 requests left", quota), "Resets in 51 minutes"} {
 				if !strings.Contains(menu, want) {
 					t.Errorf("GitHub menu missing %q", want)
 				}
-			}
-			if tc.limitReached && (!strings.Contains(menu, "internal limit of 40 commit-history pages per check") || !strings.Contains(menu, "acme/collector (ACS 4.10.12)")) {
-				t.Error("GitHub menu omitted the name and affected repository")
 			}
 			if !tc.next.IsZero() && !strings.Contains(menu, "Next slot at "+formatTime(nextSlot)) {
 				t.Error("GitHub menu omitted next slot")
@@ -1248,8 +1170,7 @@ func TestLogShowsGitHubReadStatistics(t *testing.T) {
 
 func TestGitHubReadLimitSettings(t *testing.T) {
 	reads := githubread.New(nil)
-	cache := github.NewCommitWindowCache(nil)
-	session := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{}), nil, app.Options{GitHubReads: reads, Cache: cache})
+	session := app.New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{}), nil, app.Options{GitHubReads: reads})
 	b := newBrowser(t, session)
 	if body := b.getBody(t); !strings.Contains(body, "3000 of 3000 reads left") || !strings.Contains(body, "<dd>Unknown</dd>") {
 		t.Fatal("sidebar should show the local allowance and an unknown GitHub quota before the first read")
@@ -1285,7 +1206,6 @@ func TestGitHubReadLimitSettings(t *testing.T) {
 	save()
 	checkLimits(5, 3)
 
-	values.Set("cache", "false")
 	for _, tc := range []struct{ startup, ongoing []string }{
 		{[]string{"0"}, []string{"1"}}, {[]string{"6"}, []string{"1"}},
 		{[]string{"1"}, []string{"0"}}, {[]string{"1"}, []string{"4"}},
@@ -1293,7 +1213,7 @@ func TestGitHubReadLimitSettings(t *testing.T) {
 		{[]string{"1"}, []string{"1", "2"}},
 	} {
 		values["startup_read_limit"], values["ongoing_read_limit"] = tc.startup, tc.ongoing
-		if response := b.post(values); response.Code < 400 || !cache.Enabled() {
+		if response := b.post(values); response.Code < 400 {
 			t.Fatalf("invalid limits %+v applied settings", tc)
 		}
 		checkLimits(5, 3)

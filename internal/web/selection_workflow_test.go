@@ -49,7 +49,7 @@ func TestComponentTagDetailsShowReleaseHistory(t *testing.T) {
 					t.Errorf("details missing %q", want)
 				}
 			}
-			if tc.tag != "" && (!strings.Contains(details, "Included new PRs in "+tc.tag) || !strings.Contains(details, "Last observed "+formatTime(observed))) {
+			if tc.tag != "" && (!strings.Contains(details, "PRs merged since the previous tag") || !strings.Contains(details, "Last observed "+formatTime(observed))) {
 				t.Error("missing tag history heading or observation")
 			}
 			if strings.Contains(details, "Next retry") != !tc.details.NextRetry.IsZero() {
@@ -73,7 +73,7 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 			PRs:  map[release.Target]release.Choice{{Repo: "acme/fact", PR: 11}: release.Included},
 		},
 		Assessment: release.Assessment{ProposedTags: map[string]string{"fact": "3.25.2"}, Conditions: []release.Condition{{
-			Name: "tag fact", Status: release.No, Reason: "Current tag does not contain merge-1", TagIssue: release.TagMissingMerge,
+			Name: "tag fact", Status: release.Yes, Reason: "Tag belongs to the configured branch",
 		}}},
 		Plans: []release.Plan{
 			{Target: release.Target{Repo: "acme/fact", Tag: "3.25.1"}, SHA: "fact-current-sha",
@@ -94,7 +94,7 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 		},
 		Repositories: []release.Repository{
 			{Source: release.Source{Name: "fact", Repo: "acme/fact", Branch: "release-3.25", Stream: "3.25"}, Tags: []release.Tag{
-				{Name: "3.25.1", SHA: "fact-current-sha", Belongs: release.Yes, Contains: map[string]release.Truth{"merge-1": release.No}, Evidence: observed},
+				{Name: "3.25.1", SHA: "fact-current-sha", Belongs: release.Yes, Evidence: observed},
 				{Name: "3.25.2", SHA: "fact-next-sha", Belongs: release.Yes, Evidence: observed},
 			}, PRs: []release.PR{{Target: release.Target{Repo: "acme/fact", PR: 11}, SHA: "pr-head", MergeSHA: "merge-1", Merged: true}}},
 			{Source: release.Source{Name: "collector", Repo: "acme/collector", Branch: "release-3.25", Stream: "3.25"}, Tags: []release.Tag{
@@ -194,7 +194,7 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 		t.Fatal("selected Fact tag row missing")
 	}
 	details := between(t, current, `data-fold-key="tag-evidence:fact:acme/fact@3.25.1"`, "</details>")
-	if !strings.Contains(details, "Included new PRs in 3.25.1") || strings.Contains(details, "merge-1") {
+	if !strings.Contains(details, "PRs merged since the previous tag") || strings.Contains(details, "merge-1") {
 		t.Fatal("selected tag details must show tag history without merge coverage")
 	}
 	var tagGrantForm string
@@ -211,7 +211,7 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 		t.Fatal("tag grant form lost repository/tag/SHA identity, generation, or CSRF token")
 	}
 	if !strings.Contains(body, "Fact: 3.25.1") || !strings.Contains(body, "unknown") || strings.Contains(body, "Release prerequisites met") {
-		t.Fatal("unknown selected-tag coverage must not be reported as ready")
+		t.Fatal("the workflow reported readiness without independent readiness evidence")
 	}
 	if strings.Contains(activityPanel(t, body, "component-releases"), "Choose component tags") {
 		t.Fatal("recommendations should not repeat the completed tag-selection task")

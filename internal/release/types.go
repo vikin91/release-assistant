@@ -47,7 +47,7 @@ type (
 		DetectPinningPR bool
 		ManualPinningPR int
 	}
-	// PR includes historical merge identity for tag coverage.
+	// PR holds observations about a pull request and its checks.
 	PR struct {
 		// CommentLabel records whether GitHub reported the label required for labeled mode.
 		CommentLabel                                   bool
@@ -92,11 +92,10 @@ type (
 		Evidence     Evidence
 		ScanWorkflow RCScanWorkflow
 	}
-	// Tag retains branch membership and merge containment from commit comparisons.
+	// Tag records a release tag and its verified branch membership.
 	Tag struct {
 		Name, SHA string
 		Belongs   Truth
-		Contains  map[string]Truth
 		Evidence  Evidence
 	}
 	// Pins separates actual branch pins from a proposed PR's values.
@@ -131,8 +130,6 @@ type (
 		Tags           []Tag
 		// TagsPending prevents an incomplete inventory from proving that tags are absent.
 		TagsPending bool
-		// CommitGraphLimit is the local page cap when coverage reaches it.
-		CommitGraphLimit int `json:"-"`
 
 		PinDiscovery PinDiscovery
 		Pins         Pins
@@ -265,15 +262,12 @@ type (
 		Repositories []Repository
 		Inventory    Inventory
 	}
-	// TagCoverageIssue identifies why a tag cannot cover the selected PRs.
-	TagCoverageIssue string
 	// Condition explains one readiness predicate and its evidence.
 	Condition struct {
 		Name     string
 		Status   Truth
 		Reason   string
 		Evidence []Evidence
-		TagIssue TagCoverageIssue
 	}
 	// BaselineRecord explains what current tag evidence says about the previous ACS pin.
 	BaselineRecord struct {
@@ -317,10 +311,6 @@ const (
 	Excluded Choice = "excluded"
 	// Ignored stops detailed reads and all writes.
 	Ignored Choice = "ignored"
-	// TagPRUnmerged means a selected PR has no recorded merge into the component branch.
-	TagPRUnmerged TagCoverageIssue = "pr-unmerged"
-	// TagMissingMerge means the tag omits a known merge of a selected PR.
-	TagMissingMerge TagCoverageIssue = "missing-merge"
 )
 
 var (

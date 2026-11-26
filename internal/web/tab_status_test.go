@@ -170,7 +170,7 @@ func TestWorkflowComponentReleaseStatus(t *testing.T) {
 			update: func(s *app.Snapshot) { delete(s.Choices.Tags, "fact") },
 			want:   tabActionNeeded, wantText: "Select a component tag for fact.",
 		},
-		"should quietly wait for a selected change to merge": {
+		"should assess selected tags independently of an included open PR": {
 			update: func(s *app.Snapshot) {
 				repo := &s.Repositories[0]
 				pr := release.PR{
@@ -180,33 +180,11 @@ func TestWorkflowComponentReleaseStatus(t *testing.T) {
 				repo.PRs = []release.PR{pr}
 				s.Choices.PRs[pr.Target] = release.Included
 			},
-			want: tabPending,
-		},
-		"should warn when a tag misses an included merge": {
-			update: func(s *app.Snapshot) {
-				repo := &s.Repositories[0]
-				pr := release.PR{
-					Target: release.Target{Repo: repo.Source.Repo, PR: 1}, Base: repo.Source.Branch,
-					State: "merged", Merged: true, MergeSHA: "later-merge", Evidence: repo.Evidence,
-				}
-				repo.PRs = []release.PR{pr}
-				repo.Tags[0].Contains = map[string]release.Truth{pr.MergeSHA: release.No}
-				s.Choices.PRs[pr.Target] = release.Included
-			},
-			want: tabNeedsAttention, wantText: "does not contain included PR merge",
-		},
-		"should keep the selected tag complete when only the commit graph is limited": {
-			update: func(s *app.Snapshot) {
-				repo := &s.Repositories[0]
-				pr := release.PR{
-					Target: release.Target{Repo: repo.Source.Repo, PR: 1}, Base: repo.Source.Branch,
-					State: "merged", Merged: true, MergeSHA: "unknown-merge", Evidence: repo.Evidence,
-				}
-				repo.PRs = []release.PR{pr}
-				repo.CommitGraphLimit = 20
-				s.Choices.PRs[pr.Target] = release.Included
-			},
 			want: tabComplete,
+		},
+		"should warn when the selected tag is outside the release branch": {
+			update: func(s *app.Snapshot) { s.Repositories[0].Tags[0].Belongs = release.No },
+			want:   tabNeedsAttention, wantText: "not an ancestor",
 		},
 		"should wait for a running build on a selected tag": {
 			update: func(s *app.Snapshot) { addWorkflowBuild(s, "in_progress", "") },

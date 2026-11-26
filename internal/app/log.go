@@ -67,19 +67,6 @@ func (l *Log) callingAPI(version, system, method, resource string) {
 	})
 }
 
-// CommitWindowCacheHits records reused history once per discovery pass.
-func (l *Log) CommitWindowCacheHits(repo string, hits int) {
-	l.CommitWindowCacheHitsWithContext(context.Background(), repo, hits)
-}
-
-// CommitWindowCacheHitsWithContext attributes the reused history to the requesting release.
-func (l *Log) CommitWindowCacheHitsWithContext(ctx context.Context, repo string, hits int) {
-	l.Append(Record{
-		At: time.Now(), Release: apilog.Release(ctx), Target: release.Target{Repo: repo}, Decision: "commit-window-cache-hit", Origin: "system",
-		Result: fmt.Sprintf("GitHub discovery for %s reused %s from the in-memory cache.", repo, counted(hits, "commit history window")),
-	})
-}
-
 // KonfluxReadPauseChanged records endpoint transitions shared by all release targets.
 func (l *Log) KonfluxReadPauseChanged(issue konflux.ReadIssue) {
 	endpoint := issue.Endpoint + " on " + issue.Cluster
@@ -236,9 +223,6 @@ func discoverySubject(request DiscoveryRequest) string {
 	}
 	if request.Reads(ReadChecks) {
 		subjects = append(subjects, "pull request checks")
-	}
-	if request.Reads(ReadCoverage) {
-		subjects = append(subjects, "tag coverage of merged pull requests")
 	}
 	if len(subjects) == 0 {
 		return "the branch head"

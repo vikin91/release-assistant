@@ -55,7 +55,6 @@ type (
 		ConfigForm                                 url.Values
 		SavedConfigForm                            string
 		ConfigRejected, ConfigSaved                bool
-		CacheCleared                               bool
 		SettingsSaved                              string
 		ConfiguredSources                          map[string]release.Source
 		ACS4                                       bool
@@ -71,7 +70,7 @@ type (
 		SelectedTag      *tagModel
 		Rebuild          *tagRebuildModel
 		NewerTag         string
-		Coverage         release.Condition
+		TagCondition     release.Condition
 	}
 	prModel struct {
 		PR          release.PR
@@ -90,14 +89,9 @@ type (
 		CSRF            string
 		Generation      uint64
 		Switch          bool
-		MergeCoverage   []mergeCoverageModel
 	}
 	tagSelectionCounts struct {
 		Total, Selected int
-	}
-	mergeCoverageModel struct {
-		SHA    string
-		Status release.Truth
 	}
 	imageModel struct {
 		Check                     release.ImageStatus
@@ -275,7 +269,7 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 		} else if r.CurrentTag != "" {
 			for _, condition := range snapshot.Assessment.Conditions {
 				if condition.Name == "tag "+repo.Source.Name {
-					r.Coverage = condition
+					r.TagCondition = condition
 					break
 				}
 			}
@@ -337,15 +331,6 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 				Proposed: snapshot.Assessment.ProposedTags[repo.Source.Name] == tag.Name, Authority: authority,
 				Component: repo.Source.Name, Repo: repo.Source.Repo, CSRF: csrf, Generation: snapshot.Generation, Tab: "component-releases",
 				Switch: r.CurrentTag != "" && tag.Name != r.CurrentTag,
-			}
-			for _, pr := range repo.PRs {
-				if snapshot.Choices.PRs[pr.Target] == release.Included && pr.Merged && pr.MergeSHA != "" {
-					coverage := mergeCoverageModel{SHA: pr.MergeSHA}
-					if repo.Evidence.Fresh() && tag.Evidence.Fresh() && pr.Evidence.Fresh() && pr.Base == repo.Source.Branch {
-						coverage.Status = tag.Contains[pr.MergeSHA]
-					}
-					t.MergeCoverage = append(t.MergeCoverage, coverage)
-				}
 			}
 			if tag.Name == r.CurrentTag {
 				if savedTag != "" {

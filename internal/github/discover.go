@@ -287,62 +287,6 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		}
 		result.PRs = append(result.PRs, p)
 	}
-	var merged []release.PR
-	for _, p := range result.PRs {
-		if p.Merged && p.Base == source.Branch && p.MergeSHA != "" && !ignored[p.Target.PR] &&
-			(req.Scope == app.ReadAll || tracked[p.Target.PR]) {
-			merged = append(merged, p)
-		}
-	}
-	if !req.Reads(app.ReadTags) && req.Reads(app.ReadCoverage) && len(merged) > 0 && req.ConfirmedTag != "" && result.Head != "" {
-		tag := req.CoverageTag
-		if tag.Name == req.ConfirmedTag && tag.Evidence.Fresh() && tag.SHA != "" && req.CoverageHead == result.Head {
-			tag.Contains = make(map[string]release.Truth)
-			result.Tags = []release.Tag{tag}
-		} else {
-			resolved, err := c.resolveTag(ctx, source, req.ConfirmedTag, result.Head)
-			if err != nil {
-				issues = append(issues, err)
-			}
-			if resolved.observation.Name != "" {
-				result.Tags = []release.Tag{resolved.observation}
-			}
-		}
-	}
-	if req.Reads(app.ReadCoverage) && len(merged) > 0 && len(result.Tags) > 0 {
-		roots := slices.Clone(result.Tags)
-		slices.SortStableFunc(roots, func(a, b release.Tag) int { return compareTagNames(b.Name, a.Name) })
-		var shas []string
-		for _, tag := range roots {
-			shas = append(shas, tag.SHA)
-		}
-		graph := newCommitGraph()
-		if result.Head != "" {
-			graph.cache = c.windowCache
-		}
-		graphErr := graph.load(ctx, c, source.Repo, shas)
-		if graphErr != nil {
-			issues = append(issues, graphErr)
-		}
-		if graph.limitReached {
-			result.CommitGraphLimit = maxCommitGraphPages
-		}
-		if graph.cacheHits > 0 {
-			graph.cache.recordHits(ctx, source.Repo, graph.cacheHits)
-		}
-		for ti := range result.Tags {
-			tag := &result.Tags[ti]
-			reachable, complete := graph.ancestors(tag.SHA)
-			for _, p := range merged {
-				tag.Contains[p.MergeSHA] = graphContains(reachable, complete, p.MergeSHA)
-				if tag.Contains[p.MergeSHA] == "" && graphErr != nil {
-					tag.Evidence.Known = false
-					tag.Evidence.Error = "merge coverage unavailable"
-				}
-			}
-		}
-	}
-
 	if source.Name == "acs" && req.Reads(app.ReadPins) {
 		cycle.reserved = 0
 		if result.Head == "" {
@@ -526,7 +470,7 @@ func (c *Client) resolveTag(ctx context.Context, src release.Source, name, headS
 	if err != nil {
 		return resolvedTag{}, err
 	}
-	tag := resolvedTag{observation: release.Tag{Name: name, SHA: sha, Contains: map[string]release.Truth{}, Evidence: release.Evidence{At: time.Now(), URL: "https://github.com/" + src.Repo + "/tree/" + name, Known: true}}}
+	tag := resolvedTag{observation: release.Tag{Name: name, SHA: sha, Evidence: release.Evidence{At: time.Now(), URL: "https://github.com/" + src.Repo + "/tree/" + name, Known: true}}}
 	var metadata commitResponse
 	if err := c.getTagSHA(ctx, repoPath(src.Repo)+"/commits/"+segment(sha), &metadata, sha); err != nil {
 		tag.observation.Evidence.Known = false

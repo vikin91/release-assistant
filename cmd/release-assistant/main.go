@@ -107,9 +107,7 @@ func run() error {
 	plannerConfig := konflux.StartupConfig(ctx, allowedLookups)
 	options.GitHubReads = githubread.New(apilog.Transport{Base: http.DefaultTransport, CallingWithContext: log.CallingAPIWithContext})
 	client := &http.Client{Transport: options.GitHubReads, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	windowCache := github.NewCommitWindowCache(nil).WithReleaseHitLog(log.CommitWindowCacheHitsWithContext)
-	gh := github.New("", plannerConfig.GitHubToken, client).WithCommitWindowCache(windowCache)
-	options.Cache = windowCache
+	gh := github.New("", plannerConfig.GitHubToken, client)
 	options.CIPlanner = ciretest.New(retry.Config{GitHubToken: plannerConfig.GitHubToken, HTTPClient: client})
 	plannerConfig.HTTPClient = client
 	plannerConfig.OnReadPauseChange = log.KonfluxReadPauseChanged
