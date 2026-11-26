@@ -4,7 +4,7 @@ github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/vikin91/ci-retest v0.0.0-20261124205542-77ad830fbf81 h1:3kkWNDJqu1SLdDg1Qy/e6b8vkTB5JnVuRmc95YEs5eA=
 github.com/vikin91/ci-retest v0.0.0-20261124205542-77ad830fbf81/go.mod h1:tlVy4Ua0Qm61iaBwFa59W2x4tN5cgV0s3Agmr44DW/c=
-github.com/vikin91/konflux-retest v0.1.1-0.20261124080232-9dd1c3239603 h1:kk45LCcATnMlzfzmA63/3we3C9MZEvwpwdZnLa8jhpQ=
-github.com/vikin91/konflux-retest v0.1.1-0.20261124080232-9dd1c3239603/go.mod h1:C8xkaZ25gUvE3/hAuWSWYDzHh35Gt4tW+Bth3NwhXic=
+github.com/vikin91/konflux-retest v0.1.1-0.20261126155947-ea80b5acc0c7 h1:2kDf2tWkAuLzG7YD45MtfUojR5P6FxrPF2dpR3HODuA=
+github.com/vikin91/konflux-retest v0.1.1-0.20261126155947-ea80b5acc0c7/go.mod h1:C8xkaZ25gUvE3/hAuWSWYDzHh35Gt4tW+Bth3NwhXic=
 go.yaml.in/yaml/v3 v3.0.6 h1:zcDfvjXEqTQmpjniUBLc91xYJMB2c4QOFxEF/LCEckM=
 go.yaml.in/yaml/v3 v3.0.6/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=

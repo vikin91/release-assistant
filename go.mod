@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/vikin91/ci-retest v0.0.0-20261124205542-77ad830fbf81
-	github.com/vikin91/konflux-retest v0.1.1-0.20261124080232-9dd1c3239603
+	github.com/vikin91/konflux-retest v0.1.1-0.20261126155947-ea80b5acc0c7
 )
 
 require (
