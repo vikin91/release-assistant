@@ -2,6 +2,7 @@ package github
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -9,6 +10,13 @@ import (
 
 	"release-assistant/internal/release"
 )
+
+func TestDiscoveryPreservesIncompleteGraphReason(t *testing.T) {
+	result, err := finishDiscovery(release.Repository{}, []error{errors.New("GitHub commit graph acquisition limit reached")}, &discoveryCycle{})
+	if err == nil || !strings.Contains(result.Evidence.Error, "GitHub commit graph acquisition limit reached") || result.Evidence.Fresh() {
+		t.Fatalf("incomplete discovery error=%v evidence=%+v", err, result.Evidence)
+	}
+}
 
 func TestGraphAncestors(t *testing.T) {
 	for name, tc := range map[string]struct {

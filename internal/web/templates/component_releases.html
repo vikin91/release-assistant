@@ -57,15 +57,31 @@
           {{end}}
           <details class="tag-evidence component-tag-details" data-fold-key="{{if .CurrentTag}}tag-evidence:{{$source.Name}}:{{$source.Repo}}@{{.CurrentTag}}{{else}}tag-repo-details:{{$source.Name}}:{{$source.Repo}}{{end}}">
             <summary>Details</summary>
-            <p>{{$source.Repo}} · <code>{{$source.Branch}}</code> · stream {{$source.Stream}}</p>
-            {{if .Baseline}}<p class="muted">{{.Baseline}}</p>{{end}}
-            {{with index $.Snapshot.Assessment.ReleaseGuides $source.Name}}<p><a aria-describedby="new-tab-description" href="{{url .}}" target="_blank" rel="noreferrer">{{title $source.Name}} release guide</a></p>{{end}}
-            {{if .Repository.Evidence.Error}}<p class="error-text">{{.Repository.Evidence.Error}}</p>{{end}}
-            {{if and .CurrentTag .Coverage.Reason}}<p>{{.Coverage.Reason}}</p>{{end}}
+            {{if .CurrentTag}}
+            <div class="tag-detail-status">
+              <strong>{{if index $.Snapshot.PendingTags $source.Name}}Waiting for tag verification{{else if eq (truth .Coverage.Status) "yes"}}Covers included changes{{else if eq (truth .Coverage.Status) "no"}}Tag needs review{{else}}Coverage unverified{{end}}</strong>
+              {{if .Coverage.Reason}}<p>{{.Coverage.Reason}}</p>{{end}}
+              {{if .Repository.Evidence.Error}}<p><strong>Discovery error:</strong> {{.Repository.Evidence.Error}}{{if not .Repository.Evidence.At.IsZero}} · {{when .Repository.Evidence.At}}{{end}}</p>{{else if and (not .Coverage.Status) (not (index $.Snapshot.PendingTags $source.Name))}}<p class="muted">A specific discovery error is unavailable.</p>{{end}}
+              {{if and (ne (truth .Coverage.Status) "yes") (not (index $.Snapshot.PendingTags $source.Name))}}<p class="muted">Check the <a href="/?tab=activity">log</a> for monitoring errors. The next retry time is unavailable here.</p>{{end}}
+            </div>
+            {{end}}
+            <dl class="tag-detail-facts">
+              <div><dt>Repository</dt><dd>{{$source.Repo}}</dd></div>
+              <div><dt>Branch</dt><dd><code>{{$source.Branch}}</code> · stream {{$source.Stream}}</dd></div>
+              {{if .CurrentTag}}<div><dt>Selected tag</dt><dd><code>{{.CurrentTag}}</code></dd></div>{{end}}
             {{with .SelectedTag}}
-              {{template "tag-observation" .}}
+              <div><dt>Tag commit</dt><dd>{{if .Tag.SHA}}<a aria-describedby="new-tab-description" href="https://github.com/{{.Repo}}/commit/{{.Tag.SHA}}" target="_blank" rel="noreferrer" title="{{.Tag.SHA}}"><code>{{shortSHA .Tag.SHA}}</code></a>{{else}}Unavailable{{end}}</dd></div>
+              <div><dt>On release branch</dt><dd>{{if .Tag.Evidence.Fresh}}{{if eq (truth .Tag.Belongs) "yes"}}Yes{{else if eq (truth .Tag.Belongs) "no"}}No{{else}}Unverified{{end}}{{else}}Unverified{{if .Tag.Belongs}} (last observed {{truth .Tag.Belongs}}){{end}}{{end}}</dd></div>
+              <div><dt>Tag observation</dt><dd>{{if .Tag.Evidence.At.IsZero}}Unavailable{{else}}{{if .Tag.Evidence.Fresh}}Observed{{else}}Last observed{{end}} {{when .Tag.Evidence.At}}{{end}}{{if .Tag.Evidence.Error}} · {{.Tag.Evidence.Error}}{{end}}{{with url .Tag.Evidence.URL}} · <a aria-describedby="new-tab-description" href="{{.}}" target="_blank" rel="noreferrer">Tag source</a>{{end}}</dd></div>
+            {{end}}
+            </dl>
+            {{with .SelectedTag}}
+              <h4>Included PRs</h4>
+              {{if .MergeCoverage}}<ol class="tag-merge-coverage">{{range .MergeCoverage}}<li><a aria-describedby="new-tab-description" href="https://github.com/{{.PR.Target.Repo}}/pull/{{.PR.Target.PR}}" target="_blank" rel="noreferrer">#{{.PR.Target.PR}}{{with .PR.Title}} · {{.}}{{end}}</a> · {{if .SHA}}merge <a aria-describedby="new-tab-description" href="https://github.com/{{.PR.Target.Repo}}/commit/{{.SHA}}" target="_blank" rel="noreferrer" title="{{.SHA}}"><code>{{shortSHA .SHA}}</code></a>{{else}}merge commit unavailable{{end}} · {{if eq (truth .Status) "yes"}}covered{{else if eq (truth .Status) "no"}}missing{{else}}unverified{{end}}</li>{{end}}</ol>{{else}}<p class="muted">No included PRs observed.</p>{{end}}
               {{if $.AutomaticRetryPermissions}}{{template "tag-comment-permission" .}}{{end}}
             {{else}}{{if and .CurrentTag (not .Coverage.Reason) (not (index $.Snapshot.PendingTags $source.Name))}}<p class="muted">The selected tag is absent from current discovery.</p>{{end}}{{end}}
+            {{if .Baseline}}<h4>ACS pin</h4><p class="muted">{{.Baseline}}</p>{{end}}
+            {{with index $.Snapshot.Assessment.ReleaseGuides $source.Name}}<p class="tag-detail-guide"><a aria-describedby="new-tab-description" href="{{url .}}" target="_blank" rel="noreferrer">{{title $source.Name}} release guide</a></p>{{end}}
           </details>
         </article>
       {{else}}<p class="muted">No component tag observations yet.</p>{{end}}

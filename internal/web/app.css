@@ -187,6 +187,14 @@ legend { padding: 0 .35rem; font-weight: var(--emphasis-weight); }
 .component-tag-coverage .unknown { border-color: var(--amber); }
 .tag-evidence { font-size: .88rem; }
 .tag-evidence p, .tag-merge-coverage { margin: .3rem 0; }
+.component-tag-details .tag-detail-status { margin: .7rem 0; }
+.tag-detail-facts { display: grid; gap: .25rem; margin: .75rem 0; }
+.tag-detail-facts div { display: grid; grid-template-columns: minmax(8rem, 11rem) minmax(0, 1fr); gap: .5rem; }
+.tag-detail-facts dt { color: var(--muted-foreground); }
+.tag-detail-facts dd { margin: 0; overflow-wrap: anywhere; }
+.component-tag-details h4 { margin: .8rem 0 .3rem; }
+.tag-detail-guide { margin-top: .8rem !important; }
+@media (max-width: 480px) { .tag-detail-facts div { grid-template-columns: 1fr; gap: 0; } }
 .component-tag-images-link { margin: .65rem 0 0; font-size: .88rem; }
 .build-retry-target { margin-top: .4rem; padding: .6rem .2rem; border-top: 1px solid var(--border); }
 .build-retry-target h3 { font-size: 1rem; }

@@ -421,10 +421,11 @@ func finishDiscovery(result release.Repository, issues []error, cycle *discovery
 	}
 	if len(issues) > 0 {
 		result.Evidence.At = time.Now()
+		err := fmt.Errorf("GitHub discovery incomplete (%d observation(s)): %w", len(issues), errors.Join(issues...))
 		if result.Evidence.Error == "" {
-			result.Evidence.Error = "one or more GitHub observations are incomplete"
+			result.Evidence.Error = err.Error()
 		}
-		return result, fmt.Errorf("GitHub discovery incomplete (%d observation(s)): %w", len(issues), errors.Join(issues...))
+		return result, err
 	}
 	return result, nil
 }

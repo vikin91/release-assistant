@@ -10,8 +10,9 @@
     {{else if ne (truth .Tag.Belongs) "yes"}}<span class="unknown">Branch membership unverified</span>
     {{else}}
       {{range .MergeCoverage}}
-        {{if eq (truth .Status) "no"}}<div class="no">Missing included merge <code>{{.SHA}}</code></div>
+        {{if and .PR.Merged .SHA}}{{if eq (truth .Status) "no"}}<div class="no">Missing included merge <code>{{.SHA}}</code></div>
         {{else if ne (truth .Status) "yes"}}<div class="unknown">Coverage unverified for <code>{{.SHA}}</code></div>{{end}}
+        {{end}}
       {{end}}
     {{end}}
   </td>
@@ -19,12 +20,6 @@
       <form method="post" action="/action#tag-selection" class="inline-form"><input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Generation}}"><input type="hidden" name="kind" value="tag"><input type="hidden" name="component" value="{{.Component}}"><input type="hidden" name="tag" value="{{.Tag.Name}}"><input type="hidden" name="sha" value="{{.Tag.SHA}}"><button type="submit">{{if .Switch}}Switch to{{else}}Confirm{{end}} {{.Component}} {{.Tag.Name}}</button></form>
     {{else}}Unavailable{{end}}</td>
 </tr>
-{{end}}
-
-{{define "tag-observation"}}
-  <p>SHA <code>{{.Tag.SHA}}</code> · branch membership {{truth .Tag.Belongs}}</p>
-  <p class="evidence"><span>{{if .Tag.Evidence.Historical}}{{template "historical-evidence" .Tag.Evidence}}{{else}}{{if .Tag.Evidence.Fresh}}Observed{{else}}Unknown or stale{{end}} at {{when .Tag.Evidence.At}}{{end}}</span>{{if .Tag.Evidence.Error}}<span class="error-text">{{.Tag.Evidence.Error}}</span>{{end}}{{if url .Tag.Evidence.URL}}<a aria-describedby="new-tab-description" href="{{url .Tag.Evidence.URL}}" target="_blank" rel="noreferrer">Tag source</a>{{end}}</p>
-  {{if .MergeCoverage}}<ol class="tag-merge-coverage" aria-label="Included merge coverage">{{range .MergeCoverage}}<li><code>{{.SHA}}</code> · {{if eq (truth .Status) "yes"}}covered{{else if eq (truth .Status) "no"}}missing{{else}}unverified{{end}}</li>{{end}}</ol>{{end}}
 {{end}}
 
 {{define "tag-comment-permission"}}

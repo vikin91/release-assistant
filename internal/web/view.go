@@ -96,6 +96,7 @@ type (
 	}
 	mergeCoverageModel struct {
 		SHA    string
+		PR     release.PR
 		Status release.Truth
 	}
 	imageModel struct {
@@ -337,9 +338,9 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 				Switch: r.CurrentTag != "" && tag.Name != r.CurrentTag,
 			}
 			for _, pr := range repo.PRs {
-				if snapshot.Choices.PRs[pr.Target] == release.Included && pr.Merged && pr.MergeSHA != "" {
-					coverage := mergeCoverageModel{SHA: pr.MergeSHA}
-					if repo.Evidence.Fresh() && tag.Evidence.Fresh() && pr.Evidence.Fresh() && pr.Base == repo.Source.Branch {
+				if snapshot.Choices.PRs[pr.Target] == release.Included {
+					coverage := mergeCoverageModel{SHA: pr.MergeSHA, PR: pr}
+					if pr.Merged && pr.MergeSHA != "" && repo.Evidence.Fresh() && tag.Evidence.Fresh() && pr.Evidence.Fresh() && pr.Base == repo.Source.Branch {
 						coverage.Status = tag.Contains[pr.MergeSHA]
 					}
 					t.MergeCoverage = append(t.MergeCoverage, coverage)

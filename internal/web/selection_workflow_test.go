@@ -16,6 +16,41 @@ import (
 
 var renderedFormRE = regexp.MustCompile(`(?s)<form\b[^>]*>.*?</form>`)
 
+func TestComponentTagDetailsDescribeEvidence(t *testing.T) {
+	observed := release.Evidence{Known: true, At: time.Now()}
+	for name, tc := range map[string]struct {
+		coverage release.Truth
+		evidence release.Evidence
+		want     string
+	}{
+		"should show verified coverage":       {release.Yes, observed, "covered"},
+		"should show a missing merge":         {release.No, observed, "missing"},
+		"should explain incomplete discovery": {"", release.Evidence{At: time.Now(), Error: "GitHub commit graph acquisition limit reached"}, "GitHub commit graph acquisition limit reached"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			target := release.Target{Repo: "acme/fact", PR: 11}
+			application := &fakeApplication{snapshot: app.Snapshot{
+				Config:     validACS5Config(),
+				Choices:    release.Choices{Tags: map[string]string{"fact": "3.25.1"}, PRs: map[release.Target]release.Choice{target: release.Included}},
+				Assessment: release.Assessment{Conditions: []release.Condition{{Name: "tag fact", Status: tc.coverage, Reason: "Coverage assessment"}}},
+				Repositories: []release.Repository{{Source: release.Source{Name: "fact", Repo: target.Repo, Branch: "release-3.25"}, Evidence: tc.evidence,
+					PRs:  []release.PR{{Target: target, Title: "Fix the issue", Merged: true, MergeSHA: "1234567890", Base: "release-3.25", Evidence: observed}},
+					Tags: []release.Tag{{Name: "3.25.1", SHA: "abcdef1234", Belongs: release.Yes, Contains: map[string]release.Truth{"1234567890": tc.coverage}, Evidence: observed}}}},
+			}}
+			body := newBrowser(t, application).getBody(t)
+			details := between(t, body, `data-fold-key="tag-evidence:fact:acme/fact@3.25.1"`, "</details>")
+			for _, want := range []string{"Included PRs", "#11 · Fix the issue", "/pull/11", "/commit/1234567890", "<code>1234567</code>", "/commit/abcdef1234", tc.want} {
+				if !strings.Contains(details, want) {
+					t.Errorf("details missing %q", want)
+				}
+			}
+			if tc.coverage == "" && (!strings.Contains(details, "unverified") || !strings.Contains(details, "next retry time is unavailable")) {
+				t.Error("incomplete evidence must remain unverified and avoid claiming a retry time")
+			}
+		})
+	}
+}
+
 func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) {
 	observed := release.Evidence{Known: true, At: time.Now()}
 	application := &fakeApplication{snapshot: app.Snapshot{

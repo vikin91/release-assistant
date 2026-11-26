@@ -556,7 +556,7 @@ func TestTagSelectionDoesNotAutoFoldAfterConfirmationAndWithholdsUnknownTags(t *
 			if !strings.Contains(body, `<div id="tag-selection">`) {
 				t.Fatal("tag confirmation must not choose a new fold state")
 			}
-			if strings.Contains(body, "Confirm fact 3.25.9") || !strings.Contains(body, "Unknown or stale") {
+			if strings.Contains(body, "Confirm fact 3.25.9") || !strings.Contains(body, "Last observed") || !strings.Contains(body, "Unverified") {
 				t.Fatal("unknown tag evidence must remain visible without a confirmation control")
 			}
 		})

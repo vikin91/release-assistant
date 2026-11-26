@@ -74,6 +74,7 @@ func New(application Application) (http.Handler, error) {
 			}{page, tab, label}
 		},
 		"truth": truthLabel, "when": formatTime, "quotaReset": quotaReset, "url": safeURL,
+		"shortSHA": func(sha string) string { return sha[:min(len(sha), 7)] },
 		"checkAge": formatCheckAge,
 		"imageAge": formatImageAge,
 		"readWait": formatReadWait,
