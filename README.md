@@ -230,7 +230,7 @@ The server listens on loopback. At the bottom of **Settings**, use **Refresh int
 | Tag verification | 10 min for saved or pinned tags | 10 min for the selected tag | 10 min for ACS tags |
 | Tag checks | — | 10 min | 5 min |
 
-On **Component releases**, select **Fetch tag names** to list versions in one component’s stream. Choose a tag to verify it on the release branch and select it in one step. Use **Verify recent tags on release branch** to check the choices together. **Maximum tag choices** bounds the number of alternatives checked. Verification can use substantial GitHub API quota. Saved names and verification results are available after restart.
+On **Component releases**, select **Fetch tag names** to list versions in one component’s stream. Choose a tag to verify it on the release branch and select it in one step. Use **Load tag details and check branch** to check the choices together. **Maximum tag choices** bounds the number of alternatives checked. Verification can use substantial GitHub API quota. Saved names and verification results are available after restart.
 
 The **ACS** section also controls Konflux build reads for all tracked targets (5 minutes) and Quay release image reads (10 minutes). These intervals apply to the current session. At startup, `-discover` can override the initial PR and tag discovery intervals. `-poll` can override the initial check, build, and image intervals. Failed reads can leave the last results visible while current evidence remains unverified.
 

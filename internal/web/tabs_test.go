@@ -337,7 +337,7 @@ func TestComponentTagActionsPostToTheSelectedComponent(t *testing.T) {
 		t.Fatal("expected a pending name lookup on Fact")
 	}
 	collector := between(t, panel, `id="component-tags-collector"`, "</article>")
-	for _, want := range []string{"Fetch tag names", "Verify recent tags on release branch", "GitHub API quota", "saved result", "<code>3.26.5</code>"} {
+	for _, want := range []string{"Fetch tag names", "Load tag details and check branch", "GitHub API quota", "saved result", "<code>3.26.5</code>"} {
 		if !strings.Contains(collector, want) {
 			t.Fatalf("missing Collector detail %q", want)
 		}

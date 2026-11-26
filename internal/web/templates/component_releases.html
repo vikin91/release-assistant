@@ -20,7 +20,7 @@
             </form>
             <form method="post" action="{{profileAction $.ProfileID}}" class="inline-form">
               <input type="hidden" name="tab" value="component-releases"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="component" value="{{$source.Name}}"><input type="hidden" name="kind" value="verify-recent-tags">
-              <button type="submit" aria-describedby="verify-tags-{{$source.Name}}"{{if or $action (not .RecentTagNames) (not $.Snapshot.Monitoring)}} disabled{{end}}>{{if eq $action "verify-recent-tags"}}Verifying recent tags…{{else}}Verify recent tags on release branch{{end}}</button>
+              <button type="submit" aria-describedby="verify-tags-{{$source.Name}}"{{if or $action (not .RecentTagNames) (not $.Snapshot.Monitoring)}} disabled{{end}}>{{if eq $action "verify-recent-tags"}}Loading tag details and checking branch…{{else}}Load tag details and check branch{{end}}</button>
             </form>
           </div>
           <p class="tag-evidence muted" id="verify-tags-{{$source.Name}}">Resolve the commits for up to {{$.Snapshot.TagChoiceLimit}} recent tag choices and check whether they belong to <code>{{$source.Branch}}</code>. This can use a substantial amount of GitHub API quota.</p>
