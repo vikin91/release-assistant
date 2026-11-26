@@ -53,6 +53,7 @@ type (
 		Plans                       []release.Plan
 		ManualRetries               []release.ManualRetryReport
 		RCVulnerabilities           []release.RCVulnerabilities
+		RCVulnerabilityRetryAt      time.Time
 		PRRetryChecks               map[release.Target]PRRetryCheck
 		RetestQueue                 []RetestItem
 		RetestLog                   []RetestDecision
@@ -672,6 +673,16 @@ func (s *Session) profileSnapshot(work *releaseWork, active bool, profileID stri
 	}
 	x.RCVulnerabilities = work.vulnerabilityReviews()
 	if active {
+		if s.rcReady() && slices.ContainsFunc(x.RCVulnerabilities, func(review release.RCVulnerabilities) bool {
+			return review.Problem != ""
+		}) {
+			rc := work.repos["acs"].Candidate
+			record := work.polls[pollID{c.ACS().Repo, pollRCVulnerabilities}]
+			next := record.next(s.options.RefreshIntervals[ACSTagChecks], s.startupUntil)
+			if record.identity == rc.Target.Tag+":"+rc.SHA && next.After(time.Now()) {
+				x.RCVulnerabilityRetryAt = next
+			}
+		}
 		x.Interactive, x.RequirePRLabel = s.dispatcher.IsInteractive(), s.dispatcher.RequiresPRLabel()
 		x.WritesEnabled, x.Authority = s.dispatcher.WritesEnabled(), s.dispatcher.Views()
 		x.RefreshingResumed = s.hasOverdueObservations()

@@ -69,6 +69,28 @@ func TestReadRCVulnerabilitiesUsesExactTagAndLatestJob(t *testing.T) {
 	}
 }
 
+func TestRCVulnerabilityJobReadFailureShowsCause(t *testing.T) {
+	server := newFakeServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/actions/runs/10/jobs") {
+			if r.URL.Query().Get("page") == "1" {
+				writeCheckFixture(t, w, `{"total_count":101,"jobs":[]}`)
+				return
+			}
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		t.Errorf("unexpected request %s", r.URL)
+		http.NotFound(w, r)
+	}))
+	c := New(server.URL, "", server.Client())
+	rc := release.Candidate{Target: release.Target{Repo: "stackrox/stackrox", Tag: "4.10.12-rc.2"}, SHA: "candidate"}
+	validation := release.Validation{SHA: rc.SHA, ScanWorkflow: release.RCScanWorkflow{ID: 10, Status: "in_progress"}}
+	review := c.ReadRCVulnerabilities(t.Context(), rc, "", release.RCVulnerabilities{}, validation)
+	if !strings.Contains(review.Problem, "503") || review.Status != "" {
+		t.Fatalf("expected job-list read failure with HTTP status, got %+v", review)
+	}
+}
+
 func scanZip(t *testing.T, body string) []byte {
 	t.Helper()
 	var buffer bytes.Buffer

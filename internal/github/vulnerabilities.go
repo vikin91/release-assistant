@@ -66,7 +66,7 @@ func (c *Client) ReadRCVulnerabilities(ctx context.Context, candidate release.Ca
 		}
 	}
 	if latest.ID == 0 {
-		review.Problem = "Waiting for the RC vulnerability scan workflow."
+		review.Status = "Waiting for the RC vulnerability scan workflow."
 		return review
 	}
 	runPath := fmt.Sprintf("%s/actions/runs/%d", base, latest.ID)
@@ -84,7 +84,7 @@ func (c *Client) ReadRCVulnerabilities(ctx context.Context, candidate release.Ca
 			Jobs  []scanJob
 		}
 		if err := c.get(ctx, fmt.Sprintf("%s/jobs?filter=all&per_page=100&page=%d", runPath, page), &result); err != nil {
-			review.Problem = "Unable to read the complete vulnerability scan job list."
+			review.Problem = "Unable to read the complete vulnerability scan job list. " + requestProblem(err)
 			return review
 		}
 		for _, job := range result.Jobs {
@@ -96,7 +96,7 @@ func (c *Client) ReadRCVulnerabilities(ctx context.Context, candidate release.Ca
 			break
 		}
 		if page == maxPages {
-			review.Problem = "Unable to read the complete vulnerability scan job list."
+			review.Problem = fmt.Sprintf("Unable to read the complete vulnerability scan job list. GitHub reported %d jobs, exceeding the %d-job read limit.", result.Total, maxPages*100)
 			return review
 		}
 	}
@@ -104,8 +104,10 @@ func (c *Client) ReadRCVulnerabilities(ctx context.Context, candidate release.Ca
 		Total     int `json:"total_count"`
 		Artifacts []scanArtifact
 	}
-	if err := c.get(ctx, runPath+"/artifacts?per_page=100", &artifacts); err != nil || artifacts.Total > len(artifacts.Artifacts) {
-		review.Problem = "Unable to read the complete vulnerability scan artifact list."
+	if err := c.get(ctx, runPath+"/artifacts?per_page=100", &artifacts); err != nil {
+		review.Problem = "Unable to read the complete vulnerability scan artifact list. " + requestProblem(err)
+	} else if artifacts.Total > len(artifacts.Artifacts) {
+		review.Problem = fmt.Sprintf("Unable to read the complete vulnerability scan artifact list. GitHub returned %d of %d artifacts.", len(artifacts.Artifacts), artifacts.Total)
 	}
 	// A partial rerun leaves earlier jobs in place. Match each artifact to the
 	// latest job for its image so a rerun cannot display a superseded report.
@@ -134,9 +136,9 @@ func (c *Client) ReadRCVulnerabilities(ctx context.Context, candidate release.Ca
 	slices.SortFunc(review.Images, func(a, b release.ImageVulnerabilities) int { return strings.Compare(a.Image, b.Image) })
 	if len(review.Images) == 0 && review.Problem == "" {
 		if latest.Status == "completed" {
-			review.Problem = "No Konflux image scan reports found."
+			review.Status = "No Konflux image scan reports found."
 		} else {
-			review.Problem = "Waiting for Konflux image scan jobs."
+			review.Status = "Waiting for Konflux image scan jobs."
 		}
 	}
 	// The same commit can contain branch and tag workflows. Conforma links

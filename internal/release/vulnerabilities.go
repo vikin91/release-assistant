@@ -35,9 +35,9 @@ type (
 
 	// RCVulnerabilities binds a vulnerability review to a tag and commit.
 	RCVulnerabilities struct {
-		Target                                   Target
-		SHA, DescendantSHA, WorkflowURL, Problem string
-		Images                                   []ImageVulnerabilities
+		Target                                           Target
+		SHA, DescendantSHA, WorkflowURL, Problem, Status string
+		Images                                           []ImageVulnerabilities
 	}
 
 	// ConformaReport contains CVE observations bound to the verified image digest.
