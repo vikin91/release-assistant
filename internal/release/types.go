@@ -79,12 +79,18 @@ type (
 		App                                     string
 		Event, Ref                              string
 		WorkflowName, WorkflowURL, WorkflowPath string
+		// ConformaReported records whether GitHub published the policy result summary.
+		ConformaReported bool
+		// ConformaDetails identifies the policy PipelineRun and the GitHub App that reported it.
+		ConformaDetails string
+		AppID           int64
 	}
 	// Validation separates GitHub check availability from Konflux retry evidence.
 	Validation struct {
-		SHA      string
-		Checks   []ValidationCheck
-		Evidence Evidence
+		SHA          string
+		Checks       []ValidationCheck
+		Evidence     Evidence
+		ScanWorkflow RCScanWorkflow
 	}
 	// Tag retains branch membership and merge containment from commit comparisons.
 	Tag struct {

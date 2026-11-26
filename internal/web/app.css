@@ -529,3 +529,29 @@ thead th { @apply text-xs font-medium text-muted-foreground; }
 .release-remove-dialog::backdrop { background: #000a; }
 .release-remove-dialog form { justify-content: flex-end; margin-top: 1.25rem; }
 .release-remove-dialog button[value=remove-release] { color: var(--red); }
+
+.rc-vulnerability-candidate + .rc-vulnerability-candidate,
+.rc-vulnerability-image {
+  border-top: 1px solid var(--border);
+}
+.rc-vulnerability-candidate > summary,
+.rc-vulnerability-image > summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  padding-block: .5rem;
+}
+.rc-vulnerability-candidate > summary .pill,
+.rc-vulnerability-image > summary .pill {
+  margin-inline-start: .35rem;
+}
+.rc-vulnerability-body {
+  padding-inline-start: .8rem;
+}
+.rc-vulnerability-table {
+  font-size: .88rem;
+  min-width: 30rem;
+  margin-block: .4rem;
+}
+.rc-vulnerability-table th[scope="rowgroup"] {
+  background: var(--muted);
+}

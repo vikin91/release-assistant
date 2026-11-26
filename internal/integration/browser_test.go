@@ -23,12 +23,13 @@ import (
 )
 
 type browserFixture struct {
-	mu             sync.Mutex
-	step, writes   int
-	failGitHub     bool
-	noTags         bool
-	pinningFailure string
-	branches       map[string]string
+	mu                  sync.Mutex
+	step, writes        int
+	failGitHub          bool
+	noTags              bool
+	vulnerabilityReview bool
+	pinningFailure      string
+	branches            map[string]string
 }
 
 func observation() release.Evidence {
@@ -51,10 +52,18 @@ func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (
 	f.branches[r.Source.Repo] = r.Source.Branch
 	repository := release.Repository{Source: r.Source, Head: r.Source.Name + "-tag", Evidence: observation()}
 	if r.Source.Name == "acs" {
+		if f.vulnerabilityReview && f.step > 0 {
+			repository.Head = "acs-rc1"
+		}
 		if r.Reads(app.ReadRC) {
 			repository.Candidate = release.Candidate{
 				Target: release.Target{Repo: r.Source.Repo, Tag: strings.TrimPrefix(r.Version, "v") + "-rc.0"},
 				SHA:    "acs-tag", Evidence: observation(),
+			}
+			if f.vulnerabilityReview && f.step > 0 {
+				repository.Tags = []release.Tag{{Name: "4.10.12-rc.0", SHA: "acs-tag", Evidence: observation()}}
+				repository.Candidate.Target.Tag = "4.10.12-rc.1"
+				repository.Candidate.SHA, repository.Candidate.Number = "acs-rc1", 1
 			}
 		}
 		pr := release.PR{Target: release.Target{Repo: r.Source.Repo, PR: 201}, Title: "Fixture: ACS dependency backport", CommentLabel: true, Author: "mintmaker", URL: "https://example.com/pr201", SHA: "acs-pr-head", State: "open", Base: r.Source.Branch, Evidence: observation(), ChecksEvidence: observation(), Checks: []release.Check{{Name: "CI build", Status: "completed", Conclusion: "failure", Required: release.Yes}}}
@@ -284,14 +293,42 @@ func (t browserRegistryTransport) RoundTrip(request *http.Request) (*http.Respon
 	return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header), Request: request}, nil
 }
 
+func (f *browserFixture) ReadRCVulnerabilities(_ context.Context, rc release.Candidate, descendant string, _ release.RCVulnerabilities, _ release.Validation) release.RCVulnerabilities {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	result := release.RCVulnerabilities{Target: rc.Target, SHA: rc.SHA, DescendantSHA: descendant}
+	if !f.vulnerabilityReview {
+		return result
+	}
+	main := "Available"
+	if rc.Number == 1 && f.step == 1 {
+		main = "Pending"
+	}
+	result.Images = []release.ImageVulnerabilities{
+		{Image: "release-scanner-v4", Status: "Available", ConformaReported: true, Findings: []release.Vulnerability{
+			{ID: "CVE-2026-119373", Package: "sqlite-libs", Severity: "Important", CVSS: new(7.8), Fixed: "0:3.26.0-28.el8_10"},
+			{ID: "CVE-2026-10079", Package: "Scanner V4", Severity: "Important", CVSS: new(8.5)},
+		}},
+		{Image: "release-main", Status: main},
+	}
+	return result
+}
+
 // TestBrowserFixture is an opt-in fixture server for real-browser acceptance checks.
 func TestBrowserFixture(t *testing.T) {
 	if os.Getenv("ACS_BROWSER_FIXTURE") == "" {
 		t.Skip("set ACS_BROWSER_FIXTURE to exercise the browser with fixture services")
 	}
-	f := &browserFixture{noTags: os.Getenv("ACS_BROWSER_NO_TAGS") == "1"}
+	f := &browserFixture{noTags: os.Getenv("ACS_BROWSER_NO_TAGS") == "1", vulnerabilityReview: os.Getenv("ACS_BROWSER_VULNERABILITIES") == "1"}
 	dispatcher := dispatch.New(f, f, f, dispatch.Options{EnableWrites: os.Getenv("ACS_BROWSER_ENABLE_WRITES") == "1", Gap: time.Minute})
 	options := app.Options{GitHubReads: githubread.New(nil), Poll: 100 * time.Millisecond, Discovery: 100 * time.Millisecond}
+	if f.vulnerabilityReview {
+		options.Initial = release.Config{Version: "4.10.12", Branch: "release-4.10", Components: release.DefaultsFor("4.10.12")}
+		for i := range options.Initial.Components {
+			component := &options.Initial.Components[i]
+			component.Branch = "release-" + component.Stream
+		}
+	}
 	if os.Getenv("ACS_BROWSER_PROFILES") == "1" {
 		state, err := app.OpenReleaseState(filepath.Join(t.TempDir(), "state.json"), nil)
 		if err != nil {

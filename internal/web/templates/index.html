@@ -74,6 +74,7 @@
     <span role="tab" aria-disabled="true" aria-selected="false" class="phase-disabled" title="Save the release configuration to unlock this phase.">{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}</span></span>
     {{else}}
     {{template "workflow-tab-link" (tabLink $ $tab $label)}}
+    {{if and (eq $tab "acs-rcs") $.Snapshot.RCVulnerabilities}}<div class="component-pr-tabs"><a class="phase-link" href="{{profilePage $.ProfileID $tab}}#rc-vulnerabilities" data-open-section>Vulnerability review</a></div>{{end}}
     {{if eq $tab "component-prs"}}{{with $.ComponentPRTabs}}
     <div class="component-pr-tabs" role="group" aria-label="Component PR views">
       {{range .}}{{template "workflow-tab-link" (tabLink $ . (tabTitle .))}}{{end}}

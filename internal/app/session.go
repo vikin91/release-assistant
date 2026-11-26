@@ -54,6 +54,7 @@ type (
 		Inventory                    release.Inventory
 		Plans                        []release.Plan
 		ManualRetries                []release.ManualRetryReport
+		RCVulnerabilities            []release.RCVulnerabilities
 		PRRetryChecks                map[release.Target]PRRetryCheck
 		RetestQueue                  []RetestItem
 		RetestLog                    []RetestDecision
@@ -172,6 +173,7 @@ type (
 		resumedAt        time.Time
 
 		componentTagHistory map[string]componentTagHistory
+		rcVulnerabilities   map[release.Target]release.RCVulnerabilities
 
 		creatingPinningPR bool
 		createdPinningPR  dispatch.PinningReceipt
@@ -254,6 +256,7 @@ func newReleaseWork() *releaseWork {
 		inventory:       release.Inventory{},
 
 		componentTagHistory: make(map[string]componentTagHistory),
+		rcVulnerabilities:   make(map[release.Target]release.RCVulnerabilities),
 	}
 }
 func (s *Session) record(target release.Target, sha, decision, payload, result, origin string, message ...string) {
@@ -705,6 +708,7 @@ func (s *Session) profileSnapshot(work *releaseWork, active bool, profileID stri
 		PendingPinningPR: work.pendingPinningPR, ResumedAt: work.resumedAt,
 		Monitoring: active, Interactive: true, PRRetryChecks: make(map[release.Target]PRRetryCheck, len(work.prRetryChecks)),
 	}
+	x.RCVulnerabilities = work.vulnerabilityReviews()
 	if active {
 		x.Interactive, x.RequirePRLabel = s.dispatcher.IsInteractive(), s.dispatcher.RequiresPRLabel()
 		x.WritesEnabled, x.Authority = s.dispatcher.WritesEnabled(), s.dispatcher.Views()

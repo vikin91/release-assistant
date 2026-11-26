@@ -23,6 +23,8 @@ type (
 		Conclusion string `json:"conclusion"`
 		URL        string `json:"html_url"`
 		HeadSHA    string `json:"head_sha"`
+		DetailsURL string `json:"details_url"`
+		Output     struct{ Text string }
 		App        struct {
 			ID   int64  `json:"id"`
 			Slug string `json:"slug"`
@@ -49,6 +51,7 @@ type (
 		SHA        string `json:"head_sha"`
 		Event      string `json:"event"`
 		Ref        string `json:"head_branch"`
+		Status     string
 	}
 )
 
@@ -152,6 +155,13 @@ func (c *Client) ReadTagChecks(ctx context.Context, target release.Target) (rele
 	}
 	result.Evidence.Known = result.Evidence.Error == ""
 	result.Checks = validationChecks(runs, statuses, workflows, sha, base, result.Evidence.URL)
+	for _, workflow := range workflows {
+		path, _, _ := strings.Cut(workflow.Path, "@")
+		if path == ".github/workflows/scan-image-vulnerabilities.yaml" && workflow.Event == "push" &&
+			workflow.Ref == target.Tag && workflow.SHA == sha && workflow.ID > result.ScanWorkflow.ID {
+			result.ScanWorkflow = release.RCScanWorkflow{ID: workflow.ID, Status: workflow.Status}
+		}
+	}
 	return result, errors.Join(checkErr, statusErr, workflowErr)
 }
 
@@ -168,6 +178,11 @@ func validationChecks(runs []commitCheckRun, statuses []commitStatus, workflows 
 		}
 		names[run.Name] = true
 		check := release.ValidationCheck{Check: run.check(), App: run.App.Slug, ID: run.ID}
+		if strings.Contains(check.App, "konflux") && strings.HasPrefix(run.Name, "Red Hat Konflux / acs-conforma-") {
+			check.ConformaDetails, check.AppID = run.DetailsURL, run.App.ID
+			check.ConformaReported = strings.Contains(run.Output.Text, "/logs/verify") &&
+				(strings.Contains(run.Output.Text, "success(es)") || strings.Contains(run.Output.Text, "failure(s)") || strings.Contains(run.Output.Text, "warning(s)"))
+		}
 		key := checkKey{name: run.Name, app: check.App, scope: run.Suite.ID}
 		if workflow := workflows[run.Suite.ID]; check.App == "github-actions" && workflow.ID > 0 {
 			check.Event, check.Ref = workflow.Event, workflow.Ref

@@ -42,6 +42,7 @@ const (
 	pollBuilds
 	pollImages
 	pollComponentTagHistory
+	pollRCVulnerabilities
 )
 
 func (job pollJob) id(source release.Source) pollID {
@@ -142,6 +143,9 @@ func (s *Session) pollJobs(source release.Source) []pollJob {
 		fmt.Fprintf(&images, "/%d", s.imageRefresh)
 		jobs = append(jobs, pollJob{kind: pollImages, setting: ReleaseImages, identity: images.String(), imageRefresh: s.imageRefresh})
 	}
+	if _, ok := s.discovery.(rcVulnerabilityReader); ok && acs && sha != "" {
+		jobs = append(jobs, pollJob{kind: pollRCVulnerabilities, setting: tagChecks, identity: identity})
+	}
 	return jobs
 }
 
@@ -234,6 +238,7 @@ var pollReadNames = [...]string{
 	pollChecks: "PR status", pollTagChecks: "Tag checks",
 	pollBuilds: "Konflux and build checks", pollImages: "Release images",
 	pollComponentTagHistory: "Component tag PR history",
+	pollRCVulnerabilities:   "RC vulnerability reports",
 }
 
 func (s *Session) fetchPoll(ctx context.Context, generation, revision uint64, source release.Source, job pollJob) error {
@@ -288,6 +293,9 @@ func (s *Session) fetchPoll(ctx context.Context, generation, revision uint64, so
 		return errors.Join(savedTagErr, s.refresh(ctx, generation, source, true, work))
 	case pollTagChecks:
 		return s.refreshTagChecks(ctx, generation, revision, source)
+	case pollRCVulnerabilities:
+		s.refreshRCVulnerabilities(githubread.WithPriority(ctx, githubread.Background, source.Repo), generation, revision)
+		return nil
 	case pollComponentTagHistory:
 		return s.refreshComponentTagHistory(githubread.WithPriority(ctx, githubread.Background, source.Repo), generation, revision, source)
 	case pollBuilds:

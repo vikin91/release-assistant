@@ -59,6 +59,7 @@ func New(application Application) (http.Handler, error) {
 		return nil, errors.New("web application is required")
 	}
 	page, err := template.New("index.html").Funcs(template.FuncMap{
+		"holdCriteria":                release.HoldCriteria,
 		"prCommentLabel":              func() string { return release.PRCommentLabel },
 		"manualRetryWarning":          func() string { return release.ManualRetryWarning },
 		"ciRetryDiagnostics":          ciRetryDiagnostics,
