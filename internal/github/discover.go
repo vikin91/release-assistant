@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/http"
 	"net/url"
 	pathpkg "path"
 	"slices"
@@ -96,13 +97,20 @@ type (
 // Discover observes one repository within a fixed HTTP request budget.
 // It returns partial observations alongside errors when reads are incomplete.
 func (c *Client) Discover(ctx context.Context, req app.DiscoveryRequest) (release.Repository, error) {
-	return c.discover(ctx, req, maxDiscoveryRequests)
+	if len(req.TagCandidates) > app.MaxTagChoiceLimit {
+		return release.Repository{}, fmt.Errorf("too many component tags to verify")
+	}
+	// Each selected candidate can require a ref, five annotated objects, a commit, and a comparison.
+	return c.discover(ctx, req, max(maxDiscoveryRequests, 1+8*len(req.TagCandidates)))
 }
 
 func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit int) (release.Repository, error) {
 	cycle := &discoveryCycle{reads: map[string]cachedRead{}, limit: limit, remaining: limit}
 	ctx = context.WithValue(ctx, discoveryCycleKey{}, cycle)
 	result := release.Repository{Source: req.Source}
+	if req.Scope == app.ReadTags && (req.TagCandidates != nil || req.ConfirmedTag != "") {
+		ctx = context.WithValue(ctx, tagReuseKey{}, true)
+	}
 	var issues []error
 	base := repoPath(req.Source.Repo)
 	var branch branchResponse
@@ -111,7 +119,11 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 	if req.CandidateProgress != nil {
 		branchCtx = githubread.WithPriority(ctx, githubread.Tags, req.Source.Repo)
 	}
-	if err := c.get(branchCtx, base+"/branches/"+segment(req.Source.Branch), &branch); err != nil {
+	readBranch := c.get
+	if req.Source.Name != "acs" && req.Scope == app.ReadTags {
+		readBranch = c.getTagRef
+	}
+	if err := readBranch(branchCtx, base+"/branches/"+segment(req.Source.Branch), &branch); err != nil {
 		issues = append(issues, err)
 		result.Evidence = release.Evidence{At: time.Now(), Error: requestProblem(err)}
 	} else {
@@ -162,9 +174,26 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		}
 		var tags []resolvedTag
 		var tagErr error
-		if req.Scope != app.ReadAll && req.ConfirmedTag != "" {
+		if req.TagCandidates != nil {
+			if result.Head == "" {
+				return finishDiscovery(result, issues, cycle)
+			}
+			for _, name := range req.TagCandidates {
+				tag, err := c.resolveTag(ctx, source, name, result.Head)
+				if err != nil {
+					tagErr = errors.Join(tagErr, err)
+					if tag.observation.Name == "" {
+						tag.observation = release.Tag{Name: name, Evidence: release.Evidence{At: time.Now(), Error: requestProblem(err)}}
+					}
+				}
+				tags = append(tags, tag)
+			}
+		} else if req.Scope != app.ReadAll && req.ConfirmedTag != "" {
 			var tag resolvedTag
 			tag, tagErr = c.resolveTag(ctx, source, req.ConfirmedTag, result.Head)
+			if failure, ok := errors.AsType[*requestError](tagErr); ok && failure.statusCode == http.StatusNotFound && req.AlternateTag != "" {
+				tag, tagErr = c.resolveTag(ctx, source, req.AlternateTag, result.Head)
+			}
 			if tag.observation.Name != "" {
 				tags = append(tags, tag)
 			}
@@ -470,7 +499,7 @@ func (c *Client) listTags(ctx context.Context, src release.Source, headSHA strin
 func (c *Client) peelCommit(ctx context.Context, base, name, sha, kind string) (string, error) {
 	for depth := 0; kind == "tag" && depth < 5; depth++ {
 		var obj gitTagResponse
-		if err := c.get(ctx, base+"/git/tags/"+segment(sha), &obj); err != nil {
+		if err := c.getTagSHA(ctx, base+"/git/tags/"+segment(sha), &obj, sha); err != nil {
 			return "", err
 		}
 		sha, kind = obj.Object.SHA, obj.Object.Type
@@ -486,7 +515,11 @@ func (c *Client) peelCommit(ctx context.Context, base, name, sha, kind string) (
 
 func (c *Client) resolveTag(ctx context.Context, src release.Source, name, headSHA string) (resolvedTag, error) {
 	var ref gitTagResponse
-	if err := c.get(ctx, repoPath(src.Repo)+"/git/ref/tags/"+segment(name), &ref); err != nil {
+	readRef := c.get
+	if ctx.Value(tagReuseKey{}) != nil {
+		readRef = c.getTagRef
+	}
+	if err := readRef(ctx, repoPath(src.Repo)+"/git/ref/tags/"+segment(name), &ref); err != nil {
 		return resolvedTag{}, err
 	}
 	sha, err := c.peelCommit(ctx, repoPath(src.Repo), name, ref.Object.SHA, ref.Object.Type)
@@ -495,7 +528,7 @@ func (c *Client) resolveTag(ctx context.Context, src release.Source, name, headS
 	}
 	tag := resolvedTag{observation: release.Tag{Name: name, SHA: sha, Contains: map[string]release.Truth{}, Evidence: release.Evidence{At: time.Now(), URL: "https://github.com/" + src.Repo + "/tree/" + name, Known: true}}}
 	var metadata commitResponse
-	if err := c.get(ctx, repoPath(src.Repo)+"/commits/"+segment(sha), &metadata); err != nil {
+	if err := c.getTagSHA(ctx, repoPath(src.Repo)+"/commits/"+segment(sha), &metadata, sha); err != nil {
 		tag.observation.Evidence.Known = false
 		tag.observation.Evidence.Error = "tag commit metadata unavailable"
 		return tag, err
@@ -507,7 +540,7 @@ func (c *Client) resolveTag(ctx context.Context, src release.Source, name, headS
 		return tag, nil
 	}
 	var cmp compareResponse
-	if err := c.get(ctx, repoPath(src.Repo)+"/compare/"+segment(sha)+"..."+segment(headSHA), &cmp); err != nil {
+	if err := c.getTagSHA(ctx, repoPath(src.Repo)+"/compare/"+segment(sha)+"..."+segment(headSHA), &cmp, sha, headSHA); err != nil {
 		tag.observation.Evidence.Known = false
 		tag.observation.Evidence.Error = "tag ancestry unavailable"
 		return tag, err

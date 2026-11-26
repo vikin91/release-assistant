@@ -65,6 +65,7 @@ type (
 		PRs              []prModel
 		MergedPRs        []release.PR
 		TagChoices       []tagModel
+		RecentTagNames   []string
 		HiddenTagChoices int
 		CurrentTag       string
 		SelectedTag      *tagModel
@@ -319,7 +320,13 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 				Choice: choice, ChoiceLabel: string(choice),
 			})
 		}
+		names := snapshot.ComponentTagNames[repo.Source.Name]
+		r.RecentTagNames = slices.DeleteFunc(slices.Clone(names.Names), func(name string) bool { return name == r.CurrentTag })
+		r.RecentTagNames = r.RecentTagNames[:min(len(r.RecentTagNames), snapshot.TagChoiceLimit)]
 		for _, tag := range repo.Tags {
+			if names.Evidence.Known && tag.Name != r.CurrentTag && !slices.Contains(r.RecentTagNames, tag.Name) {
+				continue
+			}
 			var authority *dispatch.View
 			if v, ok := authorities[release.Target{Repo: repo.Source.Repo, Tag: tag.Name}]; ok {
 				copy := v

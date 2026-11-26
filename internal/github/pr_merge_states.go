@@ -62,7 +62,7 @@ func (c *Client) readListedPRMergeStates(ctx context.Context, cycle *discoveryCy
 				}
 			}
 		}
-		if err := c.readObservation(ctx, http.MethodPost, "/graphql", bytes.NewReader(payload), &response, nil); err != nil {
+		if err := c.readObservation(ctx, http.MethodPost, "/graphql", bytes.NewReader(payload), &response, nil, 0); err != nil {
 			return
 		}
 		page := response.Data.Repository.PullRequests

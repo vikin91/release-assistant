@@ -3,7 +3,6 @@ package app
 import (
 	"cmp"
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"maps"
@@ -87,8 +86,10 @@ type (
 		PendingTags map[string]string
 		// ComponentTagDetails holds tag history and diagnostics by component.
 		ComponentTagDetails map[string]ComponentTagDetails
-		// RefreshingTags names components with an outstanding manual inventory refresh.
-		RefreshingTags map[string]bool
+		// ComponentTagNames holds the last tag-name reads by component.
+		ComponentTagNames map[string]ComponentTagNames
+		// ComponentTagActions describes outstanding manual tag reads by component.
+		ComponentTagActions map[string]string
 		// PendingPinningPR holds the saved PR number until discovery verifies its branch.
 		PendingPinningPR int
 		// Loading keeps the dashboard refreshing during startup and while included ACS PRs await CI results.
@@ -179,6 +180,8 @@ type (
 		resumedAt        time.Time
 
 		componentTagHistory map[string]componentTagHistory
+		componentTagNames   map[string]ComponentTagNames
+		componentTagActions map[string]string
 		rcVulnerabilities   map[release.Target]release.RCVulnerabilities
 
 		creatingPinningPR bool
@@ -262,6 +265,8 @@ func newReleaseWork() *releaseWork {
 		inventory:       release.Inventory{},
 
 		componentTagHistory: make(map[string]componentTagHistory),
+		componentTagNames:   make(map[string]ComponentTagNames),
+		componentTagActions: make(map[string]string),
 		rcVulnerabilities:   make(map[release.Target]release.RCVulnerabilities),
 	}
 }
@@ -338,18 +343,8 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 	defer s.mu.Unlock()
 	var err error
 	switch a.Kind {
-	case "refresh-tags":
-		if !slices.ContainsFunc(s.config.Components, func(source release.Source) bool {
-			return source.Name == a.Component
-		}) {
-			return fmt.Errorf("unknown component")
-		}
-		id := pollID{a.Component, pollTags}
-		record := s.polls[id]
-		record.tagRefresh = rand.Text()
-		s.polls[id] = record
-		s.wakePolls()
-		return nil
+	case "fetch-tag-names", "verify-recent-tags":
+		return s.requestComponentTagAction(a)
 	case "refresh-images":
 		if err := s.config.Validate(); err != nil {
 			return err
@@ -720,15 +715,14 @@ func (s *Session) profileSnapshot(work *releaseWork, active bool, profileID stri
 		x.WritesEnabled, x.Authority = s.dispatcher.WritesEnabled(), s.dispatcher.Views()
 		x.RefreshingResumed = s.hasOverdueObservations()
 		x.ImagesRefreshing = work.imageReads > 0 || work.imageRefresh > work.polls[pollID{c.ACS().Repo, pollImages}].imageRefresh
-		for _, source := range c.Components {
-			if work.polls[pollID{source.Name, pollTags}].tagRefresh != "" {
-				if x.RefreshingTags == nil {
-					x.RefreshingTags = make(map[string]bool)
-				}
-				x.RefreshingTags[source.Name] = true
-				x.Loading = true
-			}
-		}
+		x.ComponentTagActions = maps.Clone(work.componentTagActions)
+		x.Loading = len(x.ComponentTagActions) > 0
+	}
+	x.ComponentTagNames = make(map[string]ComponentTagNames, len(c.Components))
+	for _, source := range c.Components {
+		names := s.savedComponentTagNames(work, profileID, source.Name)
+		names.Names = slices.Clone(names.Names)
+		x.ComponentTagNames[source.Name] = names
 	}
 	if len(work.pendingTags) > 0 {
 		x.PendingTags = make(map[string]string, len(work.pendingTags))
@@ -744,7 +738,7 @@ func (s *Session) profileSnapshot(work *releaseWork, active bool, profileID stri
 	s.fillSharedSnapshot(&x)
 	if active && c.Validate() == nil {
 		for _, source := range append([]release.Source{c.ACS()}, c.Components...) {
-			if !work.initiallyLoaded[source.Name] || (work.repos[source.Name].TagsPending && work.choices.Tags[source.Name] == "" && s.duringStartup()) {
+			if !work.initiallyLoaded[source.Name] {
 				x.Loading = true
 				break
 			}
@@ -988,22 +982,9 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		}
 	}
 	tagStartHead := s.repos[source.Name].Head
-	if work.tagInventory {
-		request.ConfirmedTag = ""
-		request.TagRefresh = work.tagRefresh
-		if s.duringStartup() && s.choices.Tags[source.Name] == "" {
-			request.Progress = func(partial release.Repository) {
-				s.mu.Lock()
-				defer s.mu.Unlock()
-				if generation == s.generation && work.revision == s.workRevision && ctx.Err() == nil {
-					s.mergeTagProgress(source, partial)
-				}
-			}
-		}
-	} else if work.scope == ReadTags {
-		if saved := s.pendingTags[source.Name]; saved.Tag != "" {
-			request.ConfirmedTag = saved.Tag
-		}
+	if work.tag != "" {
+		request.ConfirmedTag = work.tag
+		request.AlternateTag = work.alternateTag
 	}
 	revision := s.workRevision
 	for t, choice := range s.choices.PRs {
@@ -1067,7 +1048,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 		}
 		operation := "github"
 		switch {
-		case work.tagInventory || work.scope == ReadTags:
+		case work.scope == ReadTags:
 			operation = "tags"
 		case scoped && request.Reads(ReadRC) && !request.Reads(ReadPRs):
 			operation = "acs-tags"
@@ -1080,11 +1061,9 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			s.record(release.Target{Repo: source.Repo}, r.Head, "github-complete", "", message, "system", message)
 		}
 		old := s.repos[source.Name]
-		if work.tagInventory && r.Head != "" && old.Head != tagStartHead && old.Head != r.Head {
-			old.TagsPending = true
-			s.repos[source.Name] = old
+		if work.scope == ReadTags && r.Head != "" && old.Head != tagStartHead && old.Head != r.Head {
 			s.mu.Unlock()
-			return errors.Join(errs...)
+			return fmt.Errorf("the component branch changed during tag verification")
 		}
 		if err != nil && r.Head == "" {
 			if !scoped {
@@ -1113,7 +1092,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			s.logPinDiscovery(old.PinDiscovery, r.PinDiscovery)
 		}
 		if err != nil {
-			if source.Name != "acs" && (work.tagInventory || !scoped) {
+			if source.Name != "acs" && !scoped {
 				r.TagsPending = true
 			}
 			for _, previous := range old.Tags {
@@ -1167,12 +1146,12 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			}
 		}
 		s.repos[source.Name] = r
-		if s.componentTagSpan(old) != s.componentTagSpan(r) {
+		if request.Reads(ReadPins) || s.componentTagSpan(old) != s.componentTagSpan(r) {
 			s.wakePolls()
 		}
 		completeTags := !r.TagsPending && err == nil &&
 			(request.Reads(ReadRC) && source.Name == "acs" ||
-				request.Reads(ReadTags) && (work.tagInventory || !scoped))
+				request.Reads(ReadTags) && !scoped)
 		problem := ""
 		if err != nil {
 			problem = err.Error()

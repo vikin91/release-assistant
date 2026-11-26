@@ -48,7 +48,7 @@ func TestComponentTagChoicesSurviveRestartAndReleaseSwitch(t *testing.T) {
 		t.Fatal("saving tags removed the PR choice from the existing state file")
 	}
 	before := len(f.requests)
-	if err := restarted.fetchPoll(t.Context(), restarted.generation, restarted.workRevision, config.Components[0], pollJob{kind: pollTags}); err != nil {
+	if err := restarted.fetchPoll(t.Context(), restarted.generation, restarted.workRevision, config.Components[0], restarted.tagPollJob(config.Components[0])); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.requests) != before+1 || f.requests[before].ConfirmedTag != want["fact"] {

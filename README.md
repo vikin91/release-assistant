@@ -227,8 +227,10 @@ The server listens on loopback. At the bottom of **Settings**, use **Refresh int
 |---|---:|---:|---:|
 | PRs | 5 min | 15 min | 5 min |
 | PR checks | 5 min | 30 min | 5 min |
-| Tags | 10 min | 10 min | 10 min |
+| Tag verification | 10 min for saved or pinned tags | 10 min for the selected tag | 10 min for ACS tags |
 | Tag checks | — | 10 min | 5 min |
+
+On **Component releases**, select **Fetch tag names** to list versions in one component’s stream. Select **Verify recent tags on release branch** to resolve those tags to commits and verify branch membership. **Maximum tag choices** bounds the number of alternatives checked. Verification can use substantial GitHub API quota. Saved names and verification results are available after restart.
 
 The **ACS** section also controls Konflux build reads for all tracked targets (5 minutes) and Quay release image reads (10 minutes). These intervals apply to the current session. At startup, `-discover` can override the initial PR and tag discovery intervals. `-poll` can override the initial check, build, and image intervals. Failed reads can leave the last results visible while current evidence remains unverified.
 

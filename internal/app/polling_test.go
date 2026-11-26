@@ -219,31 +219,36 @@ func TestComponentRefreshIntervals(t *testing.T) {
 				t.Fatalf("%s tag inventories = %d, want %d", source, got, tags)
 			}
 		}
-		check("fact", 1, 1)
-		check("collector", 1, 1)
+		check("fact", 1, 0)
+		check("collector", 1, 0)
 		time.Sleep(time.Minute)
 		tag := f.repos["fact"].Tags[0]
+		s.mu.Lock()
+		repo := s.repos["fact"]
+		repo.Tags = []release.Tag{tag}
+		s.repos["fact"] = repo
+		s.mu.Unlock()
 		apply(t, s, Action{Kind: "tag", Component: "fact", Tag: tag.Name, SHA: tag.SHA})
 		synctest.Wait()
 		check("fact", 2, 1) // Read PR coverage for the selected SHA.
 		time.Sleep(4 * time.Minute)
 		synctest.Wait()
 		check("fact", 2, 1)
-		check("collector", 2, 1)
+		check("collector", 2, 0)
 		time.Sleep(5 * time.Minute)
 		synctest.Wait()
-		check("fact", 2, 2)
-		check("collector", 3, 2)
+		check("fact", 2, 1)
+		check("collector", 3, 0)
 
 		// Shortening an overdue interval wakes the monitor. Lengthening it
 		// moves the next read without issuing an extra request.
 		apply(t, s, Action{Kind: "application-settings", RefreshIntervals: RefreshIntervals{AfterPRs: 3 * time.Minute, BeforeTags: time.Hour}})
 		synctest.Wait()
-		check("fact", 3, 2)
+		check("fact", 3, 1)
 		time.Sleep(10 * time.Minute)
 		synctest.Wait()
-		check("fact", 6, 3)
-		check("collector", 5, 2)
+		check("fact", 6, 2)
+		check("collector", 5, 0)
 	})
 }
 
@@ -265,6 +270,8 @@ func TestDeferredTagPollLeavesPRScheduleActive(t *testing.T) {
 		s, f := newFixture()
 		s.discovery = deferredTags{fixture: f, until: time.Now().Add(12 * time.Minute)}
 		apply(t, s, Action{Kind: "configure", Config: configuration()})
+		tag := f.repos["fact"].Tags[0]
+		s.pendingTags["fact"] = savedComponentTag{Tag: tag.Name, SHA: tag.SHA}
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		go s.Run(ctx)

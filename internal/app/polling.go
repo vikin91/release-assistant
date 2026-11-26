@@ -27,9 +27,7 @@ type (
 	pollRecord struct {
 		finished, retryAfter time.Time
 		identity             string
-		tagRefresh           string
 		failures             int
-		continuing           bool
 		imageRefresh         uint64
 	}
 )
@@ -43,6 +41,7 @@ const (
 	pollImages
 	pollComponentTagHistory
 	pollRCVulnerabilities
+	pollManualComponentTags
 )
 
 func (job pollJob) id(source release.Source) pollID {
@@ -52,14 +51,8 @@ func (job pollJob) id(source release.Source) pollID {
 	return pollID{source.Repo, job.kind}
 }
 
-// next resumes incomplete tag batches and applies the regular interval to completed polls.
+// next applies the regular interval and any longer access deferral.
 func (r pollRecord) next(interval time.Duration, startupUntil time.Time) time.Time {
-	if r.continuing {
-		if r.retryAfter.IsZero() {
-			return r.finished
-		}
-		return r.retryAfter
-	}
 	normal := r.finished.Add(interval)
 	if r.retryAfter.IsZero() {
 		return normal
@@ -81,13 +74,13 @@ func (s *Session) tagPollJob(source release.Source) pollJob {
 		job.setting = ACSTags
 		return job
 	}
-	if s.choices.Tags[source.Name] != "" {
+	if selected := s.choices.Tags[source.Name]; selected != "" {
 		job.setting = AfterTags
-	}
-	record := s.polls[job.id(source)]
-	job.identity = record.tagRefresh
-	if job.identity == "" {
-		job.identity = record.identity
+		job.identity = selected
+	} else if saved := s.pendingTags[source.Name].Tag; saved != "" {
+		job.identity = saved
+	} else {
+		job.identity = s.componentPinnedVersion(source)
 	}
 	return job
 }
@@ -108,7 +101,10 @@ func (s *Session) pollJobs(source release.Source) []pollJob {
 	} else if tag != "" {
 		prs, checks = AfterPRs, AfterPRChecks
 	}
-	jobs := []pollJob{s.tagPollJob(source), {kind: pollPRs, setting: prs}}
+	jobs := []pollJob{{kind: pollPRs, setting: prs}}
+	if job := s.tagPollJob(source); acs || job.identity != "" {
+		jobs = append([]pollJob{job}, jobs...)
+	}
 	tracked := false
 	for t, choice := range s.choices.PRs {
 		if t.Repo == source.Repo && choice == release.Included {
@@ -268,29 +264,16 @@ func (s *Session) fetchPoll(ctx context.Context, generation, revision uint64, so
 			break
 		}
 		work.scope = ReadTags
+		work.tag = job.identity
 		s.mu.Lock()
-		record := s.polls[job.id(source)]
-		hasSavedTag := s.pendingTags[source.Name].Tag != "" && record.tagRefresh == ""
-		continuing := record.continuing && record.identity == job.identity
-		s.mu.Unlock()
-		if continuing {
-			ctx = githubread.WithPriority(ctx, githubread.Background, source.Repo)
-		}
-		var savedTagErr error
-		if hasSavedTag {
-			savedTagErr = s.refresh(ctx, generation, source, true, work)
-			s.mu.Lock()
-			current := generation == s.generation && revision == s.workRevision
-			s.mu.Unlock()
-			if !current {
-				return savedTagErr
+		if s.choices.Tags[source.Name] == "" && s.pendingTags[source.Name].Tag == "" {
+			if normalized, prefixed := strings.CutPrefix(work.tag, "v"); prefixed {
+				work.alternateTag = normalized
+			} else {
+				work.alternateTag = "v" + work.tag
 			}
 		}
-		work.tagInventory = true
-		if record.tagRefresh == job.identity {
-			work.tagRefresh = record.tagRefresh
-		}
-		return errors.Join(savedTagErr, s.refresh(ctx, generation, source, true, work))
+		s.mu.Unlock()
 	case pollTagChecks:
 		return s.refreshTagChecks(ctx, generation, revision, source)
 	case pollRCVulnerabilities:
@@ -333,7 +316,6 @@ func (s *Session) runPoll(ctx context.Context, generation, revision uint64, sour
 	}
 	now := time.Now()
 	record := pollRecord{identity: job.identity, finished: now, imageRefresh: job.imageRefresh}
-	componentTags := job.kind == pollTags && source.Name != "acs"
 	if err != nil {
 		record.failures = 1
 		if previous.identity == job.identity {
@@ -348,7 +330,6 @@ func (s *Session) runPoll(ctx context.Context, generation, revision uint64, sour
 			if deferred.Until.After(record.retryAfter) {
 				record.retryAfter = deferred.Until
 			}
-			record.continuing = componentTags
 		}
 		interval := s.options.RefreshIntervals[job.setting]
 		delay = record.next(interval, s.startupUntil).Sub(now)
@@ -356,14 +337,8 @@ func (s *Session) runPoll(ctx context.Context, generation, revision uint64, sour
 			message := fmt.Sprintf("The last monitoring attempt failed while %s. The next monitoring attempt for %s is in %s.", err, consoleBranch(source), retryDelay(delay))
 			s.record(release.Target{Repo: source.Repo}, "", "retry-wait", "", message, "system", message)
 		}
-	} else if componentTags {
-		record.continuing = s.repos[source.Name].TagsPending
-	} else if job.kind == pollTags && s.repos[source.Name].TagsPending && now.Before(s.startupUntil) {
+	} else if job.kind == pollTags && source.Name == "acs" && s.repos[source.Name].TagsPending && now.Before(s.startupUntil) {
 		record.retryAfter = now.Add(min(time.Minute, s.options.Poll))
-	}
-	requested := s.polls[id].tagRefresh
-	if requested != job.identity || record.continuing {
-		record.tagRefresh = requested
 	}
 	s.polls[id] = record
 }

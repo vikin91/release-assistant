@@ -31,6 +31,7 @@ type (
 		CreatedPinningPR dispatch.PinningReceipt       `json:"createdPinningPR,omitzero"`
 		Config           release.Config                `json:"config"`
 		Repositories     map[string]release.Repository `json:"repositories,omitempty"`
+		TagNames         map[string]ComponentTagNames  `json:"componentTagNames,omitempty"`
 		Plans            map[string]release.Plan       `json:"plans,omitempty"`
 		Images           map[string]dashboardImages    `json:"images,omitempty"`
 	}

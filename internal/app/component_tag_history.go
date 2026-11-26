@@ -12,10 +12,10 @@ import (
 type (
 	// ComponentTagDetails holds display evidence for the selected tag and its inventory.
 	ComponentTagDetails struct {
-		PRs                     []release.CandidatePR
-		PRsKnown                bool
-		DiscoveryError, PRError string
-		NextRetry               time.Time
+		PRs                                        []release.CandidatePR
+		PRsKnown                                   bool
+		DiscoveryError, VerificationError, PRError string
+		NextRetry                                  time.Time
 	}
 	componentTagPRReader interface {
 		ReadComponentTagPRs(context.Context, release.Source, string, string) ([]release.CandidatePR, error)
@@ -37,7 +37,8 @@ func (s *releaseWork) componentTagSpan(repo release.Repository) componentTagRang
 	selected := s.choices.Tags[name]
 	sha := s.confirmedSHAs[name]
 	major, minor, selectedPatch, ok := release.Version(selected)
-	if name == "acs" || repo.TagsPending || !ok || sha == "" {
+	names := s.componentTagNames[name].Names
+	if name == "acs" || (repo.TagsPending && len(names) == 0) || !ok || sha == "" {
 		return componentTagRange{}
 	}
 	previousPatch := -1
@@ -45,7 +46,7 @@ func (s *releaseWork) componentTagSpan(repo release.Repository) componentTagRang
 	var selectedFound, ambiguous bool
 	for _, tag := range repo.Tags {
 		if tag.Name == selected {
-			selectedFound = tag.SHA == sha && tag.Belongs == release.Yes
+			selectedFound = tag.SHA == sha && tag.Belongs == release.Yes && (len(names) == 0 || tag.Evidence.Fresh())
 		}
 		m, n, patch, valid := release.Version(tag.Name)
 		if !valid || m != major || n != minor || patch >= selectedPatch || patch < previousPatch || tag.Belongs == release.No {
@@ -57,7 +58,16 @@ func (s *releaseWork) componentTagSpan(repo release.Repository) componentTagRang
 			ambiguous = true
 		}
 	}
-	if !selectedFound || ambiguous || previous.SHA == "" || previous.Belongs != release.Yes {
+	for _, name := range names {
+		m, n, patch, valid := release.Version(name)
+		if valid && m == major && n == minor && patch < selectedPatch && patch >= previousPatch &&
+			!slices.ContainsFunc(repo.Tags, func(tag release.Tag) bool {
+				return tag.Name == name && tag.Evidence.Fresh() && (tag.Belongs == release.No || tag.SHA == previous.SHA)
+			}) {
+			return componentTagRange{}
+		}
+	}
+	if !selectedFound || ambiguous || previous.SHA == "" || previous.Belongs != release.Yes || (len(names) > 0 && !previous.Evidence.Fresh()) {
 		return componentTagRange{}
 	}
 	return componentTagRange{tag: selected, previousSHA: previous.SHA, selectedSHA: sha}
@@ -96,7 +106,10 @@ func (s *Session) refreshComponentTagHistory(ctx context.Context, generation, re
 
 func (s *Session) componentTagDetails(work *releaseWork, source release.Source, active bool) ComponentTagDetails {
 	target := release.Target{Repo: source.Repo}
-	details := ComponentTagDetails{DiscoveryError: work.readErrors["tags "+target.String()]}
+	details := ComponentTagDetails{
+		DiscoveryError:    work.readErrors["tags "+target.String()],
+		VerificationError: work.readErrors["tag-verification "+target.String()],
+	}
 	history := work.componentTagHistory[source.Name]
 	span := work.componentTagSpan(work.repos[source.Name])
 	if history.span == span && span.tag != "" {

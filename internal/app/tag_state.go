@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	"release-assistant/internal/dispatch"
 	"release-assistant/internal/release"
@@ -66,6 +67,7 @@ func (s *Session) verifySavedTag(source release.Source, tags []release.Tag) bool
 			s.record(target, tag.SHA, "tag-invalidated", "", "resolved commit changed", "system")
 		case tag.Belongs == release.Yes:
 			s.selectComponentTag(source, tag.Name, tag.SHA)
+			s.polls[pollID{source.Name, pollTags}] = pollRecord{identity: tag.Name, finished: time.Now()}
 			s.dispatcher.ObserveIdentity(dispatch.Identity{Target: target, SHA: tag.SHA, Open: true, Evidence: tag.Evidence})
 		default:
 			message := fmt.Sprintf("Saved tag %s is outside %s. Select a tag again.", target, source.Branch)

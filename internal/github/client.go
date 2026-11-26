@@ -33,6 +33,8 @@ type (
 		tagPagesMu   sync.Mutex
 		tagPages     map[string]tagPage
 		rangePRCache sync.Map
+		tagReadsMu   sync.Mutex
+		tagReads     map[string]tagRead
 		windowCache  *CommitWindowCache
 	}
 	// requestError separates safe UI causes from endpoint diagnostics.
@@ -91,10 +93,10 @@ func (c *Client) get(ctx context.Context, endpoint string, dst any) error {
 }
 
 func (c *Client) getObservation(ctx context.Context, endpoint string, dst any, storable *bool) error {
-	return c.readObservation(ctx, http.MethodGet, endpoint, nil, dst, storable)
+	return c.readObservation(ctx, http.MethodGet, endpoint, nil, dst, storable, 0)
 }
 
-func (c *Client) readObservation(ctx context.Context, method, endpoint string, payload io.Reader, dst any, storable *bool) (err error) {
+func (c *Client) readObservation(ctx context.Context, method, endpoint string, payload io.Reader, dst any, storable *bool, reuse tagReadMode) (err error) {
 	cycle, _ := ctx.Value(discoveryCycleKey{}).(*discoveryCycle)
 	diff, rawDiff := dst.(*pinPRDiff)
 	cacheable := cycle != nil && method == http.MethodGet && !rawDiff && cacheableObservation(endpoint)
@@ -114,6 +116,18 @@ func (c *Client) readObservation(ctx context.Context, method, endpoint string, p
 		}
 		return err
 	}
+	var tag tagRead
+	if reuse != 0 {
+		c.tagReadsMu.Lock()
+		tag = c.tagReads[endpoint]
+		c.tagReadsMu.Unlock()
+		if tag.immutable {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return json.Unmarshal(tag.data, dst)
+		}
+	}
 	if cycle != nil {
 		if err := cycle.take(); err != nil {
 			return err
@@ -125,6 +139,13 @@ func (c *Client) readObservation(ctx context.Context, method, endpoint string, p
 		return fmt.Errorf("build GitHub %s %s request failed", method, safeEndpoint(requestURL, c.token))
 	}
 	c.authorize(req)
+	if c.token != "" {
+		if tag.etag != "" {
+			req.Header.Set("If-None-Match", tag.etag)
+		} else if tag.lastModified != "" {
+			req.Header.Set("If-Modified-Since", tag.lastModified)
+		}
+	}
 	if rawDiff {
 		req.Header.Set("Accept", "application/vnd.github.diff")
 	}
@@ -136,6 +157,15 @@ func (c *Client) readObservation(ctx context.Context, method, endpoint string, p
 		return &requestError{diagnostic: fmt.Sprintf("GitHub %s %s unavailable: %s", method, safeEndpoint(req.URL.String(), c.token), safeTransportCause(err)), problem: transportProblem(err), cause: safeTransportCause(err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNotModified && (req.Header.Get("If-None-Match") != "" || req.Header.Get("If-Modified-Since") != "") {
+		if !cacheControlAllowsStorage(resp.Header) {
+			c.saveTagRead(endpoint, tagRead{})
+		}
+		return json.Unmarshal(tag.data, dst)
+	}
+	if reuse != 0 && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		c.saveTagRead(endpoint, tagRead{})
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		failure := &requestError{diagnostic: fmt.Sprintf("GitHub %s %s rejected (HTTP %d): %s", method, safeEndpoint(req.URL.String(), c.token), resp.StatusCode, httpStatusHint(resp)), problem: fmt.Sprintf("%s (HTTP %d).", httpStatusHint(resp), resp.StatusCode), statusCode: resp.StatusCode}
 		if rateLimited(resp) {
@@ -168,6 +198,12 @@ func (c *Client) readObservation(ctx context.Context, method, endpoint string, p
 		// Require actual EOF so a truncated or multi-value body cannot seed the cache.
 		_, trailing := decoder.Token()
 		*storable = trailing == io.EOF && maxResponseBytes-limited.N <= maxCacheableWindowBytes && ctx.Err() == nil
+	}
+	if reuse != 0 && windowAllowsStorage(resp) && limited.N > 0 && ctx.Err() == nil {
+		_, trailing := decoder.Token()
+		if trailing == io.EOF && limited.N > 0 {
+			c.rememberTagRead(endpoint, dst, resp.Header, reuse)
+		}
 	}
 	return nil
 }

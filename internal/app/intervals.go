@@ -18,13 +18,13 @@ const (
 	BeforePRs RefreshKey = "before_prs"
 	// BeforePRChecks controls component PR check reads before tag selection.
 	BeforePRChecks RefreshKey = "before_pr_checks"
-	// BeforeTags controls component tag discovery before tag selection.
+	// BeforeTags controls verification of saved component tags and tags named by merged pins.
 	BeforeTags RefreshKey = "before_tags"
 	// AfterPRs controls component PR discovery after tag selection.
 	AfterPRs RefreshKey = "after_prs"
 	// AfterPRChecks controls component PR check reads after tag selection.
 	AfterPRChecks RefreshKey = "after_pr_checks"
-	// AfterTags controls component tag discovery after tag selection.
+	// AfterTags controls selected tag verification and retries for component tag PR history.
 	AfterTags RefreshKey = "after_tags"
 	// ComponentTagChecks controls GitHub checks for each selected component tag.
 	ComponentTagChecks RefreshKey = "component_tag_checks"

@@ -11,8 +11,12 @@ type (
 	DiscoveryScope uint8
 	// DiscoveryRequest scopes reads and preserves ignored and previously selected targets.
 	DiscoveryRequest struct {
-		Source           release.Source
-		ConfirmedTag     string
+		Source       release.Source
+		ConfirmedTag string
+		// AlternateTag provides the alternate spelling of a tag named by a pin.
+		AlternateTag string
+		// TagCandidates limits verification to explicit tag names.
+		TagCandidates    []string
 		Tracked, Ignored []release.Target
 		// PreviouslyOpen identifies PRs whose transition out of the open list needs verification.
 		PreviouslyOpen []int
@@ -38,6 +42,10 @@ type (
 	// Discoverer returns partial observations alongside errors safe for diagnostic display.
 	Discoverer interface {
 		Discover(context.Context, DiscoveryRequest) (release.Repository, error)
+	}
+	// ComponentTagNameReader lists versioned tag names without resolving their commits.
+	ComponentTagNameReader interface {
+		ReadComponentTagNames(context.Context, release.Source) ([]string, error)
 	}
 	// PRReader verifies one PR's metadata with a single GitHub read.
 	PRReader interface {

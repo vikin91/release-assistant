@@ -327,7 +327,7 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 		} else {
 			destination += "#component-images-panel"
 		}
-	case "refresh-tags":
+	case "fetch-tag-names", "verify-recent-tags":
 		destination += "#component-tags-" + action.Component
 	case "clear-cache":
 		destination = "/?tab=app-settings&saved=cache-clear#cache-settings"
@@ -613,7 +613,7 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 	case "interactive", "cache-enabled":
 		a.Enabled = formHasValue(form, "enabled", "true")
 	case "clear-cache", "refresh-images":
-	case "refresh-tags":
+	case "fetch-tag-names", "verify-recent-tags":
 		a.Component = form.Get("component")
 		if form.Get("tab") != "component-releases" || !slices.ContainsFunc(current.Components, func(source release.Source) bool {
 			return source.Name == a.Component

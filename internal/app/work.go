@@ -10,12 +10,11 @@ import (
 )
 
 type sourceWork struct {
-	revision      uint64
-	scope         DiscoveryScope
-	plans, images bool
-	tagInventory  bool
-	tagRefresh    string
-	scheduled     bool
+	revision          uint64
+	scope             DiscoveryScope
+	plans, images     bool
+	tag, alternateTag string
+	scheduled         bool
 }
 
 func (s *Session) rcReady() bool {

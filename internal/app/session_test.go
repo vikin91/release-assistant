@@ -47,6 +47,8 @@ func (f *fixture) Discover(ctx context.Context, r DiscoveryRequest) (release.Rep
 	if r.Scope != ReadAll {
 		if !r.Reads(ReadTags) {
 			repo.Tags = nil
+		} else if r.TagCandidates != nil {
+			repo.Tags = slices.DeleteFunc(repo.Tags, func(tag release.Tag) bool { return !slices.Contains(r.TagCandidates, tag.Name) })
 		} else if r.ConfirmedTag != "" {
 			repo.Tags = slices.DeleteFunc(repo.Tags, func(tag release.Tag) bool { return tag.Name != r.ConfirmedTag })
 		}
@@ -247,7 +249,7 @@ func TestPollingBackoffRecoveryAndBrowserIndependence(t *testing.T) {
 		time.Sleep(time.Minute)
 		synctest.Wait()
 		f.mu.Lock()
-		if f.calls["collector"] < 2 || f.calls["fact"] != 2 {
+		if f.calls["collector"] < 2 || f.calls["fact"] != 1 {
 			t.Fatal(maps.Clone(f.calls))
 		}
 		f.fail["fact"] = false
@@ -255,7 +257,7 @@ func TestPollingBackoffRecoveryAndBrowserIndependence(t *testing.T) {
 		time.Sleep(time.Minute)
 		synctest.Wait()
 		f.mu.Lock()
-		if f.calls["fact"] != 4 {
+		if f.calls["fact"] != 2 {
 			t.Fatal(maps.Clone(f.calls))
 		}
 		f.mu.Unlock()
@@ -294,7 +296,10 @@ func TestConfigurationStartsInitialLoadWithoutWaitingForPoll(t *testing.T) {
 					}
 					f.mu.Lock()
 					for _, source := range []string{"acs", "fact", "collector"} {
-						want := 2 * (attempt + 1) // One tag inventory and one PR inventory per source.
+						want := attempt + 1
+						if source == "acs" {
+							want *= 2
+						}
 						if f.calls[source] != want {
 							t.Errorf("%s discovery calls=%d, want %d", source, f.calls[source], want)
 						}

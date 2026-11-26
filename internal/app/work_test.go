@@ -167,7 +167,7 @@ func TestScheduledPRWorkDoesNotRequireComponentTags(t *testing.T) {
 	}
 }
 
-func TestScheduledDiscoveryContinuesAfterTagSelectionAndPinning(t *testing.T) {
+func TestScheduledDiscoveryRevalidatesOnlySelectedComponentTags(t *testing.T) {
 	s, f, _ := rcFixture(t)
 	acs := f.repos["acs"]
 	old := release.Target{Repo: acs.Source.Repo, PR: 1}
@@ -194,8 +194,10 @@ func TestScheduledDiscoveryContinuesAfterTagSelectionAndPinning(t *testing.T) {
 	if err := fetchSourcePolls(t, s, fact.Source, pollTags); err != nil {
 		t.Fatal(err)
 	}
-	if len(s.repos["fact"].Tags) != 2 || s.choices.Tags["fact"] != selected {
-		t.Fatal("new tags were hidden or silently selected")
+	request := f.requests[len(f.requests)-1]
+	if request.ConfirmedTag != selected || request.TagCandidates != nil ||
+		len(s.repos["fact"].Tags) != 1 || s.choices.Tags["fact"] != selected {
+		t.Fatal("automatic verification discovered tag choices or changed the selection")
 	}
 }
 
@@ -255,8 +257,13 @@ func TestTagInventoryFailurePreservesIndependentPRChecks(t *testing.T) {
 	f.repos["fact"] = fact
 	s.discovery = tagFailureServices{fixture: f}
 	s.choices.PRs[target] = release.Included
-	if err := fetchSourcePolls(t, s, fact.Source, pollPRs, pollChecks, pollTags); err == nil {
-		t.Fatal("tag inventory failure was hidden")
+	if err := fetchSourcePolls(t, s, fact.Source, pollPRs, pollChecks); err != nil {
+		t.Fatal(err)
+	}
+	candidates := []string{fact.Tags[0].Name}
+	repo, err := s.discovery.Discover(t.Context(), DiscoveryRequest{Source: fact.Source, Scope: ReadTags, TagCandidates: candidates})
+	if err := s.mergeRecentTagVerification(fact.Source, fact.Head, candidates, repo, err); err == nil {
+		t.Fatal("tag verification failure was hidden")
 	}
 	pr := s.repos["fact"].PRs[0]
 	if !s.repos["fact"].Evidence.Fresh() || !pr.Evidence.Fresh() || pr.ChecksStatus() != release.Yes {
@@ -275,15 +282,20 @@ func (f truncatedInventory) Discover(ctx context.Context, request DiscoveryReque
 	return repo, err
 }
 
-func TestScopedRefreshPreservesTagInventoryCompleteness(t *testing.T) {
+func TestManualVerificationPreservesIncompleteTagInventory(t *testing.T) {
 	s, f := newFixture()
 	apply(t, s, Action{Kind: "configure", Config: configuration()})
 	fact := f.repos["fact"]
 	fact.Tags = nil
 	f.repos["fact"] = fact
 	s.discovery = truncatedInventory{f}
-	if err := fetchSourcePolls(t, s, fact.Source, pollPRs, pollTags); err == nil {
-		t.Fatal("tag inventory truncation was hidden")
+	if err := fetchSourcePolls(t, s, fact.Source, pollPRs); err != nil {
+		t.Fatal(err)
+	}
+	candidates := []string{"0.3.77"}
+	observed, err := s.discovery.Discover(t.Context(), DiscoveryRequest{Source: fact.Source, Scope: ReadTags, TagCandidates: candidates})
+	if err := s.mergeRecentTagVerification(fact.Source, fact.Head, candidates, observed, err); err == nil {
+		t.Fatal("tag verification failure was hidden")
 	}
 	if repo := s.repos["fact"]; !repo.Evidence.Fresh() || !repo.TagsPending {
 		t.Fatalf("expected fresh branch evidence and an incomplete tag inventory: %+v", repo)
@@ -293,13 +305,6 @@ func TestScopedRefreshPreservesTagInventoryCompleteness(t *testing.T) {
 	}
 	if !s.repos["fact"].TagsPending {
 		t.Fatal("a PR refresh marked the tag inventory complete")
-	}
-	s.discovery = f
-	if err := fetchSourcePolls(t, s, fact.Source, pollTags); err != nil {
-		t.Fatal(err)
-	}
-	if s.repos["fact"].TagsPending {
-		t.Fatal("a successful tag refresh left the inventory pending")
 	}
 }
 

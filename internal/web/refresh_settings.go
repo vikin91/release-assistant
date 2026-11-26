@@ -39,19 +39,18 @@ func refreshSections() []refreshSection {
 	const (
 		componentPRHelp    = "Find PRs targeting the component release branch. Update each PR’s state to open, merged, or closed."
 		componentCheckHelp = "Refresh GitHub CI results for tracked component PRs."
-		componentTagHelp   = "Find component release tags. Resolve their commit SHAs."
 	)
 	return []refreshSection{
 		{Title: "Components", Help: "Applies to Collector, Fact, and Scanner (ACS 4.x). Each component follows its own tag selection.", Groups: []refreshGroup{
 			{Title: "Before tag selection", Fields: []refreshField{
 				{app.BeforePRs, "Component PRs", componentPRHelp},
 				{app.BeforePRChecks, "Component PR checks", componentCheckHelp},
-				{app.BeforeTags, "Component tags", componentTagHelp},
+				{app.BeforeTags, "Saved component tag", "Verify a tag restored from saved settings or named in merged ACS pins."},
 			}},
 			{Title: "After tag selection", Fields: []refreshField{
 				{app.AfterPRs, "Component PRs", componentPRHelp},
 				{app.AfterPRChecks, "Component PR checks", componentCheckHelp},
-				{app.AfterTags, "Component tags", componentTagHelp},
+				{app.AfterTags, "Selected component tag", "Verify the selected tag and retry an incomplete list of PRs between tags."},
 				{app.ComponentTagChecks, "Component tag checks", "Refresh GitHub CI results for the selected component tag."},
 			}},
 		}},

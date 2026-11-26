@@ -369,3 +369,46 @@ func TestDashboardMigratesLegacyFilenameAndPrefersCanonicalFile(t *testing.T) {
 	}
 	assertHead(restart(), "new-head")
 }
+
+func TestManualTagObservationsRestoreWithoutDiscovery(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	config := configuration()
+	fact := config.Components[0]
+	_, f := newFixture()
+	tag := f.repos[fact.Name].Tags[0]
+	d := &manualTagDiscovery{fixture: f, names: []string{tag.Name}}
+	makeSession := func() *Session {
+		t.Helper()
+		state, err := OpenReleaseState(path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(state.file.Profiles) == 0 {
+			if err := state.SetInitialRelease(config, false); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return New(d, f, f, dispatch.New(f, f, f, dispatch.Options{}), nil, Options{Profiles: true, ReleaseState: state})
+	}
+	s := makeSession()
+	for _, action := range []string{"fetch-tag-names", "verify-recent-tags"} {
+		apply(t, s, Action{Kind: action, Component: fact.Name})
+		s.runComponentTagAction(t.Context(), s.generation, s.workRevision, fact, action)
+	}
+	s.flushDashboards()
+	restarted := makeSession().Snapshot()
+	names := restarted.ComponentTagNames[fact.Name]
+	if !slices.Equal(names.Names, []string{tag.Name}) || !names.Evidence.Historical || names.Evidence.At.IsZero() {
+		t.Fatalf("restored tag names = %+v", names)
+	}
+	if !slices.ContainsFunc(restarted.Repositories, func(repo release.Repository) bool {
+		return repo.Source == fact && slices.ContainsFunc(repo.Tags, func(saved release.Tag) bool {
+			return saved.Name == tag.Name && saved.SHA == tag.SHA && saved.Evidence.Historical && saved.Evidence.At.Equal(tag.Evidence.At)
+		})
+	}) {
+		t.Fatalf("saved verification missing from %+v", restarted.Repositories)
+	}
+	if len(d.lists) != 1 || len(f.requests) != 1 {
+		t.Fatalf("restart called discovery: lists=%v and requests=%v", d.lists, f.requests)
+	}
+}

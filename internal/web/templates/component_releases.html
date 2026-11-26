@@ -9,12 +9,28 @@
         <article class="component-tag-row" id="component-tags-{{$source.Name}}" data-live-key="tag-repo:{{$source.Name}}:{{$source.Repo}}">
           <div class="component-tag-heading">
             <h3>{{title $source.Name}} · <code>{{$source.Branch}}</code></h3>
-            {{$refreshing := index $.Snapshot.RefreshingTags $source.Name}}
+          </div>
+          {{$action := index $.Snapshot.ComponentTagActions $source.Name}}
+          {{$names := index $.Snapshot.ComponentTagNames $source.Name}}
+          {{$details := index $.Snapshot.ComponentTagDetails $source.Name}}
+          <div class="control-row">
             <form method="post" action="/action" class="inline-form">
-              <input type="hidden" name="tab" value="component-releases"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="refresh-tags"><input type="hidden" name="component" value="{{$source.Name}}">
-              <button type="submit"{{if $refreshing}} disabled{{end}}>{{if $refreshing}}Refreshing tags…{{else}}Refresh tags{{end}}</button>
+              <input type="hidden" name="tab" value="component-releases"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="component" value="{{$source.Name}}"><input type="hidden" name="kind" value="fetch-tag-names">
+              <button type="submit"{{if or $action (not $.Snapshot.Monitoring)}} disabled{{end}}>{{if eq $action "fetch-tag-names"}}Fetching tag names…{{else}}Fetch tag names{{end}}</button>
+            </form>
+            <form method="post" action="/action" class="inline-form">
+              <input type="hidden" name="tab" value="component-releases"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="component" value="{{$source.Name}}"><input type="hidden" name="kind" value="verify-recent-tags">
+              <button type="submit" aria-describedby="verify-tags-{{$source.Name}}"{{if or $action (not .RecentTagNames) (not $.Snapshot.Monitoring)}} disabled{{end}}>{{if eq $action "verify-recent-tags"}}Verifying recent tags…{{else}}Verify recent tags on release branch{{end}}</button>
             </form>
           </div>
+          <p class="tag-evidence muted" id="verify-tags-{{$source.Name}}">Resolve the commits for up to {{$.Snapshot.TagChoiceLimit}} recent tag choices and check whether they belong to <code>{{$source.Branch}}</code>. This can use a substantial amount of GitHub API quota.</p>
+          {{if $names.Evidence.Known}}
+            <p class="tag-evidence muted">Tag names fetched {{when $names.Evidence.At}}{{if $names.Evidence.Historical}} · saved result{{end}}</p>
+            {{if .RecentTagNames}}<p class="tag-evidence">{{range $i, $name := .RecentTagNames}}{{if $i}} · {{end}}<code>{{$name}}</code>{{end}}</p>
+            {{else}}<p class="tag-evidence muted">No alternative tags found in this release stream.</p>{{end}}
+          {{end}}
+          {{if $names.Evidence.Error}}<p class="error-text">Could not fetch tag names. {{$names.Evidence.Error}}</p>{{end}}
+          {{if $details.VerificationError}}<p class="error-text">Recent tag verification incomplete. {{$details.VerificationError}}</p>{{end}}
           {{if .CurrentTag}}
           <table class="tag-options" aria-label="{{title $source.Name}} release tags">
             <thead><tr><th scope="col">Tag</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
@@ -36,7 +52,7 @@
           </details>
           {{end}}
           {{else if .TagChoices}}{{template "component-tag-options" .}}
-          {{else}}<p class="muted">No tags observed yet.</p>{{end}}
+          {{else}}<p class="muted">No tag choices verified yet.</p>{{end}}
           {{if .NewerTag}}<p class="tag-prompt">Newer tag available <code>{{.NewerTag}}</code>.</p>{{end}}
           {{if .CurrentTag}}
           <details class="tag-evidence" data-fold-key="tag-rebuild:{{$source.Name}}:{{$source.Repo}}@{{.CurrentTag}}">
@@ -48,7 +64,6 @@
           {{end}}
           <details class="tag-evidence component-tag-details" data-fold-key="{{if .CurrentTag}}tag-evidence:{{$source.Name}}:{{$source.Repo}}@{{.CurrentTag}}{{else}}tag-repo-details:{{$source.Name}}:{{$source.Repo}}{{end}}">
             <summary>Details</summary>
-            {{$details := index $.Snapshot.ComponentTagDetails $source.Name}}
             {{if .CurrentTag}}
               <h4>Included new PRs in {{.CurrentTag}}</h4>
               {{if $details.PRsKnown}}

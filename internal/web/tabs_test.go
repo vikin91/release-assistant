@@ -329,30 +329,39 @@ func TestActivityDestinationIsValidated(t *testing.T) {
 	}
 }
 
-func TestComponentTagRefreshPostsToTheSelectedComponent(t *testing.T) {
+func TestComponentTagActionsPostToTheSelectedComponent(t *testing.T) {
 	application := &fakeApplication{snapshot: app.Snapshot{
-		Config: validACS5Config(), Generation: 12, RefreshingTags: map[string]bool{"fact": true},
+		Config: validACS5Config(), Monitoring: true, Generation: 12,
+		ComponentTagActions: map[string]string{"fact": "fetch-tag-names"},
+		ComponentTagNames:   map[string]app.ComponentTagNames{"collector": {Names: []string{"3.26.5"}, Evidence: release.Evidence{At: time.Now(), Known: true, Historical: true}}},
 	}}
 	browser := newBrowser(t, application)
 	panel := activityPanel(t, browser.getBody(t), "component-releases")
 	fact := between(t, panel, `id="component-tags-fact"`, "</article>")
-	if !strings.Contains(fact, `<button type="submit" disabled>Refreshing tags…</button>`) {
-		t.Fatal("expected pending refresh on Fact")
+	if !strings.Contains(fact, "Fetching tag names…") {
+		t.Fatal("expected a pending name lookup on Fact")
 	}
 	collector := between(t, panel, `id="component-tags-collector"`, "</article>")
-	form := formContaining(t, collector, `value="refresh-tags"`)
-	if !strings.Contains(form, `<button type="submit">Refresh tags</button>`) {
-		t.Fatal("Collector should have its own refresh action")
+	for _, want := range []string{"Fetch tag names", "Verify recent tags on release branch", "GitHub API quota", "saved result", "<code>3.26.5</code>"} {
+		if !strings.Contains(collector, want) {
+			t.Fatalf("missing Collector detail %q", want)
+		}
 	}
+	form := formContaining(t, collector, `value="fetch-tag-names"`)
 	values := url.Values{}
-	for _, field := range []string{"kind", "generation", "component", "tab"} {
+	for _, field := range []string{"generation", "component", "tab"} {
 		values.Set(field, formInputValue(t, form, field))
 	}
-	response := browser.post(values)
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/?tab=component-releases#component-tags-collector" ||
-		len(application.actions) != 1 || application.actions[0].Component != "collector" ||
-		application.actions[0].Kind != "refresh-tags" || application.actions[0].Generation != 12 {
-		t.Fatalf("unexpected refresh response %d and actions %+v", response.Code, application.actions)
+	for _, action := range []string{"fetch-tag-names", "verify-recent-tags"} {
+		values.Set("kind", action)
+		response := browser.post(values)
+		if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/?tab=component-releases#component-tags-collector" ||
+			len(application.actions) == 0 {
+			t.Fatalf("unexpected response for %s: %d %+v", action, response.Code, application.actions)
+		}
+		if got := application.actions[len(application.actions)-1]; got.Component != "collector" || got.Kind != action || got.Generation != 12 {
+			t.Fatalf("unexpected action %+v", got)
+		}
 	}
 	values.Set("component", "scanner")
 	if response := browser.post(values); response.Code != http.StatusBadRequest {

@@ -116,10 +116,11 @@ func fullCommitSHA(value string) bool {
 }
 
 func windowAllowsStorage(resp *http.Response) bool {
-	if resp.StatusCode != http.StatusOK {
-		return false
-	}
-	for _, value := range resp.Header.Values("Cache-Control") {
+	return resp.StatusCode == http.StatusOK && cacheControlAllowsStorage(resp.Header)
+}
+
+func cacheControlAllowsStorage(header http.Header) bool {
+	for _, value := range header.Values("Cache-Control") {
 		for directive := range strings.SplitSeq(value, ",") {
 			if strings.EqualFold(strings.TrimSpace(directive), "no-store") {
 				return false

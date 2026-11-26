@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,6 +36,24 @@ type browserFixture struct {
 func observation() release.Evidence {
 	return release.Evidence{At: time.Now(), Known: true, URL: "https://example.com/fixture-evidence"}
 }
+func (f *browserFixture) ReadComponentTagNames(_ context.Context, source release.Source) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failGitHub {
+		return nil, fmt.Errorf("fixture tag names unavailable")
+	}
+	if f.noTags && f.step == 0 {
+		return nil, nil
+	}
+	if source.Name == "fact" {
+		if f.step >= 1 {
+			return []string{"0.4.8", "0.4.7"}, nil
+		}
+		return []string{"0.4.7"}, nil
+	}
+	return []string{"3.26.5"}, nil
+}
+
 func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (release.Repository, error) {
 	select {
 	case <-ctx.Done():
@@ -150,8 +169,15 @@ func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (
 			repository.PRs = append(repository.PRs, release.PR{Target: release.Target{Repo: r.Source.Repo, PR: 102}, Title: "Fixture: later change", URL: "https://example.com/pr102", SHA: "later-head", State: "merged", Merged: true, MergeSHA: "later", Base: r.Source.Branch, Evidence: observation()})
 		}
 	}
-	if f.noTags && f.step == 0 {
+	switch {
+	case f.noTags && f.step == 0:
 		repository.Tags = nil
+	case !r.Reads(app.ReadTags) && !r.Reads(app.ReadCoverage):
+		repository.Tags = nil
+	case r.TagCandidates != nil:
+		repository.Tags = slices.DeleteFunc(repository.Tags, func(tag release.Tag) bool { return !slices.Contains(r.TagCandidates, tag.Name) })
+	case r.ConfirmedTag != "":
+		repository.Tags = slices.DeleteFunc(repository.Tags, func(tag release.Tag) bool { return tag.Name != r.ConfirmedTag })
 	}
 	return repository, nil
 }
