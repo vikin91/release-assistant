@@ -2,6 +2,19 @@
 {{with .VulnerabilityReviews}}
 <section class="panel" id="rc-vulnerabilities" aria-labelledby="rc-vulnerabilities-title">
   <h3 id="rc-vulnerabilities-title">Vulnerability review</h3>
+  {{with index . 0}}{{if .HoldSummary}}
+  <div class="copyable-text">
+    <div class="copy-text-actions">
+      <strong>CVEs that meet the internal hold criteria</strong>
+      <button type="button" data-copy-text>Copy CVE summary</button>
+      <span role="status" data-copy-status data-live-preserve></span>
+    </div>
+    <pre><code>{{.Target.Tag}} — CVEs that meet the internal hold criteria
+{{- range .HoldSummary}}
+{{.Number}}. <a href="{{or .URL (printf "https://www.cve.org/CVERecord?id=%s" .ID)}}">{{.ID}}</a> | {{range $j, $fix := .Fixes}}{{if $j}}
+   {{end}}{{$fix}}{{end}}{{end}}</code></pre>
+  </div>
+  {{end}}{{end}}
   <p>Release Assistant marks the RC as "meets hold criteria" when a Konflux image has a <strong>{{holdCriteria}}</strong>. This is stricter than defined in the release manual. The release engineer makes the release decision after checking the current release manual. Release Assistant does not block any further step of the release.</p>
   <div class="rc-vulnerability-legend" role="group" aria-label="Vulnerability pill legend">
     <span><span class="pill vulnerability-critical">Red</span> All Critical CVEs</span>

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -12,8 +13,15 @@ type (
 	vulnerabilityReview struct {
 		release.RCVulnerabilities
 		Images               []imageReview
+		HoldSummary          []holdCVE
 		Available, Scheduled int
 		Pending, Hold, Open  bool
+	}
+
+	holdCVE struct {
+		Number  int
+		ID, URL string
+		Fixes   []string
 	}
 
 	imageReview struct {
@@ -102,9 +110,43 @@ func (p pageModel) VulnerabilityReviews() []vulnerabilityReview {
 			}
 			return 1
 		})
+		if i == 0 {
+			review.HoldSummary = summarizeHoldCVEs(review.Images)
+		}
 		reviews = append(reviews, review)
 	}
 	return reviews
+}
+
+func summarizeHoldCVEs(images []imageReview) []holdCVE {
+	var summary []holdCVE
+	index := make(map[string]int)
+	for _, image := range images {
+		for _, finding := range image.Rows {
+			if !finding.SuggestsHold() {
+				continue
+			}
+			i, exists := index[finding.ID]
+			if !exists {
+				i = len(summary)
+				index[finding.ID] = i
+				summary = append(summary, holdCVE{Number: i + 1, ID: finding.ID})
+			}
+			entry := &summary[i]
+			if entry.URL == "" {
+				entry.URL = safeURL(finding.URL)
+			}
+			fix := fmt.Sprintf("%s | CVSS %s | fixed version %s",
+				cmp.Or(finding.Package, "unavailable"),
+				finding.CVSSLabel(),
+				cmp.Or(finding.Fixed, "unavailable"),
+			)
+			if !slices.Contains(entry.Fixes, fix) {
+				entry.Fixes = append(entry.Fixes, fix)
+			}
+		}
+	}
+	return summary
 }
 
 func groupFinding(finding release.Vulnerability) findingGroup {

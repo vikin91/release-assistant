@@ -8,6 +8,33 @@ import (
 	"release-assistant/internal/release"
 )
 
+func TestRCVulnerabilitySummaryDeduplicatesFindings(t *testing.T) {
+	snapshot := workflowStatusSnapshot()
+	rc := snapshot.Candidate()
+	const id = "CVE-2026-119373"
+	const link = "https://access.redhat.com/security/cve/" + id
+	finding := release.Vulnerability{
+		ID: id, Severity: "Important", CVSS: new(7.8), Package: "sqlite-libs", Fixed: "2", URL: link,
+	}
+	variant := finding
+	variant.Fixed = "3"
+	snapshot.RCVulnerabilities = []release.RCVulnerabilities{
+		{Target: rc.Target, SHA: rc.SHA, Images: []release.ImageVulnerabilities{
+			{Findings: []release.Vulnerability{finding, {ID: "CVE-2026-999999", Severity: "Critical"}}},
+			{Findings: []release.Vulnerability{finding, variant}},
+		}},
+	}
+
+	body := newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t)
+	summary := between(t, body, "Copy CVE summary</button>", "</pre>")
+	want := "1. <a href=\"" + link + "\">" + id + "</a> | sqlite-libs | CVSS 7.8 | fixed version 2\n" +
+		"   sqlite-libs | CVSS 7.8 | fixed version 3"
+	if !strings.Contains(summary, want) || strings.Count(summary, ">"+id+"</a>") != 1 ||
+		strings.Contains(summary, "CVE-2026-999999") {
+		t.Errorf("unexpected CVE summary: %s", summary)
+	}
+}
+
 func TestRCVulnerabilityReviewShowsPartialEvidenceAndPreviousCandidate(t *testing.T) {
 	const workflow = "https://github.com/stackrox/stackrox/actions/runs/42"
 	for name, test := range map[string]struct {
