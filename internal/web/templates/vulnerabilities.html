@@ -3,7 +3,7 @@
 {{with .VulnerabilityReviews}}
 {{with index . 0}}{{if .HoldSummary}}
 <section class="panel" id="rc-vulnerability-summary" aria-labelledby="rc-vulnerability-summary-title">
-    <h3 id="rc-vulnerability-summary-title">CVE summary</h3>
+    <h3 id="rc-vulnerability-summary-title">{{if .Historical}}Saved {{end}}CVE summary</h3>
     <div class="copyable-text rerun-command">
       <pre><code>{{.Target.Tag}} — CVEs that meet the internal hold criteria
 {{- range .HoldSummary}}
@@ -27,9 +27,10 @@
     <summary><strong>{{.Target.Tag}}</strong>
       {{if $i}}<span class="pill">Previous candidate</span>{{end}}
       {{if .Hold}}<span class="pill unknown">Meets hold criteria</span>{{end}}
-      {{if .Pending}}<span class="pill unknown">Scans in progress</span>{{else if .Complete}}<span class="pill yes">Reports available</span>{{end}}
+      {{if .Historical}}<span class="pill">Saved reports</span>{{else if .Pending}}<span class="pill unknown">Scans in progress</span>{{else if .Complete}}<span class="pill yes">Reports available</span>{{end}}
     </summary>
     <div class="rc-vulnerability-body">
+      {{if .Historical}}<p class="muted">Showing saved scan results from {{when .ObservedAt}}. Current scan status is unverified.</p>{{end}}
       {{if .Problem}}<p class="unknown">{{.Problem}}{{if not $retryAt.IsZero}} Next scheduled attempt at {{when $retryAt}}.{{end}}</p>
       {{else if .Status}}<p class="muted">{{.Status}}</p>
       {{else if not .Images}}<p class="muted">Waiting for the RC vulnerability scan workflow.</p>{{end}}

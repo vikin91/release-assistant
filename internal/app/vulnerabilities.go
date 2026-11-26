@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"release-assistant/internal/release"
 )
@@ -48,7 +49,22 @@ func (s *Session) refreshRCVulnerabilities(ctx context.Context, generation, revi
 			return
 		}
 		if evidence.Target == rc.Target && evidence.SHA == rc.SHA {
+			evidence.ObservedAt = time.Now()
 			s.rcVulnerabilities[rc.Target] = evidence
+			if s.activeProfile != "" && evidence.Problem == "" && slices.ContainsFunc(evidence.Images, func(image release.ImageVulnerabilities) bool {
+				return image.Status == "Available" || image.ConformaReported
+			}) {
+				saved := s.dashboardForUpdate()
+				reviews := make(map[string]release.RCVulnerabilities, 2)
+				for _, choice := range []release.Candidate{candidate, previous} {
+					if old := saved.Vulnerabilities[choice.Target.Tag]; old.Target == choice.Target && old.SHA == choice.SHA && choice.Target.Valid() {
+						reviews[choice.Target.Tag] = old
+					}
+				}
+				reviews[rc.Target.Tag] = evidence
+				saved.Vulnerabilities = reviews
+				s.storeDashboard(saved)
+			}
 		}
 	}
 
@@ -80,14 +96,58 @@ func (s *releaseWork) vulnerabilityReviews() []release.RCVulnerabilities {
 			}
 			continue
 		}
-		review.Images = slices.Clone(review.Images)
-		for i := range review.Images {
-			review.Images[i].Findings = slices.Clone(review.Images[i].Findings)
-			review.Images[i].ConformaReport.Findings = slices.Clone(review.Images[i].ConformaReport.Findings)
-		}
-		reviews = append(reviews, review)
+		reviews = append(reviews, cloneVulnerabilityReview(review))
 	}
 	return reviews
+}
+
+func cloneVulnerabilityReview(review release.RCVulnerabilities) release.RCVulnerabilities {
+	review.Images = slices.Clone(review.Images)
+	for i := range review.Images {
+		review.Images[i].Findings = slices.Clone(review.Images[i].Findings)
+		review.Images[i].ConformaReport.Findings = slices.Clone(review.Images[i].ConformaReport.Findings)
+	}
+	return review
+}
+
+func applyDashboardVulnerabilities(snapshot *Snapshot, saved map[string]release.RCVulnerabilities) {
+	rc := snapshot.Candidate()
+	if len(saved) == 0 || !rc.Target.Valid() || rc.SHA == "" {
+		return
+	}
+	for _, repo := range snapshot.Repositories {
+		if repo.Source.Name != "acs" {
+			continue
+		}
+		for _, choice := range []release.Candidate{rc, release.DisplayPreviousCandidate(repo)} {
+			old := saved[choice.Target.Tag]
+			if !choice.Target.Valid() || old.Target != choice.Target || old.SHA != choice.SHA ||
+				(choice.Target != rc.Target && old.DescendantSHA != rc.SHA) {
+				continue
+			}
+			i := slices.IndexFunc(snapshot.RCVulnerabilities, func(review release.RCVulnerabilities) bool {
+				return review.Target == choice.Target && review.SHA == choice.SHA
+			})
+			if i >= 0 {
+				live := snapshot.RCVulnerabilities[i]
+				if len(live.Images) > 0 || live.Status != "" {
+					continue
+				}
+				old.Problem = live.Problem
+			}
+			old.Historical = true
+			old = cloneVulnerabilityReview(old)
+			if i >= 0 {
+				snapshot.RCVulnerabilities[i] = old
+			} else {
+				if len(snapshot.RCVulnerabilities) == 0 && choice.Target != rc.Target {
+					snapshot.RCVulnerabilities = append(snapshot.RCVulnerabilities, release.RCVulnerabilities{Target: rc.Target, SHA: rc.SHA})
+				}
+				snapshot.RCVulnerabilities = append(snapshot.RCVulnerabilities, old)
+			}
+		}
+		return
+	}
 }
 
 func attachConformaReports(ctx context.Context, reader conformaReportReader, registry []release.Image, images, previous []release.ImageVulnerabilities) {

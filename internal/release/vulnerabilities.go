@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type (
@@ -38,6 +39,8 @@ type (
 		Target                                           Target
 		SHA, DescendantSHA, WorkflowURL, Problem, Status string
 		Images                                           []ImageVulnerabilities
+		ObservedAt                                       time.Time
+		Historical                                       bool
 	}
 
 	// ConformaReport contains CVE observations bound to the verified image digest.
@@ -212,6 +215,15 @@ func (r RCVulnerabilities) Complete() bool {
 // PreviousCandidate selects the highest-numbered observed RC below the current tag.
 // Its ancestry must be verified before using its results.
 func PreviousCandidate(repo Repository) Candidate {
+	return previousCandidate(repo, false)
+}
+
+// DisplayPreviousCandidate also accepts saved tag evidence for historical display.
+func DisplayPreviousCandidate(repo Repository) Candidate {
+	return previousCandidate(repo, true)
+}
+
+func previousCandidate(repo Repository, historical bool) Candidate {
 	current := repo.Candidate
 	version, _, ok := strings.Cut(strings.TrimPrefix(current.Target.Tag, "v"), "-rc.")
 	if !ok {
@@ -221,7 +233,8 @@ func PreviousCandidate(repo Repository) Candidate {
 	for _, tag := range repo.Tags {
 		suffix, match := strings.CutPrefix(strings.TrimPrefix(tag.Name, "v"), version+"-rc.")
 		number, err := strconv.ParseUint(suffix, 10, 64)
-		if !match || err != nil || strconv.FormatUint(number, 10) != suffix || number >= current.Number || !tag.Evidence.Fresh() || tag.SHA == "" ||
+		observed := tag.Evidence.Fresh() || historical && tag.Evidence.Known && tag.Evidence.Historical
+		if !match || err != nil || strconv.FormatUint(number, 10) != suffix || number >= current.Number || !observed || tag.SHA == "" ||
 			(previous.Target.Valid() && number <= previous.Number) {
 			continue
 		}

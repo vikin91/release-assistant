@@ -28,12 +28,13 @@ type (
 	}
 
 	dashboardState struct {
-		CreatedPinningPR dispatch.PinningReceipt       `json:"createdPinningPR,omitzero"`
-		Config           release.Config                `json:"config"`
-		Repositories     map[string]release.Repository `json:"repositories,omitempty"`
-		TagNames         map[string]ComponentTagNames  `json:"componentTagNames,omitempty"`
-		Plans            map[string]release.Plan       `json:"plans,omitempty"`
-		Images           map[string]dashboardImages    `json:"images,omitempty"`
+		CreatedPinningPR dispatch.PinningReceipt              `json:"createdPinningPR,omitzero"`
+		Config           release.Config                       `json:"config"`
+		Repositories     map[string]release.Repository        `json:"repositories,omitempty"`
+		TagNames         map[string]ComponentTagNames         `json:"componentTagNames,omitempty"`
+		Plans            map[string]release.Plan              `json:"plans,omitempty"`
+		Images           map[string]dashboardImages           `json:"images,omitempty"`
+		Vulnerabilities  map[string]release.RCVulnerabilities `json:"vulnerabilities,omitempty"`
 	}
 
 	dashboardImages struct {
@@ -518,6 +519,7 @@ func (s *Session) applyDashboard(x *Snapshot, work *releaseWork, profileID strin
 			x.Repositories[index] = repo
 		}
 	}
+	applyDashboardVulnerabilities(x, saved.Vulnerabilities)
 	tags := s.dashboardImageTags(work, x.Candidate())
 	revisions := dashboardRevisions(x.Repositories, tags)
 	for _, previous := range saved.Plans {
