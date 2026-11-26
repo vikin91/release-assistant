@@ -9,6 +9,7 @@ import (
 )
 
 func TestRCVulnerabilityReviewShowsPartialEvidenceAndPreviousCandidate(t *testing.T) {
+	const workflow = "https://github.com/stackrox/stackrox/actions/runs/42"
 	for name, test := range map[string]struct {
 		status                 string
 		conforma, previousOpen bool
@@ -24,7 +25,7 @@ func TestRCVulnerabilityReviewShowsPartialEvidenceAndPreviousCandidate(t *testin
 			rc := snapshot.Candidate()
 			previous := release.Target{Repo: rc.Target.Repo, Tag: "5.0.0-rc.0"}
 			snapshot.RCVulnerabilities = []release.RCVulnerabilities{
-				{Target: rc.Target, SHA: rc.SHA, Images: []release.ImageVulnerabilities{
+				{Target: rc.Target, SHA: rc.SHA, WorkflowURL: workflow, Images: []release.ImageVulnerabilities{
 					{Image: "release-main", Status: test.status},
 					{Image: "release-scanner-v4", Status: "Available", ConformaReported: test.conforma, Findings: []release.Vulnerability{
 						{ID: "CVE-test-hold", Severity: "Important", CVSS: new(7.8), Fixed: "2"},
@@ -35,7 +36,7 @@ func TestRCVulnerabilityReviewShowsPartialEvidenceAndPreviousCandidate(t *testin
 			}
 			body := newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t)
 			section := between(t, body, `id="rc-vulnerabilities"`, "</section>")
-			for _, want := range []string{"above 7.0", "Suggested hold", test.label, "Findings that meet the internal hold criteria", "Other findings", "No known fix"} {
+			for _, want := range []string{`aria-describedby="new-tab-description" href="` + workflow + `" target="_blank" rel="noreferrer">Scan workflow</a>`, "above 7.0", "Suggested hold", test.label, "Findings that meet the internal hold criteria", "Other findings", "No known fix"} {
 				if !strings.Contains(section, want) {
 					t.Errorf("review missing %q", want)
 				}

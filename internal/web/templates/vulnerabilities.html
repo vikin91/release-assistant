@@ -14,7 +14,7 @@
       {{if .Problem}}<p class="unknown">{{.Problem}}</p>
       {{else if not .Images}}<p class="muted">Waiting for the RC vulnerability scan workflow.</p>{{end}}
       {{if .Scheduled}}
-      <p class="muted">{{.Available}} of {{.Scheduled}} Konflux image scans available{{if .WorkflowURL}} · <a href="{{url .WorkflowURL}}">Scan workflow</a>{{end}}</p>
+      <p class="muted">{{.Available}} of {{.Scheduled}} Konflux image scans available{{with url .WorkflowURL}} · <a aria-describedby="new-tab-description" href="{{.}}" target="_blank" rel="noreferrer">Scan workflow</a>{{end}}</p>
       {{end}}
       {{if and .Images (not .Pending) (not .ConformaReported)}}<p class="unknown">No Conforma report found for this RC.</p>{{end}}
       {{range $j, $image := .Images}}
