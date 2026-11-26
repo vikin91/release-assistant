@@ -138,6 +138,45 @@ test("copies the exact command text and reports clipboard failures", async () =>
   assert.equal(status.textContent, "Select and copy the text manually.");
 });
 
+test("copies CVE links in both clipboard formats and falls back to plain text", async () => {
+  const url = "https://www.cve.org/CVERecord?id=CVE-2026-119373";
+  const html = `RC summary\n1. <a href="${url}">CVE-2026-119373</a> | sqlite-libs`;
+  const expected = `RC summary\n1. CVE-2026-119373 (${url}) | sqlite-libs`;
+  const writes = [];
+  const clipboard = { write: async ([item]) => writes.push(item), writeText: async (text) => writes.push(text) };
+  const page = makePage({ clipboard });
+  page.window.ClipboardItem = class { constructor(formats) { this.formats = formats; } };
+  page.window.Blob = Blob;
+  const value = {
+    innerHTML: html,
+    cloneNode() {
+      const copy = { textContent: "RC summary\n1. CVE-2026-119373 | sqlite-libs" };
+      copy.querySelectorAll = () => [{ href: url, after: (suffix) => {
+        copy.textContent = copy.textContent.replace(" |", suffix + " |");
+      } }];
+      return copy;
+    },
+  };
+  const status = { textContent: "" };
+  const block = { querySelector: (selector) => ({ "pre code": value, "[data-copy-status]": status })[selector] };
+  const button = { dataset: { copyText: "", copyLinks: "" }, closest: () => block };
+  const click = () => page.document.emit("click", {
+    target: { closest: (selector) => selector === "[data-copy-text]" ? button : null },
+  });
+  page.start();
+  click();
+  await new Promise(setImmediate);
+  assert.equal(await writes[0].formats["text/plain"].text(), expected);
+  assert.equal(await writes[0].formats["text/html"].text(), html.replace("\n", "<br>"));
+  assert.equal(status.textContent, "Copied");
+
+  clipboard.write = async () => { throw new Error("rich clipboard unavailable"); };
+  click();
+  await new Promise(setImmediate);
+  assert.equal(writes[1], expected);
+  assert.equal(status.textContent, "Copied");
+});
+
 test("opens topic panels on a new app run even when the browser tab has saved folds", () => {
   const storage = savedState({ "previous-cycles": false, "release-images": false });
   const sections = ["previous-cycles", "release-images"].map((id) => makeDetails({ id, open: true }));

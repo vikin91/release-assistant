@@ -32,7 +32,7 @@ func TestRCVulnerabilitySummaryDeduplicatesFindings(t *testing.T) {
 	if !strings.Contains(summary, want) || strings.Count(summary, ">"+id+"</a>") != 1 ||
 		strings.Contains(summary, "CVE-2026-999999") ||
 		!strings.Contains(summary, `class="copyable-text rerun-command"`) ||
-		!strings.Contains(summary, `data-copy-text>Copy CVE summary</button>`) {
+		!strings.Contains(summary, `data-copy-text data-copy-links>Copy CVE summary</button>`) {
 		t.Errorf("unexpected CVE summary: %s", summary)
 	}
 }

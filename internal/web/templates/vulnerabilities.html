@@ -8,7 +8,7 @@
 {{- range .HoldSummary}}
 {{.Number}}. <a href="{{or .URL (printf "https://www.cve.org/CVERecord?id=%s" .ID)}}">{{.ID}}</a> | {{range $j, $fix := .Fixes}}{{if $j}}
    {{end}}{{$fix}}{{end}}{{end}}</code></pre>
-      <button type="button" data-copy-text>Copy CVE summary</button>
+      <button type="button" data-copy-text data-copy-links>Copy CVE summary</button>
       <span role="status" data-copy-status data-live-preserve></span>
     </div>
 </section>

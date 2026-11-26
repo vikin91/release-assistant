@@ -159,7 +159,22 @@ document.addEventListener("DOMContentLoaded", () => {
     const status = block.querySelector("[data-copy-status]");
     window.clearTimeout(copyTimers.get(status));
     try {
-      await window.navigator.clipboard.writeText((block.querySelector("[data-copy-value]") || block.querySelector("pre code")).textContent);
+      const value = block.querySelector("[data-copy-value]") || block.querySelector("pre code");
+      const clipboard = window.navigator.clipboard;
+      if (button.dataset.copyLinks === undefined) {
+        await clipboard.writeText(value.textContent);
+      } else {
+        const plain = value.cloneNode(true);
+        for (const link of plain.querySelectorAll("a[href]")) link.after(` (${link.href})`);
+        try {
+          await clipboard.write([new window.ClipboardItem({
+            "text/plain": new window.Blob([plain.textContent], { type: "text/plain" }),
+            "text/html": new window.Blob([value.innerHTML.replaceAll("\n", "<br>")], { type: "text/html" }),
+          })]);
+        } catch {
+          await clipboard.writeText(plain.textContent);
+        }
+      }
       status.textContent = "Copied";
     } catch {
       status.textContent = "Select and copy the text manually.";
