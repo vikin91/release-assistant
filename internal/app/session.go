@@ -115,6 +115,7 @@ type (
 		OngoingReadLimit            *int
 		Generation                  uint64
 		QueueID                     uint64
+		QueueIDs                    []uint64
 		ProfileID                   string
 	}
 	// Session owns release observations. Dispatcher alone owns write grants.
@@ -329,7 +330,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		return fmt.Errorf("activate this release to continue")
 	}
 	ctx = apilog.WithRelease(ctx, s.config.Version)
-	if a.Kind == "queue-send" || a.Kind == "queue-skip" {
+	if a.Kind == "queue-send" || a.Kind == "queue-skip" || a.Kind == "queue-send-batch" {
 		return s.applyRetestDecision(ctx, a)
 	}
 	defer s.mu.Unlock()

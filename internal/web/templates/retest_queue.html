@@ -17,8 +17,20 @@
       {{range .Groups}}{{$group := .}}
         <tbody aria-labelledby="retests-{{.Target}}" data-retest-group="{{.Target.Repo}} {{.Label}} {{.Title}} {{.Branch}}" data-live-key="retest-target:{{.Target}}">
           <tr><th id="retests-{{.Target}}" class="retest-target" scope="rowgroup" colspan="3">
-            <a href="{{url .URL}}" target="_blank" rel="noreferrer" aria-describedby="new-tab-description">{{.Label}}</a>
-            <span class="muted">· {{.Target.Repo}}{{with .Title}} · {{.}}{{end}}{{with .Branch}} · {{.}}{{end}}</span>
+            <div class="section-heading">
+              <div>
+                <a href="{{url .URL}}" target="_blank" rel="noreferrer" aria-describedby="new-tab-description">{{.Label}}</a>
+                <span class="muted">· {{.Target.Repo}}{{with .Title}} · {{.}}{{end}}{{with .Branch}} · {{.}}{{end}}</span>
+              </div>
+              {{if and $.Snapshot.WritesEnabled $.Snapshot.Interactive (ge (len .BatchIDs) 2)}}
+                <form method="post" action="{{profileAction $.ProfileID}}">
+                  {{template "retest-form-fields" $}}
+                  <input type="hidden" name="kind" value="queue-send-batch">
+                  {{range .BatchIDs}}<input type="hidden" name="queue_id" value="{{.}}">{{end}}
+                  <button type="submit" class="button-primary">Send all in one comment</button>
+                </form>
+              {{end}}
+            </div>
           </th></tr>
           {{range .Items}}
             <tr data-live-key="retest:{{.ID}}" data-retest-row="{{.ID}} {{.Job}} {{.Payload}}" class="copyable-text">

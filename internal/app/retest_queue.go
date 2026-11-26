@@ -24,7 +24,9 @@ type (
 		// MissingBuild marks a planner-verified start for a build with no observed run.
 		MissingBuild bool
 		Sending      bool
-		key          retestKey
+		// Batchable marks a PR command CheckPR allows in a combined comment.
+		Batchable bool
+		key       retestKey
 	}
 	// RetestDecision records a queue action or the withdrawal of a pending item.
 	RetestDecision struct {
@@ -156,7 +158,7 @@ func (s *Session) syncRetestQueue(views []dispatch.View, reports []release.Manua
 			}
 			add(proposal.SHA, id, RetestItem{
 				Target: target, Kind: "konflux", Payload: proposal.Payload, Job: proposal.Job,
-				URL: jobURL, Blocked: blocked, ObservedAt: observedAt, MissingBuild: proposal.StartsMissingPRBuild(),
+				URL: jobURL, Blocked: blocked, ObservedAt: observedAt, MissingBuild: proposal.StartsMissingPRBuild(), Batchable: proposal.Batchable,
 			})
 		}
 		if report.Target != target || report.Pending || meta.noCIFailuresAt.After(report.At) {
@@ -241,49 +243,79 @@ func (s *Session) applyRetestDecision(ctx context.Context, a Action) error {
 		reports = append(reports, s.currentManualRetries(repo, s.options.CIPlanner != nil)...)
 	}
 	s.syncRetestQueue(s.dispatcher.Views(), reports)
-	index := slices.IndexFunc(s.retestQueue, func(item RetestItem) bool { return item.ID == a.QueueID })
-	if index < 0 {
-		s.mu.Unlock()
-		return fmt.Errorf("queue item %d is no longer pending", a.QueueID)
+	batch := a.Kind == "queue-send-batch"
+	ids := []uint64{a.QueueID}
+	if batch {
+		ids = a.QueueIDs
+		if len(ids) < 2 {
+			s.mu.Unlock()
+			return fmt.Errorf("select at least two PR retry commands")
+		}
 	}
-	item := s.retestQueue[index]
-	if item.Sending {
-		s.mu.Unlock()
-		return fmt.Errorf("queue item %d is already sending", a.QueueID)
+	items := make([]RetestItem, 0, len(ids))
+	indices := make([]int, 0, len(ids))
+	proposals := make([]string, 0, len(ids))
+	for _, id := range ids {
+		index := slices.IndexFunc(s.retestQueue, func(item RetestItem) bool { return item.ID == id })
+		if index < 0 {
+			s.mu.Unlock()
+			return fmt.Errorf("queue item %d is no longer pending", id)
+		}
+		item := s.retestQueue[index]
+		if item.Sending {
+			s.mu.Unlock()
+			return fmt.Errorf("queue item %d is already sending", id)
+		}
+		if a.Kind == "queue-skip" {
+			s.retestQueue = append(slices.Delete(s.retestQueue, index, index+1), item)
+			s.recordRetest(item, "Skipped", "Moved to the bottom of this target’s queue.", "")
+			s.mu.Unlock()
+			return nil
+		}
+		if item.Blocked != "" {
+			s.mu.Unlock()
+			return fmt.Errorf("queue item %d: %s", id, item.Blocked)
+		}
+		if item.Kind != "konflux" || !s.dispatcher.IsInteractive() ||
+			(batch && (!item.Batchable || item.Target.PR <= 0 || slices.Contains(indices, index) ||
+				(len(items) > 0 && item.Target != items[0].Target))) {
+			s.mu.Unlock()
+			return fmt.Errorf("queue item %d cannot be sent now", id)
+		}
+		items = append(items, item)
+		indices = append(indices, index)
+		proposals = append(proposals, item.key.evidence)
 	}
-	if a.Kind == "queue-skip" {
-		s.retestQueue = append(slices.Delete(s.retestQueue, index, index+1), item)
-		s.recordRetest(item, "Skipped", "Moved to the bottom of this target’s queue.", "")
-		s.mu.Unlock()
-		return nil
+	for _, index := range indices {
+		s.retestQueue[index].Sending = true
 	}
-	if item.Blocked != "" {
-		s.mu.Unlock()
-		return fmt.Errorf("queue item %d: %s", item.ID, item.Blocked)
-	}
-	if item.Kind != "konflux" || !s.dispatcher.IsInteractive() {
-		s.mu.Unlock()
-		return fmt.Errorf("queue item %d cannot be sent now", a.QueueID)
-	}
-	s.retestQueue[index].Sending = true
 	work := s.releaseWork
 	ctx = s.dispatcher.WithScope(ctx)
 	s.mu.Unlock()
 
-	delivery, err := s.dispatcher.Send(ctx, item.Target, item.key.evidence, true)
+	var delivery dispatch.Delivery
+	var err error
+	if batch {
+		delivery, err = s.dispatcher.SendBatch(ctx, items[0].Target, proposals)
+	} else {
+		delivery, err = s.dispatcher.Send(ctx, items[0].Target, proposals[0], true)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.drain()
-	index = slices.IndexFunc(work.retestQueue, func(row RetestItem) bool { return row.ID == item.ID })
-	if delivery.Status == "sent" {
-		if index >= 0 {
-			work.retestQueue = slices.Delete(work.retestQueue, index, index+1)
+	for _, item := range items {
+		index := slices.IndexFunc(work.retestQueue, func(row RetestItem) bool { return row.ID == item.ID })
+		if delivery.Status == "sent" {
+			if index >= 0 {
+				work.retestQueue = slices.Delete(work.retestQueue, index, index+1)
+			}
+			work.recordRetest(item, "Sent", "GitHub confirmed the comment.", delivery.URL)
+		} else if index >= 0 {
+			work.retestQueue[index].Sending = false
 		}
-		work.recordRetest(item, "Sent", "GitHub confirmed the comment.", delivery.URL)
-		return nil
 	}
-	if index >= 0 {
-		work.retestQueue[index].Sending = false
+	if delivery.Status == "sent" {
+		return nil
 	}
 	result, detail := "Failed", "GitHub did not accept the comment."
 	switch delivery.Status {
@@ -295,8 +327,10 @@ func (s *Session) applyRetestDecision(ctx context.Context, a Action) error {
 	if err != nil {
 		detail = err.Error()
 	}
-	work.recordRetest(item, result, detail, "")
-	return fmt.Errorf("queue item %d: %s", item.ID, detail)
+	for _, item := range items {
+		work.recordRetest(item, result, detail, "")
+	}
+	return fmt.Errorf("queue item %d: %s", items[0].ID, detail)
 }
 
 func (s *releaseWork) recordRetest(item RetestItem, result, detail, url string) {

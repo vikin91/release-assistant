@@ -405,3 +405,48 @@ func TestWriteModeIsScopedToReleaseForAppSession(t *testing.T) {
 		t.Fatal("new dispatcher inherited write settings or grants")
 	}
 }
+
+type batchWriter struct {
+	bodies []string
+}
+
+func (w *batchWriter) Write(_ context.Context, proposal release.Proposal) (Delivery, error) {
+	w.bodies = append(w.bodies, proposal.CommentBody())
+	return Delivery{Status: "sent"}, nil
+}
+
+func TestSendBatchRevalidatesEachCommandAndWritesOnce(t *testing.T) {
+	for _, standalone := range []bool{false, true} {
+		name := "batchable jobs"
+		if standalone {
+			name = "job becomes standalone"
+		}
+		t.Run(name, func(t *testing.T) {
+			d, f, _ := setup(t)
+			writer := &batchWriter{}
+			d.writer = writer
+			first := f.plan.Proposals[0]
+			first.Batchable = true
+			first.CommentFooter = "Release Assistant test"
+			second := first
+			second.Job, second.RunID, second.Payload = "checks", "2", "/konflux-retest checks"
+			f.plan.Proposals = []release.Proposal{first, second}
+			d.ObservePlan(f.plan)
+			f.plan.Proposals[1].Batchable = !standalone
+			delivery, err := d.SendBatch(t.Context(), first.Target, []string{ID(first), ID(second)})
+			if standalone {
+				if err == nil || len(writer.bodies) != 0 {
+					t.Fatalf("stale batch reached the writer: %v, %v", writer.bodies, err)
+				}
+				return
+			}
+			want := first.Payload + "\n" + second.Payload + "\n\n" + first.CommentFooter
+			if err != nil || delivery.Status != "sent" || len(writer.bodies) != 1 || writer.bodies[0] != want {
+				t.Fatalf("batch delivery = %+v, %v; bodies = %q", delivery, err, writer.bodies)
+			}
+			if _, err := d.Send(t.Context(), first.Target, ID(second), true); err == nil || len(writer.bodies) != 1 {
+				t.Fatal("a delivered batch member was sent again individually")
+			}
+		})
+	}
+}

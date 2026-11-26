@@ -51,7 +51,7 @@ func (f *retestQueueFixture) Plan(_ context.Context, target release.Target) (rel
 	plan := release.Plan{Target: target, SHA: f.pr.SHA, Evidence: observation(), Action: "Retest"}
 	for _, job := range f.jobs {
 		plan.Proposals = append(plan.Proposals, release.Proposal{
-			Target: target, SHA: plan.SHA, Job: job, RunID: "run-" + job, Payload: "/konflux-retest " + job,
+			Target: target, SHA: plan.SHA, Job: job, RunID: "run-" + job, Payload: "/konflux-retest " + job, Batchable: target.PR > 0 && job != "roxctl-on-push",
 		})
 	}
 	return plan, nil
@@ -118,9 +118,13 @@ func (b retestQueueBrowser) send(t *testing.T, id uint64) int {
 }
 
 func (b retestQueueBrowser) post(ctx context.Context, accept string, ids ...uint64) *httptest.ResponseRecorder {
+	return b.postAction(ctx, accept, "queue-send", ids...)
+}
+
+func (b retestQueueBrowser) postAction(ctx context.Context, accept, kind string, ids ...uint64) *httptest.ResponseRecorder {
 	const origin = "http://localhost"
 	values := url.Values{
-		"kind": {"queue-send"}, "tab": {"retest-queue"},
+		"kind": {kind}, "tab": {"retest-queue"},
 		"csrf": {b.cookie.Value}, "generation": {strconv.FormatUint(b.session.Snapshot().Generation, 10)},
 	}
 	for _, id := range ids {
@@ -366,5 +370,34 @@ func TestAutomaticRetestQueueShowsPendingCommentsAndUsesBackgroundDispatch(t *te
 	remaining := session.Snapshot().RetestQueue
 	if len(fixture.posted) != 1 || len(remaining) != 1 || remaining[0].Blocked != "" {
 		t.Fatalf("automatic polling should post one comment and keep the other eligible: %v, %+v", fixture.posted, remaining)
+	}
+}
+
+func TestPRQueueSendsBatchAndLeavesStandaloneJob(t *testing.T) {
+	session, fixture, source := newRetestQueueSession(t, dispatch.Options{EnableWrites: true})
+	fixture.jobs = append(fixture.jobs, "roxctl-on-push")
+	refreshRetestQueue(t, session, source)
+	browser := openRetestQueue(t, session)
+	items := session.Snapshot().RetestQueue
+	if len(items) != 3 {
+		t.Fatalf("expected three retries, got %+v", items)
+	}
+	first, second, standalone := items[0], items[1], items[2]
+	if body := browser.get(t).Body.String(); !strings.Contains(body, "Send all in one comment") {
+		t.Fatal("batch button missing")
+	}
+	if status := browser.postAction(t.Context(), "", "queue-send-batch", first.ID, standalone.ID).Code; status != http.StatusConflict || len(fixture.posted) != 0 {
+		t.Fatalf("batch containing a standalone job returned %d and posted %q", status, fixture.posted)
+	}
+	if status := browser.postAction(t.Context(), "", "queue-send-batch", first.ID, second.ID).Code; status != http.StatusSeeOther ||
+		!slices.Equal(fixture.posted, []string{first.Payload + "\n" + second.Payload}) {
+		t.Fatalf("batch returned %d and posted %q", status, fixture.posted)
+	}
+	if remaining := session.Snapshot().RetestQueue; len(remaining) != 1 || remaining[0].ID != standalone.ID {
+		t.Fatalf("expected only the standalone job, got %+v", remaining)
+	}
+	if status := browser.send(t, standalone.ID); status != http.StatusSeeOther || len(fixture.posted) != 2 ||
+		fixture.posted[1] != standalone.Payload {
+		t.Fatalf("standalone Send returned %d and posted %q", status, fixture.posted)
 	}
 }

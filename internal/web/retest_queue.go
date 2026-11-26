@@ -19,6 +19,7 @@ type (
 		Target                    release.Target
 		Label, URL, Title, Branch string
 		Items                     []app.RetestItem
+		BatchIDs                  []uint64
 	}
 )
 
@@ -63,6 +64,9 @@ func (p pageModel) RetestBuckets() []retestBucket {
 		}
 		group := &bucket.Groups[n-1]
 		group.Items = append(group.Items, item)
+		if item.Target.PR > 0 && item.Batchable && item.Blocked == "" && !item.Sending {
+			group.BatchIDs = append(group.BatchIDs, item.ID)
+		}
 	}
 	if len(other.Groups) > 0 {
 		buckets = append(buckets, other)

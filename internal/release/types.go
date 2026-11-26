@@ -233,7 +233,9 @@ type (
 		RunID string
 		// CommentFooter adds attribution to the posted body while leaving Payload copyable as a command.
 		CommentFooter string
-		At            time.Time
+		// Batchable reports whether CheckPR allows this command in a combined comment.
+		Batchable bool
+		At        time.Time
 	}
 	// Plan preserves useful partial retry decisions and uncertainty.
 	Plan struct {

@@ -182,6 +182,7 @@ func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, err
 		p.Proposals = append(p.Proposals, release.Proposal{
 			RunID: evidence, Target: t, SHA: r.SHA, Job: job, Payload: payload,
 			CommentFooter: a.commentFooter, At: p.Evidence.At,
+			Batchable: t.PR > 0 && !slices.Contains(r.StandalonePRJobs, job),
 		})
 	}
 	for _, job := range r.Jobs {

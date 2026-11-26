@@ -434,6 +434,18 @@ func (d *Dispatcher) Views() []View {
 // Send revalidates remote evidence, then admits exactly one attempt under local authority.
 // Admission is the dispatch boundary: subsequent revocation cannot recall that request.
 func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, approve bool) (Delivery, error) {
+	return d.send(ctx, t, []string{id}, approve)
+}
+
+// SendBatch posts one interactive PR comment for the selected planner-approved commands.
+func (d *Dispatcher) SendBatch(ctx context.Context, t release.Target, ids []string) (Delivery, error) {
+	if t.PR <= 0 || len(ids) < 2 {
+		return Delivery{}, fmt.Errorf("a batch requires multiple commands for one PR")
+	}
+	return d.send(ctx, t, ids, true)
+}
+
+func (d *Dispatcher) send(ctx context.Context, t release.Target, ids []string, approve bool) (Delivery, error) {
 	d.mu.Lock()
 	if scope, ok := ctx.Value(scopeKey{}).(uint64); ctx.Err() != nil || (ok && scope != d.scope) {
 		d.mu.Unlock()
@@ -444,21 +456,32 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 		version = apilog.Release(ctx)
 	}
 	s := d.state(t)
-	var proposal release.Proposal
-	for _, p := range s.proposals {
-		if p.Target == t && ID(p) == id {
-			proposal = p
-			break
+	batch := len(ids) > 1
+	proposals := make([]release.Proposal, 0, len(ids))
+	attempts := make(map[commentKey]commentAttempt, len(ids))
+	for _, id := range ids {
+		index := slices.IndexFunc(s.proposals, func(p release.Proposal) bool { return p.Target == t && ID(p) == id })
+		if index < 0 {
+			d.mu.Unlock()
+			return Delivery{}, fmt.Errorf("proposal is stale")
 		}
-	}
-	if proposal.SHA == "" {
-		d.mu.Unlock()
-		return Delivery{}, fmt.Errorf("proposal is stale")
-	}
-	offer := d.offer(s, proposal)
-	if !offer.CanApprove {
-		d.mu.Unlock()
-		return Delivery{}, fmt.Errorf("%s", offer.Reason)
+		p := s.proposals[index]
+		if batch && (!p.Batchable || (len(proposals) > 0 &&
+			(p.SHA != proposals[0].SHA || p.CommentFooter != proposals[0].CommentFooter))) {
+			d.mu.Unlock()
+			return Delivery{}, fmt.Errorf("proposal cannot be included in this batch")
+		}
+		if offer := d.offer(s, p); !offer.CanApprove {
+			d.mu.Unlock()
+			return Delivery{}, fmt.Errorf("%s", offer.Reason)
+		}
+		key := commentKey{t, p.SHA, p.CommentBody()}
+		if _, duplicate := attempts[key]; duplicate {
+			d.mu.Unlock()
+			return Delivery{}, fmt.Errorf("duplicate command in batch")
+		}
+		attempts[key] = d.attempts[key]
+		proposals = append(proposals, p)
 	}
 	if d.interactive && !approve {
 		d.mu.Unlock()
@@ -469,25 +492,38 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 		return Delivery{}, fmt.Errorf("interactive mode is no longer enabled")
 	}
 	epoch := s.epoch
+	proposal := proposals[0]
+	if batch {
+		var commands []string
+		for _, p := range proposals {
+			commands = append(commands, p.Payload)
+		}
+		proposal.Payload = strings.Join(commands, "\n")
+	}
 	body := proposal.CommentBody()
-	key := commentKey{t, proposal.SHA, body}
-	attempt := d.attempts[key]
-	attempt.inFlight = true
-	d.attempts[key] = attempt
+	for key, attempt := range attempts {
+		attempt.inFlight = true
+		d.attempts[key] = attempt
+	}
 	if d.interactive {
-		s.approved[id] = true
+		for _, id := range ids {
+			s.approved[id] = true
+		}
 		d.event(t, proposal.SHA, "approve", body, "single use", "user")
 	}
 	d.mu.Unlock()
 	defer func() {
 		d.mu.Lock()
 		defer d.mu.Unlock()
-		delete(s.approved, id)
-		if attempt.last.IsZero() {
-			delete(d.attempts, key)
-		} else {
-			attempt.inFlight = false
-			d.attempts[key] = attempt
+		for _, id := range ids {
+			delete(s.approved, id)
+		}
+		for key, attempt := range attempts {
+			if attempt.last.IsZero() {
+				delete(d.attempts, key)
+			} else {
+				d.attempts[key] = attempt
+			}
 		}
 	}()
 	// Partial planner errors do not invalidate independently approved, identified jobs.
@@ -510,11 +546,21 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 		if !fresh.Evidence.At.Before(s.planAt) {
 			d.plan(fresh)
 		}
-		matchingProposal := func(p release.Proposal) bool { return ID(p) == id }
-		matches = slices.ContainsFunc(fresh.Proposals, matchingProposal) && slices.ContainsFunc(s.proposals, matchingProposal)
+		for _, id := range ids {
+			matchingProposal := func(p release.Proposal) bool {
+				return p.Target == t && ID(p) == id && (!batch || p.Batchable)
+			}
+			matches = matches && slices.ContainsFunc(fresh.Proposals, matchingProposal) && slices.ContainsFunc(s.proposals, matchingProposal)
+		}
 	}
 	labelMissing := d.requirePRLabel && t.PR > 0 && (!verified || !identity.CommentLabel || !s.identity.CommentLabel)
-	authorized := (d.interactive && s.approved[id]) || (!d.interactive && s.granted)
+	authorized := s.granted
+	if d.interactive {
+		authorized = true
+		for _, id := range ids {
+			authorized = authorized && s.approved[id]
+		}
+	}
 	if !matches || labelMissing || s.epoch != epoch || !authorized || s.ignored || d.stopped || !d.options.EnableWrites {
 		s.message = "Approval became stale; refreshed evidence does not support dispatch"
 		reason := "stale"
@@ -527,9 +573,16 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 		d.mu.Unlock()
 		return Delivery{}, fmt.Errorf("%s", message)
 	}
-	delete(s.approved, id)
-	attempt.last = d.options.Now()
-	d.attempts[key] = attempt
+	for _, id := range ids {
+		delete(s.approved, id)
+	}
+	now := d.options.Now()
+	for key, attempt := range attempts {
+		attempt.last = now
+		attempts[key] = attempt
+		attempt.inFlight = true
+		d.attempts[key] = attempt
+	}
 	d.event(t, proposal.SHA, "dispatch", body, "attempt", "system")
 	d.mu.Unlock()
 	result, err := d.writer.Write(ctx, proposal)
@@ -539,7 +592,9 @@ func (d *Dispatcher) Send(ctx context.Context, t release.Target, id string, appr
 		result.Status = "uncertain"
 	}
 	if result.Status == "sent" {
-		s.sent[id] = true
+		for _, id := range ids {
+			s.sent[id] = true
+		}
 	}
 	s.message = "Delivery: " + result.Status
 	if result.URL != "" {

@@ -111,3 +111,21 @@ func TestRetestQueueHasOneTablePerConfiguredRepository(t *testing.T) {
 		}
 	}
 }
+
+func TestRetestQueueBatchListsOnlySendablePRCommands(t *testing.T) {
+	config := validACS5Config()
+	pr := release.Target{Repo: config.ACS().Repo, PR: 17}
+	items := []app.RetestItem{
+		{ID: 1, Target: pr, Kind: "konflux", Batchable: true},
+		{ID: 2, Target: pr, Kind: "konflux", Batchable: true},
+		{ID: 3, Target: pr, Kind: "konflux"},
+		{ID: 4, Target: pr, Kind: "konflux", Batchable: true, Blocked: "Cooldown"},
+	}
+	snapshot := app.Snapshot{Config: config, Interactive: true, WritesEnabled: true, RetestQueue: items}
+	body := newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t)
+	header := between(t, body, "PR #17", "</th></tr>")
+	if strings.Count(header, `name="queue_id"`) != 2 || !strings.Contains(header, "Send all in one comment") ||
+		!strings.Contains(header, `name="queue_id" value="1"`) || !strings.Contains(header, `name="queue_id" value="2"`) {
+		t.Fatalf("unexpected batch form: %s", header)
+	}
+}

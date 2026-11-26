@@ -633,6 +633,17 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 		if a.ID == "" {
 			return a, fmt.Errorf("advisory identity is missing")
 		}
+	case "queue-send-batch":
+		for _, value := range form["queue_id"] {
+			id, err := strconv.ParseUint(value, 10, 64)
+			if err != nil || id == 0 {
+				return a, fmt.Errorf("a valid queue item ID is required")
+			}
+			a.QueueIDs = append(a.QueueIDs, id)
+		}
+		if len(a.QueueIDs) < 2 {
+			return a, fmt.Errorf("select at least two PR retry commands")
+		}
 	case "queue-send", "queue-skip":
 		a.QueueID, err = strconv.ParseUint(form.Get("queue_id"), 10, 64)
 		if err != nil || a.QueueID == 0 {
