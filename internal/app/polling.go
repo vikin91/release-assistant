@@ -130,6 +130,9 @@ func (s *Session) pollJobs(source release.Source) []pollJob {
 			jobs = append(jobs, pollJob{kind: pollComponentTagHistory, setting: AfterTags, identity: identity + ":" + span.previousSHA})
 		}
 	}
+	if _, ok := s.discovery.(rcVulnerabilityReader); ok && acs && sha != "" {
+		jobs = append(jobs, pollJob{kind: pollRCVulnerabilities, setting: tagChecks, identity: identity})
+	}
 	if tag != "" || tracked {
 		jobs = append(jobs, pollJob{kind: pollBuilds, setting: KonfluxBuilds, identity: identity})
 	}
@@ -141,9 +144,6 @@ func (s *Session) pollJobs(source release.Source) []pollJob {
 		}
 		fmt.Fprintf(&images, "/%d", s.imageRefresh)
 		jobs = append(jobs, pollJob{kind: pollImages, setting: ReleaseImages, identity: images.String(), imageRefresh: s.imageRefresh})
-	}
-	if _, ok := s.discovery.(rcVulnerabilityReader); ok && acs && sha != "" {
-		jobs = append(jobs, pollJob{kind: pollRCVulnerabilities, setting: tagChecks, identity: identity})
 	}
 	return jobs
 }

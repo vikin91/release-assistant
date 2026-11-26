@@ -21,6 +21,53 @@ func (f vulnerabilityPollFixture) ReadRCVulnerabilities(_ context.Context, rc re
 	return f.read(rc, prior)
 }
 
+type waitingConformaPlanner struct {
+	*fixture
+	resume <-chan struct{}
+}
+
+func (p waitingConformaPlanner) ReadConformaReport(ctx context.Context, _ int64, _ string, _ string, digest string) release.ConformaReport {
+	select {
+	case <-p.resume:
+		return release.ConformaReport{Digest: digest}
+	case <-ctx.Done():
+		return release.ConformaReport{}
+	}
+}
+
+func TestVulnerabilityScanPublishesWhileConformaLoads(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, f, _ := rcFixture(t)
+		rc := f.repos["acs"].Candidate
+		s.repos["acs"] = f.repos["acs"]
+		s.inventory.Versions = map[string]string{"acs": rc.Target.Tag}
+		s.inventory.ReleaseImages = []release.Image{{
+			Family: "konflux", Reference: "quay.io/rhacs-eng/release-main:" + rc.Target.Tag, Present: release.Yes,
+			ManifestDigest: "sha256:verified", Evidence: observed(),
+		}}
+		s.discovery = vulnerabilityPollFixture{f, func(candidate release.Candidate, _ release.RCVulnerabilities) release.RCVulnerabilities {
+			return release.RCVulnerabilities{Target: candidate.Target, SHA: candidate.SHA, Images: []release.ImageVulnerabilities{
+				{Image: "release-main", Status: "Available", ConformaReported: true, ConformaDetails: "https://github.com/check"},
+			}}
+		}}
+		resume := make(chan struct{})
+		s.planner = waitingConformaPlanner{fixture: f, resume: resume}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		go s.refreshRCVulnerabilities(ctx, s.generation, s.workRevision)
+		synctest.Wait()
+		reviews := s.Snapshot().RCVulnerabilities
+		if len(reviews) != 1 || !reviews[0].ScansComplete() || reviews[0].Images[0].ConformaReport.Digest != "" {
+			t.Fatalf("expected scan results while Conforma was blocked, got %+v", reviews)
+		}
+		close(resume)
+		synctest.Wait()
+		if got := s.Snapshot().RCVulnerabilities[0].Images[0].ConformaReport.Digest; got != "sha256:verified" {
+			t.Fatalf("detailed Conforma digest = %q", got)
+		}
+	})
+}
+
 func TestVulnerabilityPollPublishesWithoutRestartingMonitor(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		s, f, _ := rcFixture(t)
@@ -51,6 +98,10 @@ func TestVulnerabilityPollPublishesWithoutRestartingMonitor(t *testing.T) {
 		i := slices.IndexFunc(jobs, func(job pollJob) bool { return job.kind == pollRCVulnerabilities })
 		if i < 0 {
 			t.Fatal("vulnerability poll is missing")
+		}
+		builds := slices.IndexFunc(jobs, func(job pollJob) bool { return job.kind == pollBuilds })
+		if builds < i {
+			t.Fatal("routine build polling precedes the vulnerability review")
 		}
 		job := jobs[i]
 		poll := func() {

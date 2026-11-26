@@ -69,7 +69,8 @@ func (s *Session) refreshRCVulnerabilities(ctx context.Context, generation, revi
 	}
 
 	evidence := reader.ReadRCVulnerabilities(ctx, candidate, "", currentCache, validation)
-	if conforma, ok := s.planner.(conformaReportReader); ok && registryTag == strings.TrimPrefix(candidate.Target.Tag, "v") {
+	if conforma, ok := s.planner.(conformaReportReader); ok && registryTag == strings.TrimPrefix(candidate.Target.Tag, "v") && len(evidence.Images) > 0 {
+		observe(candidate, evidence)
 		evidence.Images = slices.Clone(evidence.Images)
 		attachConformaReports(ctx, conforma, registry, evidence.Images, currentCache.Images)
 	}
