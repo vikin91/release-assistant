@@ -2,7 +2,7 @@
   <section class="panel" aria-labelledby="tag-selection-heading" id="tag-selection-panel">
     <div id="tag-selection">
       <h2 id="tag-selection-heading" class="section-summary">Component tags
-        {{with .TagCounts}}{{if .Total}}<span class="component-tag-counts">{{.Selected}} of {{.Total}} selected{{if .Issues}} · {{.Issues}} coverage issue{{if ne .Issues 1}}s{{end}}{{end}}{{if .Unverified}} · {{.Unverified}} unverified{{end}}</span>{{end}}{{end}}
+        {{with .TagCounts}}{{if .Total}}<span class="component-tag-counts">{{.Selected}} of {{.Total}} selected</span>{{end}}{{end}}
       </h2>
       {{range .TagRepos}}
         {{$source := .Repository.Source}}
@@ -20,16 +20,7 @@
             <thead><tr><th scope="col">Tag</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
             <tbody>
             <tr><th scope="row"><a aria-describedby="new-tab-description" href="https://github.com/{{$source.Repo}}/{{with and .SelectedTag .SelectedTag.Tag.SHA}}commit/{{.}}{{else}}tree/refs/tags/{{.CurrentTag}}{{end}}" target="_blank" rel="noreferrer"><code>{{.CurrentTag}}</code></a></th>
-            <td class="component-tag-coverage"><strong>Selected</strong>
-              <span class="pill {{truth .Coverage.Status}}">
-                {{- if index $.Snapshot.PendingTags $source.Name}}Waiting for tag verification
-                {{- else if eq (truth .Coverage.Status) "yes"}}Covers included changes
-                {{- else if eq (truth .Coverage.Status) "no"}}
-                  {{- if eq .Coverage.TagIssue "missing-merge"}}Missing an included merge
-                  {{- else if eq .Coverage.TagIssue "pr-unmerged"}}Included PR not merged into branch
-                  {{- else}}Tag needs review{{end}}
-                {{- else}}Coverage unverified{{end -}}
-              </span>
+            <td><strong>{{if index $.Snapshot.PendingTags $source.Name}}Waiting for tag verification{{else}}Selected{{end}}</strong>
             </td><td>
                 <form method="post" action="/action#tag-selection" class="inline-form clear-tag-form">
                   <input type="hidden" name="tab" value="component-releases"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="kind" value="clear-tag"><input type="hidden" name="component" value="{{$source.Name}}">

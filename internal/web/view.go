@@ -91,7 +91,7 @@ type (
 		MergeCoverage   []mergeCoverageModel
 	}
 	tagSelectionCounts struct {
-		Total, Selected, Issues, Unverified int
+		Total, Selected int
 	}
 	mergeCoverageModel struct {
 		SHA    string
@@ -373,12 +373,6 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 			model.TagCounts.Total++
 			if r.CurrentTag != "" {
 				model.TagCounts.Selected++
-				switch r.Coverage.Status {
-				case release.No:
-					model.TagCounts.Issues++
-				case "":
-					model.TagCounts.Unverified++
-				}
 			}
 		}
 	}

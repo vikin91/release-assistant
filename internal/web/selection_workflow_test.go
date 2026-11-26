@@ -107,13 +107,18 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 
 	tagDetails := between(t, body, `<div id="tag-selection">`, `<section class="panel" id="component-images-panel">`)
 	for _, want := range []string{
-		"Component tags", "2 of 2 selected · 1 coverage issue · 1 unverified",
+		"Component tags", "2 of 2 selected</span>",
 		`href="https://github.com/acme/fact/commit/fact-current-sha" target="_blank" rel="noreferrer"><code>3.25.1</code></a>`,
 		`href="https://github.com/acme/collector/commit/collector-current-sha" target="_blank" rel="noreferrer"><code>3.25.4</code></a>`,
-		"Missing an included merge", "Coverage unverified",
+		"<strong>Selected</strong>",
 	} {
 		if !strings.Contains(tagDetails, want) {
 			t.Errorf("tag selection missing %q", want)
+		}
+	}
+	for _, verdict := range []string{"Missing an included merge", "Covers included changes", "Tag needs review", "Included PR not merged into branch"} {
+		if strings.Contains(tagDetails, verdict) {
+			t.Errorf("selected tag section shows a coverage verdict %q", verdict)
 		}
 	}
 	if !strings.Contains(body, `<div id="tag-selection">`) {

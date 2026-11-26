@@ -269,8 +269,8 @@ func TestComponentReleaseTagActionsAndEvidence(t *testing.T) {
 		collectorAncestor release.Truth
 		wantGuidance      string
 	}{
-		"should show verified coverage beside a selected tag": {
-			collectorTag: "3.25.5", collectorAncestor: release.Yes, wantGuidance: "Covers included changes",
+		"should identify the selected tag": {
+			collectorTag: "3.25.5", collectorAncestor: release.Yes, wantGuidance: "<strong>Selected</strong>",
 		},
 		"should prompt for the missing selection": {
 			collectorAncestor: release.Yes, wantGuidance: "Confirm collector 3.25.5",

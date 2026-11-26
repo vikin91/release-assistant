@@ -181,10 +181,6 @@ legend { padding: 0 .35rem; font-weight: var(--emphasis-weight); }
 .tag-options :is(th, td) { padding: .2rem .4rem; vertical-align: top; }
 .tag-options form { margin: 0; }
 .tag-options button { min-height: 1.7rem; padding: .1rem .5rem; font-size: inherit; }
-.component-tag-coverage .pill { color: var(--foreground); }
-.component-tag-coverage .yes { border-color: var(--green); }
-.component-tag-coverage .no { border-color: var(--red); background: color-mix(in srgb, var(--red) 16%, var(--background)); }
-.component-tag-coverage .unknown { border-color: var(--amber); }
 .tag-evidence { font-size: .88rem; }
 .tag-evidence p, .tag-release-prs { margin: .3rem 0; }
 .tag-release-prs { list-style: decimal; padding-inline-start: 1.5rem; }
