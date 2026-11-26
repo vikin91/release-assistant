@@ -307,6 +307,8 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+	case "startup-source-read-settings":
+		destination = "/?tab=app-settings&saved=startup-source-read-settings#startup-source-read-settings"
 	case "tag-choice-settings":
 		destination = "/?tab=app-settings&saved=tag-choice-settings#tag-choice-settings"
 	case "application-settings":
@@ -574,6 +576,15 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 		if a.SHA == "" {
 			return a, fmt.Errorf("grant requires the displayed SHA")
 		}
+	case "startup-source-read-settings":
+		limit, err := readLimitSetting(form, "startup_source_read_limit")
+		if err != nil {
+			return a, err
+		}
+		if limit == nil {
+			return a, fmt.Errorf("submit a startup read limit")
+		}
+		a.StartupSourceReadLimit = *limit
 	case "tag-choice-settings":
 		values := form["tag_choice_limit"]
 		if len(values) != 1 {

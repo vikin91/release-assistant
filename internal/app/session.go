@@ -45,6 +45,7 @@ type (
 	// Snapshot is a copied display state; service credentials are never included.
 	Snapshot struct {
 		RefreshIntervals            RefreshIntervals
+		StartupSourceReadLimit      int
 		TagChoiceLimit              int
 		Config                      release.Config
 		Choices                     release.Choices
@@ -103,6 +104,7 @@ type (
 	// Action is a typed browser or CLI session decision.
 	Action struct {
 		RefreshIntervals        RefreshIntervals
+		StartupSourceReadLimit  int
 		TagChoiceLimit          int
 		Kind                    string
 		Config                  release.Config
@@ -123,23 +125,24 @@ type (
 	Session struct {
 		mu sync.Mutex
 		*releaseWork
-		profiles      map[string]*releaseWork
-		activeProfile string
-		generation    uint64
-		workRevision  uint64
-		pollChanged   chan struct{}
-		ciRetryJobs   map[release.Target]scheduledPRRetry
-		ciRunning     scheduledPRRetry
-		startupUntil  time.Time
-		konfluxHealth *konflux.Health
-		discovery     Discoverer
-		planner       RetryPlanner
-		images        Inspector
-		dispatcher    *dispatch.Dispatcher
-		log           *Log
-		options       Options
-		changed       chan struct{}
-		monitorCancel context.CancelFunc
+		profiles               map[string]*releaseWork
+		activeProfile          string
+		generation             uint64
+		workRevision           uint64
+		pollChanged            chan struct{}
+		ciRetryJobs            map[release.Target]scheduledPRRetry
+		ciRunning              scheduledPRRetry
+		startupUntil           time.Time
+		startupSourceReadLimit int
+		konfluxHealth          *konflux.Health
+		discovery              Discoverer
+		planner                RetryPlanner
+		images                 Inspector
+		dispatcher             *dispatch.Dispatcher
+		log                    *Log
+		options                Options
+		changed                chan struct{}
+		monitorCancel          context.CancelFunc
 
 		tagChoiceLimit int
 		dashboards     dashboardFile
@@ -203,6 +206,7 @@ func New(d Discoverer, p RetryPlanner, i Inspector, dispatcher *dispatch.Dispatc
 	}
 	s := &Session{discovery: d, planner: p, images: i, dispatcher: dispatcher, log: log, options: o, changed: make(chan struct{}, 1), pollChanged: make(chan struct{})}
 	s.tagChoiceLimit = o.ReleaseState.tagChoiceLimit()
+	s.startupSourceReadLimit = o.ReleaseState.startupSourceReadLimit()
 	if o.KonfluxProbe != nil {
 		s.konfluxHealth = &konflux.Health{}
 	}
@@ -324,7 +328,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		s.mu.Unlock()
 		return fmt.Errorf("page belongs to an earlier configuration; reload")
 	}
-	shared := a.Kind == "tag-choice-settings" ||
+	shared := a.Kind == "tag-choice-settings" || a.Kind == "startup-source-read-settings" ||
 		(a.Kind == "application-settings" && a.Interactive == nil && a.RequirePRLabel == nil)
 	if !s.targetsActiveProfile(a.ProfileID) && !shared {
 		s.mu.Unlock()
@@ -441,6 +445,15 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			return fmt.Errorf("unknown target")
 		}
 		err = s.dispatcher.Grant(a.Target, a.SHA, a.Enabled)
+	case "startup-source-read-settings":
+		if a.StartupSourceReadLimit < sourceReadLimit {
+			return fmt.Errorf("startup reads per source cycle must be at least %d", sourceReadLimit)
+		}
+		if err := s.options.ReleaseState.saveStartupSourceReadLimit(a.StartupSourceReadLimit); err != nil {
+			return err
+		}
+		recordSettingChange(s, "Startup GitHub reads per source cycle", s.startupSourceReadLimit, &a.StartupSourceReadLimit)
+		s.startupSourceReadLimit = a.StartupSourceReadLimit
 	case "tag-choice-settings":
 		if !validTagChoiceLimit(a.TagChoiceLimit) {
 			return fmt.Errorf("tag choice limit must be between %d and %d", MinTagChoiceLimit, MaxTagChoiceLimit)
@@ -778,6 +791,7 @@ func (s *Session) profileSnapshot(work *releaseWork, active bool, profileID stri
 }
 func (s *Session) fillSharedSnapshot(x *Snapshot) {
 	x.TagChoiceLimit = s.tagChoiceLimit
+	x.StartupSourceReadLimit = s.startupSourceReadLimit
 	if s.options.GitHubReads != nil {
 		x.StartupReadLimit, x.OngoingReadLimit = s.options.GitHubReads.ReadLimits()
 		x.GitHubReadBudget = s.options.GitHubReads.Budget()

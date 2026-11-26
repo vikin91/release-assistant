@@ -24,14 +24,15 @@ type (
 	}
 
 	releaseStateFile struct {
-		TagChoiceLimit    int                                     `json:"tag_choice_limit,omitempty"`
-		Version           int                                     `json:"version"`
-		Profiles          []ReleaseProfile                        `json:"profiles"`
-		ActiveProfile     string                                  `json:"active_profile,omitempty"`
-		Releases          map[string]map[string]release.Choice    `json:"releases"`
-		ComponentTags     map[string]map[string]savedComponentTag `json:"component_tags,omitempty"`
-		PinningPRs        map[string]savedPinningChoice           `json:"pinning_prs,omitempty"`
-		ImageObservations map[string]savedImageObservation        `json:"image_observations,omitempty"`
+		TagChoiceLimit         int                                     `json:"tag_choice_limit,omitempty"`
+		Version                int                                     `json:"version"`
+		Profiles               []ReleaseProfile                        `json:"profiles"`
+		ActiveProfile          string                                  `json:"active_profile,omitempty"`
+		Releases               map[string]map[string]release.Choice    `json:"releases"`
+		ComponentTags          map[string]map[string]savedComponentTag `json:"component_tags,omitempty"`
+		PinningPRs             map[string]savedPinningChoice           `json:"pinning_prs,omitempty"`
+		ImageObservations      map[string]savedImageObservation        `json:"image_observations,omitempty"`
+		StartupSourceReadLimit int                                     `json:"startup_source_read_limit,omitempty"`
 	}
 
 	savedComponentTag struct {
@@ -125,6 +126,22 @@ func (s *ReleaseState) saveTagChoiceLimit(limit int) error {
 	}
 	next := s.file
 	next.TagChoiceLimit = limit
+	return s.commit(next)
+}
+
+func (s *ReleaseState) startupSourceReadLimit() int {
+	if s != nil && s.file.StartupSourceReadLimit >= sourceReadLimit {
+		return s.file.StartupSourceReadLimit
+	}
+	return defaultStartupSourceReadLimit
+}
+
+func (s *ReleaseState) saveStartupSourceReadLimit(limit int) error {
+	if s == nil || s.file.StartupSourceReadLimit == limit {
+		return nil
+	}
+	next := s.file
+	next.StartupSourceReadLimit = limit
 	return s.commit(next)
 }
 

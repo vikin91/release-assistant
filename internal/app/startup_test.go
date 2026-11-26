@@ -2,9 +2,12 @@ package app
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"testing/synctest"
+	"time"
 
+	"release-assistant/internal/dispatch"
 	"release-assistant/internal/githubread"
 	"release-assistant/internal/release"
 )
@@ -76,4 +79,37 @@ func TestStartupRCAvailableWhilePRsAreLoading(t *testing.T) {
 		}
 		close(services.finishPRs)
 	})
+}
+
+func TestStartupSourceReadLimitPersistsAndExpires(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	openSession := func() *Session {
+		state, err := OpenReleaseState(path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return New(nil, nil, nil, dispatch.New(nil, nil, nil, dispatch.Options{}), nil, Options{ReleaseState: state})
+	}
+
+	s := openSession()
+	if got := s.Snapshot().StartupSourceReadLimit; got != 240 {
+		t.Fatalf("default startup cap = %d, want 240", got)
+	}
+	action := Action{Kind: "startup-source-read-settings", Generation: s.generation, StartupSourceReadLimit: 79}
+	if err := s.Apply(t.Context(), action); err == nil {
+		t.Fatal("accepted a startup cap below the regular cap")
+	}
+	action.StartupSourceReadLimit = 320
+	if err := s.Apply(t.Context(), action); err != nil {
+		t.Fatal(err)
+	}
+
+	s = openSession()
+	s.startupUntil = time.Now().Add(5 * time.Minute)
+	if got := s.sourceReadLimitAt(s.startupUntil.Add(-time.Nanosecond)); got != 320 {
+		t.Fatalf("startup cap after restart = %d, want 320", got)
+	}
+	if got := s.sourceReadLimitAt(s.startupUntil); got != 80 {
+		t.Fatalf("cap after startup = %d, want 80", got)
+	}
 }

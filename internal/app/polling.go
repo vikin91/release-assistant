@@ -42,6 +42,9 @@ const (
 	pollComponentTagHistory
 	pollRCVulnerabilities
 	pollManualComponentTags
+
+	sourceReadLimit               = 80
+	defaultStartupSourceReadLimit = 240
 )
 
 func (job pollJob) id(source release.Source) pollID {
@@ -206,6 +209,7 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 			}
 			slices.SortStableFunc(due, func(a, b pollJob) int { return priority(a) - priority(b) })
 		}
+		readLimit := s.sourceReadLimitAt(now)
 		changed := s.pollChanged
 		revision := s.workRevision
 		s.mu.Unlock()
@@ -219,7 +223,7 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 			timer.Stop()
 			continue
 		}
-		cycle, _ := githubread.Track(ctx, 80)
+		cycle, _ := githubread.Track(ctx, readLimit)
 		for _, job := range due {
 			if ctx.Err() != nil {
 				break
@@ -227,6 +231,13 @@ func (s *Session) monitor(ctx context.Context, generation uint64, source release
 			s.runPoll(cycle, generation, revision, source, job)
 		}
 	}
+}
+
+func (s *Session) sourceReadLimitAt(now time.Time) int {
+	if now.Before(s.startupUntil) {
+		return s.startupSourceReadLimit
+	}
+	return sourceReadLimit
 }
 
 var pollReadNames = [...]string{

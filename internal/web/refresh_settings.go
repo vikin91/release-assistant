@@ -28,7 +28,7 @@ type (
 
 func settingsSection(value string) string {
 	switch value {
-	case "retry-settings", "github-read-settings", "refresh-settings", "tag-choice-settings":
+	case "retry-settings", "github-read-settings", "refresh-settings", "tag-choice-settings", "startup-source-read-settings":
 		return value
 	default:
 		return ""

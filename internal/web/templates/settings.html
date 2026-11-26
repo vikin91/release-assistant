@@ -50,6 +50,7 @@
 {{define "app-settings-navigation"}}
 <nav class="settings-navigation" aria-label="Settings sections">
   {{if .Snapshot.StartupReadLimit}}<a href="#github-read-settings">Concurrent GitHub reads</a>{{end}}
+  {{if .Snapshot.StartupSourceReadLimit}}<a href="#startup-source-read-settings">Startup GitHub read budget</a>{{end}}
   <a href="#tag-choice-settings">Component tag choices</a>
   {{if .Snapshot.RefreshIntervals}}<a href="#refresh-settings">Refresh intervals</a>{{end}}
 </nav>
@@ -122,6 +123,30 @@
     </table>
     <div class="settings-footer control-row">
       <button type="submit" name="kind" value="application-settings">Save read limits</button>
+    </div>
+  </form>
+</section>
+{{end}}
+
+{{if .Snapshot.StartupSourceReadLimit}}
+<section class="panel settings-panel" id="startup-source-read-settings" aria-labelledby="startup-source-read-heading">
+  <form method="post" action="{{profileAction .ProfileID}}">
+    {{template "settings-fields" .}}
+    <input type="hidden" name="tab" value="app-settings">
+    <table class="settings-table" aria-labelledby="startup-source-read-heading">
+      <colgroup><col><col class="settings-control-column"></colgroup>
+      <thead><tr><th colspan="2"><h3 id="startup-source-read-heading">Startup GitHub read budget</h3>
+        <p>Set how many GitHub requests each source can make per polling cycle during the first five minutes of monitoring. Later cycles allow 80 requests per source.</p>
+        <p id="startup-source-read-status" role="status" data-live-preserve{{if ne .SettingsSaved "startup-source-read-settings"}} hidden{{end}}>{{if eq .SettingsSaved "startup-source-read-settings"}}Settings saved.{{end}}</p>
+      </th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><label for="startup-source-read-limit">Reads per source cycle</label>
+          <p id="startup-source-read-help">The hourly read budget and GitHub rate limits also apply.</p></th>
+          <td><div class="settings-value"><input id="startup-source-read-limit" type="number" name="startup_source_read_limit" min="80" step="1" required value="{{.Snapshot.StartupSourceReadLimit}}" aria-describedby="startup-source-read-help startup-source-read-unit"><span id="startup-source-read-unit">requests</span></div></td></tr>
+      </tbody>
+    </table>
+    <div class="settings-footer control-row">
+      <button type="submit" name="kind" value="startup-source-read-settings">Save startup read budget</button>
     </div>
   </form>
 </section>
