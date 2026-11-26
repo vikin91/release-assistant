@@ -49,10 +49,6 @@ func (s *Session) refreshRCVulnerabilities(ctx context.Context, generation, revi
 		}
 		if evidence.Target == rc.Target && evidence.SHA == rc.SHA {
 			s.rcVulnerabilities[rc.Target] = evidence
-			select {
-			case s.changed <- struct{}{}:
-			default:
-			}
 		}
 	}
 
