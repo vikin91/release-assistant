@@ -26,11 +26,13 @@ func TestRCVulnerabilitySummaryDeduplicatesFindings(t *testing.T) {
 	}
 
 	body := newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t)
-	summary := between(t, body, "Copy CVE summary</button>", "</pre>")
+	summary := between(t, body, `id="rc-vulnerability-summary"`, "</section>")
 	want := "1. <a href=\"" + link + "\">" + id + "</a> | sqlite-libs | CVSS 7.8 | fixed version 2\n" +
 		"   sqlite-libs | CVSS 7.8 | fixed version 3"
 	if !strings.Contains(summary, want) || strings.Count(summary, ">"+id+"</a>") != 1 ||
-		strings.Contains(summary, "CVE-2026-999999") {
+		strings.Contains(summary, "CVE-2026-999999") ||
+		!strings.Contains(summary, `class="copyable-text rerun-command"`) ||
+		!strings.Contains(summary, `data-copy-text>Copy CVE summary</button>`) {
 		t.Errorf("unexpected CVE summary: %s", summary)
 	}
 }

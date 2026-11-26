@@ -1,16 +1,16 @@
 {{define "rc-vulnerabilities"}}
 {{with .VulnerabilityReviews}}
 {{with index . 0}}{{if .HoldSummary}}
-<section class="panel copyable-text" id="rc-vulnerability-summary" aria-labelledby="rc-vulnerability-summary-title">
+<section class="panel" id="rc-vulnerability-summary" aria-labelledby="rc-vulnerability-summary-title">
     <h3 id="rc-vulnerability-summary-title">CVE summary</h3>
-    <div class="copy-text-actions">
-      <button type="button" data-copy-text>Copy CVE summary</button>
-      <span role="status" data-copy-status data-live-preserve></span>
-    </div>
-    <pre><code>{{.Target.Tag}} — CVEs that meet the internal hold criteria
+    <div class="copyable-text rerun-command">
+      <pre><code>{{.Target.Tag}} — CVEs that meet the internal hold criteria
 {{- range .HoldSummary}}
 {{.Number}}. <a href="{{or .URL (printf "https://www.cve.org/CVERecord?id=%s" .ID)}}">{{.ID}}</a> | {{range $j, $fix := .Fixes}}{{if $j}}
    {{end}}{{$fix}}{{end}}{{end}}</code></pre>
+      <button type="button" data-copy-text>Copy CVE summary</button>
+      <span role="status" data-copy-status data-live-preserve></span>
+    </div>
 </section>
 {{end}}{{end}}
 <section class="panel" id="rc-vulnerabilities" aria-labelledby="rc-vulnerabilities-title">
