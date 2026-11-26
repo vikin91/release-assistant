@@ -1191,15 +1191,17 @@ func TestHeaderGitHubReadBudget(t *testing.T) {
 					Remaining: tc.remaining, Limit: 3000, NextSlot: tc.next, PausedUntil: tc.paused, PauseReason: "GitHub secondary rate limit",
 					GitHub: githubread.Quota{Remaining: quota, Limit: 5000, ObservedAt: now, ResetAt: reset},
 				},
-				Repositories: []release.Repository{{Source: release.Source{Name: "collector", Repo: "acme/collector"}, CommitGraphLimitReached: tc.limitReached}},
 			}}
+			if tc.limitReached {
+				application.snapshot.GitHubGraphLimits = []app.GitHubGraphLimit{{Release: "4.10.12", Repository: "acme/collector", Pages: 20}}
+			}
 			menu := between(t, newBrowser(t, application).getBody(t), `data-fold-key="github-budget"`, "</details>")
 			for _, want := range []string{"GitHub · " + tc.want, fmt.Sprintf("%d of 5000 requests left", quota), "Resets in 51 minutes"} {
 				if !strings.Contains(menu, want) {
 					t.Errorf("GitHub menu missing %q", want)
 				}
 			}
-			if tc.limitReached && (!strings.Contains(menu, "GitHub commit graph acquisition limit reached") || !strings.Contains(menu, "acme/collector")) {
+			if tc.limitReached && (!strings.Contains(menu, "internal limit of 20 commit-history pages per check") || !strings.Contains(menu, "acme/collector (ACS 4.10.12)")) {
 				t.Error("GitHub menu omitted the name and affected repository")
 			}
 			if !tc.next.IsZero() && !strings.Contains(menu, "Next slot at "+formatTime(nextSlot)) {

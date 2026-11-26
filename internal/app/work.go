@@ -98,7 +98,7 @@ func mergeTags(old release.Repository, latest *release.Repository, request Disco
 func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) release.Repository {
 	mergeTags(old, &latest, request)
 	if !request.Reads(ReadCoverage) {
-		latest.CommitGraphLimitReached = old.CommitGraphLimitReached
+		latest.CommitGraphLimit = old.CommitGraphLimit
 	}
 	if !request.Reads(ReadChecks) {
 		byTarget := make(map[release.Target]release.PR, len(old.PRs))

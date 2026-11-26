@@ -44,6 +44,11 @@ type (
 		Images              []release.Image
 		Plan                release.Plan
 	}
+	// GitHubGraphLimit describes a coverage check that hit the assistant's page cap.
+	GitHubGraphLimit struct {
+		Release, Repository string
+		Pages               int
+	}
 	// Snapshot is a copied display state; service credentials are never included.
 	Snapshot struct {
 		RefreshIntervals             RefreshIntervals
@@ -66,6 +71,7 @@ type (
 		OngoingReadLimit             int
 		GitHubReadBudget             githubread.Budget
 		GitHubReadStats              []githubread.ReadStats
+		GitHubGraphLimits            []GitHubGraphLimit
 		ScheduledCIStats             []ScheduledCIStats
 		// WritesEnabled reports startup permission; target grants remain independent.
 		WritesEnabled   bool
@@ -808,6 +814,14 @@ func (s *Session) fillSharedSnapshot(x *Snapshot) {
 		x.GitHubReadBudget = s.options.GitHubReads.Budget()
 		x.GitHubReadStats = s.options.GitHubReads.Stats()
 		x.ScheduledCIStats = s.scheduledCIStats(x.GitHubReadStats)
+	}
+	// The active release owns the current reads, even when the browser displays another release.
+	for _, source := range s.config.Components {
+		if repo := s.repos[source.Name]; repo.CommitGraphLimit > 0 {
+			x.GitHubGraphLimits = append(x.GitHubGraphLimits, GitHubGraphLimit{
+				Release: s.config.Version, Repository: source.Repo, Pages: repo.CommitGraphLimit,
+			})
+		}
 	}
 	if planner, ok := s.planner.(interface{ ReadIssues() []konflux.ReadIssue }); ok {
 		x.KonfluxReadIssues = planner.ReadIssues()

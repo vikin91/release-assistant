@@ -295,7 +295,9 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		if graphErr != nil {
 			issues = append(issues, graphErr)
 		}
-		result.CommitGraphLimitReached = graph.limitReached
+		if graph.limitReached {
+			result.CommitGraphLimit = maxPages
+		}
 		if graph.cacheHits > 0 {
 			graph.cache.recordHits(ctx, source.Repo, graph.cacheHits)
 		}

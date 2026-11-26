@@ -131,8 +131,8 @@ type (
 		Tags           []Tag
 		// TagsPending prevents an incomplete inventory from proving that tags are absent.
 		TagsPending bool
-		// CommitGraphLimitReached reports that merge coverage hit the local graph acquisition limit.
-		CommitGraphLimitReached bool `json:"-"`
+		// CommitGraphLimit is the local page cap when coverage reaches it.
+		CommitGraphLimit int `json:"-"`
 
 		PinDiscovery PinDiscovery
 		Pins         Pins

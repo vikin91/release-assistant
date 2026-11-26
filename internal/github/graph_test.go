@@ -179,8 +179,8 @@ func TestDiscoverReportsGraphLimitWithoutInvalidatingTag(t *testing.T) {
 		_ = json.NewEncoder(w).Encode([]map[string]any{{"sha": r.URL.Query().Get("sha"), "parents": []map[string]string{{"sha": parent}}}})
 	})}
 	repo, err := client.Discover(t.Context(), request)
-	if err != nil || !repo.CommitGraphLimitReached || !repo.Evidence.Fresh() || len(repo.Tags) != 1 {
-		t.Fatalf("discovery limit=%t evidence=%+v tags=%v error=%v", repo.CommitGraphLimitReached, repo.Evidence, repo.Tags, err)
+	if err != nil || repo.CommitGraphLimit != maxPages || !repo.Evidence.Fresh() || len(repo.Tags) != 1 {
+		t.Fatalf("discovery limit=%d evidence=%+v tags=%v error=%v", repo.CommitGraphLimit, repo.Evidence, repo.Tags, err)
 	}
 	tag := repo.Tags[0]
 	if !tag.Evidence.Fresh() || tag.Belongs != release.Yes || tag.Contains["merge-1001"] != release.Yes || tag.Contains["merge-1002"] != "" {

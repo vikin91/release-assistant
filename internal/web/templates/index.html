@@ -11,6 +11,10 @@
 <body{{if .Home}} data-home="true"{{end}}{{if .Profiles}} data-profile="{{.ProfileID}}"{{end}} data-configured="{{.Configured}}" data-active-tab="{{.Tab}}" data-session="{{.CSRF}}:{{.Snapshot.Generation}}" data-loading="{{and .Configured (or .Snapshot.Loading .Snapshot.ImagesRefreshing)}}"{{with .Snapshot.KonfluxHealth}} data-konflux-health="{{if .CheckedAt.IsZero}}pending{{else if .Healthy}}healthy{{else}}unverified{{end}}"{{end}}>
 <span id="new-tab-description" hidden>Opens in a new tab</span>
 <header class="topbar">
+  <div class="global-status">
+    {{template "konflux-status" .}}
+    {{template "header-github-budget" .}}
+  </div>
   {{if and .Profiles .ReleaseProfiles}}
   <nav class="release-switcher" aria-label="Tracked releases">
     {{if .ReleaseProfiles}}<div class="release-tabs">
@@ -32,8 +36,6 @@
     <span class="pill good">Active</span>
     {{end}}
   {{end}}
-  {{template "konflux-status" .}}
-  {{template "header-github-budget" .}}
   {{if and (not $home) (not .ViewingInactive) (or .Configured (not .Profiles))}}
   <details data-fold-key="write-mode" name="header-menu" class="header-menu">
     <summary>Write mode · {{if not .Snapshot.WritesEnabled}}Read-only{{else if .Snapshot.Interactive}}Interactive{{if .Snapshot.RequirePRLabel}} · Only labeled{{end}}{{else if .Snapshot.RequirePRLabel}}Only labeled{{else}}Full auto{{end}}</summary>

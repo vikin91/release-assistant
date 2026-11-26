@@ -414,6 +414,7 @@ body { display: grid; grid-template: auto 1fr / 248px minmax(0, 1fr); min-height
   grid-column: 2; position: sticky; inset-block-start: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center;
   @apply min-h-15 gap-2 border-b border-border bg-background px-4 py-3 sm:px-6 lg:px-8;
 }
+.global-status { display: flex; flex-basis: 100%; flex-wrap: wrap; gap: .5rem; }
 .release-identity { @apply mr-auto flex flex-wrap items-center gap-x-2.5 gap-y-1; }
 .release-identity h1 { @apply text-base leading-tight font-semibold tracking-tight; }
 .release-identity code { @apply rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground; }

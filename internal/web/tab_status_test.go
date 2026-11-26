@@ -203,7 +203,7 @@ func TestWorkflowComponentReleaseStatus(t *testing.T) {
 					State: "merged", Merged: true, MergeSHA: "unknown-merge", Evidence: repo.Evidence,
 				}
 				repo.PRs = []release.PR{pr}
-				repo.CommitGraphLimitReached = true
+				repo.CommitGraphLimit = 20
 				s.Choices.PRs[pr.Target] = release.Included
 			},
 			want: tabComplete,

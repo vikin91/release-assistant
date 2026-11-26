@@ -138,3 +138,33 @@ func TestReleaseProfilesSaveDraftsRejectDuplicateAndRemoveActive(t *testing.T) {
 		t.Fatal("removed the last profile")
 	}
 }
+
+func TestGitHubGraphLimitIsSharedAcrossProfileViews(t *testing.T) {
+	state, err := OpenReleaseState(filepath.Join(t.TempDir(), "state.json"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := configuration()
+	inactive := configuration()
+	inactive.Version, inactive.Branch = "5.1.1", "release-5.1"
+	for _, config := range []release.Config{active, inactive, active} {
+		if err := state.SetInitialRelease(config, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, f := newFixture()
+	s := New(f, f, f, dispatch.New(f, f, f, dispatch.Options{}), nil, Options{Profiles: true, ReleaseState: state})
+	profiles, activeID, _ := s.ReleaseProfiles()
+	source := active.Components[0]
+	s.repos[source.Name] = release.Repository{Source: source, CommitGraphLimit: 20}
+	want := []GitHubGraphLimit{{Release: active.Version, Repository: source.Repo, Pages: 20}}
+	for _, profile := range profiles {
+		snapshot, found := s.ProfileSnapshot(profile.ID)
+		if !found || !slices.Equal(snapshot.GitHubGraphLimits, want) {
+			t.Fatalf("profile %s graph limits = %v", profile.ID, snapshot.GitHubGraphLimits)
+		}
+		if profile.ID != activeID && snapshot.Monitoring {
+			t.Fatal("viewing a paused profile activated it")
+		}
+	}
+}

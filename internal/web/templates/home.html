@@ -55,7 +55,7 @@
 
 {{define "github-budget"}}
   {{$budget := .Snapshot.GitHubReadBudget}}
-  {{if or $budget.Limit .GitHubGraphLimits}}
+  {{if or $budget.Limit .Snapshot.GitHubGraphLimits}}
   <section class="sidebar-summary" aria-labelledby="github-reads-heading">
     <h2 id="github-reads-heading">GitHub reads</h2>
     <dl>
@@ -69,9 +69,10 @@
         <dd>{{quotaReset .ResetAt}}</dd>
         {{end}}{{end}}</div>
       {{end}}
-      {{with .GitHubGraphLimits}}
-      <div><dt>GitHub commit graph acquisition limit reached</dt>
-        <dd>PR coverage verification reached the assistant’s history limit for {{range $i, $repo := .}}{{if $i}}, {{end}}{{$repo}}{{end}}.</dd>
+      {{with .Snapshot.GitHubGraphLimits}}
+      <div><dt>Release Assistant commit history limit reached</dt>
+        {{range .}}<dd>Checking PR coverage for {{.Repository}} (ACS {{.Release}}) reached the internal limit of {{.Pages}} commit-history pages per check.</dd>{{end}}
+        <dd>This limit is separate from GitHub’s API quota. PR coverage may be incomplete.</dd>
       </div>
       {{end}}
     </dl>
@@ -81,12 +82,12 @@
 
 {{define "header-github-budget"}}
 {{$budget := .Snapshot.GitHubReadBudget}}
-{{if or $budget.Limit .GitHubGraphLimits}}
+{{if or $budget.Limit .Snapshot.GitHubGraphLimits}}
 {{$paused := not $budget.PausedUntil.IsZero}}
 {{$exhausted := not $budget.NextSlot.IsZero}}
 {{$quotaExhausted := and (not $budget.GitHub.ObservedAt.IsZero) (eq $budget.GitHub.Remaining 0)}}
 <details data-fold-key="github-budget" name="header-menu" class="header-menu">
-  <summary{{if or $paused $quotaExhausted $exhausted .GitHubGraphLimits}} class="unknown"{{end}}>GitHub · {{if $paused}}Reads paused{{else if $quotaExhausted}}API quota exhausted{{else if $exhausted}}Read limit reached{{else if .GitHubGraphLimits}}Commit graph limit reached{{else}}{{$budget.Remaining}} reads left{{end}}</summary>
+  <summary{{if or $paused $quotaExhausted $exhausted .Snapshot.GitHubGraphLimits}} class="unknown"{{end}}>GitHub · {{if $paused}}Reads paused{{else if $quotaExhausted}}API quota exhausted{{else if $exhausted}}Read limit reached{{else if .Snapshot.GitHubGraphLimits}}Commit graph limit reached{{else}}{{$budget.Remaining}} reads left{{end}}</summary>
   <div class="menu-content">{{template "github-budget" .}}</div>
 </details>
 {{end}}
