@@ -6,7 +6,6 @@
           <span class="component-image-counts">{{.RC.KonfluxMissing}} Konflux {{if eq .RC.KonfluxMissing 1}}image{{else}}images{{end}} missing</span>
         {{else if .ReleaseImages.Total}}{{template "image-counts" .ReleaseImages}}{{else}}<span class="component-image-counts">Pending registry checks</span>{{end}}
       </h3>
-      {{template "refresh-images" .}}
       {{with .RC.Candidate}}
         {{if $.RC.TagURL}}
           <div class="control-row rc-links">
@@ -67,6 +66,7 @@
         {{end}}
         {{if not .ReleaseImages.Total}}<p class="muted">Waiting for RC image check results.</p>{{end}}
       {{end}}
+      {{template "refresh-images" .}}
       {{with .ReleaseImages}}
         {{if .Groups}}{{template "rc-image-table" .Groups}}{{end}}
         {{if .Other}}{{template "image-results" .Other}}{{end}}
