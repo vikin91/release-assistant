@@ -38,14 +38,16 @@ type (
 		deadline time.Time
 	}
 	planReadsKey struct{}
-	planReads    struct{ unavailable, deferred atomic.Bool }
-	readBackoff  struct {
-		base             http.RoundTripper
-		apiHost, apiPort string
-		now              func() time.Time
-		mu               sync.Mutex
-		endpoints        map[string]*endpointBackoff
-		onPauseChange    func(ReadIssue)
+	planReads    struct {
+		unavailable, deferred atomic.Bool
+		login                 *ocLogin
+	}
+	readBackoff struct {
+		base          http.RoundTripper
+		now           func() time.Time
+		mu            sync.Mutex
+		endpoints     map[string]*endpointBackoff
+		onPauseChange func(ReadIssue)
 	}
 	endpointBackoff struct {
 		ReadIssue
@@ -98,10 +100,12 @@ func (t *readBackoff) RoundTrip(req *http.Request) (*http.Response, error) {
 	if cluster == "" {
 		return t.base.RoundTrip(req)
 	}
-	// The retry library derives the API URL from the check. The matching oc server supplies its port.
-	if endpoint == pipelineRunAPI && t.apiPort != "" && req.URL.Hostname() == t.apiHost {
+	reads, _ := req.Context().Value(planReadsKey{}).(*planReads)
+	// The plan supplies the port from the same login as its token.
+	if endpoint == pipelineRunAPI && reads != nil && reads.login != nil &&
+		reads.login.port != "" && req.URL.Hostname() == reads.login.host {
 		req = req.Clone(req.Context())
-		req.URL.Host = net.JoinHostPort(t.apiHost, t.apiPort)
+		req.URL.Host = net.JoinHostPort(reads.login.host, reads.login.port)
 		req.Host = req.URL.Host
 	}
 	ctx := req.Context()
@@ -122,7 +126,6 @@ func (t *readBackoff) RoundTrip(req *http.Request) (*http.Response, error) {
 		state = &endpointBackoff{ReadIssue: ReadIssue{Cluster: cluster, Endpoint: endpoint}}
 		t.endpoints[host] = state
 	}
-	reads, _ := ctx.Value(planReadsKey{}).(*planReads)
 	probe := state.pause > 0
 	if probe && (state.Probing || now.Before(state.RetryAt) || !enoughTime) {
 		t.mu.Unlock()

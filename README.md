@@ -11,8 +11,8 @@ and monitor a release. To let the assistant post retry comments, enable
 writes and use a GitHub credential with permission to comment on the
 target PR or commit. [Retry comments](#retry-comments)
 
-For Konflux, log in to the build cluster before starting the assistant. An
-active login to that cluster is enough. GitHub and Quay can run without it.
+For Konflux, log in to the build cluster. You can do this before or after
+starting the assistant. GitHub and Quay can run without a Konflux login.
 
 ```sh
 oc login https://api.stone-prd-rh01.pg1f.p1.openshiftapps.com --token='YOUR_OPENSHIFT_TOKEN'
@@ -35,8 +35,8 @@ Open the [local assistant](http://127.0.0.1:8080). [Setup details](#setup-detail
 ## Setup details
 
 Have the GitHub CLI (`gh`) and OpenShift CLI (`oc`) available in the
-terminal you’ll use to start the assistant. The assistant reads credentials
-at startup. Restart it after changing a token or login.
+terminal you’ll use to start the assistant. Restart it after changing GitHub
+or Quay credentials.
 
 1. **Set up Go.** Install Go 1.26.0 or later. Go downloads the
    `github.com/vikin91/konflux-retest` version pinned in [go.mod](go.mod).
@@ -77,8 +77,11 @@ at startup. Restart it after changing a token or login.
    ```
 
    Your account needs read access to the relevant namespace’s PipelineRuns
-   or their Tekton Results records. The assistant uses the token from the
-   active `oc` login for that cluster.
+   or their Tekton Results records. The assistant reads the active `oc` login
+   at startup. If Konflux shows **Sign-in required**, run `oc login` in a
+   separate terminal using the same kubeconfig. The next health check picks
+   up and verifies the new login automatically. Build status updates on its
+   regular polling schedule.
 
    The assistant allows lookups for GitHub App ID `296509` in `rh-acs-tenant`
    on `api.stone-prd-rh01.pg1f.p1.openshiftapps.com` by default. To replace

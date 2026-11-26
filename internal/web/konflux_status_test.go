@@ -111,7 +111,7 @@ func TestKonfluxPillShowsOnlyCurrentHealth(t *testing.T) {
 	}
 	got = header()
 	if !strings.Contains(got, "Konflux · Sign-in required") ||
-		!strings.Contains(got, "Run <code>oc login</code> for <code>example.openshiftapps.com</code>, then restart Release Assistant.") {
+		!strings.Contains(got, "Run <code>oc login</code> for <code>example.openshiftapps.com</code> in a separate terminal using the same kubeconfig. Release Assistant will check the login automatically.") {
 		t.Fatalf("missing sign-in instructions: %s", got)
 	}
 }

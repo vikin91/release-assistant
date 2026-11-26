@@ -10,7 +10,7 @@
       <dt>Last check</dt><dd>{{if .Last.IsZero}}Awaiting first observation{{else}}{{when .Last}}{{end}}</dd>
       <dt>Next check</dt><dd>{{if and $.Profiles (not $.ActiveProfile)}}Paused{{else if .Next.IsZero}}Awaiting schedule{{else}}{{when .Next}}{{end}}</dd>
     </dl>
-      {{if .SignInCluster}}<p>Run <code>oc login</code> for <code>{{.SignInCluster}}</code>, then restart Release Assistant.</p>{{end}}
+      {{if eq .Label "Sign-in required"}}<p>Run <code>oc login</code>{{if .SignInCluster}} for <code>{{.SignInCluster}}</code>{{end}} in a separate terminal using the same kubeconfig. Release Assistant will check the login automatically.</p>{{end}}
       {{if $.KonfluxStatus}}<a href="/?tab=activity#konflux-status" data-open-section>View Konflux diagnostics</a>
       {{else}}<a href="/?tab=activity#activity-details" data-open-section>View log</a>{{end}}
     </div>

@@ -17,7 +17,7 @@ import (
 )
 
 type (
-	// Config supplies startup credentials without storing them in application snapshots.
+	// Config supplies credentials without storing them in application snapshots.
 	Config struct {
 		GitHubToken, QuayUsername, QuayPassword string
 		HTTPClient                              *http.Client
@@ -29,8 +29,8 @@ type (
 		// CommentFooter attributes posted retries to the running build.
 		CommentFooter string
 
-		apiHost, apiPort string
-		lookups          Lookups
+		oc      *ocCredentials
+		lookups Lookups
 	}
 	observationError struct {
 		message string
@@ -41,6 +41,7 @@ type (
 		config        retry.Config
 		reads         *readBackoff
 		health        healthProbe
+		oc            *ocCredentials
 		commentFooter string
 		pr            func(context.Context, retry.Config, string, int) (retry.Result, error)
 		tag           func(context.Context, retry.Config, string, string) (retry.Result, error)
@@ -75,14 +76,13 @@ func New(c Config) *Adapter {
 	if c.HTTPClient != nil {
 		client = *c.HTTPClient
 	}
-	health := newHealthProbe(c, client)
+	health := newHealthProbe(c.lookups, client)
 	base := client.Transport
 	if base == nil {
 		base = http.DefaultTransport
 	}
 	reads := &readBackoff{
 		base: base, now: time.Now, endpoints: make(map[string]*endpointBackoff), onPauseChange: c.OnReadPauseChange,
-		apiHost: c.apiHost, apiPort: c.apiPort,
 	}
 	client.Transport = reads
 	return &Adapter{
@@ -93,6 +93,7 @@ func New(c Config) *Adapter {
 		},
 		reads:         reads,
 		health:        health,
+		oc:            c.oc,
 		commentFooter: c.CommentFooter,
 		pr:            retry.CheckPR, tag: retry.CheckTag,
 	}
@@ -115,13 +116,18 @@ func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, err
 		ctx = WithReadCycle(ctx)
 	}
 	var reads planReads
+	config := a.config
+	if a.oc != nil {
+		reads.login = a.oc.current.Load()
+		config.KonfluxToken = reads.login.tokenForHost
+	}
 	ctx = context.WithValue(ctx, planReadsKey{}, &reads)
 	var r retry.Result
 	var err error
 	if t.PR > 0 {
-		r, err = a.pr(ctx, a.config, t.Repo, t.PR)
+		r, err = a.pr(ctx, config, t.Repo, t.PR)
 	} else {
-		r, err = a.tag(ctx, a.config, t.Repo, t.Tag)
+		r, err = a.tag(ctx, config, t.Repo, t.Tag)
 	}
 	p := release.Plan{Target: t, SHA: r.SHA, Action: string(r.Action), Message: r.Message, Warnings: append([]string(nil), r.Warnings...), Evidence: release.Evidence{At: time.Now(), URL: r.URL, Known: err == nil}}
 	for i := range p.Warnings {

@@ -2,20 +2,23 @@ package konflux
 
 import (
 	"context"
+	"slices"
 	"testing"
 )
 
 func TestStartupClusterCredentials(t *testing.T) {
-	c := startupConfig(t.Context(), nil, func(_ context.Context, _ string, args ...string) string {
-		if args[1] == "--show-server" {
-			return "https://api.example.openshiftapps.com:6443"
+	c := startupConfig(t.Context(), nil, func(_ context.Context, name string, args ...string) string {
+		want := []string{"config", "view", "--minify", "--raw", `-o=jsonpath={.clusters[0].cluster.server}{"\n"}{.users[0].user.token}`}
+		if name != "oc" || !slices.Equal(args, want) {
+			t.Fatalf("unexpected credential command %s %v", name, args)
 		}
-		return "cluster-token"
+		return "https://api.example.openshiftapps.com:6443\ncluster-token"
 	})
-	if token, err := c.KonfluxToken(t.Context(), "api.example.openshiftapps.com"); err != nil || token != "cluster-token" {
+	login := c.oc.current.Load()
+	if token, err := login.tokenForHost(t.Context(), "api.example.openshiftapps.com"); err != nil || token != "cluster-token" || login.port != "6443" {
 		t.Fatal("startup cluster session not reused")
 	}
-	if _, err := c.KonfluxToken(t.Context(), "api.other.openshiftapps.com"); err == nil {
+	if _, err := login.tokenForHost(t.Context(), "api.other.openshiftapps.com"); err == nil {
 		t.Fatal("cluster token sent to another host")
 	}
 }

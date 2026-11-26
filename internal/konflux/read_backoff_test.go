@@ -177,11 +177,8 @@ func TestAdapterDefersLiveLookupsButStillReadsGitHubAndArchive(t *testing.T) {
 	if err := lookups.Add("296509,api.example.openshiftapps.com,builds"); err != nil {
 		t.Fatal(err)
 	}
-	config := startupConfig(t.Context(), lookups, func(_ context.Context, _ string, args ...string) string {
-		if args[1] == "--show-server" {
-			return "https://" + apiAuthority
-		}
-		return "cluster-fixture"
+	config := startupConfig(t.Context(), lookups, func(context.Context, string, ...string) string {
+		return "https://" + apiAuthority + "\ncluster-fixture"
 	})
 	config.GitHubToken = "github-fixture"
 	var liveCalls, archiveCalls, checkReads int

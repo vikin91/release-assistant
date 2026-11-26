@@ -3,13 +3,13 @@ package konflux
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"release-assistant/internal/githubread"
@@ -22,6 +22,14 @@ type (
 	}
 	// Lookups identifies the GitHub Apps, cluster hosts, and namespaces approved at startup.
 	Lookups map[konfluxLookup]struct{}
+
+	ocLogin struct {
+		host, port, token string
+	}
+	ocCredentials struct {
+		current atomic.Pointer[ocLogin]
+		read    func(context.Context) *ocLogin
+	}
 )
 
 var konfluxLookupPattern = regexp.MustCompile(`^([1-9][0-9]*),(api\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+openshiftapps\.com),([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)$`)
@@ -64,21 +72,30 @@ func startupConfig(ctx context.Context, lookups Lookups, command func(context.Co
 		c.QuayUsername = os.Getenv("QUAY_RHACS_ENG_RO_USERNAME")
 		c.QuayPassword = os.Getenv("QUAY_RHACS_ENG_RO_PASSWORD")
 	}
-	var clusterHost, clusterBearer string
-	server := command(ctx, "oc", "whoami", "--show-server")
-	if u, err := url.Parse(server); err == nil && u.Scheme == "https" {
-		clusterHost = u.Hostname()
-		c.apiHost, c.apiPort = clusterHost, u.Port()
-		clusterBearer = command(ctx, "oc", "whoami", "--show-token")
-	}
-	c.KonfluxToken = func(_ context.Context, host string) (string, error) {
-		if host != clusterHost || clusterBearer == "" {
-			return "", fmt.Errorf("no startup oc authentication for this cluster")
+	c.oc = &ocCredentials{read: func(ctx context.Context) *ocLogin {
+		// Read both values from the same kubeconfig snapshot so a concurrent login cannot mix them.
+		output := command(ctx, "oc", "config", "view", "--minify", "--raw",
+			`-o=jsonpath={.clusters[0].cluster.server}{"\n"}{.users[0].user.token}`)
+		server, token, ok := strings.Cut(output, "\n")
+		u, err := url.Parse(server)
+		if !ok || token == "" || strings.ContainsAny(token, " \t\r\n") ||
+			err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil ||
+			(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+			return nil
 		}
-		return clusterBearer, nil
-	}
+		return &ocLogin{host: u.Hostname(), port: u.Port(), token: token}
+	}}
+	c.oc.current.Store(c.oc.read(ctx))
 	return c
 }
+
+func (l *ocLogin) tokenForHost(_ context.Context, host string) (string, error) {
+	if l == nil || l.host != host {
+		return "", errors.New("no OpenShift sign-in for this cluster")
+	}
+	return l.token, nil
+}
+
 func commandOutput(ctx context.Context, name string, args ...string) string {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

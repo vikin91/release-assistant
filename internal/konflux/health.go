@@ -28,9 +28,8 @@ type (
 		APIStatus                   int
 	}
 	healthProbe struct {
-		client     http.Client
-		host, port string
-		namespaces []string
+		client  http.Client
+		lookups Lookups
 	}
 	pipelineRunMetadata struct {
 		Metadata struct {
@@ -45,41 +44,61 @@ func (h Health) Healthy() bool {
 	return h.APIReadable && !h.AdmittedAt.IsZero()
 }
 
-func newHealthProbe(c Config, client http.Client) healthProbe {
+func newHealthProbe(lookups Lookups, client http.Client) healthProbe {
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	probe := healthProbe{client: client, host: c.apiHost, port: c.apiPort}
+	return healthProbe{client: client, lookups: lookups}
+}
+
+// ProbeHealth checks access independently of planner backoff and verifies a changed login before publishing it.
+func (a *Adapter) ProbeHealth(ctx context.Context) Health {
+	if a.oc == nil {
+		return a.health.probe(ctx, nil)
+	}
+	login := a.oc.current.Load()
+	result := a.health.probe(ctx, login)
+	if result.APIStatus != http.StatusUnauthorized && result.APIStatus != http.StatusForbidden {
+		return result
+	}
+	updated := a.oc.read(ctx)
+	if updated == nil || (login != nil && *updated == *login) {
+		return result
+	}
+	verified := a.health.probe(ctx, updated)
+	if !verified.APIReadable {
+		return result
+	}
+	if !a.oc.current.CompareAndSwap(login, updated) {
+		return a.health.probe(ctx, a.oc.current.Load())
+	}
+	return verified
+}
+
+func (p *healthProbe) probe(ctx context.Context, login *ocLogin) Health {
 	var firstHost string
-	for lookup := range c.lookups {
+	var namespaces []string
+	for lookup := range p.lookups {
 		if firstHost == "" || lookup.host < firstHost {
 			firstHost = lookup.host
 		}
-		if lookup.host == c.apiHost {
-			probe.namespaces = append(probe.namespaces, lookup.namespace)
+		if login != nil && lookup.host == login.host {
+			namespaces = append(namespaces, lookup.namespace)
 		}
 	}
-	if len(probe.namespaces) == 0 {
-		probe.host = firstHost
+	if len(namespaces) == 0 {
+		return Health{
+			Cluster: strings.TrimPrefix(firstHost, "api."), APIStatus: http.StatusUnauthorized,
+			Problem: "No OpenShift sign-in for an approved Konflux cluster.",
+		}
 	}
-	slices.Sort(probe.namespaces)
-	probe.namespaces = slices.Compact(probe.namespaces)
-	return probe
-}
-
-// ProbeHealth reads the approved cluster independently of retry planning and its endpoint backoff.
-func (a *Adapter) ProbeHealth(ctx context.Context) Health {
-	p := &a.health
-	cluster := strings.TrimPrefix(p.host, "api.")
-	if len(p.namespaces) == 0 || a.config.KonfluxToken == nil {
-		return Health{Cluster: cluster, APIStatus: http.StatusUnauthorized, Problem: "No OpenShift sign-in for an approved Konflux cluster."}
+	slices.Sort(namespaces)
+	cluster := strings.TrimPrefix(login.host, "api.")
+	host := login.host
+	if login.port != "" {
+		host = net.JoinHostPort(host, login.port)
 	}
-	token, err := a.config.KonfluxToken(ctx, p.host)
-	if err != nil || token == "" {
-		return Health{Cluster: cluster, APIStatus: http.StatusUnauthorized, Problem: "No OpenShift sign-in for the Konflux cluster."}
-	}
-
 	result := Health{Cluster: cluster}
-	for _, namespace := range p.namespaces {
-		observed := p.readNamespace(ctx, cluster, namespace, token)
+	for _, namespace := range slices.Compact(namespaces) {
+		observed := p.readNamespace(ctx, cluster, host, namespace, login.token)
 		if observed.Healthy() {
 			return observed
 		}
@@ -90,12 +109,8 @@ func (a *Adapter) ProbeHealth(ctx context.Context) Health {
 	return result
 }
 
-func (p *healthProbe) readNamespace(ctx context.Context, cluster, namespace, token string) Health {
+func (p *healthProbe) readNamespace(ctx context.Context, cluster, host, namespace, token string) Health {
 	result := Health{Cluster: cluster}
-	host := p.host
-	if p.port != "" {
-		host = net.JoinHostPort(host, p.port)
-	}
 	var live struct {
 		Kind  string                `json:"kind"`
 		Items []pipelineRunMetadata `json:"items"`
