@@ -36,13 +36,13 @@ func TestRCVulnerabilityReviewShowsPartialEvidenceAndPreviousCandidate(t *testin
 			}
 			body := newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t)
 			section := between(t, body, `id="rc-vulnerabilities"`, "</section>")
-			for _, want := range []string{`aria-describedby="new-tab-description" href="` + workflow + `" target="_blank" rel="noreferrer">Scan workflow</a>`, "above 7.0", "Suggested hold", test.label, "Findings that meet the internal hold criteria", "Other findings", "No known fix"} {
+			for _, want := range []string{`aria-describedby="new-tab-description" href="` + workflow + `" target="_blank" rel="noreferrer">Scan workflow</a>`, "above 7.0", "Meets hold criteria", test.label, "Other findings", "1 Important above 7.0 without a known fix.", `<strong>fixable Critical CVE or a fixable Important CVE with a CVSS score above 7.0</strong>`, "This is stricter than defined in the release manual.", "Release Assistant does not block any further step of the release."} {
 				if !strings.Contains(section, want) {
 					t.Errorf("review missing %q", want)
 				}
 			}
-			if strings.Index(section, "CVE-test-hold") > strings.Index(section, "CVE-test-other") {
-				t.Fatal("hold findings should be listed first")
+			if !strings.Contains(section, "CVE-test-hold") || strings.Contains(section, "CVE-test-other") {
+				t.Fatal("expanded table should include only critical and qualifying Important CVEs")
 			}
 			previousKey := `data-fold-key="rc-vuln:` + previous.String() + `:old:1:`
 			if got := strings.Contains(section, previousKey+`true" open`); got != test.previousOpen {
@@ -136,5 +136,58 @@ func TestVulnerabilitySidebarWarnsForDistinctHoldCVEsInNewestCandidate(t *testin
 				t.Fatalf("sidebar warning or accessible count missing: %s", tab)
 			}
 		})
+	}
+}
+
+func TestVulnerabilityImageShowsOnlyColorPillsUntilExpanded(t *testing.T) {
+	snapshot := workflowStatusSnapshot()
+	rc := snapshot.Candidate()
+	repeated := release.Vulnerability{ID: "CVE-important-below", Severity: "Important", CVSS: new(6.9), Fixed: "2"}
+	snapshot.RCVulnerabilities = []release.RCVulnerabilities{
+		{Target: rc.Target, SHA: rc.SHA, Images: []release.ImageVulnerabilities{
+			{Image: "release-main", Status: "Available", Findings: []release.Vulnerability{
+				{ID: "CVE-important-fix", Severity: "Important", CVSS: new(7.1), Fixed: "2"},
+				{ID: "CVE-critical-open", Severity: "Critical"},
+				{ID: "CVE-critical-fix", Severity: "Critical", FixAvailable: true},
+				repeated, repeated,
+				{ID: "CVE-important-at", Severity: "Important", CVSS: new(7.0), Fixed: "2"},
+				{ID: "CVE-important-unscored", Severity: "Important"},
+				{ID: "CVE-important-open", Severity: "Important", CVSS: new(8.7)},
+				{ID: "CVE-moderate-fix", Severity: "Moderate", Fixed: "2"},
+				{ID: "CVE-moderate-open", Severity: "Moderate"},
+				{ID: "CVE-low", Severity: "Low"},
+			}},
+		}},
+	}
+	body := newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t)
+	review := between(t, body, `id="rc-vulnerabilities"`, "</section>")
+	if !strings.Contains(review, `aria-label="Vulnerability pill legend"`) {
+		t.Fatal("missing color legend")
+	}
+	image := between(t, review, `class="rc-vulnerability-image"`, "</details>")
+	header, details, ok := strings.Cut(image, "</summary>")
+	if !ok {
+		t.Fatal("missing image summary")
+	}
+	if strings.Contains(header, `" open`) || strings.Count(header, `class="pill `) != 3 ||
+		!strings.Contains(header, `vulnerability-critical">2 Critical</span>`) ||
+		!strings.Contains(header, `vulnerability-important-above" title="Fixable Important CVEs with CVSS above 7.0">1 Important`) ||
+		!strings.Contains(header, `vulnerability-important-below" title="1 Important below 7.0, 1 fixable">1 Important`) {
+		t.Fatalf("unexpected collapsed image: %s", header)
+	}
+	table := between(t, details, `class="rc-vulnerability-table"`, "</table>")
+	if strings.Count(table, "<tr>") != 4 || strings.Index(table, "CVE-critical-open") > strings.Index(table, "CVE-important-fix") {
+		t.Fatalf("expected three red and orange rows, with Critical first: %s", table)
+	}
+	for _, want := range []string{"Yes · fixable Critical", "Yes · fixable Important above 7.0", "No · no known fix"} {
+		if !strings.Contains(table, want) {
+			t.Errorf("table missing %q", want)
+		}
+	}
+	for _, want := range []string{"1 Important below 7.0, 1 fixable.", "1 Important at 7.0, 1 fixable.",
+		"1 Important without a CVSS score, none fixable.", "1 Important above 7.0 without a known fix.", "2 Moderate, 1 fixable.", "1 Low."} {
+		if !strings.Contains(details, want) || strings.Contains(table, want) {
+			t.Errorf("expanded summary has incorrect placement for %q", want)
+		}
 	}
 }

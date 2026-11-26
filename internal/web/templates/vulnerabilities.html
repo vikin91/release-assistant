@@ -2,12 +2,17 @@
 {{with .VulnerabilityReviews}}
 <section class="panel" id="rc-vulnerabilities" aria-labelledby="rc-vulnerabilities-title">
   <h3 id="rc-vulnerabilities-title">Vulnerability review</h3>
-  <p>{{holdCriteria}}</p>
+  <p>Release Assistant marks the RC as "meets hold criteria" when a Konflux image has a <strong>{{holdCriteria}}</strong>. This is stricter than defined in the release manual. The release engineer makes the release decision after checking the current release manual. Release Assistant does not block any further step of the release.</p>
+  <div class="rc-vulnerability-legend" role="group" aria-label="Vulnerability pill legend">
+    <span><span class="pill vulnerability-critical">Red</span> All Critical CVEs</span>
+    <span><span class="pill vulnerability-important-above">Orange</span> Fixable Important CVEs with CVSS above {{importantHoldCVSS}}</span>
+    <span><span class="pill vulnerability-important-below">Yellow</span> Important CVEs with CVSS below {{importantHoldCVSS}}</span>
+  </div>
   {{range $i, $rc := .}}
   <details class="rc-vulnerability-candidate" data-fold-key="rc-vuln:{{.Target}}:{{.SHA}}:{{$i}}:{{.Open}}"{{if .Open}} open{{end}}>
     <summary><strong>{{.Target.Tag}}</strong>
       {{if $i}}<span class="pill">Previous candidate</span>{{end}}
-      {{if .Hold}}<span class="pill unknown">Suggested hold</span>{{end}}
+      {{if .Hold}}<span class="pill unknown">Meets hold criteria</span>{{end}}
       {{if .Pending}}<span class="pill unknown">Scans in progress</span>{{else if .Complete}}<span class="pill yes">Reports available</span>{{end}}
     </summary>
     <div class="rc-vulnerability-body">
@@ -17,13 +22,15 @@
       <p class="muted">{{.Available}} of {{.Scheduled}} Konflux image scans available{{with url .WorkflowURL}} · <a aria-describedby="new-tab-description" href="{{.}}" target="_blank" rel="noreferrer">Scan workflow</a>{{end}}</p>
       {{end}}
       {{if and .Images (not .Pending) (not .ConformaReported)}}<p class="unknown">No Conforma report found for this RC.</p>{{end}}
-      {{range $j, $image := .Images}}
-      <details class="rc-vulnerability-image" data-fold-key="rc-vuln:{{$rc.Target}}:{{$rc.SHA}}:{{.Image}}"{{if and (eq $i 0) (eq $j 0) .Hold}} open{{end}}>
+      {{range .Images}}
+      <details class="rc-vulnerability-image" data-fold-key="rc-vuln:{{$rc.Target}}:{{$rc.SHA}}:{{.Image}}">
         <summary><strong>{{.Image}}</strong>
-          {{if .Hold}}<span class="pill unknown">{{len .Hold}} meeting hold criteria</span>{{end}}
-          {{if eq .Status "Pending"}}<span class="pill">Scan pending</span>{{end}}
-          {{if eq .Status "Unavailable"}}<span class="pill unknown">Scan report unavailable</span>{{end}}
-          {{if eq .Status "Not scheduled"}}<span class="pill">Conforma only</span>{{end}}
+          {{if .Critical}}<span class="pill vulnerability-critical">{{.Critical}} Critical</span>{{end}}
+          {{if .ImportantAbove}}<span class="pill vulnerability-important-above" title="Fixable Important CVEs with CVSS above {{importantHoldCVSS}}">{{.ImportantAbove}} Important<span class="sr-only"> above {{importantHoldCVSS}}, all fixable</span></span>{{end}}
+          {{if .ImportantBelow}}<span class="pill vulnerability-important-below" title="{{.ImportantBelow}} Important below {{importantHoldCVSS}}, {{.ImportantBelowFixable}} fixable">{{.ImportantBelow}} Important<span class="sr-only"> below {{importantHoldCVSS}}, {{.ImportantBelowFixable}} fixable</span></span>{{end}}
+          {{if eq .Status "Pending"}}<small class="muted">Scan pending</small>{{end}}
+          {{if eq .Status "Unavailable"}}<small class="unknown">Scan report unavailable</small>{{end}}
+          {{if eq .Status "Not scheduled"}}<small class="muted">Conforma only</small>{{end}}
         </summary>
         <div class="rc-vulnerability-body">
           <p class="evidence">
@@ -32,30 +39,18 @@
             <span>Developer policy · commit evidence</span>
             {{if not .ConformaReported}}<span>Conforma report unavailable</span>{{else if not .ConformaReport.Digest}}<span>Detailed Conforma report unavailable</span>{{end}}
             {{else}}<span>No Conforma check found</span>{{end}}
+            {{with url .ConformaReport.RunURL}}<a aria-describedby="new-tab-description" href="{{.}}" target="_blank" rel="noreferrer">Conforma report for the verified image digest</a>{{end}}
           </p>
-          {{if .ConformaReport.Digest}}
-          <details data-fold-key="rc-conforma:{{$rc.Target}}:{{.Image}}:{{.ConformaReport.Digest}}">
-            <summary>Conforma CVE findings for the verified image digest ({{len .ConformaReport.Findings}})</summary>
-            {{if url .ConformaReport.RunURL}}<p><a href="{{url .ConformaReport.RunURL}}">Open Konflux PipelineRun</a></p>{{end}}
-            {{if .ConformaReport.Findings}}
-            <div class="component-image-table-scroll" role="region" aria-label="{{.Image}} Conforma findings" tabindex="0">
-              <table aria-label="{{.Image}} Conforma findings">
-                <thead><tr><th scope="col">CVE</th><th scope="col">Architecture</th><th scope="col">Policy finding</th></tr></thead>
-                <tbody>{{range .ConformaReport.Findings}}<tr><td>{{.ID}}</td><td>{{or .Architecture "Image"}}</td><td>{{.Message}}</td></tr>{{end}}</tbody>
-              </table>
-            </div>
-            {{else}}<p>The policy report contains no CVE findings.</p>{{end}}
-          </details>
-          {{end}}
-          {{if or .Hold .Other}}
+          {{if .Rows}}
             <div class="component-image-table-scroll" role="region" aria-label="{{.Image}} scan findings" tabindex="0">
               <table class="rc-vulnerability-table" aria-label="{{.Image}} vulnerabilities">
-                <thead><tr><th scope="col">CVE</th><th scope="col">Severity</th><th scope="col">CVSS</th><th scope="col">Package</th><th scope="col">Fix</th></tr></thead>
-                {{if .Hold}}<tbody><tr><th scope="rowgroup" colspan="5">Findings that meet the internal hold criteria</th></tr>{{range .Hold}}{{template "rc-vulnerability-row" .}}{{end}}</tbody>{{end}}
-                {{if .Other}}<tbody><tr><th scope="rowgroup" colspan="5">Other findings</th></tr>{{range .Other}}{{template "rc-vulnerability-row" .}}{{end}}</tbody>{{end}}
+                <thead><tr><th scope="col">CVE</th><th scope="col">Severity</th><th scope="col">CVSS</th><th scope="col">Package</th><th scope="col">Fix</th><th scope="col">Meets hold criteria</th></tr></thead>
+                <tbody>{{range .Rows}}{{template "rc-vulnerability-row" .}}{{end}}</tbody>
               </table>
             </div>
+          {{else if .Summary}}<p class="muted">No Critical or fixable Important CVEs above {{importantHoldCVSS}} reported.</p>
           {{else if eq .Status "Available"}}<p>No vulnerabilities reported for this image.</p>{{end}}
+          {{if .Summary}}<p><strong>Other findings</strong> · {{.Summary}}</p>{{end}}
         </div>
       </details>
       {{end}}
@@ -72,5 +67,6 @@
   <td>{{or .Severity "Unknown"}}</td><td>{{.CVSSLabel}}</td>
   <td>{{or .Package "—"}}{{if .Installed}}<small class="component-image-note muted">{{.Installed}}</small>{{end}}</td>
   <td>{{if .Fixed}}{{if url .AdvisoryURL}}<a href="{{url .AdvisoryURL}}">{{.Fixed}}</a>{{else}}{{.Fixed}}{{end}}{{else if .FixAvailable}}<span class="muted">Fix available · version unavailable</span>{{else}}<span class="muted">No known fix</span>{{end}}</td>
+  <td>{{.HoldReason}}</td>
 </tr>
 {{end}}

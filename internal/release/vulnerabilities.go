@@ -57,11 +57,14 @@ type (
 	}
 )
 
+// ImportantHoldCVSS is the exclusive score threshold for fixable Important CVEs.
+const ImportantHoldCVSS = 7.0
+
 func holdRules() []holdRule {
-	return []holdRule{{severity: "Critical"}, {severity: "Important", above: new(7.0)}}
+	return []holdRule{{severity: "Critical"}, {severity: "Important", above: new(ImportantHoldCVSS)}}
 }
 
-// HoldCriteria explains the same rules used to evaluate findings.
+// HoldCriteria returns the findings that qualify for an advisory hold.
 func HoldCriteria() string {
 	var criteria []string
 	for _, rule := range holdRules() {
@@ -71,9 +74,11 @@ func HoldCriteria() string {
 		}
 		criteria = append(criteria, criterion)
 	}
-	return "Release Assistant suggests holding the RC when a Konflux image has " +
-		strings.Join(criteria, " or ") + ". The release engineer makes the release decision."
+	return strings.TrimPrefix(strings.Join(criteria, " or "), "a ")
 }
+
+// ImportantHoldCVSSLabel formats the Important CVE threshold for the review.
+func ImportantHoldCVSSLabel() string { return scoreText(ImportantHoldCVSS) }
 
 func scoreText(score float64) string {
 	value := fmt.Sprint(score)
@@ -91,9 +96,12 @@ func (v Vulnerability) CVSSLabel() string {
 	return scoreText(*v.CVSS)
 }
 
+// HasFix reports whether either source identified an available fix.
+func (v Vulnerability) HasFix() bool { return v.Fixed != "" || v.FixAvailable }
+
 // SuggestsHold reports whether the finding meets the advisory hold criteria.
 func (v Vulnerability) SuggestsHold() bool {
-	if v.Fixed == "" && !v.FixAvailable {
+	if !v.HasFix() {
 		return false
 	}
 	return slices.ContainsFunc(holdRules(), func(rule holdRule) bool {

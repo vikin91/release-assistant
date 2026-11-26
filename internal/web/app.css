@@ -550,7 +550,7 @@ thead th { @apply text-xs font-medium text-muted-foreground; }
   padding-block: .5rem;
 }
 .rc-vulnerability-candidate > summary .pill,
-.rc-vulnerability-image > summary .pill {
+.rc-vulnerability-image > summary :is(.pill, small) {
   margin-inline-start: .35rem;
 }
 .rc-vulnerability-body {
@@ -561,6 +561,28 @@ thead th { @apply text-xs font-medium text-muted-foreground; }
   min-width: 30rem;
   margin-block: .4rem;
 }
-.rc-vulnerability-table th[scope="rowgroup"] {
-  background: var(--muted);
+.rc-vulnerability-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem 1rem;
+  margin-block: .5rem;
+  font-size: .85rem;
+}
+.rc-vulnerability-legend .pill {
+  margin-inline-end: .25rem;
+}
+.pill.vulnerability-critical {
+  color: light-dark(#9f2028, #ff9ca3);
+  border-color: light-dark(#df9da2, #874e54);
+  background: light-dark(#fff0f0, #3e252b);
+}
+.pill.vulnerability-important-above {
+  color: light-dark(#964000, #ffb67d);
+  border-color: light-dark(#dbaa82, #885b3a);
+  background: light-dark(#fff2e6, #403024);
+}
+.pill.vulnerability-important-below {
+  color: light-dark(#765700, #fcd96b);
+  border-color: light-dark(#d9bd65, #7c6a36);
+  background: light-dark(#fff8dd, #3b3220);
 }
