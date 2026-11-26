@@ -405,6 +405,30 @@ func TestFetchedTagNamesCanBeChosenWithoutBulkVerification(t *testing.T) {
 	}
 }
 
+func TestSavedTagObservationsAreSelectableWithoutFetchingNames(t *testing.T) {
+	config := validACS5Config()
+	source := config.Components[1]
+	historical := release.Evidence{Known: true, At: time.Now(), Historical: true}
+	current := source.Stream + ".19"
+	alternative := source.Stream + ".18"
+	application := &fakeApplication{snapshot: app.Snapshot{
+		Config: config, Monitoring: true, Generation: 12,
+		PendingTags: map[string]string{source.Name: current},
+		Repositories: []release.Repository{{Source: source, Tags: []release.Tag{
+			{Name: current, SHA: "current", Belongs: release.Yes, Evidence: historical},
+			{Name: alternative, SHA: "alternative", Belongs: release.Yes, Evidence: historical},
+		}}},
+	}}
+	browser := newBrowser(t, application)
+	panel := activityPanel(t, browser.getBody(t), "component-releases")
+	component := between(t, panel, `id="component-tags-`+source.Name+`"`, "</article>")
+	form := formContaining(t, component, `value="select-fetched-tag"`)
+	if !strings.Contains(form, "Verify and switch to "+source.Name+" "+alternative) ||
+		strings.Contains(form, " disabled") || strings.Contains(component, "tag names fetched") {
+		t.Fatal("saved alternative was not actionable before fetching names")
+	}
+}
+
 func activityPanel(t *testing.T, body, tab string) string {
 	t.Helper()
 	start := strings.Index(body, `<section id="panel-`+tab+`"`)

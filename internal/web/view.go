@@ -326,8 +326,8 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 			}
 		}
 		for _, tag := range tags {
-			recent := names.Evidence.Known && slices.Contains(r.RecentTagNames, tag.Name)
-			if names.Evidence.Known && tag.Name != r.CurrentTag && !recent {
+			listed := !names.Evidence.Known || slices.Contains(r.RecentTagNames, tag.Name)
+			if !listed && tag.Name != r.CurrentTag {
 				continue
 			}
 			var authority *dispatch.View
@@ -340,7 +340,7 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 				Proposed: snapshot.Assessment.ProposedTags[repo.Source.Name] == tag.Name, Authority: authority,
 				Component: repo.Source.Name, Repo: repo.Source.Repo, CSRF: csrf, Generation: snapshot.Generation, Tab: "component-releases",
 				Switch:         r.CurrentTag != "" && tag.Name != r.CurrentTag,
-				VerifyOnSelect: snapshot.Monitoring && recent && (!tag.Evidence.Fresh() || tag.Belongs == "" || tag.SHA == "" && tag.Belongs == release.Yes),
+				VerifyOnSelect: snapshot.Monitoring && listed && (!tag.Evidence.Fresh() || tag.Belongs == "" || tag.SHA == "" && tag.Belongs == release.Yes),
 				Busy:           snapshot.ComponentTagActions[repo.Source.Name] != "",
 			}
 			if tag.Name == r.CurrentTag {

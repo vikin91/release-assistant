@@ -123,25 +123,26 @@ func (s *Session) requestComponentTagAction(action Action) error {
 	if s.componentTagActions[action.Component].kind != "" {
 		return fmt.Errorf("a tag read is already queued for this component")
 	}
+	source := s.config.Components[index]
+	target := release.Target{Repo: source.Repo}
 	switch action.Kind {
 	case "fetch-tag-names":
 		if _, available := s.discovery.(ComponentTagNameReader); !available {
 			return fmt.Errorf("tag-name discovery is unavailable")
 		}
-		target := release.Target{Repo: s.config.Components[index].Repo}
 		s.record(target, "", "tag-names-requested", "", "", "user", fmt.Sprintf("Fetching %s tag names.", action.Component))
 	case "verify-recent-tags":
 		if len(s.componentTagCandidates(action.Component)) == 0 {
 			return fmt.Errorf("fetch tag names before verifying recent tags")
 		}
 	case "select-fetched-tag":
-		if !componentStreamTag(s.config.Components[index], action.Tag) {
+		if !componentStreamTag(source, action.Tag) {
 			return fmt.Errorf("tag must be a final version in the configured component stream")
 		}
-		if !slices.Contains(s.componentTagCandidates(action.Component), action.Tag) {
-			return fmt.Errorf("choose a tag from the current list of fetched names")
+		if !slices.Contains(s.componentTagCandidates(source.Name), action.Tag) && !s.hasObservedTagChoice(source, action.Tag) {
+			return fmt.Errorf("choose a tag from the available component tag choices")
 		}
-		delete(s.readErrors, "tag-selection "+release.Target{Repo: s.config.Components[index].Repo}.String())
+		delete(s.readErrors, "tag-selection "+target.String())
 	}
 	s.componentTagActions[action.Component] = componentTagAction{kind: action.Kind, tag: action.Tag, revision: s.workRevision}
 	s.wakePolls()
@@ -151,6 +152,18 @@ func (s *Session) requestComponentTagAction(action Action) error {
 func componentStreamTag(source release.Source, name string) bool {
 	major, minor, _, final := release.Version(name)
 	return final && fmt.Sprintf("%d.%d", major, minor) == source.Stream
+}
+
+// hasObservedTagChoice allows the picker to use repository observations when there is no fetched catalog.
+func (s *Session) hasObservedTagChoice(source release.Source, name string) bool {
+	if s.savedComponentTagNames(s.releaseWork, s.activeProfile, source.Name).Evidence.Known {
+		return false
+	}
+	hasTag := func(repo release.Repository) bool {
+		return repo.Source == source && slices.ContainsFunc(repo.Tags, func(tag release.Tag) bool { return tag.Name == name })
+	}
+	saved := s.dashboards.Profiles[s.activeProfile]
+	return hasTag(s.repos[source.Name]) || (sameDashboardConfig(saved.Config, s.config) && hasTag(saved.Repositories[source.Name]))
 }
 
 func (s *Session) componentTagCandidates(component string) []string {

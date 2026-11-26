@@ -412,3 +412,53 @@ func TestManualTagObservationsRestoreWithoutDiscovery(t *testing.T) {
 		t.Fatalf("restart called discovery: lists=%v and requests=%v", d.lists, f.requests)
 	}
 }
+
+func TestSelectObservedTagAfterRestartWithoutFetchingNames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	config := configuration()
+	source := config.Components[1]
+	_, f := newFixture()
+	repo := f.repos[source.Name]
+	previous := repo.Tags[0]
+	chosen := release.Tag{Name: "3.25.7", SHA: "previous-collector", Belongs: release.Yes, Evidence: observed()}
+	repo.Tags = append(repo.Tags, chosen)
+	f.repos[source.Name] = repo
+	d := &manualTagDiscovery{fixture: f}
+	openSession := func() *Session {
+		t.Helper()
+		state, err := OpenReleaseState(path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(state.file.Profiles) == 0 {
+			if err := state.SetInitialRelease(config, false); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.saveComponentTag(config.Version, source, previous.Name, previous.SHA); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return New(d, f, f, dispatch.New(f, f, f, dispatch.Options{}), nil, Options{Profiles: true, ReleaseState: state})
+	}
+	initial := openSession()
+	initial.observeDashboardRepo(repo, true, "")
+	initial.flushDashboards()
+	restarted := openSession()
+	view := restarted.Snapshot()
+	if view.PendingTags[source.Name] != previous.Name || len(view.ComponentTagNames[source.Name].Names) != 0 {
+		t.Fatal("expected a saved selection and repository observations without a names catalog")
+	}
+	const action = "select-fetched-tag"
+	apply(t, restarted, Action{Kind: action, Component: source.Name, Tag: chosen.Name})
+	if len(f.requests) != 0 || len(d.lists) != 0 {
+		t.Fatal("loading saved choices or queuing a selection performed a read")
+	}
+	restarted.runComponentTagAction(t.Context(), restarted.generation, restarted.workRevision, source, action)
+	if len(d.lists) != 0 || len(f.requests) != 1 || f.requests[0].Scope != ReadTags ||
+		!slices.Equal(f.requests[0].TagCandidates, []string{chosen.Name}) {
+		t.Fatalf("selection issued unexpected reads: names=%v discovery=%+v", d.lists, f.requests)
+	}
+	if got := restarted.Snapshot().Choices.Tags[source.Name]; got != chosen.Name {
+		t.Fatalf("selected tag = %q, want %q", got, chosen.Name)
+	}
+}
