@@ -48,8 +48,11 @@ controls or write-capable credentials confers no permission.
    Keep job eligibility in `konflux-retest`. Test authorization with fake
    writers and assert that denied requests never reach the writer.
 7. Route every Konflux build retry through the public `konflux-retest` interface.
-   Post one comment per eligible job. Use `/konflux-retest <job>` on a PR
-   or `/retest <job> tag:<tag>` on the tagged commit. A failed Actions
+   Include one command per eligible job. A PR comment may contain multiple
+   `/konflux-retest <job>` commands, one per line, when the pipeline triggers
+   match exactly the selected jobs. Do not repost the same retry requests in
+   consecutive comments for the same target, revision, and runs. On a tagged
+   commit, post one `/retest <job> tag:<tag>` command per comment. A failed Actions
    job in `Test Konflux builds`, including `wait-for-images`, does not establish
    build eligibility. Never offer or send an Actions rerun for that workflow,
    even when the Konflux planner offers no comment. This applies to the
