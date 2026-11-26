@@ -1164,30 +1164,54 @@ func TestPartialTagInventoryShowsVerifiedChoicesImmediately(t *testing.T) {
 	}
 }
 
-func TestSidebarReadBudget(t *testing.T) {
+func TestHeaderGitHubReadBudget(t *testing.T) {
 	now := time.Now()
 	nextSlot := now.Add(time.Minute)
 	reset := now.Add(50*time.Minute + 30*time.Second)
-	application := &fakeApplication{snapshot: app.Snapshot{GitHubReadBudget: githubread.Budget{
-		Limit: 3000, NextSlot: nextSlot,
-		GitHub: githubread.Quota{Remaining: 1812, Limit: 5000, ObservedAt: now, ResetAt: reset},
-	}}}
-	body := newBrowser(t, application).getBody(t)
-	_, after, found := strings.Cut(body, "<aside ")
-	sidebar, _, closed := strings.Cut(after, "</aside>")
-	if !found || !closed {
-		t.Fatal("missing sidebar")
-	}
-	for _, want := range []string{
-		"0 of 3000 reads left", "Next slot at " + formatTime(nextSlot),
-		"1812 of 5000 requests left", "Resets in 51 minutes",
+	for name, tc := range map[string]struct {
+		remaining      int
+		next, paused   time.Time
+		limitReached   bool
+		quotaExhausted bool
+		want           string
+	}{
+		"healthy":             {remaining: 2520, want: "2520 reads left"},
+		"assistant allowance": {next: nextSlot, want: "Read limit reached"},
+		"github paused":       {remaining: 2520, paused: nextSlot, want: "Reads paused"},
+		"github quota":        {remaining: 2520, quotaExhausted: true, want: "API quota exhausted"},
+		"graph limit":         {remaining: 2520, limitReached: true, want: "Commit graph limit reached"},
 	} {
-		if !strings.Contains(sidebar, want) {
-			t.Errorf("sidebar missing %q", want)
-		}
-	}
-	if strings.Contains(sidebar, "Observed at") || strings.Contains(sidebar, "Resets at") {
-		t.Error("sidebar contains an absolute GitHub quota timestamp")
+		t.Run(name, func(t *testing.T) {
+			quota := 1812
+			if tc.quotaExhausted {
+				quota = 0
+			}
+			application := &fakeApplication{snapshot: app.Snapshot{
+				GitHubReadBudget: githubread.Budget{
+					Remaining: tc.remaining, Limit: 3000, NextSlot: tc.next, PausedUntil: tc.paused, PauseReason: "GitHub secondary rate limit",
+					GitHub: githubread.Quota{Remaining: quota, Limit: 5000, ObservedAt: now, ResetAt: reset},
+				},
+				Repositories: []release.Repository{{Source: release.Source{Name: "collector", Repo: "acme/collector"}, CommitGraphLimitReached: tc.limitReached}},
+			}}
+			menu := between(t, newBrowser(t, application).getBody(t), `data-fold-key="github-budget"`, "</details>")
+			for _, want := range []string{"GitHub · " + tc.want, fmt.Sprintf("%d of 5000 requests left", quota), "Resets in 51 minutes"} {
+				if !strings.Contains(menu, want) {
+					t.Errorf("GitHub menu missing %q", want)
+				}
+			}
+			if tc.limitReached && (!strings.Contains(menu, "GitHub commit graph acquisition limit reached") || !strings.Contains(menu, "acme/collector")) {
+				t.Error("GitHub menu omitted the name and affected repository")
+			}
+			if !tc.next.IsZero() && !strings.Contains(menu, "Next slot at "+formatTime(nextSlot)) {
+				t.Error("GitHub menu omitted next slot")
+			}
+			if !tc.paused.IsZero() && !strings.Contains(menu, "GitHub secondary rate limit") {
+				t.Error("GitHub menu omitted pause reason")
+			}
+			if strings.Contains(menu, `class="unknown"`) != (name != "healthy") {
+				t.Error("GitHub summary warning style does not match status")
+			}
+		})
 	}
 	if got := quotaReset(time.Now().Add(30 * time.Second)); got != "Resets in 1 minute" {
 		t.Errorf("final minute = %q", got)

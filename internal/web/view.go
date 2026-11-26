@@ -30,6 +30,7 @@ type (
 		Snapshot                                   app.Snapshot
 		Repos                                      []repoModel
 		TagRepos                                   []repoModel
+		GitHubGraphLimits                          []string
 		TagCounts                                  tagSelectionCounts
 		Plans                                      []planModel
 		ManualRetries                              []release.ManualRetryReport
@@ -267,6 +268,9 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 		model.PinningCanGrant = snapshot.WritesEnabled && p.Evidence.Fresh() && p.SHA != "" && p.State == "open" && !p.Merged && !p.OptOut && p.Base == snapshot.Config.Branch && model.PinningPR.Choice != release.Ignored
 	}
 	for _, repo := range displayRepositories(snapshot) {
+		if repo.CommitGraphLimitReached {
+			model.GitHubGraphLimits = append(model.GitHubGraphLimits, repo.Source.Repo)
+		}
 		r := repoModel{Repository: repo, CurrentTag: snapshot.Choices.Tags[repo.Source.Name]}
 		savedTag := snapshot.PendingTags[repo.Source.Name]
 		if savedTag != "" {

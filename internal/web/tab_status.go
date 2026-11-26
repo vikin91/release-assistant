@@ -214,7 +214,7 @@ func pullRequestStatus(pr release.PR, branch string) tabStatus {
 }
 
 func (p pageModel) componentReleaseStatus(prsComplete bool) tabStatus {
-	status := tabStatus{State: tabComplete, Reason: "Selected tags cover the included changes and required images are available."}
+	status := tabStatus{State: tabComplete, Reason: "Selected component tags are verified and required images are available."}
 	for _, repo := range p.TagRepos {
 		item := p.componentTagStatus(repo, prsComplete)
 		status.add(item.State, item.Reason)
@@ -239,6 +239,9 @@ func (p pageModel) componentTagStatus(repo repoModel, prsComplete bool) tabStatu
 	}
 	status := tabStatus{State: tabComplete}
 	switch {
+	case repo.Repository.CommitGraphLimitReached && repo.SelectedTag != nil &&
+		repo.SelectedTag.Tag.Evidence.Fresh() && repo.SelectedTag.Tag.Belongs == release.Yes:
+		// A coverage limit says nothing about the selected tag's identity or build.
 	case repo.Coverage.Status == release.No && repo.Coverage.TagIssue != release.TagPRUnmerged:
 		status.add(tabNeedsAttention, repo.Coverage.Reason)
 	case repo.Coverage.Status != release.Yes:

@@ -195,6 +195,19 @@ func TestWorkflowComponentReleaseStatus(t *testing.T) {
 			},
 			want: tabNeedsAttention, wantText: "does not contain included PR merge",
 		},
+		"should keep the selected tag complete when only the commit graph is limited": {
+			update: func(s *app.Snapshot) {
+				repo := &s.Repositories[0]
+				pr := release.PR{
+					Target: release.Target{Repo: repo.Source.Repo, PR: 1}, Base: repo.Source.Branch,
+					State: "merged", Merged: true, MergeSHA: "unknown-merge", Evidence: repo.Evidence,
+				}
+				repo.PRs = []release.PR{pr}
+				repo.CommitGraphLimitReached = true
+				s.Choices.PRs[pr.Target] = release.Included
+			},
+			want: tabComplete,
+		},
 		"should wait for a running build on a selected tag": {
 			update: func(s *app.Snapshot) { addWorkflowBuild(s, "in_progress", "") },
 			want:   tabInProgress, wantText: "Waiting for builds",

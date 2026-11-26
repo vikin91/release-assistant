@@ -2,7 +2,6 @@ package github
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,13 +9,6 @@ import (
 
 	"release-assistant/internal/release"
 )
-
-func TestDiscoveryPreservesIncompleteGraphReason(t *testing.T) {
-	result, err := finishDiscovery(release.Repository{}, []error{errors.New("GitHub commit graph acquisition limit reached")}, &discoveryCycle{})
-	if err == nil || !strings.Contains(result.Evidence.Error, "GitHub commit graph acquisition limit reached") || result.Evidence.Fresh() {
-		t.Fatalf("incomplete discovery error=%v evidence=%+v", err, result.Evidence)
-	}
-}
 
 func TestGraphAncestors(t *testing.T) {
 	for name, tc := range map[string]struct {
@@ -118,7 +110,7 @@ func TestGraphLoadPreservesFailuresAndLimits(t *testing.T) {
 		}))
 		graph := newCommitGraph()
 		err := graph.load(t.Context(), New(srv.URL, "", srv.Client()), "acme/fact", []string{"tag"})
-		if err == nil || !strings.Contains(err.Error(), "limit reached") || reads != maxPages {
+		if err != nil || !graph.limitReached || reads != maxPages {
 			t.Fatalf("reads=%d error=%v", reads, err)
 		}
 		reachable, complete := graph.ancestors("tag")
@@ -167,5 +159,31 @@ func TestDiscoverCoveragePreservesPartialEvidence(t *testing.T) {
 				t.Fatalf("lost safe failure evidence: tag=%+v error=%v", tag, err)
 			}
 		})
+	}
+}
+
+func TestDiscoverReportsGraphLimitWithoutInvalidatingTag(t *testing.T) {
+	client, request, _ := discoveryFixture(t, 1, 2, 0)
+	handler := client.http.Transport.(fakeTransport).handler
+	reads := 0
+	client.http.Transport = fakeTransport{handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/acme/fact/commits" {
+			handler.ServeHTTP(w, r)
+			return
+		}
+		reads++
+		parent := fmt.Sprintf("parent-%d", reads)
+		if reads == 1 {
+			parent = "merge-1001"
+		}
+		_ = json.NewEncoder(w).Encode([]map[string]any{{"sha": r.URL.Query().Get("sha"), "parents": []map[string]string{{"sha": parent}}}})
+	})}
+	repo, err := client.Discover(t.Context(), request)
+	if err != nil || !repo.CommitGraphLimitReached || !repo.Evidence.Fresh() || len(repo.Tags) != 1 {
+		t.Fatalf("discovery limit=%t evidence=%+v tags=%v error=%v", repo.CommitGraphLimitReached, repo.Evidence, repo.Tags, err)
+	}
+	tag := repo.Tags[0]
+	if !tag.Evidence.Fresh() || tag.Belongs != release.Yes || tag.Contains["merge-1001"] != release.Yes || tag.Contains["merge-1002"] != "" {
+		t.Fatalf("tag identity or coverage is incorrect: %+v", tag)
 	}
 }

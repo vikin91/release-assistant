@@ -10,11 +10,12 @@ import (
 
 type (
 	commitGraph struct {
-		parents   map[string][]string
-		failed    map[string]error
-		requests  int
-		cache     *CommitWindowCache
-		cacheHits int
+		parents      map[string][]string
+		failed       map[string]error
+		requests     int
+		cache        *CommitWindowCache
+		cacheHits    int
+		limitReached bool
 	}
 	graphCommit struct {
 		SHA     string `json:"sha"`
@@ -50,7 +51,7 @@ func (g *commitGraph) load(ctx context.Context, c *Client, repo string, roots []
 			continue
 		}
 		if g.requests == maxPages {
-			issues = append(issues, fmt.Errorf("GitHub commit graph acquisition limit reached"))
+			g.limitReached = true
 			break
 		}
 		g.requests++

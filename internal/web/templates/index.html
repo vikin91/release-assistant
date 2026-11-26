@@ -33,7 +33,7 @@
     {{end}}
   {{end}}
   {{template "konflux-status" .}}
-  {{if .Profiles}}{{template "header-github-budget" .}}{{end}}
+  {{template "header-github-budget" .}}
   {{if and (not $home) (not .ViewingInactive) (or .Configured (not .Profiles))}}
   <details data-fold-key="write-mode" name="header-menu" class="header-menu">
     <summary>Write mode · {{if not .Snapshot.WritesEnabled}}Read-only{{else if .Snapshot.Interactive}}Interactive{{if .Snapshot.RequirePRLabel}} · Only labeled{{end}}{{else if .Snapshot.RequirePRLabel}}Only labeled{{else}}Full auto{{end}}</summary>
@@ -85,7 +85,6 @@
   <p id="dashboard-refresh-status" class="muted" role="status" data-live-preserve>Waiting for release updates.</p>
   {{if and .Configured .Snapshot.Loading}}<p id="release-loading" class="muted" role="status">Loading release data…</p>{{end}}
   {{end}}
-  {{if not .Profiles}}{{template "github-budget" .}}{{end}}
   <section class="sidebar-summary phase-legend" aria-labelledby="phase-legend-title">
     <h2 id="phase-legend-title">Phase icons</h2>
     <dl>{{range .PhaseLegend}}

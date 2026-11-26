@@ -124,7 +124,10 @@ type (
 		PRListEvidence Evidence
 		Tags           []Tag
 		// TagsPending prevents an incomplete inventory from proving that tags are absent.
-		TagsPending  bool
+		TagsPending bool
+		// CommitGraphLimitReached reports that merge coverage hit the local graph acquisition limit.
+		CommitGraphLimitReached bool `json:"-"`
+
 		PinDiscovery PinDiscovery
 		Pins         Pins
 		// PreviousPins records component versions at the preceding ACS patch tag.

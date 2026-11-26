@@ -291,9 +291,11 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 		if result.Head != "" {
 			graph.cache = c.windowCache
 		}
-		if err := graph.load(ctx, c, source.Repo, shas); err != nil {
-			issues = append(issues, err)
+		graphErr := graph.load(ctx, c, source.Repo, shas)
+		if graphErr != nil {
+			issues = append(issues, graphErr)
 		}
+		result.CommitGraphLimitReached = graph.limitReached
 		if graph.cacheHits > 0 {
 			graph.cache.recordHits(ctx, source.Repo, graph.cacheHits)
 		}
@@ -302,7 +304,7 @@ func (c *Client) discover(ctx context.Context, req app.DiscoveryRequest, limit i
 			reachable, complete := graph.ancestors(tag.SHA)
 			for _, p := range merged {
 				tag.Contains[p.MergeSHA] = graphContains(reachable, complete, p.MergeSHA)
-				if tag.Contains[p.MergeSHA] == "" {
+				if tag.Contains[p.MergeSHA] == "" && graphErr != nil {
 					tag.Evidence.Known = false
 					tag.Evidence.Error = "merge coverage unavailable"
 				}
