@@ -73,7 +73,9 @@ func New(application Application) (http.Handler, error) {
 				Tab, Label string
 			}{page, tab, label}
 		},
-		"truth": truthLabel, "when": formatTime, "quotaReset": quotaReset, "url": safeURL,
+		"tagChoiceMin": func() int { return app.MinTagChoiceLimit },
+		"tagChoiceMax": func() int { return app.MaxTagChoiceLimit },
+		"truth":        truthLabel, "when": formatTime, "quotaReset": quotaReset, "url": safeURL,
 		"checkAge": formatCheckAge,
 		"imageAge": formatImageAge,
 		"readWait": formatReadWait,
@@ -304,6 +306,8 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+	case "tag-choice-settings":
+		destination = "/?tab=settings&saved=tag-choice-settings#tag-choice-settings"
 	case "application-settings":
 		if section := settingsSection(r.PostForm.Get("settings_section")); section != "" {
 			destination = "/?tab=settings&saved=" + section + "#" + section
@@ -564,6 +568,15 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 		a.Enabled = formHasValue(form, "enabled", "true")
 		if a.SHA == "" {
 			return a, fmt.Errorf("grant requires the displayed SHA")
+		}
+	case "tag-choice-settings":
+		values := form["tag_choice_limit"]
+		if len(values) != 1 {
+			return a, fmt.Errorf("submit one maximum tag choice value")
+		}
+		a.TagChoiceLimit, err = strconv.Atoi(values[0])
+		if err != nil {
+			return a, fmt.Errorf("maximum tag choices must be a whole number")
 		}
 	case "application-settings":
 		a.RefreshIntervals, err = submittedIntervals(r.PostForm)

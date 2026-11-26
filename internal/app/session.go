@@ -47,6 +47,7 @@ type (
 	// Snapshot is a copied display state; service credentials are never included.
 	Snapshot struct {
 		RefreshIntervals             RefreshIntervals
+		TagChoiceLimit               int
 		Config                       release.Config
 		Choices                      release.Choices
 		Repositories                 []release.Repository
@@ -101,6 +102,7 @@ type (
 	// Action is a typed browser or CLI session decision.
 	Action struct {
 		RefreshIntervals        RefreshIntervals
+		TagChoiceLimit          int
 		Kind                    string
 		Config                  release.Config
 		Target                  release.Target
@@ -137,6 +139,7 @@ type (
 		changed       chan struct{}
 		monitorCancel context.CancelFunc
 
+		tagChoiceLimit int
 		dashboards     dashboardFile
 		dashboardDirty bool
 	}
@@ -194,6 +197,7 @@ func New(d Discoverer, p RetryPlanner, i Inspector, dispatcher *dispatch.Dispatc
 		o.Timeout = 45 * time.Second
 	}
 	s := &Session{discovery: d, planner: p, images: i, dispatcher: dispatcher, log: log, options: o, changed: make(chan struct{}, 1), pollChanged: make(chan struct{})}
+	s.tagChoiceLimit = o.ReleaseState.tagChoiceLimit()
 	if o.KonfluxProbe != nil {
 		s.konfluxHealth = &konflux.Health{}
 	}
@@ -312,7 +316,8 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		s.mu.Unlock()
 		return fmt.Errorf("page belongs to an earlier configuration; reload")
 	}
-	shared := a.Kind == "clear-cache" || (a.Kind == "application-settings" && a.Interactive == nil && a.RequirePRLabel == nil)
+	shared := a.Kind == "clear-cache" || a.Kind == "tag-choice-settings" ||
+		(a.Kind == "application-settings" && a.Interactive == nil && a.RequirePRLabel == nil)
 	if !s.targetsActiveProfile(a.ProfileID) && !shared {
 		s.mu.Unlock()
 		return fmt.Errorf("activate this release to continue")
@@ -438,6 +443,15 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 			return fmt.Errorf("unknown target")
 		}
 		err = s.dispatcher.Grant(a.Target, a.SHA, a.Enabled)
+	case "tag-choice-settings":
+		if !validTagChoiceLimit(a.TagChoiceLimit) {
+			return fmt.Errorf("tag choice limit must be between %d and %d", MinTagChoiceLimit, MaxTagChoiceLimit)
+		}
+		if err := s.options.ReleaseState.saveTagChoiceLimit(a.TagChoiceLimit); err != nil {
+			return err
+		}
+		recordSettingChange(s, "Maximum tag choices", s.tagChoiceLimit, &a.TagChoiceLimit)
+		s.tagChoiceLimit = a.TagChoiceLimit
 	case "application-settings":
 		if err := a.RefreshIntervals.Validate(); err != nil {
 			return err
@@ -784,6 +798,7 @@ func (s *Session) profileSnapshot(work *releaseWork, active bool, profileID stri
 	return x
 }
 func (s *Session) fillSharedSnapshot(x *Snapshot) {
+	x.TagChoiceLimit = s.tagChoiceLimit
 	if s.options.GitHubReads != nil {
 		x.StartupReadLimit, x.OngoingReadLimit = s.options.GitHubReads.ReadLimits()
 		x.GitHubReadBudget = s.options.GitHubReads.Budget()

@@ -29,13 +29,13 @@
             </td></tr>
             </tbody>
           </table>
-          {{if or .Tags .OtherTags}}
-          <details class="tag-switch" data-transient data-fold-key="tag-switch:{{$source.Name}}:{{$source.Repo}}@{{.CurrentTag}}">
+          {{if .TagChoices}}
+          <details class="tag-evidence" data-transient data-fold-key="tag-switch:{{$source.Name}}:{{$source.Repo}}@{{.CurrentTag}}">
             <summary>Change tag</summary>
             {{template "component-tag-options" .}}
           </details>
           {{end}}
-          {{else if or .Tags .OtherTags}}{{template "component-tag-options" .}}
+          {{else if .TagChoices}}{{template "component-tag-options" .}}
           {{else}}<p class="muted">No tags observed yet.</p>{{end}}
           {{if .NewerTag}}<p class="tag-prompt">Newer tag available <code>{{.NewerTag}}</code>.</p>{{end}}
           {{if .CurrentTag}}
@@ -122,10 +122,10 @@
   <table class="tag-options" aria-label="{{title .Repository.Source.Name}} tag choices">
     <thead><tr><th scope="col">Tag</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
     <tbody>
-      {{range .Tags}}{{template "component-tag-option" .}}{{end}}
-      {{range .OtherTags}}{{template "component-tag-option" .}}{{end}}
+      {{range .TagChoices}}{{template "component-tag-option" .}}{{end}}
     </tbody>
   </table>
+  {{if .HiddenTagChoices}}<p class="muted">{{.HiddenTagChoices}} older tag{{if ne .HiddenTagChoices 1}}s{{end}} hidden. Increase the tag choice limit in Settings to show more.</p>{{end}}
 {{end}}
 
 {{define "image-counts"}}

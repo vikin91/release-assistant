@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cmp"
 	"fmt"
 	"net/url"
 	"slices"
@@ -60,16 +61,16 @@ type (
 		ACS4                                       bool
 	}
 	repoModel struct {
-		Repository  release.Repository
-		PRs         []prModel
-		MergedPRs   []release.PR
-		Tags        []tagModel
-		OtherTags   []tagModel
-		CurrentTag  string
-		SelectedTag *tagModel
-		Rebuild     *tagRebuildModel
-		NewerTag    string
-		Coverage    release.Condition
+		Repository       release.Repository
+		PRs              []prModel
+		MergedPRs        []release.PR
+		TagChoices       []tagModel
+		HiddenTagChoices int
+		CurrentTag       string
+		SelectedTag      *tagModel
+		Rebuild          *tagRebuildModel
+		NewerTag         string
+		Coverage         release.Condition
 	}
 	prModel struct {
 		PR          release.PR
@@ -138,6 +139,7 @@ func (p pageModel) AutomaticRetryPermissions() bool {
 }
 
 func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
+	snapshot.TagChoiceLimit = cmp.Or(snapshot.TagChoiceLimit, app.DefaultTagChoiceLimit)
 	model := pageModel{
 		CSRF: csrf, Error: errText, Snapshot: snapshot, Tab: "component-prs", SettingsGeneration: snapshot.Generation,
 		ConfiguredSources: make(map[string]release.Source),
@@ -349,23 +351,14 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 			if t.Proposed && newerTag(t.Tag.Name, r.CurrentTag) {
 				r.NewerTag = t.Tag.Name
 			}
-			switch {
-			case t.Proposed:
-				r.Tags = slices.Insert(r.Tags, 0, t)
-			default:
-				r.OtherTags = append(r.OtherTags, t)
-			}
+			r.TagChoices = append(r.TagChoices, t)
 		}
-		if r.CurrentTag == "" && len(r.Tags) == 0 && !repo.Evidence.Fresh() {
-			var remaining []tagModel
-			for _, tag := range r.OtherTags {
-				if len(r.Tags) == 0 && tag.Tag.Belongs == release.Yes && tag.Tag.Evidence.Fresh() {
-					r.Tags = append(r.Tags, tag)
-				} else {
-					remaining = append(remaining, tag)
-				}
-			}
-			r.OtherTags = remaining
+		slices.SortFunc(r.TagChoices, func(a, b tagModel) int {
+			return compareTagChoices(b.Tag.Name, a.Tag.Name)
+		})
+		if limit := snapshot.TagChoiceLimit; len(r.TagChoices) > limit {
+			r.HiddenTagChoices = len(r.TagChoices) - limit
+			r.TagChoices = r.TagChoices[:limit]
 		}
 		model.Repos = append(model.Repos, r)
 		if repo.Source.Name != "acs" {
@@ -592,6 +585,18 @@ func newerTag(candidate, current string) bool {
 	cm, cn, cp, candidateOK := release.Version(strings.TrimPrefix(candidate, "v"))
 	m, n, p, currentOK := release.Version(strings.TrimPrefix(current, "v"))
 	return candidateOK && currentOK && slices.Compare([]int{cm, cn, cp}, []int{m, n, p}) > 0
+}
+
+func compareTagChoices(a, b string) int {
+	am, an, ap, aOK := release.Version(a)
+	bm, bn, bp, bOK := release.Version(b)
+	if aOK != bOK {
+		if aOK {
+			return 1
+		}
+		return -1
+	}
+	return cmp.Or(cmp.Compare(am, bm), cmp.Compare(an, bn), cmp.Compare(ap, bp), strings.Compare(a, b))
 }
 
 // componentBranch preserves configured CLI overrides for an unchanged component scope.

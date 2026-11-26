@@ -46,6 +46,7 @@
   {{if and .Configured (not .ViewingInactive)}}<a href="#retry-settings">GitHub writes</a>{{end}}
   {{if .Snapshot.StartupReadLimit}}<a href="#github-read-settings">Concurrent GitHub reads</a>{{end}}
   {{if .Snapshot.CacheAvailable}}<a href="#cache-settings">Discovery cache</a>{{end}}
+  <a href="#tag-choice-settings">Component tag choices</a>
   {{if .Snapshot.RefreshIntervals}}<a href="#refresh-settings">Refresh intervals</a>{{end}}
 </nav>
 {{end}}
@@ -142,6 +143,27 @@
   </form>
 </section>
 {{end}}
+
+<section class="panel settings-panel" id="tag-choice-settings" aria-labelledby="tag-choice-settings-heading">
+  <form method="post" action="{{profileAction .ProfileID}}">
+    {{template "settings-fields" .}}
+    <table class="settings-table" aria-labelledby="tag-choice-settings-heading">
+      <colgroup><col><col class="settings-control-column"></colgroup>
+      <thead><tr><th colspan="2"><h3 id="tag-choice-settings-heading">Component tag choices</h3>
+        <p>Limit how many recent tags appear when selecting or changing a tag for any component.</p>
+        <p role="status" id="tag-choice-settings-status" data-live-preserve{{if ne .SettingsSaved "tag-choice-settings"}} hidden{{end}}>{{if eq .SettingsSaved "tag-choice-settings"}}Settings saved.{{end}}</p>
+      </th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><label for="tag-choice-limit">Maximum tag choices</label>
+          <p id="tag-choice-help">Choose {{tagChoiceMin}} to {{tagChoiceMax}}. The selected tag stays visible separately.</p></th>
+          <td><div class="settings-value"><input id="tag-choice-limit" type="number" name="tag_choice_limit" min="{{tagChoiceMin}}" max="{{tagChoiceMax}}" step="1" required value="{{.Snapshot.TagChoiceLimit}}" aria-describedby="tag-choice-help tag-choice-unit"><span id="tag-choice-unit">tags</span></div></td></tr>
+      </tbody>
+    </table>
+    <div class="settings-footer control-row">
+      <button type="submit" name="kind" value="tag-choice-settings">Save tag choice limit</button>
+    </div>
+  </form>
+</section>
 
 {{if .Snapshot.RefreshIntervals}}
 <section class="panel settings-panel" id="refresh-settings" aria-labelledby="refresh-settings-heading">

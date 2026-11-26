@@ -176,7 +176,6 @@ legend { padding: 0 .35rem; font-weight: var(--emphasis-weight); }
 .component-tag-row h3 { margin: .3rem 0; font-size: 1rem; }
 .component-tag-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 0 .75rem; }
 .tag-prompt { margin: .25rem 0; font-weight: var(--emphasis-weight); }
-.tag-switch > summary { width: fit-content; color: var(--link); text-decoration: underline; cursor: pointer; }
 .tag-options { margin: .3rem 0; font-size: .86rem; }
 .tag-options :is(th, td) { padding: .2rem .4rem; vertical-align: top; }
 .tag-options form { margin: 0; }

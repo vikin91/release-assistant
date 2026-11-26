@@ -24,6 +24,7 @@ type (
 	}
 
 	releaseStateFile struct {
+		TagChoiceLimit    int                                     `json:"tag_choice_limit,omitempty"`
 		Version           int                                     `json:"version"`
 		Profiles          []ReleaseProfile                        `json:"profiles"`
 		ActiveProfile     string                                  `json:"active_profile,omitempty"`
@@ -96,6 +97,35 @@ func OpenReleaseState(path string, log *Log) (*ReleaseState, error) {
 	}
 	state.validateProfiles()
 	return state, nil
+}
+
+const (
+	// DefaultTagChoiceLimit is the number of recent alternatives shown by default.
+	DefaultTagChoiceLimit = 5
+	// MinTagChoiceLimit keeps at least one alternative visible.
+	MinTagChoiceLimit = 1
+	// MaxTagChoiceLimit bounds the number of rows rendered per component.
+	MaxTagChoiceLimit = 100
+)
+
+func validTagChoiceLimit(limit int) bool {
+	return limit >= MinTagChoiceLimit && limit <= MaxTagChoiceLimit
+}
+
+func (s *ReleaseState) tagChoiceLimit() int {
+	if s != nil && validTagChoiceLimit(s.file.TagChoiceLimit) {
+		return s.file.TagChoiceLimit
+	}
+	return DefaultTagChoiceLimit
+}
+
+func (s *ReleaseState) saveTagChoiceLimit(limit int) error {
+	if s == nil || s.file.TagChoiceLimit == limit {
+		return nil
+	}
+	next := s.file
+	next.TagChoiceLimit = limit
+	return s.commit(next)
 }
 
 func statePRTarget(key string) release.Target {
