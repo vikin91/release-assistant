@@ -12,7 +12,7 @@ func validTab(tab string) string {
 		return tab
 	}
 	switch tab {
-	case "component-releases", "create-pinning-pr", "acs-prs", "acs-rcs", "activity", "retest-queue", "settings", "app-settings":
+	case "component-releases", "create-pinning-pr", "acs-prs", "acs-rcs", "rc-vulnerabilities", "activity", "retest-queue", "settings", "app-settings":
 		return tab
 	default:
 		return "component-prs"
@@ -45,11 +45,18 @@ func (p pageModel) ComponentPRTabs() []string {
 // ReleasePhaseTabs orders the workflow panels to match the sidebar.
 func (p pageModel) ReleasePhaseTabs() []string {
 	tabs := append([]string{"component-prs"}, p.ComponentPRTabs()...)
-	return append(tabs, "component-releases", "create-pinning-pr", "acs-prs", "acs-rcs")
+	tabs = append(tabs, "component-releases", "create-pinning-pr", "acs-prs", "acs-rcs")
+	if p.HasVulnerabilityReview() {
+		tabs = append(tabs, "rc-vulnerabilities")
+	}
+	return tabs
 }
 
 func (p pageModel) availableTab(tab string) string {
 	tab = validTab(tab)
+	if tab == "rc-vulnerabilities" && !p.HasVulnerabilityReview() {
+		return "acs-rcs"
+	}
 	if prComponent(tab) != "" && !slices.Contains(p.ComponentPRTabs(), tab) {
 		return "component-prs"
 	}
@@ -74,6 +81,8 @@ func tabTitle(tab string) string {
 		return "ACS PRs"
 	case "acs-rcs":
 		return "ACS RCs"
+	case "rc-vulnerabilities":
+		return "Vulnerability review"
 	case "collector-prs":
 		return "Collector PRs"
 	case "fact-prs":

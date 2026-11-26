@@ -74,7 +74,11 @@
     <span role="tab" aria-disabled="true" aria-selected="false" class="phase-disabled" title="Save the release configuration to unlock this phase.">{{template "nav-icon" $tab}}<span>{{tabTitle $tab}}</span></span>
     {{else}}
     {{template "workflow-tab-link" (tabLink $ $tab $label)}}
-    {{if and (eq $tab "acs-rcs") $.Snapshot.RCVulnerabilities}}<div class="component-pr-tabs"><a class="phase-link" href="{{profilePage $.ProfileID $tab}}#rc-vulnerabilities" data-open-section>Vulnerability review</a></div>{{end}}
+    {{if and (eq $tab "acs-rcs") $.HasVulnerabilityReview}}
+    <div class="component-pr-tabs" role="group" aria-label="ACS RC views">
+      {{template "workflow-tab-link" (tabLink $ "rc-vulnerabilities" (tabTitle "rc-vulnerabilities"))}}
+    </div>
+    {{end}}
     {{if eq $tab "component-prs"}}{{with $.ComponentPRTabs}}
     <div class="component-pr-tabs" role="group" aria-label="Component PR views">
       {{range .}}{{template "workflow-tab-link" (tabLink $ . (tabTitle .))}}{{end}}
@@ -107,7 +111,7 @@
   <section id="panel-{{$tab}}" class="workflow-panel" role="tabpanel" aria-labelledby="tab-{{$tab}}" data-workflow-panel="{{$tab}}" tabindex="0"{{if ne $.Tab $tab}} hidden{{end}}>
     {{if $.Configured}}
     {{if $.ViewingInactive}}<fieldset class="paused-controls" disabled>{{end}}
-    {{template "workflow-tab" (tabPage $ $tab)}}
+    {{if eq $tab "rc-vulnerabilities"}}{{template "rc-vulnerabilities" $}}{{else}}{{template "workflow-tab" (tabPage $ $tab)}}{{end}}
     {{if $.ViewingInactive}}</fieldset>{{end}}
     {{else}}
     <h2 class="page-title">{{tabTitle $tab}}</h2>

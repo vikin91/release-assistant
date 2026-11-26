@@ -51,7 +51,7 @@
             <div class="component-image-table-scroll" role="region" aria-label="{{.Image}} scan findings" tabindex="0">
               <table class="rc-vulnerability-table" aria-label="{{.Image}} vulnerabilities">
                 <thead><tr><th scope="col">CVE</th><th scope="col">Severity</th><th scope="col">CVSS</th><th scope="col">Package</th><th scope="col">Fix</th></tr></thead>
-                {{if .Hold}}<tbody><tr><th scope="rowgroup" colspan="5">Findings behind the suggested hold</th></tr>{{range .Hold}}{{template "rc-vulnerability-row" .}}{{end}}</tbody>{{end}}
+                {{if .Hold}}<tbody><tr><th scope="rowgroup" colspan="5">Findings that meet the internal hold criteria</th></tr>{{range .Hold}}{{template "rc-vulnerability-row" .}}{{end}}</tbody>{{end}}
                 {{if .Other}}<tbody><tr><th scope="rowgroup" colspan="5">Other findings</th></tr>{{range .Other}}{{template "rc-vulnerability-row" .}}{{end}}</tbody>{{end}}
               </table>
             </div>

@@ -36,7 +36,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const activateTab = (tab, historyMode = "") => {
     const links = tabLinks();
     const current = links.find((link) => link.dataset.workflowTab === tab);
-    if (!current) return;
+    if (!current) {
+      if (tab === "rc-vulnerabilities") activateTab("acs-rcs", "replaceState");
+      return;
+    }
     const openingComponent = current.dataset.componentPrTab !== undefined && activeTab !== tab;
     const openingLog = tab === "activity" && activeTab !== tab;
     const openingQueue = tab === "retest-queue" && activeTab !== tab;

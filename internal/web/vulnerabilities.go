@@ -20,6 +20,11 @@ type (
 	}
 )
 
+// HasVulnerabilityReview reports whether a configured release has an RC to review.
+func (p pageModel) HasVulnerabilityReview() bool {
+	return p.Configured && len(p.Snapshot.RCVulnerabilities) > 0
+}
+
 // VulnerabilityReviews prepares current and previous results for a shared UI.
 func (p pageModel) VulnerabilityReviews() []vulnerabilityReview {
 	var reviews []vulnerabilityReview

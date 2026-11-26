@@ -390,7 +390,8 @@ body { display: grid; grid-template: auto 1fr / 248px minmax(0, 1fr); min-height
 .workflow-tabs .tab-status, .setup-state { margin-left: auto; }
 .component-pr-tabs { margin-inline-start: 1.35rem; padding-inline-start: .35rem; border-inline-start: 1px solid var(--border); }
 .workflow-tabs .component-pr-tabs a { min-height: 2rem; padding-block: .3rem; }
-.workflow-tabs:has(.component-pr-tabs [aria-selected=true]) #tab-component-prs { color: var(--foreground); }
+.workflow-tabs:has([data-component-pr-tab][aria-selected=true]) #tab-component-prs,
+.workflow-tabs:has(#tab-rc-vulnerabilities[aria-selected=true]) #tab-acs-rcs { color: var(--foreground); }
 .component-pr-overview { display: grid; gap: .65rem; margin-block: 1.25rem; }
 .component-pr-overview a { display: grid; gap: .2rem; margin: 0; padding: .9rem 1rem; }
 .component-pr-overview a:hover { border-color: var(--link); text-decoration: none; }

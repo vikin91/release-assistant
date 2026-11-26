@@ -645,8 +645,9 @@ test("retains the last results on failure, recovers, and rejects a different ser
   assert.equal(initial.dashboard.childNodes[1], row);
 });
 
-function workflowPage(activeTab = "component-prs") {
+function workflowPage(activeTab = "component-prs", vulnerabilities = false) {
   const names = ["component-prs", "component-releases", "acs-prs", "acs-rcs"];
+  if (vulnerabilities) names.push("rc-vulnerabilities");
   const tabs = names.map((name) => domNode("A", { id: `tab-${name}`, "data-workflow-tab": name, "aria-selected": name === activeTab ? "true" : "false", tabindex: name === activeTab ? "0" : "-1" }));
   const panels = names.map((name) => domNode("SECTION", { id: `panel-${name}`, "data-workflow-panel": name, ...(name === activeTab ? {} : { hidden: "" }) }, [domNode("DETAILS", { id: `${name}-details` })]));
   return Object.assign(livePage({ activeTab, children: [...tabs, ...panels] }), { tabs, panels });
@@ -676,6 +677,25 @@ test("keeps independently selected tabs across live updates and form navigation"
   assert.deepEqual(initial.panels.map((panel) => panel.hidden), [true, true, false, true]);
   page.document.emit("submit", { target: { matches: () => false } });
   assert.equal(page.window.location.search, "?tab=acs-prs");
+});
+
+test("opens vulnerability review independently and returns to ACS RCs when the review disappears", async () => {
+  const initial = workflowPage("acs-rcs", true);
+  const page = dashboardPage(initial);
+  page.start();
+  await new Promise(setImmediate);
+  page.document.emit("click", { target: initial.tabs[4], preventDefault() {} });
+  assert.equal(page.window.location.search, "?tab=rc-vulnerabilities");
+  assert.deepEqual(initial.panels.map((panel) => panel.hidden), [true, true, true, true, false]);
+  page.document.emit("click", { target: initial.tabs[3], preventDefault() {} });
+  assert.equal(page.window.location.search, "?tab=acs-rcs");
+  assert.deepEqual(initial.panels.map((panel) => panel.hidden), [true, true, true, false, true]);
+  page.document.emit("click", { target: initial.tabs[4], preventDefault() {} });
+  page.updateTo(workflowPage("acs-rcs"));
+  await page.timeouts.shift()();
+  assert.equal(page.window.location.search, "?tab=acs-rcs");
+  assert.equal(initial.panels[3].hidden, false);
+  assert.equal(page.document.getElementById("panel-rc-vulnerabilities"), null);
 });
 
 test("tab keyboard navigation wraps, supports Home and End, and browser history restores selection", () => {

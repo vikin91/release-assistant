@@ -1,6 +1,7 @@
 package web
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -34,7 +35,7 @@ func TestRCVulnerabilityReviewShowsPartialEvidenceAndPreviousCandidate(t *testin
 			}
 			body := newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t)
 			section := between(t, body, `id="rc-vulnerabilities"`, "</section>")
-			for _, want := range []string{"above 7.0", "Suggested hold", test.label, "Findings behind the suggested hold", "Other findings", "No known fix"} {
+			for _, want := range []string{"above 7.0", "Suggested hold", test.label, "Findings that meet the internal hold criteria", "Other findings", "No known fix"} {
 				if !strings.Contains(section, want) {
 					t.Errorf("review missing %q", want)
 				}
@@ -46,17 +47,44 @@ func TestRCVulnerabilityReviewShowsPartialEvidenceAndPreviousCandidate(t *testin
 			if got := strings.Contains(section, previousKey+`true" open`); got != test.previousOpen {
 				t.Errorf("previous expanded = %v, want %v", got, test.previousOpen)
 			}
-			if !strings.Contains(body, `#rc-vulnerabilities" data-open-section`) {
-				t.Fatal("missing sidebar shortcut")
+			if !strings.Contains(body, `href="/?tab=rc-vulnerabilities" data-workflow-tab="rc-vulnerabilities"`) {
+				t.Fatal("missing vulnerability submenu tab")
 			}
 		})
 	}
 }
 
-func TestVulnerabilityReviewDoesNotRenderWithoutCandidate(t *testing.T) {
+func TestACSRCAndVulnerabilityViewsAreSeparate(t *testing.T) {
 	snapshot := workflowStatusSnapshot()
-	body := newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t)
-	if strings.Contains(body, `id="rc-vulnerabilities"`) || strings.Contains(body, `#rc-vulnerabilities"`) {
-		t.Fatal("vulnerability review rendered without a candidate observation")
+	application := &fakeApplication{snapshot: snapshot}
+	browser := newBrowser(t, application)
+	get := func(tab string) string {
+		t.Helper()
+		w := httptest.NewRecorder()
+		browser.handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), "GET", "http://127.0.0.1:8080/?tab="+tab, nil))
+		if w.Code != 200 {
+			t.Fatalf("GET %s returned %d", tab, w.Code)
+		}
+		return w.Body.String()
+	}
+	original := get("acs-rcs")
+	if strings.Contains(original, `id="panel-rc-vulnerabilities"`) || strings.Contains(original, `id="tab-rc-vulnerabilities"`) {
+		t.Fatal("vulnerability submenu rendered without an RC observation")
+	}
+	if body := get("rc-vulnerabilities"); !strings.Contains(body, `data-active-tab="acs-rcs"`) {
+		t.Fatal("a missing vulnerability review should fall back to ACS RCs")
+	}
+
+	rc := snapshot.Candidate()
+	application.snapshot.RCVulnerabilities = []release.RCVulnerabilities{{Target: rc.Target, SHA: rc.SHA}}
+	acs := get("acs-rcs")
+	panel := activityPanel(t, acs, "acs-rcs")
+	if strings.Join(strings.Fields(panel), " ") != strings.Join(strings.Fields(activityPanel(t, original, "acs-rcs")), " ") || strings.Contains(panel, "Vulnerability review") {
+		t.Fatal("the ACS RCs panel changed when vulnerability review became available")
+	}
+	review := get("rc-vulnerabilities")
+	if !strings.Contains(review, `data-active-tab="rc-vulnerabilities"`) || !strings.Contains(review, `aria-controls="panel-rc-vulnerabilities" aria-selected="true"`) ||
+		!strings.Contains(activityPanel(t, review, "rc-vulnerabilities"), `id="rc-vulnerabilities"`) {
+		t.Fatal("the vulnerability URL did not select its own panel")
 	}
 }
