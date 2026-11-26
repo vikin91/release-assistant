@@ -326,7 +326,7 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 		} else {
 			destination += "#component-images-panel"
 		}
-	case "fetch-tag-names", "verify-recent-tags":
+	case "fetch-tag-names", "verify-recent-tags", "select-fetched-tag":
 		destination += "#component-tags-" + action.Component
 	case "check-pr-retries":
 		destination += "#" + prRetryAnchor(action.Target)
@@ -618,11 +618,14 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 		if a.Component == "" {
 			return a, fmt.Errorf("component is required to prepare a new tag")
 		}
-	case "tag":
+	case "tag", "select-fetched-tag":
 		a.Component = form.Get("component")
 		a.Tag = form.Get("tag")
-		if a.Component == "" || a.Tag == "" || a.SHA == "" {
-			return a, fmt.Errorf("tag confirmation requires component, tag, and SHA")
+		if a.Component == "" || a.Tag == "" || (a.Kind == "tag" && a.SHA == "") {
+			return a, fmt.Errorf("tag selection requires a component and tag, with a SHA for a verified choice")
+		}
+		if a.Kind == "select-fetched-tag" && form.Get("tab") != "component-releases" {
+			return a, fmt.Errorf("choose a fetched tag from Component releases")
 		}
 	case "acknowledge":
 		a.Enabled = formHasValue(form, "enabled", "true")

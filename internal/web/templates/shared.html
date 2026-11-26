@@ -6,6 +6,7 @@
   <td>
     {{if .Proposed}}<strong title="Highest verified version in this component’s release stream on the configured branch">Newest tag</strong>{{end}}
     {{if .Tag.Evidence.Historical}}{{template "historical-evidence" .Tag.Evidence}}
+    {{else if and .VerifyOnSelect .Tag.Evidence.At.IsZero}}<span class="muted">Branch membership will be checked when you choose this tag.</span>
     {{else if not .Tag.Evidence.Fresh}}<span class="unknown">Evidence unverified{{with .Tag.Evidence.Error}} · {{.}}{{end}}</span>
     {{else if eq (truth .Tag.Belongs) "no"}}<span class="no">Outside configured branch</span>
     {{else if ne (truth .Tag.Belongs) "yes"}}<span class="unknown">Branch membership unverified</span>
@@ -14,8 +15,14 @@
     {{end}}
     {{if .Tag.Evidence.Fresh}}<div class="muted">Verified {{when .Tag.Evidence.At}}</div>{{end}}
   </td>
-  <td>{{if and .Tag.Evidence.Fresh (eq (truth .Tag.Belongs) "yes")}}
-      <form method="post" action="/action#tag-selection" class="inline-form"><input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Generation}}"><input type="hidden" name="kind" value="tag"><input type="hidden" name="component" value="{{.Component}}"><input type="hidden" name="tag" value="{{.Tag.Name}}"><input type="hidden" name="sha" value="{{.Tag.SHA}}"><button type="submit">{{if .Switch}}Switch to{{else}}Confirm{{end}} {{.Component}} {{.Tag.Name}}</button></form>
+  <td>{{$verified := and .Tag.SHA .Tag.Evidence.Fresh (eq (truth .Tag.Belongs) "yes")}}
+    {{if or $verified .VerifyOnSelect}}
+      <form method="post" action="/action#tag-selection" class="inline-form">
+        <input type="hidden" name="tab" value="{{.Tab}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="generation" value="{{.Generation}}">
+        <input type="hidden" name="kind" value="{{if $verified}}tag{{else}}select-fetched-tag{{end}}"><input type="hidden" name="component" value="{{.Component}}"><input type="hidden" name="tag" value="{{.Tag.Name}}">
+        {{if $verified}}<input type="hidden" name="sha" value="{{.Tag.SHA}}">{{end}}
+        <button type="submit"{{if .Busy}} disabled{{end}}>{{if $verified}}{{if .Switch}}Switch to{{else}}Confirm{{end}}{{else}}Verify and {{if .Switch}}switch to{{else}}select{{end}}{{end}} {{.Component}} {{.Tag.Name}}</button>
+      </form>
     {{else}}Unavailable{{end}}</td>
 </tr>
 {{end}}

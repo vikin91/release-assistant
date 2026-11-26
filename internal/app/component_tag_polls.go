@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"release-assistant/internal/githubread"
-
 	"release-assistant/internal/release"
 )
 
@@ -55,9 +54,9 @@ func (s *Session) nextComponentTagPoll(generation uint64, sources []release.Sour
 	now := time.Now()
 	for _, source := range sources {
 		action := s.componentTagActions[source.Name]
-		if action != "" && (selected.Repo == "" || job.kind != pollManualComponentTags ||
+		if action.kind != "" && (selected.Repo == "" || job.kind != pollManualComponentTags ||
 			turnBefore(source.Name, selected.Name, lastSource)) {
-			selected, job = source, pollJob{kind: pollManualComponentTags, identity: action}
+			selected, job = source, pollJob{kind: pollManualComponentTags, identity: action.kind}
 			continue
 		}
 		candidate := s.tagPollJob(source)
@@ -109,25 +108,49 @@ func (s *Session) savedComponentTagNames(work *releaseWork, profileID, component
 	return ComponentTagNames{}
 }
 
+type componentTagAction struct {
+	kind, tag string
+	revision  uint64
+}
+
 func (s *Session) requestComponentTagAction(action Action) error {
-	if !slices.ContainsFunc(s.config.Components, func(source release.Source) bool {
+	index := slices.IndexFunc(s.config.Components, func(source release.Source) bool {
 		return source.Name == action.Component
-	}) {
+	})
+	if index < 0 {
 		return fmt.Errorf("unknown component")
 	}
-	if s.componentTagActions[action.Component] != "" {
+	if s.componentTagActions[action.Component].kind != "" {
 		return fmt.Errorf("a tag read is already queued for this component")
 	}
-	if action.Kind == "fetch-tag-names" {
+	switch action.Kind {
+	case "fetch-tag-names":
 		if _, available := s.discovery.(ComponentTagNameReader); !available {
 			return fmt.Errorf("tag-name discovery is unavailable")
 		}
-	} else if len(s.componentTagCandidates(action.Component)) == 0 {
-		return fmt.Errorf("fetch tag names before verifying recent tags")
+		target := release.Target{Repo: s.config.Components[index].Repo}
+		s.record(target, "", "tag-names-requested", "", "", "user", fmt.Sprintf("Fetching %s tag names.", action.Component))
+	case "verify-recent-tags":
+		if len(s.componentTagCandidates(action.Component)) == 0 {
+			return fmt.Errorf("fetch tag names before verifying recent tags")
+		}
+	case "select-fetched-tag":
+		if !componentStreamTag(s.config.Components[index], action.Tag) {
+			return fmt.Errorf("tag must be a final version in the configured component stream")
+		}
+		if !slices.Contains(s.componentTagCandidates(action.Component), action.Tag) {
+			return fmt.Errorf("choose a tag from the current list of fetched names")
+		}
+		delete(s.readErrors, "tag-selection "+release.Target{Repo: s.config.Components[index].Repo}.String())
 	}
-	s.componentTagActions[action.Component] = action.Kind
+	s.componentTagActions[action.Component] = componentTagAction{kind: action.Kind, tag: action.Tag, revision: s.workRevision}
 	s.wakePolls()
 	return nil
+}
+
+func componentStreamTag(source release.Source, name string) bool {
+	major, minor, _, final := release.Version(name)
+	return final && fmt.Sprintf("%d.%d", major, minor) == source.Stream
 }
 
 func (s *Session) componentTagCandidates(component string) []string {
@@ -150,7 +173,8 @@ func (s *Session) componentTagCandidates(component string) []string {
 
 func (s *Session) runComponentTagAction(ctx context.Context, generation, revision uint64, source release.Source, action string) {
 	s.mu.Lock()
-	if generation != s.generation || revision != s.workRevision || s.componentTagActions[source.Name] != action {
+	pending := s.componentTagActions[source.Name]
+	if generation != s.generation || revision != s.workRevision || pending.kind != action {
 		s.mu.Unlock()
 		return
 	}
@@ -158,6 +182,9 @@ func (s *Session) runComponentTagAction(ctx context.Context, generation, revisio
 	startingHead := s.repos[source.Name].Head
 	catalog := s.savedComponentTagNames(work, s.activeProfile, source.Name)
 	candidates := s.componentTagCandidates(source.Name)
+	if pending.kind == "select-fetched-tag" {
+		candidates = []string{pending.tag}
+	}
 	s.mu.Unlock()
 	ctx, cancel := context.WithTimeout(githubread.WithPriority(ctx, githubread.Tags, source.Repo), s.options.Timeout)
 	defer cancel()
@@ -173,6 +200,10 @@ func (s *Session) runComponentTagAction(ctx context.Context, generation, revisio
 	} else {
 		operation = "tag-verification"
 		description = "recent tags on " + consoleBranch(source)
+		if pending.kind == "select-fetched-tag" {
+			operation = "tag-selection"
+			description = pending.tag + " on " + consoleBranch(source)
+		}
 		ctx = githubread.WithWork(ctx, source.Repo, "Component tag verification")
 		if len(candidates) > 0 {
 			verified, err = s.discovery.Discover(ctx, DiscoveryRequest{Source: source, Scope: ReadTags, TagCandidates: candidates})
@@ -180,13 +211,16 @@ func (s *Session) runComponentTagAction(ctx context.Context, generation, revisio
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if generation != s.generation || work != s.releaseWork || canceled(ctx) {
+	if generation != s.generation || work != s.releaseWork || canceled(ctx) || work.componentTagActions[source.Name] != pending {
 		return
 	}
 	delete(work.componentTagActions, source.Name)
-	if action == "verify-recent-tags" && len(candidates) > 0 {
+	if action != "fetch-tag-names" && len(candidates) > 0 {
 		work.componentTagNames[source.Name] = catalog
 		err = s.mergeRecentTagVerification(source, startingHead, candidates, verified, err)
+		if err == nil && pending.kind == "select-fetched-tag" {
+			err = s.selectVerifiedFetchedTag(source, pending.tag)
+		}
 	}
 	message := ""
 	if err != nil {
@@ -205,6 +239,10 @@ func (s *Session) runComponentTagAction(ctx context.Context, generation, revisio
 	}
 	before := work.componentTagNames[source.Name]
 	work.componentTagNames[source.Name] = observation
+	if err == nil {
+		s.record(release.Target{Repo: source.Repo}, "", "tag-names-fetched", "", "", "system",
+			fmt.Sprintf("Fetched %s for %s.", counted(len(names), "tag name"), source.Name))
+	}
 	if err != nil || !slices.Equal(before.Names, observation.Names) {
 		if repo, ok := work.repos[source.Name]; ok {
 			repo.TagsPending = true
@@ -265,4 +303,55 @@ func (s *Session) mergeRecentTagVerification(source release.Source, startingHead
 		s.wakePolls()
 	}
 	return err
+}
+
+func (s *Session) selectVerifiedFetchedTag(source release.Source, name string) error {
+	for _, tag := range s.repos[source.Name].Tags {
+		if tag.Name != name || tag.SHA == "" || !tag.Evidence.Fresh() {
+			continue
+		}
+		if tag.Belongs == release.No {
+			return fmt.Errorf("tag %s is outside %s", name, source.Branch)
+		}
+		if tag.Belongs == release.Yes {
+			if err := s.confirmComponentTag(source, tag); err != nil {
+				return err
+			}
+			s.polls[pollID{source.Name, pollTags}] = pollRecord{identity: tag.Name, finished: tag.Evidence.At}
+			return nil
+		}
+	}
+	return fmt.Errorf("could not verify that tag %s belongs to %s", name, source.Branch)
+}
+
+func (s *Session) cancelFetchedTagSelection(component string) {
+	if s.componentTagActions[component].kind == "select-fetched-tag" {
+		delete(s.componentTagActions, component)
+	}
+}
+
+// confirmComponentTag saves a tag with verified branch membership and schedules its monitoring.
+// The caller holds the session lock.
+func (s *Session) confirmComponentTag(source release.Source, tag release.Tag) error {
+	if err := s.options.ReleaseState.saveComponentTag(s.config.Version, source, tag.Name, tag.SHA); err != nil {
+		return err
+	}
+	s.cancelFetchedTagSelection(source.Name)
+	delete(s.pendingTags, source.Name)
+	if old := s.choices.Tags[source.Name]; old != "" && old != tag.Name {
+		s.archiveTag(source.Name, source.Repo)
+	}
+	s.workRevision++
+	s.selectComponentTag(source, tag.Name, tag.SHA)
+	target := release.Target{Repo: source.Repo, Tag: tag.Name}
+	s.dispatcher.Ignore(target, false)
+	delete(s.readErrors, "tag-selection "+release.Target{Repo: source.Repo}.String())
+	s.record(target, tag.SHA, "tag-confirmed", "", tag.Name, "user")
+	s.revalidateRCPlan()
+	s.drain()
+	select {
+	case s.changed <- struct{}{}:
+	default:
+	}
+	return nil
 }

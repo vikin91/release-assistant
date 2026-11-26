@@ -80,15 +80,15 @@ type (
 		Authority   *dispatch.View
 	}
 	tagModel struct {
-		Tag             release.Tag
-		Proposed        bool
-		Authority       *dispatch.View
-		Component, Repo string
-		Tab             string
-		GrantAnchor     string
-		CSRF            string
-		Generation      uint64
-		Switch          bool
+		Tag                          release.Tag
+		Proposed                     bool
+		Authority                    *dispatch.View
+		Component, Repo              string
+		Tab                          string
+		GrantAnchor                  string
+		CSRF                         string
+		Generation                   uint64
+		Switch, VerifyOnSelect, Busy bool
 	}
 	tagSelectionCounts struct {
 		Total, Selected int
@@ -317,8 +317,17 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 		names := snapshot.ComponentTagNames[repo.Source.Name]
 		r.RecentTagNames = slices.DeleteFunc(slices.Clone(names.Names), func(name string) bool { return name == r.CurrentTag })
 		r.RecentTagNames = r.RecentTagNames[:min(len(r.RecentTagNames), snapshot.TagChoiceLimit)]
-		for _, tag := range repo.Tags {
-			if names.Evidence.Known && tag.Name != r.CurrentTag && !slices.Contains(r.RecentTagNames, tag.Name) {
+		tags := slices.Clone(repo.Tags)
+		if names.Evidence.Known {
+			for _, name := range r.RecentTagNames {
+				if !slices.ContainsFunc(tags, func(tag release.Tag) bool { return tag.Name == name }) {
+					tags = append(tags, release.Tag{Name: name})
+				}
+			}
+		}
+		for _, tag := range tags {
+			recent := names.Evidence.Known && slices.Contains(r.RecentTagNames, tag.Name)
+			if names.Evidence.Known && tag.Name != r.CurrentTag && !recent {
 				continue
 			}
 			var authority *dispatch.View
@@ -330,7 +339,9 @@ func makePage(snapshot app.Snapshot, csrf, errText string) pageModel {
 				Tag:      tag,
 				Proposed: snapshot.Assessment.ProposedTags[repo.Source.Name] == tag.Name, Authority: authority,
 				Component: repo.Source.Name, Repo: repo.Source.Repo, CSRF: csrf, Generation: snapshot.Generation, Tab: "component-releases",
-				Switch: r.CurrentTag != "" && tag.Name != r.CurrentTag,
+				Switch:         r.CurrentTag != "" && tag.Name != r.CurrentTag,
+				VerifyOnSelect: snapshot.Monitoring && recent && (!tag.Evidence.Fresh() || tag.Belongs == "" || tag.SHA == "" && tag.Belongs == release.Yes),
+				Busy:           snapshot.ComponentTagActions[repo.Source.Name] != "",
 			}
 			if tag.Name == r.CurrentTag {
 				if savedTag != "" {

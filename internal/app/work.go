@@ -59,7 +59,7 @@ func (s *Session) rcRetriesReady() bool {
 }
 
 func mergeTags(old release.Repository, latest *release.Repository, request DiscoveryRequest) {
-	readsTagInventory := request.Reads(ReadTags) && (request.Scope == ReadAll || request.ConfirmedTag == "") ||
+	readsTagInventory := request.Reads(ReadTags) && (request.Scope == ReadAll || (request.ConfirmedTag == "" && request.TagCandidates == nil)) ||
 		request.Source.Name == "acs" && request.Reads(ReadRC)
 	if latest.TagsPending || !readsTagInventory {
 		tags := slices.Clone(old.Tags)

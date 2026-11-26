@@ -14,22 +14,24 @@
           {{$names := index $.Snapshot.ComponentTagNames $source.Name}}
           {{$details := index $.Snapshot.ComponentTagDetails $source.Name}}
           <div class="control-row">
-            <form method="post" action="/action" class="inline-form">
+            <form method="post" action="{{profileAction $.ProfileID}}" class="inline-form">
               <input type="hidden" name="tab" value="component-releases"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="component" value="{{$source.Name}}"><input type="hidden" name="kind" value="fetch-tag-names">
               <button type="submit"{{if or $action (not $.Snapshot.Monitoring)}} disabled{{end}}>{{if eq $action "fetch-tag-names"}}Fetching tag names…{{else}}Fetch tag names{{end}}</button>
             </form>
-            <form method="post" action="/action" class="inline-form">
+            <form method="post" action="{{profileAction $.ProfileID}}" class="inline-form">
               <input type="hidden" name="tab" value="component-releases"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="generation" value="{{$.Snapshot.Generation}}"><input type="hidden" name="component" value="{{$source.Name}}"><input type="hidden" name="kind" value="verify-recent-tags">
               <button type="submit" aria-describedby="verify-tags-{{$source.Name}}"{{if or $action (not .RecentTagNames) (not $.Snapshot.Monitoring)}} disabled{{end}}>{{if eq $action "verify-recent-tags"}}Verifying recent tags…{{else}}Verify recent tags on release branch{{end}}</button>
             </form>
           </div>
           <p class="tag-evidence muted" id="verify-tags-{{$source.Name}}">Resolve the commits for up to {{$.Snapshot.TagChoiceLimit}} recent tag choices and check whether they belong to <code>{{$source.Branch}}</code>. This can use a substantial amount of GitHub API quota.</p>
+          {{if eq $action "select-fetched-tag"}}<p class="tag-evidence" role="status">Verifying the chosen tag before switching…</p>{{end}}
           {{if $names.Evidence.Known}}
-            <p class="tag-evidence muted">Tag names fetched {{when $names.Evidence.At}}{{if $names.Evidence.Historical}} · saved result{{end}}</p>
+            <p class="tag-evidence" role="status">{{len $names.Names}} tag {{if eq (len $names.Names) 1}}name{{else}}names{{end}} fetched {{when $names.Evidence.At}}{{if $names.Evidence.Historical}} · saved result{{end}}{{if .RecentTagNames}}. Choose a tag {{if .CurrentTag}}under <strong>Change tag</strong>{{else}}below{{end}}.{{end}}</p>
             {{if .RecentTagNames}}<p class="tag-evidence">{{range $i, $name := .RecentTagNames}}{{if $i}} · {{end}}<code>{{$name}}</code>{{end}}</p>
             {{else}}<p class="tag-evidence muted">No alternative tags found in this release stream.</p>{{end}}
           {{end}}
           {{if $names.Evidence.Error}}<p class="error-text">Could not fetch tag names. {{$names.Evidence.Error}}</p>{{end}}
+          {{if $details.SelectionError}}<p class="error-text" role="alert">{{$details.SelectionError}}</p>{{end}}
           {{if $details.VerificationError}}<p class="error-text">Recent tag verification incomplete. {{$details.VerificationError}}</p>{{end}}
           {{if .CurrentTag}}
           <table class="tag-options" aria-label="{{title $source.Name}} release tags">
@@ -52,7 +54,7 @@
           </details>
           {{end}}
           {{else if .TagChoices}}{{template "component-tag-options" .}}
-          {{else}}<p class="muted">No tag choices verified yet.</p>{{end}}
+          {{else}}<p class="muted">Fetch tag names to see available choices.</p>{{end}}
           {{if .NewerTag}}<p class="tag-prompt">Newer tag available <code>{{.NewerTag}}</code>.</p>{{end}}
           {{if .CurrentTag}}
           <details class="tag-evidence" data-fold-key="tag-rebuild:{{$source.Name}}:{{$source.Repo}}@{{.CurrentTag}}">

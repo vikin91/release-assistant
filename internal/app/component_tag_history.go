@@ -12,10 +12,10 @@ import (
 type (
 	// ComponentTagDetails holds display evidence for the selected tag and its inventory.
 	ComponentTagDetails struct {
-		PRs                                        []release.CandidatePR
-		PRsKnown                                   bool
-		DiscoveryError, VerificationError, PRError string
-		NextRetry                                  time.Time
+		PRs                                                        []release.CandidatePR
+		PRsKnown                                                   bool
+		DiscoveryError, VerificationError, SelectionError, PRError string
+		NextRetry                                                  time.Time
 	}
 	componentTagPRReader interface {
 		ReadComponentTagPRs(context.Context, release.Source, string, string) ([]release.CandidatePR, error)
@@ -109,6 +109,7 @@ func (s *Session) componentTagDetails(work *releaseWork, source release.Source, 
 	details := ComponentTagDetails{
 		DiscoveryError:    work.readErrors["tags "+target.String()],
 		VerificationError: work.readErrors["tag-verification "+target.String()],
+		SelectionError:    work.readErrors["tag-selection "+target.String()],
 	}
 	history := work.componentTagHistory[source.Name]
 	span := work.componentTagSpan(work.repos[source.Name])

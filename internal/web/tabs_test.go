@@ -364,6 +364,47 @@ func TestComponentTagActionsPostToTheSelectedComponent(t *testing.T) {
 	}
 }
 
+func TestFetchedTagNamesCanBeChosenWithoutBulkVerification(t *testing.T) {
+	config := validACS5Config()
+	source := config.Components[0]
+	observed := release.Evidence{Known: true, At: time.Now()}
+	application := &fakeApplication{snapshot: app.Snapshot{
+		Config: config, Monitoring: true, Generation: 12,
+		Choices: release.Choices{Tags: map[string]string{source.Name: "3.25.5"}},
+		Repositories: []release.Repository{{Source: source, Tags: []release.Tag{
+			{Name: "3.25.5", SHA: "current", Belongs: release.Yes, Evidence: observed},
+			{Name: "3.25.7", SHA: "other", Belongs: release.No, Evidence: observed},
+		}}},
+		ComponentTagNames: map[string]app.ComponentTagNames{
+			source.Name: {Names: []string{"3.25.7", "3.25.6", "3.25.5"}, Evidence: observed},
+		},
+	}}
+	browser := newBrowser(t, application)
+	panel := activityPanel(t, browser.getBody(t), "component-releases")
+	component := between(t, panel, `id="component-tags-`+source.Name+`"`, "</article>")
+	for _, want := range []string{"3 tag names fetched", "<strong>Change tag</strong>", "Verify and switch to " + source.Name + " 3.25.6", "Outside configured branch"} {
+		if !strings.Contains(component, want) {
+			t.Fatalf("component picker missing %q", want)
+		}
+	}
+	if strings.Contains(component, "switch to "+source.Name+" 3.25.7") {
+		t.Fatal("verified non-member was selectable")
+	}
+	form := formContaining(t, component, `value="select-fetched-tag"`)
+	values := url.Values{}
+	for _, field := range []string{"kind", "generation", "component", "tag", "tab"} {
+		values.Set(field, formInputValue(t, form, field))
+	}
+	response := browser.post(values)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/?tab=component-releases#component-tags-"+source.Name ||
+		len(application.actions) != 1 {
+		t.Fatalf("unexpected response: %d %+v", response.Code, application.actions)
+	}
+	if got := application.actions[0]; got.Component != source.Name || got.Tag != "3.25.6" || got.SHA != "" || got.Kind != "select-fetched-tag" {
+		t.Fatalf("unexpected action %+v", got)
+	}
+}
+
 func activityPanel(t *testing.T, body, tab string) string {
 	t.Helper()
 	start := strings.Index(body, `<section id="panel-`+tab+`"`)

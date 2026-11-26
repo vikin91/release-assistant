@@ -173,7 +173,7 @@ type (
 
 		componentTagHistory map[string]componentTagHistory
 		componentTagNames   map[string]ComponentTagNames
-		componentTagActions map[string]string
+		componentTagActions map[string]componentTagAction
 		rcVulnerabilities   map[release.Target]release.RCVulnerabilities
 
 		creatingPinningPR bool
@@ -258,7 +258,7 @@ func newReleaseWork() *releaseWork {
 
 		componentTagHistory: make(map[string]componentTagHistory),
 		componentTagNames:   make(map[string]ComponentTagNames),
-		componentTagActions: make(map[string]string),
+		componentTagActions: make(map[string]componentTagAction),
 		rcVulnerabilities:   make(map[release.Target]release.RCVulnerabilities),
 	}
 }
@@ -335,7 +335,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 	defer s.mu.Unlock()
 	var err error
 	switch a.Kind {
-	case "fetch-tag-names", "verify-recent-tags":
+	case "fetch-tag-names", "verify-recent-tags", "select-fetched-tag":
 		return s.requestComponentTagAction(a)
 	case "refresh-images":
 		if err := s.config.Validate(); err != nil {
@@ -492,8 +492,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 				break
 			}
 		}
-		major, minor, _, final := release.Version(a.Tag)
-		if !configured || !final || fmt.Sprintf("%d.%d", major, minor) != configuredSource.Stream {
+		if !configured || !componentStreamTag(configuredSource, a.Tag) {
 			return fmt.Errorf("tag must be a final version in the configured component stream")
 		}
 		if !ok {
@@ -509,21 +508,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		if found == nil {
 			return fmt.Errorf("tag evidence changed or eligibility unknown; reload")
 		}
-		if err := s.options.ReleaseState.saveComponentTag(s.config.Version, configuredSource, a.Tag, a.SHA); err != nil {
-			return err
-		}
-		delete(s.pendingTags, a.Component)
-		if old := s.choices.Tags[a.Component]; old != "" && old != a.Tag {
-			s.archiveTag(a.Component, r.Source.Repo)
-		}
-		s.workRevision++
-		s.selectComponentTag(configuredSource, a.Tag, a.SHA)
-		s.dispatcher.Ignore(release.Target{Repo: r.Source.Repo, Tag: a.Tag}, false)
-		s.record(release.Target{Repo: r.Source.Repo, Tag: a.Tag}, a.SHA, "tag-confirmed", "", a.Tag, "user")
-		select {
-		case s.changed <- struct{}{}:
-		default:
-		}
+		return s.confirmComponentTag(configuredSource, *found)
 	case "clear-tag":
 		var source release.Source
 		for _, candidate := range s.config.Components {
@@ -538,6 +523,7 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 		if err := s.options.ReleaseState.saveComponentTag(s.config.Version, source, "", ""); err != nil {
 			return err
 		}
+		s.cancelFetchedTagSelection(a.Component)
 		s.archiveTag(a.Component, source.Repo)
 		delete(s.choices.Tags, a.Component)
 		delete(s.confirmedSHAs, a.Component)
@@ -689,7 +675,10 @@ func (s *Session) profileSnapshot(work *releaseWork, active bool, profileID stri
 		x.WritesEnabled, x.Authority = s.dispatcher.WritesEnabled(), s.dispatcher.Views()
 		x.RefreshingResumed = s.hasOverdueObservations()
 		x.ImagesRefreshing = work.imageReads > 0 || work.imageRefresh > work.polls[pollID{c.ACS().Repo, pollImages}].imageRefresh
-		x.ComponentTagActions = maps.Clone(work.componentTagActions)
+		x.ComponentTagActions = make(map[string]string, len(work.componentTagActions))
+		for name, action := range work.componentTagActions {
+			x.ComponentTagActions[name] = action.kind
+		}
 		x.Loading = len(x.ComponentTagActions) > 0
 	}
 	x.ComponentTagNames = make(map[string]ComponentTagNames, len(c.Components))
