@@ -69,7 +69,45 @@ func (c *Client) readCandidate(ctx context.Context, req app.DiscoveryRequest, he
 		}
 		inventory = append(inventory, tag)
 	}
+	if rc.Evidence.Fresh() && (rc.Target.Tag == "" || rc.Ahead > 0) &&
+		!slices.ContainsFunc(tags, func(tag candidateTag) bool {
+			return tag.published || tag.number > rc.Number
+		}) {
+		title := fmt.Sprintf("%s-rc.%d", strings.TrimPrefix(req.Version, "v"), rc.Number+1)
+		rc.NextMilestone = c.readRCMilestone(ctx, base, title)
+	}
 	return rc, inventory, inventoryErr
+}
+
+func (c *Client) readRCMilestone(ctx context.Context, base, title string) release.Evidence {
+	evidence := release.Evidence{At: time.Now()}
+	for page := 1; page <= maxPages; page++ {
+		var milestones []struct {
+			Title string
+			State string
+			URL   string `json:"html_url"`
+		}
+		endpoint := fmt.Sprintf("%s/milestones?state=open&per_page=100&page=%d", base, page)
+		if err := c.get(ctx, endpoint, &milestones); err != nil {
+			evidence.Error = requestProblem(err)
+			return evidence
+		}
+		if milestones == nil {
+			break
+		}
+		for _, milestone := range milestones {
+			if milestone.Title == title && milestone.State == "open" && milestone.URL != "" {
+				evidence.Known, evidence.URL = true, milestone.URL
+				return evidence
+			}
+		}
+		if len(milestones) < 100 {
+			evidence.Known = true
+			return evidence
+		}
+	}
+	evidence.Error = "GitHub did not return a complete milestone list."
+	return evidence
 }
 
 func (c *Client) compareCandidate(ctx context.Context, req app.DiscoveryRequest, ref candidateTag, sha, head string) (release.Candidate, release.Truth, error) {

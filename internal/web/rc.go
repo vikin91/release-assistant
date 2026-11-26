@@ -19,6 +19,7 @@ type (
 		Plan                              *planModel
 		Permission                        *tagModel
 		ReadyForTag                       bool
+		NextNumber                        uint64
 		ValidationRows                    []rcValidationRow
 		ValidationObserved                bool
 		UnverifiedJobs                    []release.Run
@@ -38,6 +39,7 @@ type (
 
 func (p *pageModel) prepareRC() {
 	p.RC.Candidate = p.Snapshot.Candidate()
+	p.RC.NextNumber = p.RC.Candidate.Number + 1
 	target := p.RC.Candidate.Target
 	repoURL := "https://github.com/" + p.Snapshot.Config.ACS().Repo
 	p.RC.WorkflowURL = repoURL + "/actions/workflows/start-release.yml"

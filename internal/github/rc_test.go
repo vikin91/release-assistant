@@ -111,6 +111,15 @@ func TestDiscoverCandidateResumesPRLookupsAcrossPolls(t *testing.T) {
 				t.Errorf("unexpected comparison page: %s", r.URL)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ahead", "ahead_by": total, "commits": commits})
+		case path == "/milestones":
+			if r.URL.Query().Get("state") != "open" || r.Method != http.MethodGet {
+				t.Errorf("unexpected milestone request: %s %s", r.Method, r.URL)
+			}
+			fmt.Fprint(w, `[
+				{"title":"5.0.1-rc.2","state":"open","html_url":"https://github.com/stackrox/stackrox/milestone/572"},
+				{"title":"5.0.1-rc.3","state":"closed","html_url":"https://github.com/stackrox/stackrox/milestone/573"},
+				{"title":"5.0.1-rc.3","state":"open","html_url":"https://github.com/stackrox/stackrox/milestone/574"}
+			]`)
 		case path == "/commits/last/pulls":
 			lookups++
 			fmt.Fprint(w, `[{"number":44,"base":{"ref":"release-5.0"},"merged_at":"2026-11-17T12:00:00Z"}]`)
@@ -131,6 +140,9 @@ func TestDiscoverCandidateResumesPRLookupsAcrossPolls(t *testing.T) {
 		rc := result.Candidate
 		if err != nil || !rc.Evidence.Fresh() || rc.Ahead != total || (i == 0 && rc.PRError == "") {
 			t.Fatalf("invalid observation in poll %d: %+v, err=%v", i, rc, err)
+		}
+		if !rc.NextMilestone.Fresh() || rc.NextMilestone.URL != "https://github.com/stackrox/stackrox/milestone/574" {
+			t.Fatalf("unexpected milestone: %+v", rc.NextMilestone)
 		}
 		if rc.PRError == "" {
 			if len(rc.PRs) != 1 || rc.PRs[0].Number != 44 || lookups != total {

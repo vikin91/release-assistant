@@ -317,11 +317,25 @@ func TestRCTabShowsPostCandidateCommitsAndPRsWithoutPinning(t *testing.T) {
 			s.Config.PinningPR = 0
 			rc := &s.Repositories[len(s.Repositories)-1].Candidate
 			rc.Ahead, rc.PRError = tc.ahead, tc.prError
+			if tc.ahead == 2 {
+				rc.NextMilestone = release.Evidence{Known: true, At: rc.Evidence.At, URL: "https://github.com/stackrox/stackrox/milestone/575"}
+			}
 			rc.CompareURL = "https://github.com/stackrox/stackrox/compare/rc-commit...acs-head"
 			if tc.ahead == 2 {
 				rc.PRs = []release.CandidatePR{{Number: 17, Title: "Backport fix", URL: "https://github.com/stackrox/stackrox/pull/17"}}
 			}
 			panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-rcs")
+			const milestone = `href="https://github.com/stackrox/stackrox/milestone/575"`
+			if tc.ahead == 2 {
+				link := strings.Index(panel, milestone)
+				if link <= strings.Index(panel, "#17 Backport fix") ||
+					link >= strings.Index(panel, `class="rc-image-table"`) ||
+					!strings.Contains(panel, "Close it manually on GitHub to cut RC.3.") {
+					t.Fatal("missing or misplaced Cut RC link and help text")
+				}
+			} else if strings.Contains(panel, "Cut RC.") {
+				t.Fatal("unexpected Cut RC link without a verified milestone")
+			}
 			for _, want := range append(tc.want, "Open RC.2 tag") {
 				if !strings.Contains(panel, want) {
 					t.Errorf("missing %q", want)

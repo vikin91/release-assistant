@@ -64,6 +64,7 @@ func (f *browserFixture) Discover(ctx context.Context, r app.DiscoveryRequest) (
 			repository.Head = "acs-next"
 			if repository.Candidate.Target.Valid() {
 				repository.Candidate.Ahead = 1
+				repository.Candidate.NextMilestone = release.Evidence{Known: true, At: time.Now(), URL: "https://example.com/milestone/1"}
 				repository.Candidate.CompareURL = "https://github.com/stackrox/stackrox/compare/acs-tag...acs-next"
 				repository.Candidate.PRs = []release.CandidatePR{{Number: pr.Target.PR, Title: pr.Title, URL: pr.URL}}
 			}

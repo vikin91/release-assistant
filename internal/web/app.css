@@ -106,14 +106,14 @@ input:not([type=checkbox]):not([type=radio]):not([type=hidden]) { width: 100%; }
 input::placeholder { @apply text-muted-foreground opacity-100; }
 .configuration-table input[readonly] { color: var(--muted-foreground); background: var(--card); cursor: default; }
 input[type=checkbox] { @apply size-4 shrink-0; accent-color: var(--primary); }
-button, .pr-list-filters label {
+button, .button-link, .pr-list-filters label {
   @apply inline-flex min-h-9 items-center justify-center rounded-md px-3 py-1.5 text-sm leading-snug font-medium;
 }
-button {
+button, .button-link {
   @apply gap-2 border border-input bg-card text-foreground shadow-xs transition-colors;
   cursor: pointer;
 }
-button:enabled:hover { @apply bg-accent; }
+button:enabled:hover, .button-link:hover { @apply bg-accent; }
 button:disabled { opacity: .7; }
 fieldset { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; border: 1px solid var(--border); border-radius: .5rem; }
 legend { padding: 0 .35rem; font-weight: var(--emphasis-weight); }
@@ -348,6 +348,8 @@ a[target="_blank"]::after {
   mask: url("/static/external-link.svg") center / contain no-repeat;
 }
 a:hover { text-decoration: underline; }
+a.button-link { color: var(--foreground); text-decoration: none; }
+a.button-link[target="_blank"]::after { display: none; }
 @media (max-width: 760px) { fieldset { grid-template-columns: 1fr; } .section-heading { align-items: flex-start; flex-direction: column; }   }
 .konflux-read-issue {
   margin: .65rem 0 1rem; padding: .8rem 1rem; border-inline-start: .3rem solid light-dark(#ba3034, #ff8587);

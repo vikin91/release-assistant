@@ -7,6 +7,8 @@ type Candidate struct {
 	Number   uint64
 	Evidence Evidence
 	Ahead    int
+	// NextMilestone records the lookup for the exact next open RC milestone.
+	NextMilestone Evidence
 	// CompareURL identifies the exact commit range used to count post-RC commits.
 	CompareURL string
 	PRs        []CandidatePR

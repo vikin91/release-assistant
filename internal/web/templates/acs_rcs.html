@@ -35,7 +35,13 @@
           <p class="muted">Waiting to discover release candidate tags.</p>
         {{end}}
       {{end}}
-      {{if .RC.ReadyForTag}}<p>The release branch is ready for a new RC. <a aria-describedby="new-tab-description" href="{{url .RC.WorkflowURL}}" target="_blank" rel="noreferrer">Open release workflow</a></p>{{end}}
+      {{if and .RC.Candidate.Evidence.Fresh .RC.Candidate.NextMilestone.Fresh (url .RC.Candidate.NextMilestone.URL)}}
+        {{$next := .RC.NextNumber}}
+        <div class="control-row rc-links">
+          <a class="button-link" aria-describedby="cut-rc-help new-tab-description" href="{{url .RC.Candidate.NextMilestone.URL}}" target="_blank" rel="noreferrer">Cut RC.{{$next}}</a>
+          <small id="cut-rc-help" class="muted">Opens the GitHub milestone. Close it manually on GitHub to cut RC.{{$next}}.</small>
+        </div>
+      {{else if .RC.ReadyForTag}}<p>The release branch is ready for a new RC. <a aria-describedby="new-tab-description" href="{{url .RC.WorkflowURL}}" target="_blank" rel="noreferrer">Open release workflow</a></p>{{end}}
       {{if and .RC.TagURL (not .Snapshot.RCImageWaitReason)}}
         {{if and .RC.KonfluxMissing (or .RC.CITotal (eq .RC.MissingAfterBuild .RC.KonfluxMissing))}}
           <div class="rc-summary">
