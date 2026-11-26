@@ -203,10 +203,10 @@ func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 		strings.Contains(panel, `<details id="release-images"`) || strings.Contains(panel, digest) {
 		t.Error("the image table should show one compact row per image, without folds or reported output digests")
 	}
-	diagnostics := between(t, panel, `<details class="rc-diagnostics" data-fold-key="rc-build-diagnostics">`, "</details>")
+	diagnostics := between(t, panel, `<section class="rc-diagnostics" aria-labelledby="rc-build-diagnostics-heading">`, "</section>")
 	for _, want := range []string{"1 additional job could not be verified", "A Konflux lookup timed out", "Open check in Konflux", message} {
 		if !strings.Contains(diagnostics, want) {
-			t.Errorf("missing %q in collapsed diagnostics", want)
+			t.Errorf("missing %q in inline diagnostics", want)
 		}
 	}
 	if strings.Contains(table, "extra-retag-job") || strings.Count(panel, message) != 1 {
@@ -232,6 +232,12 @@ func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 	if !strings.Contains(fact, "Build unverified") || !strings.Contains(fact, "https://konflux.example.com/extra-retag-job") ||
 		strings.Contains(panel, "additional job could not be verified") {
 		t.Error("the retag check should appear beside its configured RC image")
+	}
+	s.Plans[0].Evidence.Error = ""
+	s.Plans[0].Warnings = nil
+	panel = render()
+	if !strings.Contains(panel, "No problems to report") || strings.Contains(panel, "Build check diagnostics") {
+		t.Error("image-table jobs should not open a separate diagnostics section")
 	}
 }
 

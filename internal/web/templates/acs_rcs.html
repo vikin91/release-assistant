@@ -74,15 +74,21 @@
       {{with .RC.Plan}}
         {{template "last-verified-builds" .Plan.Runs}}
       {{end}}
-      <details class="rc-diagnostics" data-fold-key="rc-build-diagnostics">
-        <summary>{{with .RC.UnverifiedJobs}}{{len .}} {{if $.ReleaseImages.Total}}additional {{end}}{{if eq (len .) 1}}job{{else}}jobs{{end}} could not be verified{{else}}Build check diagnostics{{end}}</summary>
+      {{$plan := .RC.Plan}}
+      {{if or .RC.LookupTimedOut .RC.UnverifiedJobs (and $plan (or $plan.Plan.Evidence.Error $plan.Plan.Warnings))}}
+      <section class="rc-diagnostics" aria-labelledby="rc-build-diagnostics-heading">
+        <h4 id="rc-build-diagnostics-heading">Build check diagnostics</h4>
+        {{with .RC.UnverifiedJobs}}<p>{{len .}} {{if $.ReleaseImages.Total}}additional {{end}}{{if eq (len .) 1}}job{{else}}jobs{{end}} could not be verified</p>{{end}}
         {{if .RC.LookupTimedOut}}<p class="muted">A Konflux lookup timed out while verifying build checks.</p>{{end}}
         {{with .RC.UnverifiedJobs}}<ol>{{range .}}<li><code>{{.Job}}</code>{{if url .URL}} · <a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">Open check in Konflux</a>{{end}}</li>{{end}}</ol>{{end}}
-        {{if and .RC.Plan .RC.Plan.Plan.Evidence.Error}}<pre>{{.RC.Plan.Plan.Evidence.Error}}</pre>
-        {{else if and .RC.Plan .RC.Plan.Plan.Warnings}}<ol>{{range .RC.Plan.Plan.Warnings}}<li>{{.}}</li>{{end}}</ol>
-        {{else if and .RC.CommitURL .RC.Plan.Plan.Evidence.Fresh}}<p class="muted">No build check diagnostics reported.</p>
-        {{else}}<p class="muted">Waiting for RC build checks.</p>{{end}}
-      </details>
+        {{with $plan}}
+          {{with .Plan.Evidence.Error}}<pre>{{.}}</pre>{{end}}
+          {{with .Plan.Warnings}}<ol>{{range .}}<li>{{.}}</li>{{end}}</ol>{{end}}
+        {{end}}
+      </section>
+      {{else}}
+        <p class="rc-diagnostics muted">No problems to report</p>
+      {{end}}
     </div>
   </section>
   {{template "rc-validation" .}}
