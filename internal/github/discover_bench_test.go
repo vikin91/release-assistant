@@ -173,7 +173,7 @@ func TestDiscoverCoverageRequestGrowth(t *testing.T) {
 				for _, n := range counts {
 					total += n
 				}
-				if counts["merge_coverage"] != 0 || counts["graph"] > maxPages || total > 1000 {
+				if counts["merge_coverage"] != 0 || counts["graph"] > maxCommitGraphPages || total > 1000 {
 					t.Fatalf("excessive requests: %v", counts)
 				}
 				t.Logf("cycle=%d total=%d graph=%d protection=%d", cycle, total, counts["graph"], counts["protection"])

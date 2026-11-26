@@ -8,6 +8,9 @@ import (
 	"release-assistant/internal/release"
 )
 
+// maxCommitGraphPages caps history acquisition for one coverage check.
+const maxCommitGraphPages = 40
+
 type (
 	commitGraph struct {
 		parents      map[string][]string
@@ -50,7 +53,7 @@ func (g *commitGraph) load(ctx context.Context, c *Client, repo string, roots []
 			issues = append(issues, err)
 			continue
 		}
-		if g.requests == maxPages {
+		if g.requests == maxCommitGraphPages {
 			g.limitReached = true
 			break
 		}

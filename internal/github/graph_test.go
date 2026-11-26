@@ -110,7 +110,7 @@ func TestGraphLoadPreservesFailuresAndLimits(t *testing.T) {
 		}))
 		graph := newCommitGraph()
 		err := graph.load(t.Context(), New(srv.URL, "", srv.Client()), "acme/fact", []string{"tag"})
-		if err != nil || !graph.limitReached || reads != maxPages {
+		if err != nil || !graph.limitReached || reads != maxCommitGraphPages {
 			t.Fatalf("reads=%d error=%v", reads, err)
 		}
 		reachable, complete := graph.ancestors("tag")
@@ -179,7 +179,7 @@ func TestDiscoverReportsGraphLimitWithoutInvalidatingTag(t *testing.T) {
 		_ = json.NewEncoder(w).Encode([]map[string]any{{"sha": r.URL.Query().Get("sha"), "parents": []map[string]string{{"sha": parent}}}})
 	})}
 	repo, err := client.Discover(t.Context(), request)
-	if err != nil || repo.CommitGraphLimit != maxPages || !repo.Evidence.Fresh() || len(repo.Tags) != 1 {
+	if err != nil || repo.CommitGraphLimit != maxCommitGraphPages || !repo.Evidence.Fresh() || len(repo.Tags) != 1 {
 		t.Fatalf("discovery limit=%d evidence=%+v tags=%v error=%v", repo.CommitGraphLimit, repo.Evidence, repo.Tags, err)
 	}
 	tag := repo.Tags[0]
