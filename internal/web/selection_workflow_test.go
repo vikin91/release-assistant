@@ -16,36 +16,49 @@ import (
 
 var renderedFormRE = regexp.MustCompile(`(?s)<form\b[^>]*>.*?</form>`)
 
-func TestComponentTagDetailsDescribeEvidence(t *testing.T) {
-	observed := release.Evidence{Known: true, At: time.Now()}
+func TestComponentTagDetailsShowReleaseHistory(t *testing.T) {
+	observed := time.Now()
 	for name, tc := range map[string]struct {
-		coverage release.Truth
-		evidence release.Evidence
-		want     string
+		details app.ComponentTagDetails
+		tag     string
+		want    string
 	}{
-		"should show verified coverage":       {release.Yes, observed, "covered"},
-		"should show a missing merge":         {release.No, observed, "missing"},
-		"should explain incomplete discovery": {"", release.Evidence{At: time.Now(), Error: "GitHub commit graph acquisition limit reached"}, "GitHub commit graph acquisition limit reached"},
+		"verified history":                 {app.ComponentTagDetails{PRsKnown: true, PRs: []release.CandidatePR{{Number: 11, Title: "Fix the issue", URL: "https://github.com/acme/fact/pull/11"}}}, "3.25.1", "#11 · Fix the issue"},
+		"verified empty range":             {app.ComponentTagDetails{PRsKnown: true}, "3.25.1", "No new PRs."},
+		"unavailable range":                {app.ComponentTagDetails{}, "3.25.1", "PR list unavailable."},
+		"discovery fails before selection": {app.ComponentTagDetails{DiscoveryError: "GitHub is rate limited", NextRetry: observed.Add(time.Minute)}, "", "Discovery error: GitHub is rate limited"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			target := release.Target{Repo: "acme/fact", PR: 11}
+			source := validACS5Config().Components[0]
+			nextPR := release.Target{Repo: source.Repo, PR: 22}
 			application := &fakeApplication{snapshot: app.Snapshot{
-				Config:     validACS5Config(),
-				Choices:    release.Choices{Tags: map[string]string{"fact": "3.25.1"}, PRs: map[release.Target]release.Choice{target: release.Included}},
-				Assessment: release.Assessment{Conditions: []release.Condition{{Name: "tag fact", Status: tc.coverage, Reason: "Coverage assessment"}}},
-				Repositories: []release.Repository{{Source: release.Source{Name: "fact", Repo: target.Repo, Branch: "release-3.25"}, Evidence: tc.evidence,
-					PRs:  []release.PR{{Target: target, Title: "Fix the issue", Merged: true, MergeSHA: "1234567890", Base: "release-3.25", Evidence: observed}},
-					Tags: []release.Tag{{Name: "3.25.1", SHA: "abcdef1234", Belongs: release.Yes, Contains: map[string]release.Truth{"1234567890": tc.coverage}, Evidence: observed}}}},
+				Config:              validACS5Config(),
+				Choices:             release.Choices{Tags: map[string]string{source.Name: tc.tag}, PRs: map[release.Target]release.Choice{nextPR: release.Included}},
+				Assessment:          release.Assessment{ReleaseGuides: map[string]string{source.Name: "https://example.com/guide"}},
+				ComponentTagDetails: map[string]app.ComponentTagDetails{source.Name: tc.details},
+				Repositories:        []release.Repository{{Source: source, PRs: []release.PR{{Target: nextPR, Title: "Future tag fix"}}, Tags: []release.Tag{{Name: "3.25.1", SHA: "tag-sha", Evidence: release.Evidence{Known: true, At: observed}}}}},
 			}}
+			key := "tag-repo-details:" + source.Name + ":" + source.Repo
+			if tc.tag != "" {
+				key = "tag-evidence:" + source.Name + ":" + source.Repo + "@" + tc.tag
+			}
 			body := newBrowser(t, application).getBody(t)
-			details := between(t, body, `data-fold-key="tag-evidence:fact:acme/fact@3.25.1"`, "</details>")
-			for _, want := range []string{"Included PRs", "#11 · Fix the issue", "/pull/11", "/commit/1234567890", "<code>1234567</code>", "/commit/abcdef1234", tc.want} {
+			details := between(t, body, `data-fold-key="`+key+`"`, "</details>")
+			for _, want := range []string{tc.want, "Fact release guide"} {
 				if !strings.Contains(details, want) {
 					t.Errorf("details missing %q", want)
 				}
 			}
-			if tc.coverage == "" && (!strings.Contains(details, "unverified") || !strings.Contains(details, "next retry time is unavailable")) {
-				t.Error("incomplete evidence must remain unverified and avoid claiming a retry time")
+			if tc.tag != "" && (!strings.Contains(details, "Included new PRs in "+tc.tag) || !strings.Contains(details, "Last observed "+formatTime(observed))) {
+				t.Error("missing tag history heading or observation")
+			}
+			if strings.Contains(details, "Next retry") != !tc.details.NextRetry.IsZero() {
+				t.Error("retry time visibility must follow scheduling evidence")
+			}
+			for _, unwanted := range []string{"Future tag fix", "Coverage unverified", "Tag commit", "check the log", "ACS pin"} {
+				if strings.Contains(details, unwanted) {
+					t.Errorf("details contain %q", unwanted)
+				}
 			}
 		})
 	}
@@ -176,8 +189,8 @@ func TestSelectedTagWorkflowRendersSummaryAlternativesAndEvidence(t *testing.T) 
 		t.Fatal("selected Fact tag row missing")
 	}
 	details := between(t, current, `data-fold-key="tag-evidence:fact:acme/fact@3.25.1"`, "</details>")
-	if !strings.Contains(details, "merge-1") || !strings.Contains(details, "fact-current-sha") {
-		t.Fatal("current tag SHA and merge coverage should be inside collapsed evidence")
+	if !strings.Contains(details, "Included new PRs in 3.25.1") || strings.Contains(details, "merge-1") {
+		t.Fatal("selected tag details must show tag history without merge coverage")
 	}
 	var tagGrantForm string
 	for _, form := range renderedFormRE.FindAllString(details, -1) {

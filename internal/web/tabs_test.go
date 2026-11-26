@@ -183,8 +183,8 @@ func TestTagPreparationKeepsExistingCandidatesAndReturnsToActivity(t *testing.T)
 	snapshot.Assessment = release.Assess(release.Input{Config: config, Choices: snapshot.Choices, Repositories: snapshot.Repositories})
 	browser := newBrowser(t, application)
 	body := activityPanel(t, browser.getBody(t), "component-releases")
-	if !strings.Contains(body, `<p class="muted">The newest Fact tag 3.25.2 is newer than the previous ACS pin FACT_VERSION 3.25.0.</p>`) {
-		t.Fatal("component release view lost baseline or existing candidate tags")
+	if !strings.Contains(body, `<code>3.25.2</code>`) || strings.Contains(body, "previous ACS pin FACT_VERSION") {
+		t.Fatal("component release view must show alternatives without pin details")
 	}
 	var form string
 	for _, candidate := range renderedFormRE.FindAllString(body, -1) {
@@ -244,8 +244,8 @@ func TestBaselineGuidanceInActivityTabs(t *testing.T) {
 			}}
 			body := newBrowser(t, application).getBody(t)
 			releases := activityPanel(t, body, "component-releases")
-			if !strings.Contains(releases, `<p class="muted">`+tt.want+`</p>`) {
-				t.Fatalf("missing component comparison %q", tt.want)
+			if strings.Contains(releases, tt.want) {
+				t.Fatalf("component release details repeated pin information %q", tt.want)
 			}
 			prs := activityPanel(t, body, "component-prs")
 			const notice = "Component releases have not been cut for this ACS version yet, so PR preparation is the current step."
@@ -312,7 +312,7 @@ func TestComponentReleaseTagActionsAndEvidence(t *testing.T) {
 			if !strings.Contains(body, tt.wantGuidance) || strings.Contains(body, "Recommended next steps") {
 				t.Errorf("tag section is missing %q or renders a separate recommendations card", tt.wantGuidance)
 			}
-			for _, want := range []string{"Newer tag available <code>3.25.8</code>", "previous ACS pin FACT_VERSION 3.25.2", "Fact release guide"} {
+			for _, want := range []string{"Newer tag available <code>3.25.8</code>", "Fact release guide"} {
 				if !strings.Contains(body, want) {
 					t.Errorf("component tag view missing %q", want)
 				}

@@ -77,6 +77,8 @@ type (
 		KonfluxHealth *konflux.Health
 		// PendingTags holds saved selections awaiting current GitHub evidence.
 		PendingTags map[string]string
+		// ComponentTagDetails holds tag history and diagnostics by component.
+		ComponentTagDetails map[string]ComponentTagDetails
 		// RefreshingTags names components with an outstanding manual inventory refresh.
 		RefreshingTags map[string]bool
 		// PendingPinningPR holds the saved PR number until discovery verifies its branch.
@@ -166,6 +168,8 @@ type (
 		pendingPinningPR int
 		resumedAt        time.Time
 
+		componentTagHistory map[string]componentTagHistory
+
 		creatingPinningPR bool
 		createdPinningPR  dispatch.PinningReceipt
 	}
@@ -244,6 +248,8 @@ func newReleaseWork() *releaseWork {
 		initiallyLoaded: map[string]bool{},
 		readErrors:      map[string]string{},
 		inventory:       release.Inventory{},
+
+		componentTagHistory: make(map[string]componentTagHistory),
 	}
 }
 func (s *Session) record(target release.Target, sha, decision, payload, result, origin string, message ...string) {
@@ -592,6 +598,7 @@ func (s *Session) archiveTag(component, repo string) {
 	delete(s.plans, target)
 	delete(s.manualRetries, target)
 	delete(s.tagChecks, component)
+	delete(s.componentTagHistory, component)
 }
 
 // selectComponentTag schedules initial coverage, checks, and builds for the selected commit.
@@ -723,6 +730,10 @@ func (s *Session) profileSnapshot(work *releaseWork, active bool, profileID stri
 		cycle.Images = slices.Clone(cycle.Images)
 		cycle.Plan = clonePlan(cycle.Plan)
 		x.History = append(x.History, cycle)
+	}
+	x.ComponentTagDetails = make(map[string]ComponentTagDetails, len(c.Components))
+	for _, source := range c.Components {
+		x.ComponentTagDetails[source.Name] = s.componentTagDetails(work, source, active)
 	}
 	for _, r := range work.repos {
 		x.ManualRetries = append(x.ManualRetries, work.currentManualRetries(r, active && s.options.CIPlanner != nil)...)
@@ -1123,6 +1134,9 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			}
 		}
 		s.repos[source.Name] = r
+		if s.componentTagSpan(old) != s.componentTagSpan(r) {
+			s.wakePolls()
+		}
 		completeTags := !r.TagsPending && err == nil &&
 			(request.Reads(ReadRC) && source.Name == "acs" ||
 				request.Reads(ReadTags) && (work.tagInventory || !scoped))

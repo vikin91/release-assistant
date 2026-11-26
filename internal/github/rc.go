@@ -3,13 +3,11 @@ package github
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"release-assistant/internal/app"
@@ -24,17 +22,6 @@ type (
 		name, sha, kind string
 		number          uint64
 		published       bool
-	}
-	// candidatePRCache retains successful commit associations across bounded polls.
-	candidatePRCache struct {
-		mu       sync.Mutex
-		tagSHA   string
-		byCommit map[string][]release.CandidatePR
-	}
-	candidateComparison struct {
-		Status  string
-		Ahead   int `json:"ahead_by"`
-		Commits []struct{ SHA string }
 	}
 )
 
@@ -88,7 +75,7 @@ func (c *Client) readCandidate(ctx context.Context, req app.DiscoveryRequest, he
 func (c *Client) compareCandidate(ctx context.Context, req app.DiscoveryRequest, ref candidateTag, sha, head string) (release.Candidate, release.Truth, error) {
 	src := req.Source
 	endpoint := repoPath(src.Repo) + "/compare/" + segment(sha) + "..." + segment(head)
-	var comparison candidateComparison
+	var comparison commitRangeComparison
 	if err := c.get(ctx, endpoint+"?per_page=100&page=1", &comparison); err != nil {
 		return release.Candidate{}, "", err
 	}
@@ -117,7 +104,9 @@ func (c *Client) compareCandidate(ctx context.Context, req app.DiscoveryRequest,
 		cycle := &discoveryCycle{reads: map[string]cachedRead{}, limit: maxCandidateRequests, remaining: maxCandidateRequests}
 		ctx = context.WithValue(ctx, discoveryCycleKey{}, cycle)
 		rc.PRsPending = false
-		if err := c.readCandidatePRs(ctx, src, endpoint, comparison, &rc); err != nil {
+		prs, err := c.readRangePRs(ctx, src, endpoint, rc.SHA, comparison, rc.Ahead)
+		rc.PRs = prs
+		if err != nil {
 			rc.PRError = requestProblem(err)
 		}
 	}
@@ -136,11 +125,11 @@ func (c *Client) completeCandidatePRs(ctx context.Context, src release.Source, r
 	cycle := &discoveryCycle{reads: map[string]cachedRead{}, limit: maxCandidateRequests, remaining: maxCandidateRequests}
 	ctx = context.WithValue(ctx, discoveryCycleKey{}, cycle)
 	endpoint := repoPath(src.Repo) + "/compare/" + segment(rc.SHA) + "..." + segment(head)
-	var comparison candidateComparison
+	var comparison commitRangeComparison
 	rc.PRs, rc.PRError, rc.PRsPending = nil, "", false
 	err := c.get(ctx, endpoint+"?per_page=100&page=1", &comparison)
 	if err == nil {
-		err = c.readCandidatePRs(ctx, src, endpoint, comparison, &rc)
+		rc.PRs, err = c.readRangePRs(ctx, src, endpoint, rc.SHA, comparison, rc.Ahead)
 	}
 	if err != nil {
 		rc.PRError = requestProblem(err)
@@ -182,74 +171,4 @@ func (c *Client) candidateTags(ctx context.Context, base, prefix string) ([]cand
 		return cmp.Or(cmp.Compare(b.number, a.number), cmp.Compare(a.name, b.name))
 	})
 	return tags, nil
-}
-
-func (c *Client) readCandidatePRs(ctx context.Context, src release.Source, endpoint string, comparison candidateComparison, candidate *release.Candidate) error {
-	if candidate.Ahead == 0 {
-		return nil
-	}
-	key := src.Repo + ":" + src.Branch
-	value, _ := c.candidatePRs.LoadOrStore(key, &candidatePRCache{})
-	cache := value.(*candidatePRCache)
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-	if cache.tagSHA != candidate.SHA {
-		cache.tagSHA = candidate.SHA
-		cache.byCommit = make(map[string][]release.CandidatePR)
-	}
-
-	seen := make(map[int]bool)
-	read := 0
-	for page := 1; page <= maxPages; page++ {
-		if page > 1 {
-			if err := c.get(ctx, fmt.Sprintf("%s?per_page=100&page=%d", endpoint, page), &comparison); err != nil {
-				return err
-			}
-		}
-		for _, commit := range comparison.Commits {
-			if commit.SHA == "" {
-				return fmt.Errorf("GitHub returned a post-RC commit without an SHA")
-			}
-			prs, ok := cache.byCommit[commit.SHA]
-			if !ok {
-				var err error
-				prs, err = c.candidateCommitPRs(ctx, src, commit.SHA)
-				if err != nil {
-					return err
-				}
-				cache.byCommit[commit.SHA] = prs
-			}
-			for _, pr := range prs {
-				if !seen[pr.Number] {
-					seen[pr.Number] = true
-					candidate.PRs = append(candidate.PRs, pr)
-				}
-			}
-			read++
-		}
-		if read == candidate.Ahead {
-			return nil
-		}
-		if len(comparison.Commits) < 100 {
-			break
-		}
-	}
-	return fmt.Errorf("GitHub did not return every post-RC commit")
-}
-
-func (c *Client) candidateCommitPRs(ctx context.Context, src release.Source, sha string) ([]release.CandidatePR, error) {
-	var prs []release.CandidatePR
-	err := c.pages(ctx, repoPath(src.Repo)+"/commits/"+segment(sha)+"/pulls", func(raw json.RawMessage) error {
-		var pr prResponse
-		if err := json.Unmarshal(raw, &pr); err != nil {
-			return err
-		}
-		if pr.Number > 0 && pr.MergedAt != nil && pr.Base.Ref == src.Branch {
-			prs = append(prs, release.CandidatePR{
-				Number: pr.Number, Title: pr.Title, URL: "https://github.com/" + src.Repo + "/pull/" + strconv.Itoa(pr.Number),
-			})
-		}
-		return nil
-	})
-	return prs, err
 }

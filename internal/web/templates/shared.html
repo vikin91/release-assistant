@@ -10,9 +10,8 @@
     {{else if ne (truth .Tag.Belongs) "yes"}}<span class="unknown">Branch membership unverified</span>
     {{else}}
       {{range .MergeCoverage}}
-        {{if and .PR.Merged .SHA}}{{if eq (truth .Status) "no"}}<div class="no">Missing included merge <code>{{.SHA}}</code></div>
+        {{if eq (truth .Status) "no"}}<div class="no">Missing included merge <code>{{.SHA}}</code></div>
         {{else if ne (truth .Status) "yes"}}<div class="unknown">Coverage unverified for <code>{{.SHA}}</code></div>{{end}}
-        {{end}}
       {{end}}
     {{end}}
   </td>

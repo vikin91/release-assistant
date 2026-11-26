@@ -41,11 +41,12 @@ const (
 	pollTagChecks
 	pollBuilds
 	pollImages
+	pollComponentTagHistory
 )
 
 func (job pollJob) id(source release.Source) pollID {
-	if job.kind == pollTags && source.Name != "acs" {
-		return pollID{source.Name, pollTags}
+	if (job.kind == pollTags && source.Name != "acs") || job.kind == pollComponentTagHistory {
+		return pollID{source.Name, job.kind}
 	}
 	return pollID{source.Repo, job.kind}
 }
@@ -118,8 +119,16 @@ func (s *Session) pollJobs(source release.Source) []pollJob {
 		jobs = append(jobs, pollJob{kind: pollChecks, setting: checks})
 	}
 	identity := tag + ":" + sha
-	if _, verified := s.tagCheckTarget(s.repos[source.Name]); verified != "" {
+	repo := s.repos[source.Name]
+	if _, verified := s.tagCheckTarget(repo); verified != "" {
 		jobs = append(jobs, pollJob{kind: pollTagChecks, setting: tagChecks, identity: identity})
+	}
+	if _, ok := s.discovery.(componentTagPRReader); ok {
+		span := s.componentTagSpan(repo)
+		history := s.componentTagHistory[source.Name]
+		if span.tag != "" && (history.span != span || history.err != "") {
+			jobs = append(jobs, pollJob{kind: pollComponentTagHistory, setting: AfterTags, identity: identity + ":" + span.previousSHA})
+		}
 	}
 	if tag != "" || tracked {
 		jobs = append(jobs, pollJob{kind: pollBuilds, setting: KonfluxBuilds, identity: identity})
@@ -224,6 +233,7 @@ var pollReadNames = [...]string{
 	pollTags: "Tag and RC discovery", pollPRs: "PR discovery",
 	pollChecks: "PR status", pollTagChecks: "Tag checks",
 	pollBuilds: "Konflux and build checks", pollImages: "Release images",
+	pollComponentTagHistory: "Component tag PR history",
 }
 
 func (s *Session) fetchPoll(ctx context.Context, generation, revision uint64, source release.Source, job pollJob) error {
@@ -278,6 +288,8 @@ func (s *Session) fetchPoll(ctx context.Context, generation, revision uint64, so
 		return errors.Join(savedTagErr, s.refresh(ctx, generation, source, true, work))
 	case pollTagChecks:
 		return s.refreshTagChecks(ctx, generation, revision, source)
+	case pollComponentTagHistory:
+		return s.refreshComponentTagHistory(githubread.WithPriority(ctx, githubread.Background, source.Repo), generation, revision, source)
 	case pollBuilds:
 		work.plans = true
 		return s.refresh(ctx, generation, source, false, work)

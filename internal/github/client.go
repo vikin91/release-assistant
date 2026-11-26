@@ -32,7 +32,7 @@ type (
 		inventories  sync.Map
 		tagPagesMu   sync.Mutex
 		tagPages     map[string]tagPage
-		candidatePRs sync.Map
+		rangePRCache sync.Map
 		windowCache  *CommitWindowCache
 	}
 	// requestError separates safe UI causes from endpoint diagnostics.

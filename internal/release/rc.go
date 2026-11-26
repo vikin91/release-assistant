@@ -16,7 +16,7 @@ type Candidate struct {
 	PRError string
 }
 
-// CandidatePR identifies a merged pull request associated with a post-RC commit.
+// CandidatePR identifies a merged pull request associated with a commit in a release range.
 type CandidatePR struct {
 	Number int
 	Title  string
