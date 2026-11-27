@@ -1,14 +1,17 @@
 {{define "rc-vulnerabilities"}}
 {{$retryAt := .Snapshot.RCVulnerabilityRetryAt}}
 {{with .VulnerabilityReviews}}
-{{with index . 0}}{{if .HoldSummary}}
+{{with index . 0}}{{if .HoldSummary.Count}}
 <section class="panel" id="rc-vulnerability-summary" aria-labelledby="rc-vulnerability-summary-title">
     <h3 id="rc-vulnerability-summary-title">{{if .Historical}}Saved {{end}}CVE summary</h3>
     <div class="copyable-text rerun-command">
-      <pre><code>{{.Target.Tag}} — CVEs that meet the internal hold criteria
-{{- range .HoldSummary}}
+      <pre><code>{{.Target.Tag}} — {{if eq .HoldSummary.Count 1}}1 CVE meets{{else}}{{.HoldSummary.Count}} distinct CVEs meet{{end}} the internal hold criteria
+{{- range .HoldSummary.Groups}}
+
+{{.Label}} ({{len .CVEs}} CVE{{if ne (len .CVEs) 1}}s{{end}})
+{{- range .CVEs}}
 {{.Number}}. <a href="{{or .URL (printf "https://www.cve.org/CVERecord?id=%s" .ID)}}">{{.ID}}</a> | {{range $j, $fix := .Fixes}}{{if $j}}
-   {{end}}{{$fix}}{{end}}{{end}}</code></pre>
+   {{end}}{{$fix.Detail}}{{end}}{{end}}{{end}}</code></pre>
       <button type="button" data-copy-text data-copy-links>Copy CVE summary</button>
       <span role="status" data-copy-status data-live-preserve></span>
     </div>

@@ -13,15 +13,32 @@ type (
 	vulnerabilityReview struct {
 		release.RCVulnerabilities
 		Images               []imageReview
-		HoldSummary          []holdCVE
+		HoldSummary          holdCVESummary
 		Available, Scheduled int
 		Pending, Hold, Open  bool
+	}
+
+	holdCVESummary struct {
+		Count  int
+		Groups []holdCVEGroup
+	}
+
+	holdCVEGroup struct {
+		Label      string
+		ImageCount int
+		CVEs       []holdCVE
 	}
 
 	holdCVE struct {
 		Number  int
 		ID, URL string
-		Fixes   []string
+		Images  []string
+		Fixes   []holdCVEFix
+	}
+
+	holdCVEFix struct {
+		Detail string
+		Images []string
 	}
 
 	imageReview struct {
@@ -118,8 +135,8 @@ func (p pageModel) VulnerabilityReviews() []vulnerabilityReview {
 	return reviews
 }
 
-func summarizeHoldCVEs(images []imageReview) []holdCVE {
-	var summary []holdCVE
+func summarizeHoldCVEs(images []imageReview) holdCVESummary {
+	var entries []holdCVE
 	index := make(map[string]int)
 	for _, image := range images {
 		for _, finding := range image.Rows {
@@ -128,11 +145,14 @@ func summarizeHoldCVEs(images []imageReview) []holdCVE {
 			}
 			i, exists := index[finding.ID]
 			if !exists {
-				i = len(summary)
+				i = len(entries)
 				index[finding.ID] = i
-				summary = append(summary, holdCVE{Number: i + 1, ID: finding.ID})
+				entries = append(entries, holdCVE{ID: finding.ID})
 			}
-			entry := &summary[i]
+			entry := &entries[i]
+			if !slices.Contains(entry.Images, image.Image) {
+				entry.Images = append(entry.Images, image.Image)
+			}
 			if entry.URL == "" {
 				entry.URL = safeURL(finding.URL)
 			}
@@ -141,11 +161,47 @@ func summarizeHoldCVEs(images []imageReview) []holdCVE {
 				finding.CVSSLabel(),
 				cmp.Or(finding.Fixed, "unavailable"),
 			)
-			if !slices.Contains(entry.Fixes, fix) {
-				entry.Fixes = append(entry.Fixes, fix)
+			fixIndex := slices.IndexFunc(entry.Fixes, func(existing holdCVEFix) bool { return existing.Detail == fix })
+			if fixIndex < 0 {
+				fixIndex = len(entry.Fixes)
+				entry.Fixes = append(entry.Fixes, holdCVEFix{Detail: fix})
+			}
+			fixImages := &entry.Fixes[fixIndex].Images
+			if !slices.Contains(*fixImages, image.Image) {
+				*fixImages = append(*fixImages, image.Image)
 			}
 		}
 	}
+
+	summary := holdCVESummary{Count: len(entries)}
+	groupIndexes := make(map[string]int)
+	for _, entry := range entries {
+		slices.Sort(entry.Images)
+		imageSet := strings.Join(entry.Images, " + ")
+		i, exists := groupIndexes[imageSet]
+		if !exists {
+			i = len(summary.Groups)
+			groupIndexes[imageSet] = i
+			label := imageSet
+			if len(entry.Images) == 1 {
+				label += " only"
+			}
+			summary.Groups = append(summary.Groups, holdCVEGroup{Label: label, ImageCount: len(entry.Images)})
+		}
+		for j := range entry.Fixes {
+			fix := &entry.Fixes[j]
+			if len(fix.Images) < len(entry.Images) {
+				slices.Sort(fix.Images)
+				fix.Detail += " | " + strings.Join(fix.Images, ", ")
+			}
+		}
+		group := &summary.Groups[i]
+		entry.Number = len(group.CVEs) + 1
+		group.CVEs = append(group.CVEs, entry)
+	}
+	slices.SortFunc(summary.Groups, func(a, b holdCVEGroup) int {
+		return cmp.Or(cmp.Compare(len(b.CVEs), len(a.CVEs)), cmp.Compare(b.ImageCount, a.ImageCount), cmp.Compare(a.Label, b.Label))
+	})
 	return summary
 }
 

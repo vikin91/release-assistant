@@ -1,6 +1,7 @@
 package web
 
 import (
+	"html"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -8,7 +9,7 @@ import (
 	"release-assistant/internal/release"
 )
 
-func TestRCVulnerabilitySummaryDeduplicatesFindings(t *testing.T) {
+func TestRCVulnerabilitySummaryGroupsDistinctCVEsByAffectedImages(t *testing.T) {
 	snapshot := workflowStatusSnapshot()
 	rc := snapshot.Candidate()
 	const id = "CVE-2026-119373"
@@ -18,22 +19,30 @@ func TestRCVulnerabilitySummaryDeduplicatesFindings(t *testing.T) {
 	}
 	variant := finding
 	variant.Fixed = "3"
+	shared := release.Vulnerability{ID: "CVE-2026-123456", Severity: "Critical", Package: "shared", Fixed: "4"}
+	solo := release.Vulnerability{ID: "CVE-2026-654321", Severity: "Important", CVSS: new(8.1), Package: "collector", Fixed: "5"}
 	snapshot.RCVulnerabilities = []release.RCVulnerabilities{
 		{Target: rc.Target, SHA: rc.SHA, Images: []release.ImageVulnerabilities{
-			{Findings: []release.Vulnerability{finding, {ID: "CVE-2026-999999", Severity: "Critical"}}},
-			{Findings: []release.Vulnerability{finding, variant}},
+			{Image: "release-fact", Findings: []release.Vulnerability{finding, shared}},
+			{Image: "release-collector", Findings: []release.Vulnerability{variant, shared, shared, solo, {ID: "CVE-2026-999999", Severity: "Critical"}}},
 		}},
 	}
 
 	body := newBrowser(t, &fakeApplication{snapshot: snapshot}).getBody(t)
 	summary := between(t, body, `id="rc-vulnerability-summary"`, "</section>")
-	want := "1. <a href=\"" + link + "\">" + id + "</a> | sqlite-libs | CVSS 7.8 | fixed version 2\n" +
-		"   sqlite-libs | CVSS 7.8 | fixed version 3"
-	if !strings.Contains(summary, want) || strings.Count(summary, ">"+id+"</a>") != 1 ||
-		strings.Contains(summary, "CVE-2026-999999") ||
-		!strings.Contains(summary, `class="copyable-text rerun-command"`) ||
+	want := rc.Target.Tag + " — 3 distinct CVEs meet the internal hold criteria\n\n" +
+		"release-collector + release-fact (2 CVEs)\n" +
+		`1. <a href="https://www.cve.org/CVERecord?id=CVE-2026-123456">CVE-2026-123456</a> | shared | CVSS — | fixed version 4` + "\n" +
+		"2. <a href=\"" + link + "\">" + id + "</a> | sqlite-libs | CVSS 7.8 | fixed version 2 | release-fact\n" +
+		"   sqlite-libs | CVSS 7.8 | fixed version 3 | release-collector\n\n" +
+		"release-collector only (1 CVE)\n" +
+		`1. <a href="https://www.cve.org/CVERecord?id=CVE-2026-654321">CVE-2026-654321</a> | collector | CVSS 8.1 | fixed version 5`
+	if got := html.UnescapeString(between(t, summary, "<pre><code>", "</code></pre>")); got != want {
+		t.Errorf("CVE summary:\n%s\nwant:\n%s", got, want)
+	}
+	if !strings.Contains(summary, `class="copyable-text rerun-command"`) ||
 		!strings.Contains(summary, `data-copy-text data-copy-links>Copy CVE summary</button>`) {
-		t.Errorf("unexpected CVE summary: %s", summary)
+		t.Error("CVE summary has no copy control")
 	}
 }
 

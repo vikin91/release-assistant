@@ -138,10 +138,11 @@ test("copies the exact command text and reports clipboard failures", async () =>
   assert.equal(status.textContent, "Select and copy the text manually.");
 });
 
-test("copies CVE links in both clipboard formats and falls back to plain text", async () => {
+test("copies CVE summary groups and links in both clipboard formats and falls back to plain text", async () => {
   const url = "https://www.cve.org/CVERecord?id=CVE-2026-119373";
-  const html = `RC summary\n1. <a href="${url}">CVE-2026-119373</a> | sqlite-libs`;
-  const expected = `RC summary\n1. CVE-2026-119373 (${url}) | sqlite-libs`;
+  const heading = "RC summary\n\nrelease-collector + release-fact (1 CVE)\n";
+  const html = `${heading}1. <a href="${url}">CVE-2026-119373</a> | sqlite-libs | CVSS 7.8 | fixed version 2`;
+  const expected = `${heading}1. CVE-2026-119373 (${url}) | sqlite-libs | CVSS 7.8 | fixed version 2`;
   const writes = [];
   const clipboard = { write: async ([item]) => writes.push(item), writeText: async (text) => writes.push(text) };
   const page = makePage({ clipboard });
@@ -150,7 +151,7 @@ test("copies CVE links in both clipboard formats and falls back to plain text", 
   const value = {
     innerHTML: html,
     cloneNode() {
-      const copy = { textContent: "RC summary\n1. CVE-2026-119373 | sqlite-libs" };
+      const copy = { textContent: `${heading}1. CVE-2026-119373 | sqlite-libs | CVSS 7.8 | fixed version 2` };
       copy.querySelectorAll = () => [{ href: url, after: (suffix) => {
         copy.textContent = copy.textContent.replace(" |", suffix + " |");
       } }];
@@ -167,7 +168,7 @@ test("copies CVE links in both clipboard formats and falls back to plain text", 
   click();
   await new Promise(setImmediate);
   assert.equal(await writes[0].formats["text/plain"].text(), expected);
-  assert.equal(await writes[0].formats["text/html"].text(), html.replace("\n", "<br>"));
+  assert.equal(await writes[0].formats["text/html"].text(), html.replaceAll("\n", "<br>"));
   assert.equal(status.textContent, "Copied");
 
   clipboard.write = async () => { throw new Error("rich clipboard unavailable"); };
