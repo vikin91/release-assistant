@@ -75,7 +75,7 @@ func TestRCTabShowsBuildActionsBesideMissingImages(t *testing.T) {
 			}
 			body := newBrowser(t, &fakeApplication{snapshot: s}).getBody(t)
 			panel := activityPanel(t, body, "acs-rcs")
-			for _, want := range []string{"3 Konflux images missing", "Open RC.2 tag", "View tag checks"} {
+			for _, want := range []string{"3 Konflux images missing", "Open RC.2 commit", "View tag checks"} {
 				if !strings.Contains(panel, want) {
 					t.Errorf("missing %q", want)
 				}
@@ -348,7 +348,7 @@ func TestRCTabShowsPostCandidateCommitsAndPRsWithoutPinning(t *testing.T) {
 			} else if !strings.Contains(panel, `<button type="button" disabled aria-describedby="cut-rc-help">Cut RC.3</button>`) {
 				t.Fatal("expected a disabled Cut RC button without a verified milestone")
 			}
-			for _, want := range append(tc.want, "Open RC.2 tag") {
+			for _, want := range append(tc.want, `href="https://github.com/stackrox/stackrox/commit/rc-commit" target="_blank" rel="noreferrer">Open RC.2 commit</a>`) {
 				if !strings.Contains(panel, want) {
 					t.Errorf("missing %q", want)
 				}

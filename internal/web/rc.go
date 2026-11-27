@@ -14,20 +14,20 @@ import (
 
 type (
 	rcModel struct {
-		Candidate                         release.Candidate
-		TagURL, ChecksURL, WorkflowURL    string
-		CommitURL                         string
-		CutRCURL, CutRCBlocker            string
-		Plan                              *planModel
-		Permission                        *tagModel
-		ReadyForFirstRC                   bool
-		NextNumber                        uint64
-		ValidationRows                    []rcValidationRow
-		ValidationObserved                bool
-		UnverifiedJobs                    []release.Run
-		LookupTimedOut                    bool
-		CIAvailable, CITotal              int
-		KonfluxMissing, MissingAfterBuild int
+		Candidate                                  release.Candidate
+		CandidateCommitURL, ChecksURL, WorkflowURL string
+		CommitURL                                  string
+		CutRCURL, CutRCBlocker                     string
+		Plan                                       *planModel
+		Permission                                 *tagModel
+		ReadyForFirstRC                            bool
+		NextNumber                                 uint64
+		ValidationRows                             []rcValidationRow
+		ValidationObserved                         bool
+		UnverifiedJobs                             []release.Run
+		LookupTimedOut                             bool
+		CIAvailable, CITotal                       int
+		KonfluxMissing, MissingAfterBuild          int
 	}
 	rcBuildModel struct {
 		Status, Class, Link, LinkLabel string
@@ -94,8 +94,8 @@ func (p *pageModel) prepareRC() {
 	target := p.RC.Candidate.Target
 	repoURL := "https://github.com/" + p.Snapshot.Config.ACS().Repo
 	p.RC.WorkflowURL = repoURL + "/actions/workflows/start-release.yml"
-	if target.Valid() {
-		p.RC.TagURL = repoURL + "/tree/refs/tags/" + url.PathEscape(target.Tag)
+	if target.Valid() && p.RC.Candidate.SHA != "" {
+		p.RC.CandidateCommitURL = repoURL + "/commit/" + url.PathEscape(p.RC.Candidate.SHA)
 	}
 	p.RC.CutRCURL, p.RC.CutRCBlocker = p.cutRCState()
 	assessment := p.Snapshot.Assessment
@@ -138,7 +138,7 @@ func (p *pageModel) prepareRC() {
 		return
 	}
 
-	p.RC.CommitURL = repoURL + "/commit/" + url.PathEscape(plan.SHA)
+	p.RC.CommitURL = p.RC.CandidateCommitURL
 	p.RC.ChecksURL = p.RC.CommitURL + "/checks"
 	if group.Authority != nil && group.Authority.SHA == plan.SHA && p.AutomaticRetryPermissions() &&
 		(len(plan.Proposals) > 0 || group.Authority.Granted) {

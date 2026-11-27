@@ -1,15 +1,15 @@
 {{define "acs-rcs"}}
   <section class="panel" id="release-images-panel">
     <div id="release-images">
-      <h3 id="release-images-heading" class="section-summary">ACS {{.Snapshot.Config.Version}} {{if .RC.TagURL}}RC.{{.RC.Candidate.Number}}{{else}}RC{{end}} images
+      <h3 id="release-images-heading" class="section-summary">ACS {{.Snapshot.Config.Version}} {{if .RC.Candidate.Target.Valid}}RC.{{.RC.Candidate.Number}}{{else}}RC{{end}} images
         {{if .RC.KonfluxMissing}}
           <span class="component-image-counts">{{.RC.KonfluxMissing}} Konflux {{if eq .RC.KonfluxMissing 1}}image{{else}}images{{end}} missing</span>
         {{else if .ReleaseImages.Total}}{{template "image-counts" .ReleaseImages}}{{else}}<span class="component-image-counts">Pending registry checks</span>{{end}}
       </h3>
       {{with .RC.Candidate}}
-        {{if $.RC.TagURL}}
+        {{if .Target.Valid}}
           <div class="control-row rc-links">
-            <a aria-describedby="new-tab-description" href="{{url $.RC.TagURL}}" target="_blank" rel="noreferrer">Open RC.{{.Number}} tag</a>
+            {{with $.RC.CandidateCommitURL}}<a aria-describedby="new-tab-description" href="{{url .}}" target="_blank" rel="noreferrer">Open RC.{{$.RC.Candidate.Number}} commit</a>{{end}}
             {{if $.RC.ChecksURL}}<a aria-describedby="new-tab-description" href="{{url $.RC.ChecksURL}}" target="_blank" rel="noreferrer">View tag checks</a>{{end}}
           </div>
           {{if .Evidence.Historical}}<p>{{template "historical-evidence" .Evidence}}</p>{{end}}
@@ -61,7 +61,7 @@
       </form>
       {{end}}
       {{if and (not .RC.CutRCURL) .RC.ReadyForFirstRC}}<p>The release branch is ready for RC.0. <a aria-describedby="new-tab-description" href="{{url .RC.WorkflowURL}}" target="_blank" rel="noreferrer">Open release workflow</a></p>{{end}}
-      {{if and .RC.TagURL (not .Snapshot.RCImageWaitReason)}}
+      {{if and .RC.Candidate.Target.Valid (not .Snapshot.RCImageWaitReason)}}
         {{if and .RC.KonfluxMissing (or .RC.CITotal (eq .RC.MissingAfterBuild .RC.KonfluxMissing))}}
           <div class="rc-summary">
             {{if and .RC.CITotal (eq .RC.CIAvailable .RC.CITotal)}}
