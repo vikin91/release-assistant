@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 
 	"release-assistant/internal/release"
@@ -20,7 +21,14 @@ type (
 	commitRangeComparison struct {
 		Status  string
 		Ahead   int `json:"ahead_by"`
-		Commits []struct{ SHA string }
+		Commits []struct {
+			SHA    string
+			Commit struct{ Message string }
+		}
+	}
+	commitRangeAssociations struct {
+		prs              []release.CandidatePR
+		commitsWithoutPR []release.CandidateCommit
 	}
 )
 
@@ -39,16 +47,16 @@ func (c *Client) ReadComponentTagPRs(ctx context.Context, src release.Source, pr
 	if comparison.Status != "ahead" || comparison.Ahead <= 0 {
 		return nil, fmt.Errorf("the previous tag is not an ancestor of the selected tag")
 	}
-	prs, err := c.readRangePRs(ctx, src, endpoint, previousSHA, comparison, comparison.Ahead)
+	associations, err := c.readRangePRs(ctx, src, endpoint, previousSHA, comparison, comparison.Ahead)
 	if err != nil {
 		return nil, err
 	}
-	return prs, nil
+	return associations.prs, nil
 }
 
-func (c *Client) readRangePRs(ctx context.Context, src release.Source, endpoint, baseSHA string, comparison commitRangeComparison, ahead int) ([]release.CandidatePR, error) {
+func (c *Client) readRangePRs(ctx context.Context, src release.Source, endpoint, baseSHA string, comparison commitRangeComparison, ahead int) (commitRangeAssociations, error) {
 	if ahead == 0 {
-		return nil, nil
+		return commitRangeAssociations{}, nil
 	}
 	mergeCommitOnly := src.Name != "acs"
 	key := src.Repo + ":" + src.Branch
@@ -64,7 +72,7 @@ func (c *Client) readRangePRs(ctx context.Context, src release.Source, endpoint,
 		cache.byCommit = make(map[string][]release.CandidatePR)
 	}
 
-	var result []release.CandidatePR
+	var result commitRangeAssociations
 	seen := make(map[int]bool)
 	read := 0
 	for page := 1; page <= maxPages; page++ {
@@ -86,10 +94,16 @@ func (c *Client) readRangePRs(ctx context.Context, src release.Source, endpoint,
 				}
 				cache.byCommit[commit.SHA] = prs
 			}
+			if !mergeCommitOnly && len(prs) == 0 {
+				subject, _, _ := strings.Cut(commit.Commit.Message, "\n")
+				result.commitsWithoutPR = append(result.commitsWithoutPR, release.CandidateCommit{
+					SHA: commit.SHA, Subject: strings.TrimSpace(subject), URL: "https://github.com/" + src.Repo + "/commit/" + segment(commit.SHA),
+				})
+			}
 			for _, pr := range prs {
 				if !seen[pr.Number] {
 					seen[pr.Number] = true
-					result = append(result, pr)
+					result.prs = append(result.prs, pr)
 				}
 			}
 			read++

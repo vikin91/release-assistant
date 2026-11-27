@@ -12,6 +12,8 @@ type Candidate struct {
 	// CompareURL identifies the exact commit range used to count post-RC commits.
 	CompareURL string
 	PRs        []CandidatePR
+	// CommitsWithoutPR lists commits with no verified merged PR association on the branch.
+	CommitsWithoutPR []CandidateCommit
 	// PRsPending indicates that the verified commit range is still being checked for associated PRs.
 	PRsPending bool
 	// PRsHistorical indicates that the displayed PR links came from an earlier comparison.
@@ -25,4 +27,9 @@ type CandidatePR struct {
 	Number int
 	Title  string
 	URL    string
+}
+
+// CandidateCommit identifies a commit in the post-RC branch comparison.
+type CandidateCommit struct {
+	SHA, Subject, URL string
 }

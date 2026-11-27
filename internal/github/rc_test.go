@@ -36,7 +36,7 @@ func TestDiscoverCandidateUsesHighestReachableRCAndLinksItsMergedPRs(t *testing.
 		case "/compare/wrong-branch...head":
 			fmt.Fprint(w, `{"status":"diverged"}`)
 		case "/compare/candidate...head":
-			fmt.Fprint(w, `{"status":"ahead","ahead_by":2,"commits":[{"sha":"first"},{"sha":"second"}]}`)
+			fmt.Fprint(w, `{"status":"ahead","ahead_by":3,"commits":[{"sha":"first"},{"sha":"second"},{"sha":"changelog","commit":{"message":"Update changelog\n\nRelease notes"}}]}`)
 		case "/commits/first/pulls":
 			if !prDiscovery {
 				t.Error("tag discovery requested associated PRs")
@@ -51,6 +51,8 @@ func TestDiscoverCandidateUsesHighestReachableRCAndLinksItsMergedPRs(t *testing.
 				{"number":41,"title":"Backport one","base":{"ref":"release-5.0"},"merged_at":"2026-11-17T12:00:00Z"},
 				{"number":44,"title":"Backport two","base":{"ref":"release-5.0"},"merged_at":"2026-11-17T12:00:00Z"}
 			]`)
+		case "/commits/changelog/pulls":
+			fmt.Fprint(w, `[{"number":45,"base":{"ref":"release-5.0"},"merged_at":null}]`)
 		default:
 			t.Errorf("unexpected request: %s", r.URL)
 			w.WriteHeader(http.StatusNotFound)
@@ -60,11 +62,11 @@ func TestDiscoverCandidateUsesHighestReachableRCAndLinksItsMergedPRs(t *testing.
 		Source:  release.Source{Name: "acs", Repo: "stackrox/stackrox", Branch: "release-5.0"},
 		Version: "5.0.1", Scope: app.ReadRC,
 		CandidateProgress: func(head string, rc release.Candidate) {
-			published = head == "head" && rc.SHA == "candidate" && rc.Evidence.Fresh() && rc.PRsPending && rc.Ahead == 2
+			published = head == "head" && rc.SHA == "candidate" && rc.Evidence.Fresh() && rc.PRsPending && rc.Ahead == 3
 		},
 	})
 	rc := result.Candidate
-	if err != nil || !published || !rc.PRsPending || !rc.Evidence.Fresh() || rc.Target.Tag != "v5.0.1-rc.10" || rc.Number != 10 || rc.SHA != "candidate" || rc.Ahead != 2 || rc.PRError != "" {
+	if err != nil || !published || !rc.PRsPending || !rc.Evidence.Fresh() || rc.Target.Tag != "v5.0.1-rc.10" || rc.Number != 10 || rc.SHA != "candidate" || rc.Ahead != 3 || rc.PRError != "" {
 		t.Fatalf("unexpected current candidate: %+v, err=%v", rc, err)
 	}
 	want := map[string]string{"5.0.1": "published", "5.0.1-rc.9": "old", "5.0.1-rc.11": "wrong-branch", "v5.0.1-rc.10": "candidate"}
@@ -81,6 +83,10 @@ func TestDiscoverCandidateUsesHighestReachableRCAndLinksItsMergedPRs(t *testing.
 	rc = result.Candidate
 	if err != nil || rc.PRsPending || rc.PRError != "" || len(rc.PRs) != 2 || rc.PRs[0].URL != "https://github.com/stackrox/stackrox/pull/41" || rc.PRs[1].Number != 44 {
 		t.Fatalf("unexpected post-RC PRs: %+v", rc.PRs)
+	}
+	wantCommit := release.CandidateCommit{SHA: "changelog", Subject: "Update changelog", URL: "https://github.com/stackrox/stackrox/commit/changelog"}
+	if len(rc.CommitsWithoutPR) != 1 || rc.CommitsWithoutPR[0] != wantCommit {
+		t.Fatalf("unexpected commits without a merged PR: %+v", rc.CommitsWithoutPR)
 	}
 }
 

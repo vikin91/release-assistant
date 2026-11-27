@@ -168,6 +168,7 @@ func mergeDiscovery(old, latest release.Repository, request DiscoveryRequest) re
 			// A tag refresh cannot replace PR associations for an identical commit range.
 			if latest.Candidate.PRsPending && sameCandidateRange(old.Candidate, latest.Candidate) {
 				latest.Candidate.PRs, latest.Candidate.PRError, latest.Candidate.PRsPending = old.Candidate.PRs, old.Candidate.PRError, old.Candidate.PRsPending
+				latest.Candidate.CommitsWithoutPR = old.Candidate.CommitsWithoutPR
 			}
 		case latest.Head != old.Head:
 			latest.Candidate = release.Candidate{}

@@ -314,12 +314,12 @@ func TestRCTabShowsPostCandidateCommitsAndPRsWithoutPinning(t *testing.T) {
 	}{
 		"branch and candidate match": {want: []string{"No commits have landed on the release branch since RC.2."}},
 		"two commits landed": {ahead: 2, want: []string{
-			">2 commits</a> landed on the release branch since RC.2.",
+			">2 commits</a>, 1 merged PR since RC.2.",
 			`href="https://github.com/stackrox/stackrox/compare/rc-commit...acs-head"`,
-			`href="https://github.com/stackrox/stackrox/pull/17"`, "#17 Backport fix",
+			`href="https://github.com/stackrox/stackrox/pull/17"`, "#17 Backport fix", "Commits without an associated merged PR", "Update changelog",
 		}},
 		"PR results are incomplete": {ahead: 1, prError: "GitHub rate limit", want: []string{
-			">1 commit</a> landed on the release branch since RC.2.",
+			">1 commit</a> since RC.2.",
 			"Some PR links are unavailable.",
 		}},
 	} {
@@ -334,6 +334,7 @@ func TestRCTabShowsPostCandidateCommitsAndPRsWithoutPinning(t *testing.T) {
 			rc.CompareURL = "https://github.com/stackrox/stackrox/compare/rc-commit...acs-head"
 			if tc.ahead == 2 {
 				rc.PRs = []release.CandidatePR{{Number: 17, Title: "Backport fix", URL: "https://github.com/stackrox/stackrox/pull/17"}}
+				rc.CommitsWithoutPR = []release.CandidateCommit{{SHA: "changelog", Subject: "Update changelog", URL: "https://github.com/stackrox/stackrox/commit/changelog"}}
 			}
 			panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-rcs")
 			const milestone = `href="https://github.com/stackrox/stackrox/milestone/575"`
@@ -452,7 +453,7 @@ func TestRCTabShowsSavedPRLinksWhileRefreshing(t *testing.T) {
 	rc.Ahead, rc.PRsPending, rc.PRsHistorical = 40, true, true
 	rc.PRs = []release.CandidatePR{{Number: 17, Title: "Backport fix", URL: "https://github.com/stackrox/stackrox/pull/17"}}
 	panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-rcs")
-	for _, want := range []string{"40 commits", "Showing the last known merged PR list.", "Checking for associated merged PRs on the updated branch.", "#17 Backport fix"} {
+	for _, want := range []string{"40 commits", "Showing the last known merged PR list and any commits without a merged PR.", "Checking for associated merged PRs on the updated branch.", "#17 Backport fix"} {
 		if !strings.Contains(panel, want) {
 			t.Errorf("missing %q", want)
 		}

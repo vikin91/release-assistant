@@ -17,11 +17,15 @@
           {{if or .Evidence.Fresh .Evidence.Historical}}
             {{if eq .Ahead 0}}<p>{{if .Evidence.Historical}}The last comparison found no commits{{else}}No commits have landed{{end}} on the release branch since RC.{{.Number}}.</p>
             {{else}}
-              <p>{{if .Evidence.Historical}}Last comparison found {{end}}<a aria-describedby="new-tab-description" href="{{url .CompareURL}}" target="_blank" rel="noreferrer">{{.Ahead}} {{if eq .Ahead 1}}commit{{else}}commits{{end}}</a> {{if not .Evidence.Historical}}landed {{end}}on the release branch since RC.{{.Number}}.</p>
-              {{if .PRsHistorical}}<p class="muted">Showing the last known merged PR list. {{if .PRsPending}}Checking for associated merged PRs on the updated branch.{{end}}</p>{{end}}
+              <p>{{if .Evidence.Historical}}Last comparison found {{end}}<a aria-describedby="new-tab-description" href="{{url .CompareURL}}" target="_blank" rel="noreferrer">{{.Ahead}} {{if eq .Ahead 1}}commit{{else}}commits{{end}}</a>{{if not (or .PRsHistorical .PRsPending .PRError)}}, {{len .PRs}} merged {{if eq (len .PRs) 1}}PR{{else}}PRs{{end}}{{end}} since RC.{{.Number}}.</p>
+              {{if .PRsHistorical}}<p class="muted">Showing the last known merged PR list and any commits without a merged PR. {{if .PRsPending}}Checking for associated merged PRs on the updated branch.{{end}}</p>{{end}}
               {{if .PRs}}<ol>{{range .PRs}}<li><a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">#{{.Number}} {{.Title}}</a></li>{{end}}</ol>
-              {{else if .PRsPending}}<p class="muted">Checking for associated merged PRs.</p>
-              {{else if not .PRError}}<p class="muted">GitHub reported no associated merged PRs.</p>{{end}}
+              {{else if and .PRsPending (not .PRsHistorical)}}<p class="muted">Checking for associated merged PRs.</p>
+              {{else if not (or .PRsPending .PRError .PRsHistorical)}}<p class="muted">GitHub reported no associated merged PRs.</p>{{end}}
+              {{if .CommitsWithoutPR}}
+              <h4>Commits without an associated merged PR</h4>
+              <ol>{{range .CommitsWithoutPR}}<li><a aria-describedby="new-tab-description" href="{{url .URL}}" target="_blank" rel="noreferrer">{{or .Subject .SHA}}</a></li>{{end}}</ol>
+              {{end}}
               {{if .PRError}}<p class="muted">Some PR links are unavailable. {{.PRError}}</p>{{end}}
             {{end}}
           {{else if not .Evidence.Error}}<p>Rechecking RC.{{.Number}} against the updated release branch. Showing the last observed results.</p>{{end}}

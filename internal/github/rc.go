@@ -142,8 +142,8 @@ func (c *Client) compareCandidate(ctx context.Context, req app.DiscoveryRequest,
 		cycle := &discoveryCycle{reads: map[string]cachedRead{}, limit: maxCandidateRequests, remaining: maxCandidateRequests}
 		ctx = context.WithValue(ctx, discoveryCycleKey{}, cycle)
 		rc.PRsPending = false
-		prs, err := c.readRangePRs(ctx, src, endpoint, rc.SHA, comparison, rc.Ahead)
-		rc.PRs = prs
+		associations, err := c.readRangePRs(ctx, src, endpoint, rc.SHA, comparison, rc.Ahead)
+		rc.PRs, rc.CommitsWithoutPR = associations.prs, associations.commitsWithoutPR
 		if err != nil {
 			rc.PRError = requestProblem(err)
 		}
@@ -164,10 +164,12 @@ func (c *Client) completeCandidatePRs(ctx context.Context, src release.Source, r
 	ctx = context.WithValue(ctx, discoveryCycleKey{}, cycle)
 	endpoint := repoPath(src.Repo) + "/compare/" + segment(rc.SHA) + "..." + segment(head)
 	var comparison commitRangeComparison
-	rc.PRs, rc.PRError, rc.PRsPending = nil, "", false
+	rc.PRs, rc.CommitsWithoutPR, rc.PRError, rc.PRsPending = nil, nil, "", false
 	err := c.get(ctx, endpoint+"?per_page=100&page=1", &comparison)
 	if err == nil {
-		rc.PRs, err = c.readRangePRs(ctx, src, endpoint, rc.SHA, comparison, rc.Ahead)
+		var associations commitRangeAssociations
+		associations, err = c.readRangePRs(ctx, src, endpoint, rc.SHA, comparison, rc.Ahead)
+		rc.PRs, rc.CommitsWithoutPR = associations.prs, associations.commitsWithoutPR
 	}
 	if err != nil {
 		rc.PRError = requestProblem(err)

@@ -829,6 +829,7 @@ func (s *Session) fillSharedSnapshot(x *Snapshot) {
 
 func cloneRepository(r release.Repository) release.Repository {
 	r.Candidate.PRs = slices.Clone(r.Candidate.PRs)
+	r.Candidate.CommitsWithoutPR = slices.Clone(r.Candidate.CommitsWithoutPR)
 	r.PRs = slices.Clone(r.PRs)
 	for i := range r.PRs {
 		r.PRs[i].Checks = slices.Clone(r.PRs[i].Checks)
