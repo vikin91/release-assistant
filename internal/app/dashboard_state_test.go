@@ -462,3 +462,35 @@ func TestSelectObservedTagAfterRestartWithoutFetchingNames(t *testing.T) {
 		t.Fatalf("selected tag = %q, want %q", got, chosen.Name)
 	}
 }
+
+func TestDashboardRetainsPRLinksWhileRCBranchComparisonRefreshes(t *testing.T) {
+	source := configuration().ACS()
+	old := release.Repository{Source: source, Candidate: release.Candidate{
+		Target: release.Target{Repo: source.Repo, Tag: "5.0.1-rc.0"}, SHA: "rc", Evidence: observed(),
+		CompareURL: "rc...old", Ahead: 39, PRs: []release.CandidatePR{{Number: 123}},
+	}}
+	current := old
+	current.Candidate.CompareURL, current.Candidate.Ahead = "rc...new", 40
+	current.Candidate.PRs, current.Candidate.PRsPending = nil, true
+
+	pending := dashboardRepository(old, current, true, "")
+	if rc := pending.Candidate; rc.Ahead != 40 || !rc.PRsPending || !rc.PRsHistorical || len(rc.PRs) != 1 || rc.PRs[0].Number != 123 {
+		t.Fatalf("pending comparison lost its display history: %+v", rc)
+	}
+	current.Candidate.PRsPending, current.Candidate.PRError = false, "GitHub request timed out."
+	failed := dashboardRepository(pending, current, true, "").Candidate
+	if !failed.PRsHistorical || failed.PRError == "" || len(failed.PRs) != 1 {
+		t.Fatalf("failed comparison lost its display history: %+v", failed)
+	}
+
+	current.Candidate.PRError = ""
+	complete := dashboardRepository(pending, current, true, "").Candidate
+	if complete.PRsHistorical || len(complete.PRs) != 0 {
+		t.Fatalf("verified empty list did not replace display history: %+v", complete)
+	}
+	current.Candidate.SHA, current.Candidate.PRsPending = "moved-rc", true
+	moved := dashboardRepository(pending, current, true, "").Candidate
+	if moved.PRsHistorical || len(moved.PRs) != 0 {
+		t.Fatalf("historical PRs leaked across RC commits: %+v", moved)
+	}
+}

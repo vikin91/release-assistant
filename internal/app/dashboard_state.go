@@ -241,8 +241,10 @@ func dashboardRepository(previous, current release.Repository, completeTags bool
 	if !newRC.Evidence.Fresh() && oldRC.Evidence.Known {
 		oldRC.Evidence = historicalEvidence(oldRC.Evidence, newRC.Evidence)
 		result.Candidate = oldRC
-	} else if sameCandidateRange(oldRC, newRC) && (newRC.PRsPending || newRC.PRError != "") && len(oldRC.PRs) > 0 {
+	} else if (newRC.PRsPending || newRC.PRError != "") && newRC.Ahead > 0 &&
+		newRC.Target == oldRC.Target && newRC.SHA != "" && newRC.SHA == oldRC.SHA && len(oldRC.PRs) > 0 {
 		result.Candidate.PRs = oldRC.PRs
+		result.Candidate.PRsHistorical = oldRC.PRsHistorical || !sameCandidateRange(oldRC, newRC)
 	}
 	if !current.PreviousPins.Evidence.Fresh() && previous.PreviousPins.Evidence.Known {
 		result.PreviousPublished = previous.PreviousPublished

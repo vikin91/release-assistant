@@ -14,6 +14,8 @@ type Candidate struct {
 	PRs        []CandidatePR
 	// PRsPending indicates that the verified commit range is still being checked for associated PRs.
 	PRsPending bool
+	// PRsHistorical indicates that the displayed PR links came from an earlier comparison.
+	PRsHistorical bool
 	// PRError indicates that the count is verified but the PR list may be incomplete.
 	PRError string
 }

@@ -440,3 +440,16 @@ func TestRefreshRCFormReturnsToCutButton(t *testing.T) {
 		t.Fatalf("unexpected RC refresh response %d and actions %v", response.Code, application.actions)
 	}
 }
+
+func TestRCTabShowsSavedPRLinksWhileRefreshing(t *testing.T) {
+	s := workflowStatusSnapshot()
+	rc := &s.Repositories[len(s.Repositories)-1].Candidate
+	rc.Ahead, rc.PRsPending, rc.PRsHistorical = 40, true, true
+	rc.PRs = []release.CandidatePR{{Number: 17, Title: "Backport fix", URL: "https://github.com/stackrox/stackrox/pull/17"}}
+	panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-rcs")
+	for _, want := range []string{"40 commits", "Showing the last known merged PR list.", "Checking for associated merged PRs on the updated branch.", "#17 Backport fix"} {
+		if !strings.Contains(panel, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}
