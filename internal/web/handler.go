@@ -323,6 +323,8 @@ func (s *server) post(w http.ResponseWriter, r *http.Request) {
 		} else {
 			destination = "/?tab=app-settings&saved=application"
 		}
+	case "refresh-rc":
+		destination += "#cut-rc"
 	case "refresh-images":
 		if r.PostForm.Get("tab") == "acs-rcs" {
 			destination += "#release-images"
@@ -617,6 +619,10 @@ func parseAction(r *http.Request, current release.Config) (app.Action, error) {
 		}
 	case "interactive":
 		a.Enabled = formHasValue(form, "enabled", "true")
+	case "refresh-rc":
+		if form.Get("tab") != "acs-rcs" {
+			return a, fmt.Errorf("refresh RC from ACS RCs")
+		}
 	case "refresh-images":
 	case "fetch-tag-names", "verify-recent-tags":
 		a.Component = form.Get("component")

@@ -339,13 +339,36 @@ func TestRCTabShowsPostCandidateCommitsAndPRsWithoutPinning(t *testing.T) {
 					!strings.Contains(panel, "Close it manually on GitHub to cut RC.3.") {
 					t.Fatal("missing or misplaced Cut RC link and help text")
 				}
-			} else if strings.Contains(panel, "Cut RC.") {
-				t.Fatal("unexpected Cut RC link without a verified milestone")
+			} else if !strings.Contains(panel, `<button type="button" disabled aria-describedby="cut-rc-help">Cut RC.3</button>`) {
+				t.Fatal("expected a disabled Cut RC button without a verified milestone")
 			}
 			for _, want := range append(tc.want, "Open RC.2 tag") {
 				if !strings.Contains(panel, want) {
 					t.Errorf("missing %q", want)
 				}
+			}
+		})
+	}
+}
+
+func TestCutRCButtonExplainsUnavailableMilestone(t *testing.T) {
+	for name, tc := range map[string]struct {
+		historical bool
+		milestone  release.Evidence
+		want       string
+	}{
+		"saved candidate":       {historical: true, milestone: release.Evidence{Known: true, At: time.Now(), URL: "https://github.com/stackrox/stackrox/milestone/575"}, want: "Waiting for GitHub to verify the current RC and release branch."},
+		"missing milestone":     {milestone: release.Evidence{Known: true, At: time.Now()}, want: "GitHub has no open milestone for the next RC."},
+		"failed milestone read": {milestone: release.Evidence{Error: "Request timed out."}, want: "Could not verify the next RC milestone on GitHub. Request timed out."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := workflowStatusSnapshot()
+			rc := &s.Repositories[len(s.Repositories)-1].Candidate
+			rc.Ahead, rc.Evidence.Historical, rc.NextMilestone = 2, tc.historical, tc.milestone
+			panel := activityPanel(t, newBrowser(t, &fakeApplication{snapshot: s}).getBody(t), "acs-rcs")
+			if !strings.Contains(panel, `<button type="button" disabled aria-describedby="cut-rc-help">Cut RC.3</button>`) ||
+				!strings.Contains(panel, tc.want) || strings.Contains(panel, "/milestone/575") {
+				t.Fatalf("expected a disabled Cut RC button with reason %q", tc.want)
 			}
 		})
 	}
@@ -398,5 +421,22 @@ func TestRCFieldsRemainVisibleAcrossObservations(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRefreshRCFormReturnsToCutButton(t *testing.T) {
+	snapshot := workflowStatusSnapshot()
+	application := &fakeApplication{snapshot: snapshot}
+	b := newBrowser(t, application)
+	panel := activityPanel(t, b.getBody(t), "acs-rcs")
+	if !strings.Contains(panel, `name="kind" value="refresh-rc"`) || !strings.Contains(panel, ">Refresh RC</button>") {
+		t.Fatal("missing RC refresh form")
+	}
+	response := b.post(url.Values{
+		"kind": {"refresh-rc"}, "tab": {"acs-rcs"}, "generation": {strconv.FormatUint(snapshot.Generation, 10)},
+	})
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/?tab=acs-rcs#cut-rc" ||
+		len(application.actions) != 1 || application.actions[0].Kind != "refresh-rc" {
+		t.Fatalf("unexpected RC refresh response %d and actions %v", response.Code, application.actions)
 	}
 }

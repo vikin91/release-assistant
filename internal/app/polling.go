@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -75,6 +76,9 @@ func (s *Session) tagPollJob(source release.Source) pollJob {
 	job := pollJob{kind: pollTags, setting: BeforeTags}
 	if source.Name == "acs" {
 		job.setting = ACSTags
+		if s.rcRefresh != 0 {
+			job.identity = strconv.FormatUint(s.rcRefresh, 10)
+		}
 		return job
 	}
 	if selected := s.choices.Tags[source.Name]; selected != "" {

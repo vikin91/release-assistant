@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ type (
 		Candidate                         release.Candidate
 		TagURL, ChecksURL, WorkflowURL    string
 		CommitURL                         string
+		CutRCURL, CutRCBlocker            string
 		Plan                              *planModel
 		Permission                        *tagModel
 		ReadyForTag                       bool
@@ -37,6 +39,55 @@ type (
 	}
 )
 
+func (p *pageModel) cutRCState() (link, blocker string) {
+	rc := p.RC.Candidate
+	milestone := rc.NextMilestone
+	if rc.Evidence.Fresh() && milestone.Fresh() {
+		if link := safeURL(milestone.URL); link != "" {
+			return link, ""
+		}
+	}
+
+	switch {
+	case rc.Evidence.Error != "":
+		return "", "Could not verify the current RC on GitHub. " + rc.Evidence.Error
+	case !rc.Evidence.Fresh() && p.ViewingInactive:
+		return "", "Activate this release to refresh RC and milestone information."
+	case !rc.Evidence.Fresh():
+		return "", "Waiting for GitHub to verify the current RC and release branch."
+	}
+
+	version := strings.TrimPrefix(p.Snapshot.Config.Version, "v")
+	if p.ACS != nil {
+		for _, tag := range p.ACS.Tags {
+			if tag.Evidence.Historical {
+				continue
+			}
+			name := strings.TrimPrefix(tag.Name, "v")
+			if name == version {
+				return "", "The final release tag already exists."
+			}
+			if suffix, ok := strings.CutPrefix(name, version+"-rc."); ok {
+				if number, err := strconv.ParseUint(suffix, 10, 64); err == nil && number > rc.Number {
+					return "", "A newer RC tag already exists on GitHub."
+				}
+			}
+		}
+	}
+	switch {
+	case rc.Target.Valid() && rc.Ahead <= 0:
+		return "", "No new commits on the release branch since the current RC."
+	case milestone.Error != "":
+		return "", "Could not verify the next RC milestone on GitHub. " + milestone.Error
+	case milestone.Fresh() && milestone.URL == "":
+		return "", "GitHub has no open milestone for the next RC."
+	case milestone.Fresh():
+		return "", "GitHub returned an unusable milestone link."
+	default:
+		return "", "Waiting for GitHub to verify the next RC milestone."
+	}
+}
+
 func (p *pageModel) prepareRC() {
 	p.RC.Candidate = p.Snapshot.Candidate()
 	p.RC.NextNumber = p.RC.Candidate.Number + 1
@@ -46,6 +97,7 @@ func (p *pageModel) prepareRC() {
 	if target.Valid() {
 		p.RC.TagURL = repoURL + "/tree/refs/tags/" + url.PathEscape(target.Tag)
 	}
+	p.RC.CutRCURL, p.RC.CutRCBlocker = p.cutRCState()
 	assessment := p.Snapshot.Assessment
 	p.RC.ReadyForTag = p.RC.Candidate.Evidence.Fresh() && (p.RC.TagURL == "" || p.RC.Candidate.Ahead > 0) &&
 		p.ACS != nil && !p.ACS.TagsPending && !slices.ContainsFunc(p.ACS.Tags, func(tag release.Tag) bool {

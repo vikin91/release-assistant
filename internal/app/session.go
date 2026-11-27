@@ -88,6 +88,8 @@ type (
 		PendingPinningPR int
 		// Loading keeps the dashboard refreshing during startup and while included ACS PRs await CI results.
 		Loading bool
+		// RCRefreshing reports an on-demand RC discovery request.
+		RCRefreshing bool
 		// ImagesRefreshing keeps the dashboard updating while registry results arrive.
 		ImagesRefreshing bool
 		// Monitoring reports whether this snapshot comes from the active release.
@@ -163,6 +165,7 @@ type (
 		nextRetestID     uint64
 		inventory        release.Inventory
 		imageRefresh     uint64
+		rcRefresh        uint64
 		imageReads       int
 		confirmedSHAs    map[string]string
 		pendingTags      map[string]savedComponentTag
@@ -343,6 +346,17 @@ func (s *Session) Apply(ctx context.Context, a Action) error {
 	switch a.Kind {
 	case "fetch-tag-names", "verify-recent-tags", "select-fetched-tag":
 		return s.requestComponentTagAction(a)
+	case "refresh-rc":
+		if err := s.config.Validate(); err != nil {
+			return err
+		}
+		source := s.config.ACS()
+		job := s.tagPollJob(source)
+		if s.polls[job.id(source)].identity == job.identity {
+			s.rcRefresh++
+			s.wakePolls()
+		}
+		return nil
 	case "refresh-images":
 		if err := s.config.Validate(); err != nil {
 			return err
@@ -699,6 +713,8 @@ func (s *Session) profileSnapshot(work *releaseWork, active bool, profileID stri
 		x.Interactive, x.RequirePRLabel = s.dispatcher.IsInteractive(), s.dispatcher.RequiresPRLabel()
 		x.WritesEnabled, x.Authority = s.dispatcher.WritesEnabled(), s.dispatcher.Views()
 		x.RefreshingResumed = s.hasOverdueObservations()
+		rcJob := s.tagPollJob(c.ACS())
+		x.RCRefreshing = work.polls[rcJob.id(c.ACS())].identity != rcJob.identity
 		x.ImagesRefreshing = work.imageReads > 0 || work.imageRefresh > work.polls[pollID{c.ACS().Repo, pollImages}].imageRefresh
 		x.ComponentTagActions = make(map[string]string, len(work.componentTagActions))
 		for name, action := range work.componentTagActions {

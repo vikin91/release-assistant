@@ -325,3 +325,22 @@ func TestNewCandidateStartsItsOwnCheckInterval(t *testing.T) {
 		}
 	})
 }
+
+func TestRefreshRCRequestsDiscoveryBeforeTheNextInterval(t *testing.T) {
+	s, f, _ := rcFixture(t)
+	source := s.config.ACS()
+	original := s.tagPollJob(source)
+	s.polls[original.id(source)] = pollRecord{identity: original.identity, finished: time.Now()}
+	action := Action{Kind: "refresh-rc", Generation: s.generation}
+	apply(t, s, action)
+	requested := s.tagPollJob(source)
+	apply(t, s, action)
+	if requested == original || requested != s.tagPollJob(source) || !s.Snapshot().RCRefreshing {
+		t.Fatal("expected one pending RC refresh")
+	}
+	s.runPoll(t.Context(), s.generation, s.workRevision, source, requested)
+	last := f.requests[len(f.requests)-1]
+	if last.Source != source || last.Scope != ReadRC|ReadPreviousPins || s.Snapshot().RCRefreshing {
+		t.Fatalf("expected the RC discovery poll to finish, last request: %+v", last)
+	}
+}
