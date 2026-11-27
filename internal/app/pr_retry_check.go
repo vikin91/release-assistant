@@ -97,7 +97,15 @@ func (s *Session) checkPRRetries(ctx context.Context, a Action) error {
 			if message == "" {
 				message = "Konflux could not verify the displayed PR head."
 			}
-			plan = release.Plan{Evidence: release.Evidence{Error: message}}
+			var diagnostics []release.KonfluxDiagnostic
+			if plan.Target == a.Target && plan.SHA == "" {
+				for _, finding := range plan.Diagnostics {
+					if finding.Job == "" && finding.CheckID == 0 {
+						diagnostics = append(diagnostics, finding)
+					}
+				}
+			}
+			plan = release.Plan{Evidence: release.Evidence{Error: message}, Diagnostics: diagnostics}
 		}
 		plan.Evidence.At = check.Started
 		check.Konflux = plan

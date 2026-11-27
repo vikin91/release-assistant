@@ -225,6 +225,13 @@ type (
 	}
 	// Advisory is a separately acknowledged finding, never an implicit gate.
 	Advisory struct{ ID, Name, Message, URL string }
+	// KonfluxDiagnostic describes a planner finding for display.
+	KonfluxDiagnostic struct {
+		Job, Category, Detail string
+		// CheckID is set when the finding relates to a GitHub check run.
+		CheckID int64
+		IsError bool
+	}
 	// Proposal binds one exact comment to one planner-approved attempt.
 	Proposal struct {
 		Target            Target
@@ -244,6 +251,7 @@ type (
 		Runs                 []Run
 		Proposals            []Proposal
 		Warnings             []string
+		Diagnostics          []KonfluxDiagnostic
 		Advisories           []Advisory
 		StartFailures        []StartFailure
 		Evidence             Evidence

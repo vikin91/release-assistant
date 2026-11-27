@@ -31,6 +31,7 @@ func TestRetryPlanPreservesKonfluxEvidence(t *testing.T) {
 		Target: target, SHA: "head", Action: "Retest", Message: "Retry available",
 		Evidence:      Evidence{At: now, URL: "pr-url", Error: "partial result"},
 		Warnings:      []string{"partial result"},
+		Diagnostics:   []KonfluxDiagnostic{{CheckID: 4, Job: "other", Category: "Network error", Detail: "cluster unavailable", IsError: true}},
 		Runs:          []Run{{ID: "run-12", Job: "build", Eligible: true, Image: Image{Reference: "image"}}},
 		Proposals:     []Proposal{{Target: target, SHA: "head", RunID: "run-12", Job: "build", Payload: "/konflux-retest build", CommentFooter: "footer", At: now}},
 		Advisories:    []Advisory{{ID: "cve", Message: "advisory"}},

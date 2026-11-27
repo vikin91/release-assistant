@@ -133,6 +133,15 @@ func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, err
 	for i := range p.Warnings {
 		p.Warnings[i] = observationProblem(p.Warnings[i], a.config)
 	}
+	for _, finding := range r.Diagnostics {
+		if finding.Err != nil {
+			p.Diagnostics = append(p.Diagnostics, release.KonfluxDiagnostic{
+				Job: observationProblem(finding.Job, a.config), CheckID: finding.CheckRunID,
+				Category: diagnosticCategory(finding.Err), Detail: observationProblem(finding.Err.Error(), a.config),
+				IsError: finding.Severity == retry.DiagnosticError,
+			})
+		}
+	}
 	if err != nil {
 		p.Evidence.Error = observationProblem(err.Error(), a.config)
 		p.KonfluxAPIUnavailable = reads.unavailable.Load() || reads.deferred.Load()
@@ -196,6 +205,33 @@ func (a *Adapter) Plan(ctx context.Context, t release.Target) (release.Plan, err
 		}
 	}
 	return p, err
+}
+
+func diagnosticCategory(err error) string {
+	switch {
+	case errors.Is(err, retry.ErrUnsupportedRetagContract):
+		return "Retag input validation"
+	case errors.Is(err, retry.ErrCheckCredential):
+		return "Credential problem"
+	case errors.Is(err, retry.ErrCheckPermission):
+		return "Access denied"
+	case errors.Is(err, retry.ErrCheckRateLimit):
+		return "Rate limit reached"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "Verification timed out"
+	case errors.Is(err, retry.ErrCheckNetwork):
+		return "Network error"
+	case errors.Is(err, retry.ErrCheckIdentity):
+		return "Unverified PipelineRun"
+	case errors.Is(err, retry.ErrCheckImageMissing):
+		return "Missing input image"
+	case errors.Is(err, retry.ErrCheckRegistry):
+		return "Registry verification"
+	case errors.Is(err, retry.ErrCheckInput):
+		return "Input verification"
+	default:
+		return ""
+	}
 }
 
 func proposalEvidence(target release.Target, job string, result retry.Result) string {

@@ -27,6 +27,7 @@ type (
 		runs            []Run
 		advisories      []Advisory
 		startFailures   []StartFailure
+		diagnostics     []KonfluxDiagnostic
 		validation      Validation
 		apiUnavailable  bool
 	}
@@ -61,7 +62,8 @@ func (p Plan) RetryPlan() RetryPlan {
 		konflux: konfluxRetryDetails{
 			action: p.Action, message: p.Message, runs: p.Runs,
 			advisories: p.Advisories, startFailures: p.StartFailures,
-			validation: p.Validation, apiUnavailable: p.KonfluxAPIUnavailable,
+			diagnostics: p.Diagnostics,
+			validation:  p.Validation, apiUnavailable: p.KonfluxAPIUnavailable,
 		},
 	}
 }
@@ -72,6 +74,7 @@ func (p RetryPlan) KonfluxPlan() Plan {
 		Target: p.Target, SHA: p.SHA, Evidence: p.Evidence, Warnings: p.Warnings,
 		Proposals: p.Comments, Action: p.konflux.action, Message: p.konflux.message,
 		Runs: p.konflux.runs, Advisories: p.konflux.advisories, StartFailures: p.konflux.startFailures,
-		Validation: p.konflux.validation, KonfluxAPIUnavailable: p.konflux.apiUnavailable,
+		Diagnostics: p.konflux.diagnostics,
+		Validation:  p.konflux.validation, KonfluxAPIUnavailable: p.konflux.apiUnavailable,
 	}
 }

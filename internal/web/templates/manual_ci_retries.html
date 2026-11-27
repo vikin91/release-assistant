@@ -38,6 +38,6 @@
 
 {{define "retry-diagnostics"}}
   {{if .}}<p class="build-retry-note retry-diagnostics" role="status">
-    {{range .}}<span class="{{if .External}}error-text{{else}}unknown{{end}}"><strong>{{.Source}} · {{.Label}} =</strong> {{.Message}}</span>{{end}}
+    {{range .}}<span class="{{if .External}}error-text{{else}}unknown{{end}}"><strong>{{.Source}} · {{.Label}} =</strong> {{if .Job}}<code>{{.Job}}</code> · {{end}}{{.Message}}{{if .CheckURL}} · <a aria-describedby="new-tab-description" href="{{url .CheckURL}}" target="_blank" rel="noreferrer">View GitHub check</a>{{end}}</span>{{end}}
   </p>{{end}}
 {{end}}

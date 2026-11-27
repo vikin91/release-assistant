@@ -18,6 +18,7 @@ func TestCheckPRRetriesUsesBothReadersForIncludedHead(t *testing.T) {
 		ciSHA       string
 		githubState string
 		githubErr   error
+		konfluxErr  error
 	}{
 		"should refresh an included PR":              {choice: release.Included, ciSHA: "head", githubState: "open", stale: true},
 		"should reject an undecided PR":              {githubState: "open"},
@@ -27,6 +28,9 @@ func TestCheckPRRetriesUsesBothReadersForIncludedHead(t *testing.T) {
 		"should refresh a closed PR without checks":  {choice: release.Included, githubState: "closed"},
 		"should still check retries on read failure": {
 			choice: release.Included, ciSHA: "head", githubState: "merged", githubErr: errors.New("GitHub unavailable"),
+		},
+		"should show a target-level failure before resolving the head": {
+			choice: release.Included, ciSHA: "head", githubState: "open", konfluxErr: errors.New("GitHub returned HTTP 403"),
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -53,6 +57,12 @@ func TestCheckPRRetriesUsesBothReadersForIncludedHead(t *testing.T) {
 			}}
 			session.planner = buildPollPlanner(func(_ context.Context, got release.Target) (release.Plan, error) {
 				konfluxCalls++
+				if scenario.konfluxErr != nil {
+					return release.Plan{Target: got, Diagnostics: []release.KonfluxDiagnostic{
+						{Category: "Rate limit reached", Detail: scenario.konfluxErr.Error(), IsError: true},
+						{Job: "old-check", CheckID: 17, Detail: "unverified finding"},
+					}}, scenario.konfluxErr
+				}
 				return release.Plan{Target: got, SHA: pr.SHA, Evidence: observed(),
 					Proposals: []release.Proposal{{Target: got, SHA: pr.SHA, Job: "checks", RunID: "1", Payload: "/konflux-retest checks"}}}, nil
 			})
@@ -86,7 +96,13 @@ func TestCheckPRRetriesUsesBothReadersForIncludedHead(t *testing.T) {
 			if err != nil || konfluxCalls != 1 || ciCalls != 1 {
 				t.Fatalf("expected both retry results, got %+v, %v", result, err)
 			}
-			if scenario.ciSHA == pr.SHA {
+			if scenario.konfluxErr != nil {
+				findings := result.Konflux.Diagnostics
+				if len(findings) != 1 || findings[0].Category != "Rate limit reached" ||
+					result.Konflux.Evidence.Fresh() || len(result.Konflux.Proposals) != 0 || len(result.CI.Jobs) != 1 {
+					t.Fatalf("expected only the target-level diagnostic and the CI offer: %+v", result)
+				}
+			} else if scenario.ciSHA == pr.SHA {
 				if len(result.Konflux.Proposals) != 1 || len(result.CI.Jobs) != 1 {
 					t.Fatalf("expected both retry commands, got %+v", result)
 				}

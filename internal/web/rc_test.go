@@ -212,6 +212,20 @@ func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 	if strings.Contains(table, "extra-retag-job") || strings.Count(panel, message) != 1 {
 		t.Error("auxiliary check diagnostics leaked into the image rows")
 	}
+	s.Plans[0].Diagnostics = []release.KonfluxDiagnostic{
+		{Job: "extra-retag-job", CheckID: 73, Category: "Verification timed out", Detail: message, IsError: true},
+	}
+	s.Plans[0].Warnings = []string{"identity unknown: " + message, "An upstream warning without a structured finding."}
+	panel = render()
+	diagnostics = between(t, panel, `<section class="rc-diagnostics" aria-labelledby="rc-build-diagnostics-heading">`, "</section>")
+	for _, want := range []string{"Verification timed out · Error", "An upstream warning without a structured finding.", "/runs/73"} {
+		if !strings.Contains(diagnostics, want) {
+			t.Errorf("missing %q in structured diagnostics: %s", want, diagnostics)
+		}
+	}
+	if strings.Count(diagnostics, message) != 1 {
+		t.Errorf("structured finding and its text fallbacks rendered more than once: %s", diagnostics)
+	}
 
 	s.Plans[0].Runs[1].ID, s.Plans[0].Runs[1].Status, s.Plans[0].Runs[1].Outcome = "", "unknown", ""
 	panel = render()
@@ -235,6 +249,7 @@ func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 	}
 	s.Plans[0].Evidence.Error = ""
 	s.Plans[0].Warnings = nil
+	s.Plans[0].Diagnostics = nil
 	panel = render()
 	if !strings.Contains(panel, "No problems to report") || strings.Contains(panel, "Build check diagnostics") {
 		t.Error("image-table jobs should not open a separate diagnostics section")

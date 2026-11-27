@@ -219,6 +219,30 @@ func TestPublicAdapterPreservesActionableIdentityErrors(t *testing.T) {
 			t.Fatalf("upstream response data leaked in diagnostics: %q", unexpected)
 		}
 	}
+	if len(plan.Diagnostics) != 1 {
+		t.Fatalf("expected one diagnostic for the failed check: %+v", plan.Diagnostics)
+	}
+	finding := plan.Diagnostics[0]
+	if finding.Job != "main-on-push" || finding.CheckID != 17 || !finding.IsError || finding.Category != "Access denied" ||
+		!strings.Contains(finding.Detail, "HTTP 403") || strings.Contains(finding.Detail, "cluster-secret") {
+		t.Fatalf("unexpected check diagnostic: %+v", finding)
+	}
+}
+
+func TestPublicAdapterClassifiesGitHubRateLimit(t *testing.T) {
+	transport := roundTrip(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusForbidden, Header: http.Header{"Retry-After": {"30"}},
+			Body: io.NopCloser(strings.NewReader("{}")), Request: req,
+		}, nil
+	})
+	adapter := New(Config{HTTPClient: &http.Client{Transport: transport}})
+	result, err := adapter.PlanRetries(t.Context(), release.Target{Repo: "stackrox/stackrox", PR: 123})
+	plan := result.KonfluxPlan()
+	if !errors.Is(err, retry.ErrCheckRateLimit) || len(plan.Proposals) != 0 || plan.Evidence.Fresh() ||
+		len(plan.Diagnostics) != 1 || plan.Diagnostics[0].Category != "Rate limit reached" || !plan.Diagnostics[0].IsError {
+		t.Fatalf("expected a rate limit finding and no offers: %+v, %v", plan, err)
+	}
 }
 
 func TestIsUnsupportedRetagContract(t *testing.T) {

@@ -1322,6 +1322,7 @@ func (s *Session) refresh(ctx context.Context, generation uint64, source release
 			old.Evidence.Known = false
 			old.Target = target
 			old.Evidence.Error = message
+			old.Diagnostics = plan.Diagnostics
 			if old.Evidence.At.IsZero() {
 				old.SHA, old.Evidence.At = expected, plan.Evidence.At
 			}
@@ -1424,6 +1425,7 @@ func clonePlan(p release.Plan) release.Plan {
 	p.Runs = slices.Clone(p.Runs)
 	p.Proposals = slices.Clone(p.Proposals)
 	p.Warnings = slices.Clone(p.Warnings)
+	p.Diagnostics = slices.Clone(p.Diagnostics)
 	p.Advisories = slices.Clone(p.Advisories)
 	p.StartFailures = slices.Clone(p.StartFailures)
 	p.Validation.Checks = slices.Clone(p.Validation.Checks)

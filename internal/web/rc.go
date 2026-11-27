@@ -25,6 +25,7 @@ type (
 		ValidationRows                             []rcValidationRow
 		ValidationObserved                         bool
 		UnverifiedJobs                             []release.Run
+		Diagnostics                                []retryDiagnostic
 		LookupTimedOut                             bool
 		CIAvailable, CITotal                       int
 		KonfluxMissing, MissingAfterBuild          int
@@ -132,6 +133,7 @@ func (p *pageModel) prepareRC() {
 	group := groups[0]
 	p.RC.Plan = group.Plan
 	plan := group.Plan.Plan
+	p.RC.Diagnostics = konfluxRetryDiagnostics(plan)
 	p.RC.LookupTimedOut = strings.Contains(plan.Evidence.Error, "PipelineRun identity") &&
 		strings.Contains(plan.Evidence.Error, "context deadline exceeded")
 	if plan.SHA == "" || plan.SHA != p.RC.Candidate.SHA {

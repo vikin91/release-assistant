@@ -57,6 +57,9 @@ func checkIncludedPRRetryCommands(t *testing.T, tab string) {
 	check.Konflux.Evidence.At = observed.At.Add(-2 * time.Minute)
 	check.CI.At = observed.At.Add(-3 * time.Minute)
 	check.Konflux.Warnings = []string{milestone, "retag-scanner: cannot resolve input requirements: " + contract + "."}
+	check.Konflux.Diagnostics = []release.KonfluxDiagnostic{
+		{Job: "retag-collector", CheckID: 17, Category: "Missing input image", Detail: "image is missing"},
+	}
 	snapshot.PRRetryChecks[included] = check
 	jobCommand := "gh api --method POST repos/" + included.Repo + "/actions/jobs/201/rerun"
 	snapshot.RetestQueue = []app.RetestItem{
@@ -89,6 +92,10 @@ func checkIncludedPRRetryCommands(t *testing.T, tab string) {
 		!strings.Contains(field, "Konflux Retest · Retag input validation · Error =</strong> retag-scanner: "+contract) ||
 		!strings.Contains(field, "Konflux Retest · Planner · Warning =</strong> "+milestone) {
 		t.Fatalf("expected one sourced contract error and a separate planner warning: %s", field)
+	}
+	if !strings.Contains(field, "Konflux Retest · Missing input image · Warning =</strong> <code>retag-collector</code> · image is missing") ||
+		!strings.Contains(field, `href="https://github.com/`+included.Repo+`/runs/17"`) {
+		t.Fatalf("expected the structured warning to link to its GitHub check: %s", field)
 	}
 	if strings.Count(panel, "/konflux-retest checks") != 1 || strings.Contains(panel, "stale command") ||
 		strings.Count(panel, "Refresh checks") != 1 || strings.Count(panel, "Copy comments") != 1 ||

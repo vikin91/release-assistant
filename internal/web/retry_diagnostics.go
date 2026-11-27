@@ -3,11 +3,15 @@ package web
 import (
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+
+	"release-assistant/internal/release"
 )
 
 type retryDiagnostic struct {
 	Source, Label, Message string
+	Job, CheckURL          string
 	External               bool
 }
 
@@ -71,7 +75,35 @@ func ciRetryDiagnostics(pending, incomplete bool, warnings []string) []retryDiag
 	return diagnostics
 }
 
-func konfluxRetryDiagnostics(observationError string, warnings []string) []retryDiagnostic {
+func konfluxRetryDiagnostics(plan release.Plan) []retryDiagnostic {
+	fallback := konfluxTextDiagnostics(plan.Evidence.Error, plan.Warnings)
+	var diagnostics []retryDiagnostic
+	for _, finding := range plan.Diagnostics {
+		item := retryDiagnostic{Source: "Konflux Retest", Label: "Warning", Message: finding.Detail, Job: finding.Job}
+		if finding.Category != "" {
+			item.Source += " · " + finding.Category
+		}
+		if finding.IsError {
+			item.Label = "Error"
+		}
+		if finding.CheckID > 0 && release.ValidRepo(plan.Target.Repo) {
+			item.CheckURL = "https://github.com/" + plan.Target.Repo + "/runs/" + strconv.FormatInt(finding.CheckID, 10)
+		}
+		if !slices.Contains(diagnostics, item) {
+			diagnostics = append(diagnostics, item)
+		}
+		detail := retryDiagnosticCause(finding.Detail)
+		fallback = slices.DeleteFunc(fallback, func(item retryDiagnostic) bool {
+			message := strings.TrimPrefix(item.Message, "error: ")
+			message = strings.TrimPrefix(message, "identity unknown: ")
+			cause := retryDiagnosticCause(message)
+			return cause == detail || finding.Job != "" && cause == finding.Job+": "+detail
+		})
+	}
+	return append(diagnostics, fallback...)
+}
+
+func konfluxTextDiagnostics(observationError string, warnings []string) []retryDiagnostic {
 	diagnostics := retryDiagnostics(false, false, observationError, warnings)
 	reportedErrors := make(map[string]bool)
 	jobCauses := make(map[string]bool)
