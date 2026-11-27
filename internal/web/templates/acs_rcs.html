@@ -44,17 +44,18 @@
         <button type="button" disabled aria-describedby="cut-rc-help">Cut RC.{{$next}}</button>
         <small id="cut-rc-help" class="muted">{{.RC.CutRCBlocker}}</small>
         {{end}}
-        {{if and .Configured (not .ViewingInactive)}}
-        <form method="post" action="{{profileAction .ProfileID}}" class="inline-form">
-          <input type="hidden" name="kind" value="refresh-rc">
-          <input type="hidden" name="tab" value="acs-rcs">
-          <input type="hidden" name="csrf" value="{{.CSRF}}">
-          <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
-          <button type="submit"{{if .Snapshot.RCRefreshing}} disabled{{end}}>Refresh RC</button>
-          {{if .Snapshot.RCRefreshing}}<small class="muted" role="status">Checking GitHub…</small>{{end}}
-        </form>
-        {{end}}
       </div>
+      {{if and .Configured (not .ViewingInactive)}}
+      <form method="post" action="{{profileAction .ProfileID}}" class="inline-form rc-links">
+        <input type="hidden" name="kind" value="refresh-rc">
+        <input type="hidden" name="tab" value="acs-rcs">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <input type="hidden" name="generation" value="{{.Snapshot.Generation}}">
+        <button type="submit" aria-describedby="refresh-rc-help"{{if .Snapshot.RCRefreshing}} disabled{{end}}>Refresh RC</button>
+        <small id="refresh-rc-help" class="muted">Checks GitHub for the current RC tag, new commits on the release branch, and the next RC milestone. The merged PR list updates on its own schedule.</small>
+        {{if .Snapshot.RCRefreshing}}<small class="muted" role="status">Checking GitHub…</small>{{end}}
+      </form>
+      {{end}}
       {{if and (not .RC.CutRCURL) .RC.ReadyForTag}}<p>The release branch is ready for a new RC. <a aria-describedby="new-tab-description" href="{{url .RC.WorkflowURL}}" target="_blank" rel="noreferrer">Open release workflow</a></p>{{end}}
       {{if and .RC.TagURL (not .Snapshot.RCImageWaitReason)}}
         {{if and .RC.KonfluxMissing (or .RC.CITotal (eq .RC.MissingAfterBuild .RC.KonfluxMissing))}}
