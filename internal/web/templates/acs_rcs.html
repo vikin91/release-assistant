@@ -56,7 +56,7 @@
         {{if .Snapshot.RCRefreshing}}<small class="muted" role="status">Checking GitHub…</small>{{end}}
       </form>
       {{end}}
-      {{if and (not .RC.CutRCURL) .RC.ReadyForTag}}<p>The release branch is ready for a new RC. <a aria-describedby="new-tab-description" href="{{url .RC.WorkflowURL}}" target="_blank" rel="noreferrer">Open release workflow</a></p>{{end}}
+      {{if and (not .RC.CutRCURL) .RC.ReadyForFirstRC}}<p>The release branch is ready for RC.0. <a aria-describedby="new-tab-description" href="{{url .RC.WorkflowURL}}" target="_blank" rel="noreferrer">Open release workflow</a></p>{{end}}
       {{if and .RC.TagURL (not .Snapshot.RCImageWaitReason)}}
         {{if and .RC.KonfluxMissing (or .RC.CITotal (eq .RC.MissingAfterBuild .RC.KonfluxMissing))}}
           <div class="rc-summary">

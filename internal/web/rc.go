@@ -20,7 +20,7 @@ type (
 		CutRCURL, CutRCBlocker            string
 		Plan                              *planModel
 		Permission                        *tagModel
-		ReadyForTag                       bool
+		ReadyForFirstRC                   bool
 		NextNumber                        uint64
 		ValidationRows                    []rcValidationRow
 		ValidationObserved                bool
@@ -80,7 +80,7 @@ func (p *pageModel) cutRCState() (link, blocker string) {
 	case milestone.Error != "":
 		return "", "Could not verify the next RC milestone on GitHub. " + milestone.Error
 	case milestone.Fresh() && milestone.URL == "":
-		return "", "GitHub has no open milestone for the next RC."
+		return "", "The GitHub milestone " + version + "-rc." + strconv.FormatUint(p.RC.NextNumber, 10) + " must be open before Cut RC is available."
 	case milestone.Fresh():
 		return "", "GitHub returned an unusable milestone link."
 	default:
@@ -99,9 +99,11 @@ func (p *pageModel) prepareRC() {
 	}
 	p.RC.CutRCURL, p.RC.CutRCBlocker = p.cutRCState()
 	assessment := p.Snapshot.Assessment
-	p.RC.ReadyForTag = p.RC.Candidate.Evidence.Fresh() && (p.RC.TagURL == "" || p.RC.Candidate.Ahead > 0) &&
+	p.RC.ReadyForFirstRC = p.RC.Candidate.Evidence.Fresh() && target.Tag == "" &&
 		p.ACS != nil && !p.ACS.TagsPending && !slices.ContainsFunc(p.ACS.Tags, func(tag release.Tag) bool {
-		return strings.TrimPrefix(tag.Name, "v") == strings.TrimPrefix(p.Snapshot.Config.Version, "v")
+		name := strings.TrimPrefix(tag.Name, "v")
+		version := strings.TrimPrefix(p.Snapshot.Config.Version, "v")
+		return name == version || strings.HasPrefix(name, version+"-rc.")
 	}) &&
 		assessment.Ready && !assessment.PatchMayBeUnnecessary &&
 		p.TabStatuses["component-prs"].State == tabComplete &&

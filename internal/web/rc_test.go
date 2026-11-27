@@ -241,7 +241,7 @@ func TestRCTabSeparatesMissingTagsFromAdditionalCheckTimeouts(t *testing.T) {
 	}
 }
 
-func TestRCTabLinksReleaseWorkflowWhenBranchIsReadyForANewCandidate(t *testing.T) {
+func TestRCTabLinksReleaseWorkflowBeforeFirstRC(t *testing.T) {
 	tests := map[string]struct {
 		change   func(*app.Snapshot, *release.Repository)
 		wantLink bool
@@ -253,8 +253,7 @@ func TestRCTabLinksReleaseWorkflowWhenBranchIsReadyForANewCandidate(t *testing.T
 			wantLink: true,
 		},
 		"branch advanced after the existing RC": {
-			change:   func(_ *app.Snapshot, acs *release.Repository) { acs.Candidate.Ahead = 2 },
-			wantLink: true,
+			change: func(_ *app.Snapshot, acs *release.Repository) { acs.Candidate.Ahead = 2 },
 		},
 		"existing RC at branch tip": {},
 		"candidate evidence is unavailable": {
@@ -274,8 +273,14 @@ func TestRCTabLinksReleaseWorkflowWhenBranchIsReadyForANewCandidate(t *testing.T
 		},
 		"the release already has a final tag": {
 			change: func(s *app.Snapshot, acs *release.Repository) {
-				acs.Candidate.Ahead = 2
+				acs.Candidate = release.Candidate{Evidence: s.Inventory.Evidence}
 				acs.Tags = []release.Tag{{Name: "v" + s.Config.Version}}
+			},
+		},
+		"an RC tag exists outside the release branch": {
+			change: func(s *app.Snapshot, acs *release.Repository) {
+				acs.Candidate = release.Candidate{Evidence: s.Inventory.Evidence}
+				acs.Tags = []release.Tag{{Name: s.Config.Version + "-rc.0", Belongs: release.No}}
 			},
 		},
 	}
@@ -289,7 +294,7 @@ func TestRCTabLinksReleaseWorkflowWhenBranchIsReadyForANewCandidate(t *testing.T
 			assessWorkflow(&s)
 			body := newBrowser(t, &fakeApplication{snapshot: s}).getBody(t)
 			panel := activityPanel(t, body, "acs-rcs")
-			for _, marker := range []string{"The release branch is ready for a new RC.", "Open release workflow", "/actions/workflows/start-release.yml"} {
+			for _, marker := range []string{"The release branch is ready for RC.0.", "Open release workflow", "/actions/workflows/start-release.yml"} {
 				if present := strings.Contains(panel, marker); present != tt.wantLink {
 					t.Errorf("RC handoff marker %q present = %t, want %t", marker, present, tt.wantLink)
 				}
@@ -358,7 +363,7 @@ func TestCutRCButtonExplainsUnavailableMilestone(t *testing.T) {
 		want       string
 	}{
 		"saved candidate":       {historical: true, milestone: release.Evidence{Known: true, At: time.Now(), URL: "https://github.com/stackrox/stackrox/milestone/575"}, want: "Waiting for GitHub to verify the current RC and release branch."},
-		"missing milestone":     {milestone: release.Evidence{Known: true, At: time.Now()}, want: "GitHub has no open milestone for the next RC."},
+		"missing milestone":     {milestone: release.Evidence{Known: true, At: time.Now()}, want: "The GitHub milestone 5.0.1-rc.3 must be open before Cut RC is available."},
 		"failed milestone read": {milestone: release.Evidence{Error: "Request timed out."}, want: "Could not verify the next RC milestone on GitHub. Request timed out."},
 	} {
 		t.Run(name, func(t *testing.T) {
